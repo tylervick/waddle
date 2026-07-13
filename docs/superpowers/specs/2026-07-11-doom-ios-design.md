@@ -30,7 +30,7 @@ Cacoward winners) with demo-accurate physics.
 | Bundled content | Freedoom Phase 1 + 2 | BSD-licensed, explicitly redistributable; app fully functional for App Review without user files |
 | Devices/input | iPhone + iPad; touch, game controllers, keyboard & mouse | All requested at launch; SDL3 wraps GameController/GCMouse/GCKeyboard |
 | WAD management | Library + loadouts (IWAD + ordered PWADs/DEH), per-loadout saves | How modern megawads are actually played |
-| iOS target | iOS 16+ | SwiftUI/SwiftData baseline; software renderer runs on anything |
+| iOS target | **Min iOS 26**; build with latest stable Xcode (26.x now; adopt Xcode 27/iOS 27 SDK when stable ~Sept 2026) | Xcode 26 + iOS 26 SDK is already mandatory for App Store builds (since 2026-04-28), so the toolchain is fixed; raising the deployment floor to 26 buys a single design system (Liquid Glass, no legacy branching) and current SwiftUI/SwiftData/Observation/Swift 6 APIs. Cost: drops pre-iPhone 11 devices (2018 and older) — accepted trade-off. (SwiftData alone required ≥ iOS 17.) |
 
 ### Alternatives considered
 - **dsda-doom:** community standard, adds Heretic/Hexen + partial UDMF, but
