@@ -1,0 +1,18 @@
+# Standard CMake build directory.
+/build*
+
+# macOS
+.DS_store
+
+# Visual Studio CMake integration directories.
+/.vs/
+/out/
+CMakeSettings.json
+
+# Visual Studio Code
+/.vscode/
+
+# clangd
+/.cache/
+CMakeFiles/
+src/CMakeFiles/
