@@ -37,9 +37,18 @@ build() { # srcdir platform extra-cmake-args...
 for platform in iphoneos iphonesimulator; do
     build "$SRC/SDL" "$platform" \
         -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
+    # Pre-seed the check_cxx_compiler_flag() cache variable that OpenAL Soft's
+    # CMakeLists.txt (~line 276/409) uses to gate -Werror=function-effects.
+    # Xcode 26.2's clang has a false positive in alc/backends/coreaudio.cpp
+    # (lines 646, 824): "attribute 'nonblocking' should not be added via type
+    # conversion" under -Wfunction-effects, which OpenAL Soft 1.25.2 promotes
+    # to -Werror for Clang 17+. check_cxx_compiler_flag() only runs its probe
+    # if the result variable isn't already defined, so seeding it to OFF here
+    # skips the probe and disables both the warning and the -Werror escalation
+    # without touching the vendored source.
     build "$SRC/openal-soft" "$platform" \
         -DLIBTYPE=STATIC -DALSOFT_REQUIRE_COREAUDIO=ON \
         -DALSOFT_UTILS=OFF -DALSOFT_EXAMPLES=OFF -DALSOFT_EMBED_HRTF_DATA=ON \
-        -DCMAKE_CXX_FLAGS_INIT="-Wno-function-effects"
+        -DHAVE_WFUNCTION_EFFECTS=OFF
 done
 echo "Deps installed under $OUT/{iphoneos,iphonesimulator}"
