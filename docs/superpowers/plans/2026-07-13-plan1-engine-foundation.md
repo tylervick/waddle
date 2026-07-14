@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Deployment target: **iOS 26.0**; build with installed **Xcode 26.2** (`xcodebuild -version` → `Xcode 26.2`).
-- Pinned versions: **Woof! `woof_15.3.0`**, **SDL3 `release-3.4.12`**, **OpenAL Soft `1.25.2`**, **Freedoom `v0.13.0`**.
+- Pinned versions: **Woof! master `798acebd52b6cc1623dde556d3e3a236a25a41d1`** (2026-07-12 — the SDL3-based tree; the `woof_15.3.0` release tag predates the SDL3 migration and must NOT be used), **SDL3 `release-3.4.12`**, **OpenAL Soft `1.25.2`**, **Freedoom `v0.13.0`**.
 - Woof! optional deps stay OFF: `-DWITH_SNDFILE=OFF -DWITH_FLUIDSYNTH=OFF -DWITH_XMP=OFF -DWITH_DISCORD_RPC=OFF`.
 - Architectures: `arm64` only, for both `iphoneos` and `iphonesimulator`.
 - Git commit messages: plain conventional messages, **no Co-Authored-By line, no mention of Claude/AI**.
