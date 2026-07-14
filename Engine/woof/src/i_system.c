@@ -139,7 +139,14 @@ void I_SafeExit(int rc)
         }
     }
 
-#if defined(WIN_LAUNCHER)
+#if defined(WOOF_IOS)
+    // A second engine session in the same process must be able to run its
+    // own exit handlers, so reset the priority cursor before unwinding.
+    exit_priority = 0;
+
+    extern void WoofIOS_ExitUnwind(int rc);
+    WoofIOS_ExitUnwind(rc);
+#elif defined(WIN_LAUNCHER)
     ExitProcess(rc);
 #else
     exit(rc);

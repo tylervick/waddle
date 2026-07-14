@@ -153,7 +153,9 @@ set(WOOF_SOURCES
     ws_stuff.c             ws_stuff.h
     z_zone.c               z_zone.h)
 
-# Standard target definition
+# Standard target definition. On iOS the engine is a static library hosted
+# by a native app; the process-owning main() in i_main.c is replaced by the
+# re-entrant session entry in woof_ios.c.
 if(WIN32)
     add_library(woof SHARED EXCLUDE_FROM_ALL ${WOOF_SOURCES})
     target_compile_definitions(woof PRIVATE WIN_LAUNCHER)
@@ -181,6 +183,11 @@ if(WIN32)
     else()
         target_link_options(woof-com PRIVATE "-mconsole")
     endif()
+elseif(IOS)
+    list(REMOVE_ITEM WOOF_SOURCES i_main.c)
+    list(APPEND WOOF_SOURCES woof_ios.c woof_ios.h)
+    add_library(woof STATIC ${WOOF_SOURCES})
+    target_compile_definitions(woof PUBLIC WOOF_IOS)
 else()
     add_executable(woof ${WOOF_SOURCES})
 endif()
@@ -275,6 +282,9 @@ if(WIN32)
     list(APPEND SETUP_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/setup-res.rc")
 endif()
 
+# woof-setup is a separate configuration-tool executable; iOS has no
+# concept of a companion tool process, so it is not built there.
+if(NOT IOS)
 add_executable(woof-setup WIN32 ${SETUP_SOURCES})
 target_woof_settings(woof-setup)
 
@@ -288,6 +298,7 @@ target_link_libraries(woof-setup PRIVATE
 if(MSVC)
     target_link_options(woof-setup PRIVATE "/MANIFEST:NO")
 endif()
+endif()
 
 add_dependencies(woof woof-base)
 
@@ -299,6 +310,11 @@ endif()
 
 # Install
 #
+# None of this applies on iOS: there is no woof-setup tool, no woof-com /
+# woof-exe launchers, and installing the static "woof" library via the
+# normal RUNTIME install mechanism doesn't apply either (Task 6 stages the
+# library into the xcframework directly).
+if(NOT IOS)
 # Rename woof-com and woof-exe executables.
 if(WIN32)
     add_custom_command(TARGET woof-com POST_BUILD
@@ -315,7 +331,7 @@ endif()
 if(WIN32)
     if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.21 AND NOT VCPKG_TOOLCHAIN)
         install(TARGETS woof woof-setup
-                RUNTIME_DEPENDENCIES 
+                RUNTIME_DEPENDENCIES
                     PRE_EXCLUDE_REGEXES "api-ms-" "ext-ms-"
                     POST_EXCLUDE_REGEXES ".*system32/.*\\.dll"
                     DIRECTORIES $<TARGET_FILE_DIR:woof> $ENV{PATH}
@@ -328,4 +344,5 @@ if(WIN32)
             DESTINATION .)
 else()
     install(TARGETS woof woof-setup RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
 endif()
