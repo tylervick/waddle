@@ -64,25 +64,31 @@ void R_BindRenderVariables(void);
 
 // Lighting constants.
 
-extern int LIGHTLEVELS;
-extern int LIGHTSEGSHIFT;
-extern int LIGHTBRIGHT;
-extern int MAXLIGHTSCALE;
-extern int LIGHTSCALESHIFT;
-extern int MAXLIGHTZ;
-extern int LIGHTZSHIFT;
+#define LIGHTLEVELS 16
+#define LIGHTSEGSHIFT 4
+#define MAXLIGHTSCALE 48
+#define LIGHTSCALESHIFT 12
+#define MAXLIGHTZ 128
+#define LIGHTZSHIFT 20
 
 // killough 3/20/98: Allow colormaps to be dynamic (e.g. underwater)
-extern lighttable_t **(*scalelight);
-extern lighttable_t **(*zlight);
 extern int numcolormaps;    // killough 4/4/98: dynamic number of maps
-// killough 3/20/98, 4/4/98: end dynamic colormaps
 
-extern boolean setsmoothlight;
-void R_SmoothLight(void);
+// updated thanks to Rum-and-Raisin Doom, Ethan Watson
+extern int* scalelightoffset;
+extern int* scalelightindex;
+extern int* zlightoffset;
+extern int* zlightindex;
+extern int* planezlightoffset;
+extern int  planezlightindex;
+extern int* walllightoffset;
+extern int  walllightindex;
+
+// killough 3/20/98, 4/4/98: end dynamic colormaps
 
 extern int          extralight;
 extern lighttable_t *fixedcolormap;
+extern int           fixedcolormapindex;
 
 // Number of diminishing brightness levels.
 // There a 0-31, i.e. 32 LUT in the COLORMAP lump.
@@ -99,7 +105,9 @@ extern void (*colfunc)(void);
 // Utility functions.
 //
 
-int R_PointOnSide(fixed_t x, fixed_t y, struct node_s *node);
+extern int (*R_PointOnSide)(fixed_t x, fixed_t y, struct node_s *node);
+int R_PointOnSide_Classic(fixed_t x, fixed_t y, struct node_s *node);
+int R_PointOnSide_Precise(fixed_t x, fixed_t y, struct node_s *node);
 int R_PointOnSegSide(fixed_t x, fixed_t y, struct seg_s *line);
 angle_t R_PointToAngle(fixed_t x, fixed_t y);
 angle_t R_PointToAngle2(fixed_t x1, fixed_t y1, fixed_t x2, fixed_t y2);
@@ -140,16 +148,16 @@ inline static angle_t LerpAngle(angle_t oangle, angle_t nangle)
     else if (nangle > oangle)
     {
         if (nangle - oangle < ANG270)
-            return oangle + (angle_t)((nangle - oangle) * FIXED2DOUBLE(fractionaltic));
+            return oangle + (angle_t)((nangle - oangle) * FixedToDouble(fractionaltic));
         else // Wrapped around
-            return oangle - (angle_t)((oangle - nangle) * FIXED2DOUBLE(fractionaltic));
+            return oangle - (angle_t)((oangle - nangle) * FixedToDouble(fractionaltic));
     }
     else // nangle < oangle
     {
         if (oangle - nangle < ANG270)
-            return oangle - (angle_t)((oangle - nangle) * FIXED2DOUBLE(fractionaltic));
+            return oangle - (angle_t)((oangle - nangle) * FixedToDouble(fractionaltic));
         else // Wrapped around
-            return oangle + (angle_t)((nangle - oangle) * FIXED2DOUBLE(fractionaltic));
+            return oangle + (angle_t)((nangle - oangle) * FixedToDouble(fractionaltic));
     }
 }
 

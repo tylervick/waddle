@@ -22,10 +22,11 @@
 #include <string.h>
 
 #include "am_map.h"
-#include "d_deh.h" // Ty 03/27/98 - externalized strings
 #include "d_event.h"
 #include "d_player.h"
 #include "d_think.h"
+#include "deh_strings.h"
+#include "deh_misc.h"
 #include "doomdata.h"
 #include "doomdef.h"
 #include "doomstat.h"
@@ -133,7 +134,7 @@ static void cheat_speed(void);
 //
 //-----------------------------------------------------------------------------
 
-struct cheat_s cheat[] = {
+cheat_sequence_t cheats_table[] = {
   {"idmus",      "Change music",      always,
    {.s = cheat_mus}, -2 },
 
@@ -366,7 +367,7 @@ static void cheat_mus(char *buf)
   if (!isdigit(buf[0]) || !isdigit(buf[1]))
     return;
 
-  displaymsg("%s", s_STSTR_MUS); // Ty 03/27/98 - externalized
+  displaymsg("%s", DEH_String(STSTR_MUS));
   
   // First check if we have a mapinfo entry for the requested level.
   if (gamemode == commercial)
@@ -379,7 +380,7 @@ static void cheat_mus(char *buf)
      musnum = W_CheckNumForName(entry->music);
 
      if (musnum == -1)
-        displaymsg("%s", s_STSTR_NOMUS);
+        displaymsg("%s", DEH_String(STSTR_NOMUS));
      else
      {
         S_ChangeMusInfoMusic(musnum, 1);
@@ -394,7 +395,7 @@ static void cheat_mus(char *buf)
           
       //jff 4/11/98 prevent IDMUS00 in DOOMII and IDMUS36 or greater
       if (musnum < mus_runnin || musnum >= NUMMUSIC)
-        displaymsg("%s", s_STSTR_NOMUS); // Ty 03/27/98 - externalized
+        displaymsg("%s", DEH_String(STSTR_NOMUS));
       else
         {
           S_ChangeMusic(musnum, 1);
@@ -407,7 +408,7 @@ static void cheat_mus(char *buf)
           
       //jff 4/11/98 prevent IDMUS0x IDMUSx0 in DOOMI and greater than introa
       if (musnum < mus_e1m1 || musnum >= mus_runnin)
-        displaymsg("%s", s_STSTR_NOMUS); // Ty 03/27/98 - externalized
+        displaymsg("%s", DEH_String(STSTR_NOMUS));
       else
         {
           S_ChangeMusic(musnum, 1);
@@ -422,7 +423,7 @@ static void cheat_choppers(void)
   plyr->weaponowned[wp_chainsaw] = true;
   plyr->powers[pw_invulnerability] = true;
   plyr->bonuscount += 2; // trigger evil grin now
-  displaymsg("%s", s_STSTR_CHOPPERS); // Ty 03/27/98 - externalized
+  displaymsg("%s", DEH_String(STSTR_CHOPPERS));
 }
 
 static void cheat_god(void)
@@ -434,8 +435,8 @@ static void cheat_god(void)
     mapthing_t mt = {0};
 
     P_MapStart();
-    mt.x = plyr->mo->x >> FRACBITS;
-    mt.y = plyr->mo->y >> FRACBITS;
+    mt.x = plyr->mo->x;
+    mt.y = plyr->mo->y;
     mt.angle = (plyr->mo->angle + ANG45/2)*(uint64_t)45/ANG45;
     mt.type = consoleplayer + 1;
     P_SpawnPlayer(&mt);
@@ -448,21 +449,21 @@ static void cheat_god(void)
 
     // Fix reviving as "zombie" if god mode was already enabled
     if (plyr->mo)
-      plyr->mo->health = god_health;  // Ty 03/09/98 - deh
-    plyr->health = god_health;
+      plyr->mo->health = deh_god_mode_health;  // Ty 03/09/98 - deh
+    plyr->health = deh_god_mode_health;
   }
 
   plyr->cheats ^= CF_GODMODE;
   if (plyr->cheats & CF_GODMODE)
     {
       if (plyr->mo)
-        plyr->mo->health = god_health;  // Ty 03/09/98 - deh
+        plyr->mo->health = deh_god_mode_health;  // Ty 03/09/98 - deh
           
-      plyr->health = god_health;
-      displaymsg("%s", s_STSTR_DQDON); // Ty 03/27/98 - externalized
+      plyr->health = deh_god_mode_health;
+      displaymsg("%s", DEH_String(STSTR_DQDON));
     }
   else 
-    displaymsg("%s", s_STSTR_DQDOFF); // Ty 03/27/98 - externalized
+    displaymsg("%s", DEH_String(STSTR_DQDOFF));
 }
 
 static void cheat_buddha(void)
@@ -498,7 +499,7 @@ static void cheat_avj(void)
 {
   void A_VileJump(mobj_t *mo);
 
-  if (plyr->mo)
+  if (plyr->mo && plyr->playerstate == PST_LIVE)
     A_VileJump(plyr->mo);
 }
 
@@ -508,17 +509,17 @@ static void cheat_health(void)
   if (!(plyr->cheats & CF_GODMODE))
   {
     if (plyr->mo)
-      plyr->mo->health = mega_health;
-    plyr->health = mega_health;
-    displaymsg("%s", s_STSTR_BEHOLDX); // Ty 03/27/98 - externalized
+      plyr->mo->health = deh_megasphere_health;
+    plyr->health = deh_megasphere_health;
+    displaymsg("%s", DEH_String(STSTR_BEHOLDX));
   }
 }
 
 static void cheat_megaarmour(void)
 {
-  plyr->armorpoints = idfa_armor;      // Ty 03/09/98 - deh
-  plyr->armortype = idfa_armor_class;  // Ty 03/09/98 - deh
-  displaymsg("%s", s_STSTR_BEHOLDX); // Ty 03/27/98 - externalized
+  plyr->armorpoints = deh_idfa_armor;      // Ty 03/09/98 - deh
+  plyr->armortype = deh_idfa_armor_class;  // Ty 03/09/98 - deh
+  displaymsg("%s", DEH_String(STSTR_BEHOLDX));
 }
 
 static void cheat_tst(void)
@@ -538,8 +539,8 @@ static void cheat_fa(void)
       plyr->backpack = true;
     }
 
-  plyr->armorpoints = idfa_armor;      // Ty 03/09/98 - deh
-  plyr->armortype = idfa_armor_class;  // Ty 03/09/98 - deh
+  plyr->armorpoints = deh_idfa_armor;      // Ty 03/09/98 - deh
+  plyr->armortype = deh_idfa_armor_class;  // Ty 03/09/98 - deh
         
   // You can't own weapons that aren't in the game // phares 02/27/98
   for (i=0;i<NUMWEAPONS;i++)
@@ -552,7 +553,7 @@ static void cheat_fa(void)
       plyr->ammo[i] = plyr->maxammo[i];
 
   plyr->bonuscount += 2; // trigger evil grin now
-  displaymsg("%s", s_STSTR_FAADDED);
+  displaymsg("%s", DEH_String(STSTR_FAADDED));
 }
 
 static void cheat_k(void)
@@ -570,7 +571,7 @@ static void cheat_kfa(void)
 {
   cheat_k();
   cheat_fa();
-  displaymsg("%s", s_STSTR_KFAADDED);
+  displaymsg("%s", DEH_String(STSTR_KFAADDED));
 }
 
 static void cheat_noclip(void)
@@ -578,8 +579,7 @@ static void cheat_noclip(void)
   // Simplified, accepting both "noclip" and "idspispopd".
   // no clipping mode cheat
 
-  displaymsg("%s", (plyr->cheats ^= CF_NOCLIP) & CF_NOCLIP ? 
-    s_STSTR_NCON : s_STSTR_NCOFF); // Ty 03/27/98 - externalized
+  displaymsg("%s", DEH_String(((plyr->cheats ^= CF_NOCLIP) & CF_NOCLIP )? STSTR_NCON : STSTR_NCOFF));
 }
 
 // 'behold?' power-up cheats (modified for infinite duration -- killough)
@@ -599,13 +599,13 @@ static void cheat_pw(int pw)
       if (pw != pw_strength && !comp[comp_infcheat])
         plyr->powers[pw] = -1;      // infinite duration -- killough
     }
-  displaymsg("%s", s_STSTR_BEHOLDX); // Ty 03/27/98 - externalized
+  displaymsg("%s", DEH_String(STSTR_BEHOLDX));
 }
 
 // 'behold' power-up menu
 static void cheat_behold(void)
 {
-  displaymsg("%s", s_STSTR_BEHOLD); // Ty 03/27/98 - externalized
+  displaymsg("%s", DEH_String(STSTR_BEHOLD));
 }
 
 // 'clev' change-level cheat
@@ -682,7 +682,7 @@ static void cheat_clev(char *buf)
 
   idmusnum = -1; //jff 3/17/98 revert to normal level music on IDCLEV
 
-  displaymsg("%s", s_STSTR_CLEV); // Ty 03/27/98 - externalized
+  displaymsg("%s", DEH_String(STSTR_CLEV));
 
   G_DeferedInitNew(gameskill, epsd, map);
 }
@@ -740,7 +740,7 @@ static void cheat_friction(void)
 
 static void cheat_skill0(void)
 {
-  displaymsg("Skill: %s", default_skill_strings[gameskill + 1]);
+  displaymsg("Skill: %s", skill_strings[gameskill]);
 }
 
 static void cheat_skill(char *buf)
@@ -750,7 +750,7 @@ static void cheat_skill(char *buf)
   if (skill >= 1 && skill <= 5)
   {
     gameskill = skill - 1;
-    displaymsg("Next Level Skill: %s", default_skill_strings[gameskill + 1]);
+    displaymsg("Next Level Skill: %s", skill_strings[gameskill]);
 
     G_SetFastParms(fastparm || gameskill == sk_nightmare);
     respawnmonsters = gameskill == sk_nightmare || respawnparm;
@@ -787,7 +787,7 @@ static void cheat_massacre(void)    // jff 2/01/98 kill all monsters
   P_MapStart();
   do
     while ((currentthinker=currentthinker->next)!=&thinkercap)
-      if (currentthinker->function.p1 == (actionf_p1)P_MobjThinker &&
+      if (currentthinker->function.p1 == P_MobjThinker &&
 	  !(((mobj_t *) currentthinker)->flags & mask) && // killough 7/20/98
 	  (((mobj_t *) currentthinker)->flags & MF_COUNTKILL ||
 	   ((mobj_t *) currentthinker)->type == MT_SKULL))
@@ -850,15 +850,29 @@ static void cheat_spechits(void)
         case 208:
         case 209:
         case 210:
+        case 243:
+        case 244:
+        case 262:
+        case 263:
+        case 264:
+        case 265:
+        case 266:
+        case 267:
         case 268:
         case 269:
         {
           continue;
         }
 
+      // do not trigger any ID24 actions
+      if (lines[i].special >= 2048 && lines[i].special <= 2098)
+      {
+        continue;
+      }
+
       // [crispy] special without tag --> DR linedef type
       // do not change door direction if it is already moving
-      if (lines[i].tag == 0 &&
+      if (lines[i].args[0] == 0 &&
           lines[i].sidenum[1] != NO_INDEX &&
          (sides[lines[i].sidenum[1]].sector->floordata ||
           sides[lines[i].sidenum[1]].sector->ceilingdata))
@@ -867,7 +881,7 @@ static void cheat_spechits(void)
       }
 
       P_CrossSpecialLine(&lines[i], 0, plyr->mo, false);
-      P_ShootSpecialLine(plyr->mo, &lines[i]);
+      P_ShootSpecialLine(plyr->mo, &lines[i], 0);
       P_UseSpecialLine(plyr->mo, &lines[i], 0, false);
 
       speciallines++;
@@ -885,7 +899,7 @@ static void cheat_spechits(void)
 
     for (th = thinkercap.next ; th != &thinkercap ; th = th->next)
     {
-      if (th->function.p1 == (actionf_p1)P_MobjThinker)
+      if (th->function.p1 == P_MobjThinker)
       {
         mobj_t *mo = (mobj_t *) th;
 
@@ -896,14 +910,14 @@ static void cheat_spechits(void)
           {
             dummy = *lines;
             dummy.special = (short)bossaction->special;
-            dummy.tag = (short)bossaction->tag;
+            dummy.args[0] = (short)bossaction->tag;
             // use special semantics for line activation to block problem types.
             if (!P_UseSpecialLine(mo, &dummy, 0, true))
               P_CrossSpecialLine(&dummy, 0, mo, true);
 
             speciallines++;
 
-            if (dummy.tag == 666)
+            if (dummy.args[0] == 666)
               trigger_keen = false;
           }
         }
@@ -918,12 +932,12 @@ static void cheat_spechits(void)
       if (gamemap == 7)
       {
         // Mancubi
-        dummy.tag = 666;
+        dummy.args[0] = 666;
         speciallines += EV_DoFloor(&dummy, lowerFloorToLowest);
         trigger_keen = false;
 
         // Arachnotrons
-        dummy.tag = 667;
+        dummy.args[0] = 667;
         speciallines += EV_DoFloor(&dummy, raiseToTexture);
       }
     }
@@ -932,7 +946,7 @@ static void cheat_spechits(void)
       if (gameepisode == 1)
       {
         // Barons of Hell
-        dummy.tag = 666;
+        dummy.args[0] = 666;
         speciallines += EV_DoFloor(&dummy, lowerFloorToLowest);
         trigger_keen = false;
       }
@@ -941,14 +955,14 @@ static void cheat_spechits(void)
         if (gamemap == 6)
         {
           // Cyberdemons
-          dummy.tag = 666;
+          dummy.args[0] = 666;
           speciallines += EV_DoDoor(&dummy, blazeOpen);
           trigger_keen = false;
         }
         else if (gamemap == 8)
         {
           // Spider Masterminds
-          dummy.tag = 666;
+          dummy.args[0] = 666;
           speciallines += EV_DoFloor(&dummy, lowerFloorToLowest);
           trigger_keen = false;
         }
@@ -959,7 +973,7 @@ static void cheat_spechits(void)
   // Keens (no matter which level they are on)
   if (trigger_keen)
   {
-    dummy.tag = 666;
+    dummy.args[0] = 666;
     speciallines += EV_DoDoor(&dummy, doorOpen);
   }
 
@@ -1035,11 +1049,16 @@ static void cheat_cycle_mobj(mobj_t **last_mobj, int *last_count,
   do
   {
     th = th->next;
-    if (th->function.p1 == (actionf_p1)P_MobjThinker)
+    if (th->function.p1 == P_MobjThinker)
     {
       mobj_t *mobj;
 
       mobj = (mobj_t *) th;
+
+      if (mobj->intflags & MIF_SPAWNED_BY_ICON)
+      {
+        continue;
+      }
 
       if ((!alive || mobj->health > 0) && mobj->flags & flags)
       {
@@ -1215,25 +1234,23 @@ static void InitCheats(void)
 
     if (!init)
     {
-        struct cheat_s *cht;
-
         init = true;
 
-        for (cht = cheat; cht->cheat; cht++)
+        for (cheat_sequence_t *cht = cheats_table; cht->sequence; cht++)
         {
-            cht->sequence_len = strlen(cht->cheat);
+            cht->sequence_len = strlen(cht->sequence);
         }
     }
 }
 
 static int M_FindCheats(char key)
 {
-    int rc = 0;
-    struct cheat_s *cht;
+    int rc = 0, matchedbefore = 0;
+    cheat_sequence_t *cht;
 
     InitCheats();
 
-    for (cht = cheat; cht->cheat; cht++)
+    for (cht = cheats_table; cht->sequence; cht++)
     {
         if (!CheatAllowed(cht->when)
             || (cht->when & not_deh && cht->deh_modified))
@@ -1247,11 +1264,11 @@ static int M_FindCheats(char key)
             // and verifying.  reset back to the beginning
             // if a key is wrong
 
-            if (key == cht->cheat[cht->chars_read])
+            if (key == cht->sequence[cht->chars_read])
             {
                 ++cht->chars_read;
             }
-            else if (key == cht->cheat[0])
+            else if (key == cht->sequence[0])
             {
                 cht->chars_read = 1;
             }
@@ -1278,24 +1295,28 @@ static int M_FindCheats(char key)
         if (cht->chars_read >= cht->sequence_len
             && cht->param_chars_read >= -cht->arg)
         {
-            if (cht->param_chars_read)
+            if (!matchedbefore)
             {
-                static char argbuf[CHEAT_ARGS_MAX + 1];
-
-                // process the arg buffer
-                memcpy(argbuf, cht->parameter_buf, -cht->arg);
-
-                cht->func.s(argbuf);
-            }
-            else
-            {
-                // call cheat handler
-                cht->func.i(cht->arg);
-
-                if (cht->repeatable)
+                if (cht->param_chars_read)
                 {
-                    --cht->chars_read;
+                    static char argbuf[MAX_CHEAT_PARAMS + 1];
+
+                    // process the arg buffer
+                    memcpy(argbuf, cht->parameter_buf, -cht->arg);
+
+                    cht->func.s(argbuf);
                 }
+                else
+                {
+                    // call cheat handler
+                    cht->func.i(cht->arg);
+
+                    if (cht->repeatable)
+                    {
+                        --cht->chars_read;
+                    }
+                }
+                matchedbefore = 1;
             }
 
             if (!cht->repeatable)

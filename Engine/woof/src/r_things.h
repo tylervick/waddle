@@ -22,6 +22,7 @@
 
 #include "doomtype.h"
 #include "m_fixed.h"
+#include "p_mobj.h"
 #include "r_defs.h"
 
 // Constant arrays used for psprite clipping and initializing clipping.
@@ -41,8 +42,6 @@ extern fixed_t pspriteiscale;
 
 extern boolean flipcorpses;
 
-extern lighttable_t **spritelights;
-
 extern boolean draw_nearby_sprites;
 
 void R_DrawMaskedColumn(column_t *column);
@@ -59,6 +58,9 @@ void R_ClipVisSprite(vissprite_t *vis, int xl, int xh);
 void R_InitSpritesRes(void);
 
 void R_NearbySprites(void);
+
+extern const lighttable_t * const GetThingTint(const mobj_t *const mo,
+                                               const sector_t *const sector);
 
 #endif
 
