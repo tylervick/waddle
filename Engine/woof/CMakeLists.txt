@@ -118,6 +118,9 @@ set(CMAKE_FIND_FRAMEWORK NEVER)
 
 # Library requirements.
 find_package(SDL3 3.4.0 REQUIRED)
+# Our vendored OpenAL Soft's exported config links Threads::Threads without
+# finding it itself, so callers must find it first.
+find_package(Threads REQUIRED)
 find_package(OpenAL REQUIRED)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     find_package(ALSA REQUIRED)

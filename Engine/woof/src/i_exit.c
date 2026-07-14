@@ -72,7 +72,16 @@ void I_SafeExit(int rc)
         }
     }
 
+#ifdef WOOF_IOS
+    // A second engine session in the same process must be able to run its
+    // own exit handlers, so reset the priority cursor before unwinding.
+    exit_priority = 0;
+
+    extern void WoofIOS_ExitUnwind(int rc);
+    WoofIOS_ExitUnwind(rc);
+#else
     exit(rc);
+#endif
 }
 
 // Schedule a function to be called when the program receives a signal.

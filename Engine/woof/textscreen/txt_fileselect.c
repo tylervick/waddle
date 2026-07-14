@@ -20,6 +20,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+#if !defined(TARGET_OS_IPHONE)
+#define TARGET_OS_IPHONE 0
+#endif
+
 #include "doomkeys.h"
 
 #include "txt_fileselect.h"
@@ -41,7 +48,7 @@ struct txt_fileselect_s {
 
 const char *TXT_DIRECTORY[] = { "__directory__", NULL };
 
-#if !defined(_WIN32)
+#if !defined(_WIN32) && !TARGET_OS_IPHONE
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -150,7 +157,9 @@ static char *ExecReadOutput(char **argv)
 //     TXT_UpdateScreen can be run in the background).
 //   * On Windows XP the program exits/crashes when the dialog is
 //     closed.
-#if defined(_WIN32)
+// Also stubbed out on iOS: no external dialog processes (fork/exec and
+// system() are unavailable there).
+#if defined(_WIN32) || TARGET_OS_IPHONE
 
 int TXT_CanSelectFiles(void)
 {
