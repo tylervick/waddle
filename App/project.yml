@@ -12,6 +12,23 @@ targets:
   BoomBox:
     type: application
     platform: iOS
+    settings:
+      base:
+        # No Info.plist file on disk: Xcode synthesizes it at build time
+        # from these settings (standard since Xcode 13; the UITests target
+        # below already works this way). Every key we need has an
+        # INFOPLIST_KEY_ mapping, so a physical plist would add nothing
+        # except a generated file loitering in the source tree.
+        GENERATE_INFOPLIST_FILE: true
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: "1.0"
+        INFOPLIST_KEY_UILaunchScreen_Generation: true
+        INFOPLIST_KEY_UIStatusBarHidden: true
+        INFOPLIST_KEY_UIRequiresFullScreen: true
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: true
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: >-
+          UIInterfaceOrientationLandscapeLeft
+          UIInterfaceOrientationLandscapeRight
     sources:
       - path: Sources
       # NOTE: deliberately Resources/GameData, not Resources. A folder
@@ -53,16 +70,6 @@ targets:
       - sdk: CoreMedia.framework
       - sdk: CoreBluetooth.framework
       - sdk: OpenGLES.framework
-    info:
-      path: Info.plist
-      properties:
-        UILaunchScreen: {}
-        UIStatusBarHidden: true
-        UIRequiresFullScreen: true
-        UIApplicationSupportsIndirectInputEvents: true
-        UISupportedInterfaceOrientations:
-          - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationLandscapeRight
   BoomBoxUITests:
     type: bundle.ui-testing
     platform: iOS
