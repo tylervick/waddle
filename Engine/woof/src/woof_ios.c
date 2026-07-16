@@ -8,7 +8,15 @@
 #include <setjmp.h>
 #include <stdlib.h>
 
+// SDL_MAIN_HANDLED tells SDL_main.h we are supplying our own entry point
+// (SwiftUI's synthesized main) instead of letting it inject its normal
+// platform trampoline (which on iOS would otherwise compile an actual
+// main()/UIApplicationMain shim into this translation unit and collide
+// with Swift's). We still need the header for the SDL_SetMainReady()
+// declaration used in WoofIOS_Run() below.
+#define SDL_MAIN_HANDLED
 #include "SDL3/SDL.h"
+#include "SDL3/SDL_main.h"
 
 #include "config.h"
 #include "i_printf.h"
@@ -40,6 +48,16 @@ void WoofIOS_RequestQuit(void)
 
 int WoofIOS_Run(int argc, char **argv)
 {
+    // Because the host app's main() is SwiftUI's synthesized entry point
+    // rather than SDL_main, SDL never saw the readiness registration its
+    // SDL_main shim normally performs; SDL_Init would otherwise refuse
+    // with "Application didn't initialize properly, did you include
+    // SDL_main.h...". This is SDL3's documented escape hatch for
+    // embedding it in a host-owned app. Safe to call more than once
+    // (idempotent flag set), which matters since WoofIOS_Run may run
+    // again for a later session.
+    SDL_SetMainReady();
+
     int code = setjmp(exit_env);
     if (code != 0)
     {

@@ -1,5 +1,4 @@
 import SwiftUI
-import WoofEngine
 
 struct ContentView: View {
     @State private var lastExitCode: Int32?
@@ -8,13 +7,14 @@ struct ContentView: View {
         VStack(spacing: 24) {
             Text("BoomBox")
                 .font(.largeTitle.bold())
-            Button("Run SDL Spike") {
-                lastExitCode = spike_run(5)
+            Button("Play Freedoom Phase 1") {
+                lastExitCode = EngineSession.play(iwad: "freedoom1.wad")
             }
             .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("playFreedoom1")
             if let code = lastExitCode {
-                Text("Spike exit code: \(code)")
-                    .accessibilityIdentifier("spikeResult")
+                Text("Engine exited: \(code)")
+                    .accessibilityIdentifier("engineExitLabel")
             }
         }
     }

@@ -27,7 +27,14 @@ Current patches:
   `WoofIOS_ExitUnwind()` instead of calling `exit()`, and resets its
   priority counter so a second engine session can run exit handlers again.
 - `src/woof_ios.h` / `src/woof_ios.c` — iOS entry point (`WoofIOS_Run`)
-  replacing `i_main.c`, plus `WoofIOS_RequestQuit`.
+  replacing `i_main.c`, plus `WoofIOS_RequestQuit`. `WoofIOS_Run` calls
+  `SDL_SetMainReady()` before anything else: the host app's `main()` is
+  SwiftUI's synthesized entry point rather than SDL_main, so SDL never
+  saw the readiness registration its SDL_main shim normally performs,
+  and `SDL_Init` refuses without it. `SDL_MAIN_HANDLED` is defined
+  before including `SDL3/SDL_main.h` so the header doesn't also try to
+  inject its own `main()`/`UIApplicationMain` trampoline into this
+  translation unit.
 - `CMakeLists.txt` (top-level) — added `find_package(Threads REQUIRED)`
   before `find_package(OpenAL REQUIRED)`: our Vendor-built OpenAL Soft's
   exported `OpenALTargets.cmake` links `Threads::Threads` in its interface
@@ -58,6 +65,18 @@ still the case on this tree (configure fails to find SDL3 without it).
 Do not switch to `CMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH` instead: that
 lets `find_package` silently fall through to host Homebrew packages
 (observed resolving a macOS SDL for an iOS build under the previous pin).
+
+Also in `Scripts/build-engine.sh`: exports `PKG_CONFIG_LIBDIR=""` and
+`PKG_CONFIG_PATH=""` before configuring. `CMAKE_FIND_ROOT_PATH` has no
+effect on `find_package(... QUIET)` calls that resolve via pkg-config
+(`FindPkgConfig.cmake` shells out to the system `pkg-config`, which has
+its own search path independent of CMake's). Without this,
+`third-party/CMakeLists.txt`'s `find_package(libebur128 QUIET)` resolved
+to a Homebrew-installed macOS dylib on the build machine instead of
+falling back to the vendored `third-party/libebur128` source, producing
+a `woof` static-library target with a link *requirement* that never
+turns into an actual archive our xcframework assembly can merge — the
+app's final link then fails with undefined `ebur128_*` symbols.
 
 ## Updating to a new upstream pin
 

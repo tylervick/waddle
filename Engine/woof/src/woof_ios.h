@@ -17,7 +17,4 @@ void WoofIOS_RequestQuit(void);
 // Internal: called by I_SafeExit instead of exit(). Unwinds to WoofIOS_Run.
 void WoofIOS_ExitUnwind(int rc);
 
-// Temporary spike (Task 8); removed in Task 9.
-int spike_run(int seconds);
-
 #endif
