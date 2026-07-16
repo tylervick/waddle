@@ -1,0 +1,75 @@
+name: BoomBox
+options:
+  bundleIdPrefix: com.tylervick
+  deploymentTarget:
+    iOS: "26.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    OTHER_LDFLAGS: "-lc++"
+    TARGETED_DEVICE_FAMILY: "1,2"
+targets:
+  BoomBox:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      # NOTE: deliberately Resources/GameData, not Resources. A folder
+      # reference whose bundle-root name is literally "Resources" makes
+      # Xcode emit macOS-style Contents/Resources codesign rules
+      # (`^Resources/` in _CodeSignature/CodeResources) even for an iOS
+      # target. That makes codesign classify the bundle as "bundle"
+      # instead of "app bundle" and CoreSimulator's installer then fails
+      # with "Missing bundle ID" on `simctl install`, despite a perfectly
+      # valid Info.plist. Pointing the folder reference at the GameData
+      # subdirectory keeps the on-disk App/Resources/GameData/ layout
+      # (Task 6/7) but lands the wads at the bundle root as GameData/*.
+      - path: Resources/GameData
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - framework: ../Vendor/out/WoofEngine.xcframework
+        embed: false
+      - sdk: Metal.framework
+      - sdk: MetalKit.framework
+      - sdk: QuartzCore.framework
+      - sdk: UIKit.framework
+      - sdk: CoreGraphics.framework
+      - sdk: CoreMotion.framework
+      - sdk: CoreHaptics.framework
+      - sdk: GameController.framework
+      - sdk: CoreAudio.framework
+      - sdk: AudioToolbox.framework
+      - sdk: AVFoundation.framework
+      - sdk: CoreMedia.framework
+      - sdk: CoreBluetooth.framework
+      - sdk: OpenGLES.framework
+    info:
+      path: Info.plist
+      properties:
+        UILaunchScreen: {}
+        UIStatusBarHidden: true
+        UIRequiresFullScreen: true
+        UIApplicationSupportsIndirectInputEvents: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+  BoomBoxUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    settings:
+      base:
+        # xcodegen's bundle.ui-testing template doesn't imply this; without
+        # it, CodeSign fails with "target does not have an Info.plist file".
+        GENERATE_INFOPLIST_FILE: true
+    dependencies:
+      - target: BoomBox
+schemes:
+  BoomBox:
+    build:
+      targets:
+        BoomBox: all
+    test:
+      targets:
+        - BoomBoxUITests

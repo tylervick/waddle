@@ -203,6 +203,7 @@ set(WOOF_SOURCES
 if(IOS)
     list(REMOVE_ITEM WOOF_SOURCES i_main.c)
     list(APPEND WOOF_SOURCES woof_ios.c woof_ios.h)
+    list(APPEND WOOF_SOURCES woof_ios_spike.c)
     add_library(woof STATIC ${WOOF_SOURCES})
     target_compile_definitions(woof PUBLIC WOOF_IOS)
 else()
