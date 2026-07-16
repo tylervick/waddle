@@ -5,6 +5,7 @@
 #include "woof_ios.h"
 
 #include <locale.h>
+#include <pthread.h>
 #include <setjmp.h>
 #include <signal.h>
 #include <stdlib.h>
@@ -28,6 +29,7 @@ void D_DoomMain(void);
 
 static jmp_buf exit_env;
 static int exit_env_valid;
+static pthread_t session_thread;
 
 // Previous SIGTERM disposition, saved/restored around each session (static:
 // locals don't reliably survive the longjmp back into WoofIOS_Run's frame).
@@ -37,6 +39,15 @@ void WoofIOS_ExitUnwind(int rc)
 {
     if (exit_env_valid)
     {
+        // longjmp may only unwind the stack of the thread that called
+        // setjmp. I_Error is occasionally reachable from helper threads
+        // (e.g. sound callbacks); jumping from one of those into the main
+        // thread's frame is undefined behavior that would corrupt both
+        // stacks. Fail hard and diagnosably instead.
+        if (!pthread_equal(pthread_self(), session_thread))
+        {
+            abort();
+        }
         exit_env_valid = 0;
         // setjmp cannot distinguish 0, so shift non-negative codes up by 1.
         longjmp(exit_env, rc >= 0 ? rc + 1 : rc);
@@ -93,6 +104,12 @@ int WoofIOS_Run(int argc, char **argv)
         return code > 0 ? code - 1 : code;
     }
     exit_env_valid = 1;
+    session_thread = pthread_self();
+
+    // Drop any error text accumulated by a previous session in this
+    // process (see I_ResetErrorMessages in i_system.c).
+    extern void I_ResetErrorMessages(void);
+    I_ResetErrorMessages();
 
     myargc = argc;
     myargv = argv;

@@ -35,8 +35,11 @@ build() { # srcdir platform extra-cmake-args...
 }
 
 for platform in iphoneos iphonesimulator; do
+    # SDL_TEST_LIBRARY (the SDL3_test helper lib) defaults ON independently
+    # of SDL_TESTS; nothing here links it, so don't build or install it.
     build "$SRC/SDL" "$platform" \
-        -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
+        -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF \
+        -DSDL_TEST_LIBRARY=OFF
     # Pre-seed the check_cxx_compiler_flag() cache variable that OpenAL Soft's
     # CMakeLists.txt (~line 276/409) uses to gate -Werror=function-effects.
     # Xcode 26.2's clang has a false positive in alc/backends/coreaudio.cpp

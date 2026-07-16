@@ -34,7 +34,16 @@ Current patches:
   and `SDL_Init` refuses without it. `SDL_MAIN_HANDLED` is defined
   before including `SDL3/SDL_main.h` so the header doesn't also try to
   inject its own `main()`/`UIApplicationMain` trampoline into this
-  translation unit.
+  translation unit. `WoofIOS_ExitUnwind` refuses to `longjmp` from any
+  thread other than the one that entered `WoofIOS_Run` (aborts instead):
+  `I_Error` is occasionally reachable from helper threads, and unwinding
+  a foreign stack is undefined behavior. Each session also clears the
+  previous session's accumulated error text via `I_ResetErrorMessages()`.
+- `src/i_system.c` — added a `WOOF_IOS`-only `I_ResetErrorMessages()`:
+  `I_ErrorInternal()` deliberately appends to its static `errmsg` buffer
+  so nested errors within one exit sequence share a dialog, but across
+  engine sessions in the same process that text is stale and would be
+  prepended to the next session's first error dialog.
 - `CMakeLists.txt` (top-level) — added `find_package(Threads REQUIRED)`
   before `find_package(OpenAL REQUIRED)`: our Vendor-built OpenAL Soft's
   exported `OpenALTargets.cmake` links `Threads::Threads` in its interface

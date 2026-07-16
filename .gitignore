@@ -4,6 +4,5 @@ Vendor/
 App/Resources/GameData/
 App/Resources/woof.pk3
 App/*.xcodeproj
-App/Info.plist
 build/
 DerivedData/

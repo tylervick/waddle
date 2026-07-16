@@ -58,6 +58,17 @@ boolean I_IsDebuggerAttached(void)
 
 static char errmsg[2048];    // buffer of error message -- killough
 
+#ifdef WOOF_IOS
+// I_ErrorInternal() deliberately *appends* to errmsg so nested errors during
+// one exit sequence accumulate into a single dialog. Across engine sessions
+// in the same process that becomes stale text prepended to the next
+// session's first error, so the iOS host entry point clears it per session.
+void I_ResetErrorMessages(void)
+{
+    errmsg[0] = '\0';
+}
+#endif
+
 void I_ErrorInternal(const char *prefix, const char *error, ...)
 {
     size_t len = sizeof(errmsg) - strlen(errmsg) - 1; // [FG] for '\n'
