@@ -107,6 +107,28 @@ only ever runs once):
   (idempotent-only-once) registration exactly once per process; the
   per-session `M_LoadDefaults()` call (unguarded, naturally idempotent)
   still re-applies the saved config every session.
+- `src/woof_ios.c` — third failure (fix round 1), exposed only after the
+  above two were fixed and the gate was hardened to require each session
+  to survive its full autoquit window: session 2 exited cleanly (code 0)
+  ~2 s in, *before* entering the title/demo loop, so the relaunch cycle
+  "passed" while the second session was actually dead. Diagnosed with a
+  temporary `SA_SIGINFO` probe: the XCUITest harness (`xcodebuild`;
+  `si_pid` = its pid, `si_code` = `SI_USER`) delivers a stray SIGTERM to
+  the app-under-test moments after the second session's SDL window
+  appears. SDL3's default signal handling (`SDL_quit.c`) converts SIGTERM
+  into `SDL_EVENT_QUIT` — a desktop graceful-quit convention with no
+  counterpart on iOS (apps get lifecycle callbacks and SIGKILL, never a
+  polite SIGTERM) — and the engine obligingly quit. Fix: `WoofIOS_Run`
+  sets `SIG_IGN` for SIGTERM for the duration of each session (installed
+  *before* `SDL_Init`, which also stops SDL claiming the signal:
+  `SDL_EventSignal_Init` only overrides a `SIG_DFL` disposition) and
+  restores the previous disposition on unwind, so process teardown
+  outside a session behaves normally. In-app quits are unaffected (they
+  push `SDL_EVENT_QUIT` directly). Residual risk: a harness SIGTERM
+  landing in the sub-second gap *between* sessions would kill the process
+  (default action); not observed — it has only ever arrived while a
+  session was running. This file is iOS-only, so no `WOOF_IOS` guard is
+  needed.
 
 Related (not upstream files): `Scripts/build-engine.sh` passes
 `-DCMAKE_FIND_ROOT_PATH="$OUT/$platform"` in addition to
