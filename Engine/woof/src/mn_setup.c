@@ -3809,6 +3809,23 @@ static void ResetDefaultsSecondary(void)
 
 void MN_InitDefaults(void)
 {
+#ifdef WOOF_IOS
+    // This conversion is destructive and one-time: it overwrites each
+    // setup_menu_t's var.name (a string literal) with var.def (a
+    // default_t*) through a union. A second engine session in the same
+    // process calling this again would read that already-overwritten
+    // union as a string -- garbage bytes at a stale/freed address -- and
+    // fail every lookup. The conversion result (var.def) is still valid
+    // from the first session (M_InitConfig() above is itself guarded to
+    // register `defaults` only once), so there is nothing to redo.
+    static boolean initialized;
+    if (initialized)
+    {
+        return;
+    }
+    initialized = true;
+#endif
+
     for (int i = 0; i < ss_max; i++)
     {
         setup_menu_t **screens = setup_screens[i];

@@ -56,6 +56,58 @@ Current patches:
   to upstream's existing DUMMY MIDI backend (music via the OpenAL/opl
   paths is unaffected).
 
+### Task 10: quit/relaunch stale-global fixes
+
+`WoofIOS_Run` may run more than once in the same process (Task 9's
+autoquit → `I_SafeExit` → `longjmp` unwind returns to the host app, which
+can call it again). Everything below `WoofIOS_Run`/`D_DoomMain` was
+written assuming a real process exit ends its lifetime, so several
+module-level statics that outlive one `WoofIOS_Run` call and get
+re-populated by the next needed WOOF_IOS-only resets or re-registration
+guards. Found via the Task 10 XCUITest (cycle 2 first failed with
+`Engine exited: -1`; diagnosed from the app's captured stdout/stderr in
+the `.xcresult` diagnostics bundle — `xcrun xcresulttool export
+diagnostics --path <result>.xcresult --output-path <dir>
+--test-plan-run-id 0`, since fprintf output doesn't reach `log stream`).
+Two independent bugs, fixed minimally and `#ifdef WOOF_IOS`-guarded
+throughout (zero behavior change on other platforms, where `D_DoomMain`
+only ever runs once):
+
+- `src/w_wad.c`, `src/w_zip.c`, `src/w_file.c` — first observed failure:
+  `mz_zip_reader_extract_to_mem failed` a couple seconds into cycle 2.
+  `lumpinfo`/`wadfiles`/`numlumps` (w_wad.c) and each WAD-source module's
+  own directory (`archives` in w_zip.c, `descriptors` in w_file.c) are
+  realloc-backed arrays (m_array.h) or module-private tables that
+  `W_InitMultipleFiles()` appends to on every session but nothing ever
+  cleared. A second session's fresh entries landed *after* the first
+  session's stale ones instead of replacing them: `wadfiles[0]` (read
+  all over `d_main.c`/`g_game.c` as "the IWAD name") stayed pinned to the
+  first session's entry, and a lump lookup landing on a stale
+  `lumpinfo` entry dereferenced a `w_zip.c` archive already torn down by
+  `mz_zip_reader_end()` — hence the extract failure. Fixed by having each
+  module's existing `Close()` (already registered via `I_AtExitPrio(...,
+  true /* run_on_error */, ..., exit_priority_last)`, so it always runs
+  before the next session, even after an `I_Error`) fully free and reset
+  its own arrays, and having `W_Close()` do the same for `lumpinfo`/
+  `wadfiles`/`numlumps`.
+- `src/m_config.c`, `src/mn_setup.c` — second failure, after the above:
+  `I_Error("Could not find config variable ...")` reading garbage bytes
+  as a key name. `M_InitConfig()` rebuilds the `defaults` array (also
+  m_array.h) from scratch every session by design of the fix above's
+  first draft, but `MN_InitDefaults()` (mn_setup.c) performs a
+  *destructive, one-time* conversion: it overwrites each menu item's
+  `var.name` (a string) with `var.def` (a `default_t*` into `defaults`)
+  through a union. Rebuilding `defaults` a second time orphaned those
+  pointers, and re-running `MN_InitDefaults()` (which also runs every
+  `D_DoomMain()`) tried to read the already-overwritten union back out as
+  a string. Since the bound variable addresses and the menu/config
+  metadata describing them never change across sessions in the same
+  process, the correct fix is not to reset and rebuild — it's to guard
+  both `M_InitConfig()` and `MN_InitDefaults()` to run their
+  (idempotent-only-once) registration exactly once per process; the
+  per-session `M_LoadDefaults()` call (unguarded, naturally idempotent)
+  still re-applies the saved config every session.
+
 Related (not upstream files): `Scripts/build-engine.sh` passes
 `-DCMAKE_FIND_ROOT_PATH="$OUT/$platform"` in addition to
 `-DCMAKE_PREFIX_PATH`. When `CMAKE_SYSTEM_NAME=iOS`, CMake restricts

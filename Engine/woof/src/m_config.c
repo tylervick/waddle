@@ -122,8 +122,32 @@ void M_BindInput(const char *name, int input_id, const char *help)
     array_push(defaults, item);
 }
 
+static char *defaultfile;
+static boolean defaults_loaded = false; // killough 10/98
+
 void M_InitConfig(void)
 {
+#ifdef WOOF_IOS
+    // A second engine session in the same process calls M_InitConfig()
+    // again. This registration is one-time, process-lifetime metadata --
+    // the bound addresses are this process's static globals throughout its
+    // life, so nothing needs re-binding -- and repeating it would corrupt
+    // `defaults`, a realloc-backed array (m_array.h): re-registering
+    // duplicates every entry and invalidates the hash-chain pointers
+    // M_LookupDefault() already built (array_push() may move the buffer).
+    // Worse, MN_InitDefaults() (mn_setup.c) permanently overwrites each
+    // setup_menu_t's var.name with a var.def pointer into *this* array via
+    // a union -- rebuilding the array out from under that would leave
+    // those entries dangling. The caller's (idempotent) M_LoadDefaults()
+    // still runs every session to re-apply the saved config.
+    static boolean initialized;
+    if (initialized)
+    {
+        return;
+    }
+    initialized = true;
+#endif
+
     BIND_BOOL(config_help, true,
       "Show help strings about each variable in the config file");
 
@@ -162,9 +186,6 @@ void M_InitConfig(void)
     default_t last_entry = {NULL};
     array_push(defaults, last_entry);
 }
-
-static char *defaultfile;
-static boolean defaults_loaded = false; // killough 10/98
 
 // killough 11/98: hash function for name lookup
 static unsigned default_hash(const char *name)

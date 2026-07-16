@@ -647,6 +647,23 @@ void W_Close(void)
     {
         modules[i]->Close();
     }
+
+#ifdef WOOF_IOS
+    // A second engine session in the same process calls
+    // W_InitMultipleFiles() again from scratch. `lumpinfo`/`wadfiles` are
+    // realloc-backed arrays (m_array.h) that would otherwise still hold
+    // this session's entries (each module already tore down the handles
+    // those entries point to, above) with the fresh session's entries
+    // appended after them instead of starting at index 0 -- notably,
+    // `wadfiles[0]` is read all over d_main.c/g_game.c as "the IWAD name".
+    for (int i = 0; i < array_size(wadfiles); ++i)
+    {
+        free((void *)wadfiles[i]);
+    }
+    array_free(wadfiles);
+    array_free(lumpinfo);
+    numlumps = 0;
+#endif
 }
 
 //----------------------------------------------------------------------------

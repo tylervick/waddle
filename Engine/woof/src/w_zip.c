@@ -250,8 +250,32 @@ static void W_ZIP_Close(void)
 {
     for (int i = 0; i < array_size(archives); ++i)
     {
+#ifdef WOOF_IOS
+        // A second engine session in the same process calls W_ZIP_Open()
+        // again for the same base pk3, array_push()-ing a new archive_t
+        // onto this same array. Left uncleared, `archives` (and every
+        // lumpinfo_t.handle.p1.archive pointing into it) would still
+        // reference this already-mz_zip_reader_end()-ed entry, and a
+        // duplicate-named lump lookup landing on the stale entry instead
+        // of the fresh one fails extract_to_mem against a torn-down
+        // reader. Free everything this module owns so the array (and any
+        // realloc it triggers) starts clean next session.
+        int num_files = mz_zip_reader_get_num_files(archives[i].zip);
+#endif
         mz_zip_reader_end(archives[i].zip);
+#ifdef WOOF_IOS
+        free(archives[i].zip);
+        for (int j = 0; j < num_files; ++j)
+        {
+            free((void *)archives[i].directory[j].filename);
+        }
+        free(archives[i].directory);
+#endif
     }
+
+#ifdef WOOF_IOS
+    array_free(archives);
+#endif
 }
 
 w_module_t w_zip_module =
