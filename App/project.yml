@@ -18,21 +18,47 @@ targets:
     platform: iOS
     settings:
       base:
-        # No Info.plist file on disk: Xcode synthesizes it at build time
-        # from these settings (standard since Xcode 13; the UITests target
-        # below already works this way). Every key we need has an
-        # INFOPLIST_KEY_ mapping, so a physical plist would add nothing
-        # except a generated file loitering in the source tree.
-        GENERATE_INFOPLIST_FILE: true
         CURRENT_PROJECT_VERSION: 1
         MARKETING_VERSION: "1.0"
-        INFOPLIST_KEY_UILaunchScreen_Generation: true
-        INFOPLIST_KEY_UIStatusBarHidden: true
-        INFOPLIST_KEY_UIRequiresFullScreen: true
-        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: true
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: >-
-          UIInterfaceOrientationLandscapeLeft
-          UIInterfaceOrientationLandscapeRight
+    # Document-type registration (CFBundleDocumentTypes +
+    # UTImportedTypeDeclarations, needed for "Share -> Open in BoomBox" on
+    # .wad files) is nested-dictionary plist content with no INFOPLIST_KEY_
+    # build-setting mapping, so this target needs a real Info.plist. XcodeGen
+    # writes it to App/Info.plist at `xcodegen generate` time (same lifecycle
+    # as the .xcodeproj); it's gitignored alongside it.
+    info:
+      path: Info.plist
+      properties:
+        UILaunchScreen: {}
+        UIStatusBarHidden: true
+        UIRequiresFullScreen: true
+        UIApplicationSupportsIndirectInputEvents: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Doom WAD
+            LSHandlerRank: Owner
+            LSItemContentTypes: [com.tylervick.boombox.wad]
+          - CFBundleTypeName: DeHackEd Patch
+            LSHandlerRank: Owner
+            LSItemContentTypes: [com.tylervick.boombox.deh]
+          - CFBundleTypeName: Zip Archive
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.zip-archive]
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: com.tylervick.boombox.wad
+            UTTypeDescription: Doom WAD
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [wad]
+          - UTTypeIdentifier: com.tylervick.boombox.deh
+            UTTypeDescription: DeHackEd Patch
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [deh, bex]
     sources:
       - path: Sources
       # NOTE: deliberately Resources/GameData, not Resources. A folder
