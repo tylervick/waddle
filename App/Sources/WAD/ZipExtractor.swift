@@ -16,14 +16,41 @@ enum ZipExtractor {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
         var files: [ExtractedFile] = []
-        for entry in archive where entry.type == .file {
-            let basename = (entry.path as NSString).lastPathComponent
-            let ext = (basename as NSString).pathExtension.lowercased()
-            guard gameExtensions.contains(ext) else { continue }
-            let dest = dir.appendingPathComponent(basename)
-            _ = try archive.extract(entry, to: dest)
-            files.append(ExtractedFile(name: basename, url: dest))
+        var usedNames: Set<String> = []
+
+        do {
+            for entry in archive where entry.type == .file {
+                let basename = (entry.path as NSString).lastPathComponent
+                let ext = (basename as NSString).pathExtension.lowercased()
+                guard gameExtensions.contains(ext) else { continue }
+
+                // Uniquify if basename already used
+                let uniqueName = uniqueBasename(basename, usedNames: usedNames)
+                usedNames.insert(uniqueName)
+
+                let dest = dir.appendingPathComponent(uniqueName)
+                _ = try archive.extract(entry, to: dest)
+                files.append(ExtractedFile(name: uniqueName, url: dest))
+            }
+            return (dir, files)
+        } catch {
+            // Clean up temp dir on extraction failure
+            try? FileManager.default.removeItem(at: dir)
+            throw error
         }
-        return (dir, files)
+    }
+
+    private static func uniqueBasename(_ basename: String, usedNames: Set<String>) -> String {
+        guard usedNames.contains(basename) else { return basename }
+
+        let nameWithoutExt = (basename as NSString).deletingPathExtension
+        let ext = (basename as NSString).pathExtension
+
+        var counter = 2
+        while true {
+            let candidate = ext.isEmpty ? "\(nameWithoutExt) (\(counter))" : "\(nameWithoutExt) (\(counter)).\(ext)"
+            if !usedNames.contains(candidate) { return candidate }
+            counter += 1
+        }
     }
 }

@@ -56,4 +56,23 @@ final class ZipExtractorTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: result.dir) }
         XCTAssertTrue(result.files.isEmpty)
     }
+
+    func testDuplicateBasenamesGetUniquified() throws {
+        let zip = try makeZip(entries: [
+            "a/map.wad": "content1",
+            "b/map.wad": "content2",
+        ])
+        let result = try ZipExtractor.extractGameFiles(from: zip)
+        defer { try? FileManager.default.removeItem(at: result.dir) }
+
+        XCTAssertEqual(result.files.count, 2)
+        XCTAssertEqual(Set(result.files.map(\.name)), ["map.wad", "map (2).wad"])
+
+        // Verify distinct contents preserved
+        let content1 = try Data(contentsOf: result.files[0].url)
+        let content2 = try Data(contentsOf: result.files[1].url)
+        XCTAssertNotEqual(content1, content2)
+        XCTAssertTrue([content1, content2].contains(Data("content1".utf8)) ||
+                     [content1, content2].contains(Data("content2".utf8)))
+    }
 }
