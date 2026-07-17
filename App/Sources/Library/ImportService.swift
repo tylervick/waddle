@@ -30,28 +30,52 @@ final class ImportService {
     }
 
     /// Adopts files users dropped into Documents via the Files app
-    /// (UIFileSharingEnabled exposes it). Call on launch/foreground.
+    /// (UIFileSharingEnabled exposes it), plus files iOS copied into
+    /// Documents/Inbox/ for a non-in-place "Open in BoomBox" share/open.
+    /// Call on launch/foreground.
     func adoptLooseFiles() -> ImportOutcome {
         var outcome = ImportOutcome()
         let docs = URL.documentsDirectory
-        let candidates = ((try? FileManager.default.contentsOfDirectory(
-            at: docs, includingPropertiesForKeys: [.isRegularFileKey])) ?? [])
-            .filter { ["wad", "deh", "bex", "zip"].contains($0.pathExtension.lowercased()) }
+        var candidates = looseFiles(in: docs)
+        let inbox = docs.appendingPathComponent("Inbox", isDirectory: true)
+        if FileManager.default.fileExists(atPath: inbox.path) {
+            candidates += looseFiles(in: inbox)
+        }
         for url in candidates {
-            let name = url.lastPathComponent
+            // A single candidate (e.g. a zip) can fan out into many inner
+            // importOne calls, each recording its own imported/duplicate/
+            // rejected entry under its own inner filename — not the
+            // candidate's. Snapshot the outcome before and diff after so the
+            // keep/quarantine/delete decision below is about what THIS
+            // candidate contributed, not a lookup keyed on its own basename
+            // (which a zip whose contents all fail would never populate).
+            let before = (imported: outcome.imported.count,
+                          duplicates: outcome.duplicates.count,
+                          rejected: outcome.rejected.count)
             importOne(url: url, into: &outcome)
-            if outcome.rejected[name] != nil {
-                // Don't destroy files the user can't explain a failure for;
-                // move them somewhere visible/recoverable in the Files app
-                // instead, so the scan doesn't re-report them forever.
-                moveToImportFailed(url)
-            } else {
+            let contributedImportedOrDuplicate =
+                outcome.imported.count > before.imported || outcome.duplicates.count > before.duplicates
+            if contributedImportedOrDuplicate {
                 // Imported or duplicate either way, the content now lives in
                 // the store (or already did); the loose original is redundant.
                 try? FileManager.default.removeItem(at: url)
+            } else {
+                // Contributed at least one rejection, or nothing at all
+                // (e.g. an empty zip, which importOne rejects under its own
+                // name) — either way don't destroy a file the user can't
+                // explain a failure for; move it somewhere visible/
+                // recoverable in the Files app instead, so the scan doesn't
+                // re-report it forever.
+                moveToImportFailed(url)
             }
         }
         return outcome
+    }
+
+    private func looseFiles(in directory: URL) -> [URL] {
+        ((try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.isRegularFileKey])) ?? [])
+            .filter { ["wad", "deh", "bex", "zip"].contains($0.pathExtension.lowercased()) }
     }
 
     /// Moves a loose file that failed import into Documents/Import Failed/,
@@ -94,7 +118,7 @@ final class ImportService {
                 outcome.rejected[name] = "File could not be read."
                 return
             }
-            storeAndRegister(url: url, name: name, kind: "DEH",
+            storeAndRegister(url: url, name: name, kind: WADKind.deh.rawValue,
                              family: GameFamily.unknown.rawValue,
                              sha1: WADStore.sha1(of: data), into: &outcome)
         case "wad":

@@ -44,16 +44,16 @@ final class LibraryServiceTests: XCTestCase {
 
     func testRegisterAndFindBySHA1() throws {
         let wad = try service.registerImported(filename: "sunlust.wad", sha1: "abc123",
-                                               kind: "PWAD", family: "doom2")
+                                               kind: WADKind.pwad.rawValue, family: "doom2")
         XCTAssertEqual(try service.findWAD(sha1: "abc123")?.id, wad.id)
         XCTAssertNil(try service.findWAD(sha1: "nope"))
     }
 
     func testDeleteWADReferencedByLoadoutThrowsUnlessForced() throws {
         let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i1",
-                                                kind: "IWAD", family: "doom2")
+                                                kind: WADKind.iwad.rawValue, family: "doom2")
         let pwad = try service.registerImported(filename: "sunlust.wad", sha1: "p1",
-                                                kind: "PWAD", family: "doom2")
+                                                kind: WADKind.pwad.rawValue, family: "doom2")
         let loadout = try service.createLoadout(name: "Sunlust", iwadID: iwad.id,
                                                 pwadIDs: [pwad.id], dehIDs: [])
         XCTAssertThrowsError(try service.deleteWAD(pwad, force: false)) {
@@ -66,7 +66,7 @@ final class LibraryServiceTests: XCTestCase {
 
     func testDeleteLoadoutRemovesSavesWhenAsked() throws {
         let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i2",
-                                                kind: "IWAD", family: "doom2")
+                                                kind: WADKind.iwad.rawValue, family: "doom2")
         let loadout = try service.createLoadout(name: "X", iwadID: iwad.id, pwadIDs: [], dehIDs: [])
         let saves = LibraryService.savesDirectory(forLoadoutID: loadout.id)
         try FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
@@ -78,9 +78,9 @@ final class LibraryServiceTests: XCTestCase {
 
     func testLoadoutOrderingPreserved() throws {
         let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i3",
-                                                kind: "IWAD", family: "doom2")
-        let a = try service.registerImported(filename: "a.wad", sha1: "a", kind: "PWAD", family: "doom2")
-        let b = try service.registerImported(filename: "b.wad", sha1: "b", kind: "PWAD", family: "doom2")
+                                                kind: WADKind.iwad.rawValue, family: "doom2")
+        let a = try service.registerImported(filename: "a.wad", sha1: "a", kind: WADKind.pwad.rawValue, family: "doom2")
+        let b = try service.registerImported(filename: "b.wad", sha1: "b", kind: WADKind.pwad.rawValue, family: "doom2")
         let loadout = try service.createLoadout(name: "Ordered", iwadID: iwad.id,
                                                 pwadIDs: [b.id, a.id], dehIDs: [])
         XCTAssertEqual(loadout.pwadIDs, [b.id, a.id])

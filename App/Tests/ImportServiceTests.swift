@@ -34,7 +34,7 @@ final class ImportServiceTests: XCTestCase {
         let url = try write("sunlust.wad", makeWAD(magic: "PWAD", lumps: ["MAP01"]))
         let outcome = importer.importFiles(at: [url])
         XCTAssertEqual(outcome.imported, ["sunlust"])
-        XCTAssertEqual(try library.allWADs().first?.kindRaw, "PWAD")
+        XCTAssertEqual(try library.allWADs().first?.kindRaw, WADKind.pwad.rawValue)
         XCTAssertEqual(try library.allWADs().first?.gameFamilyRaw, "doom2")
     }
 
@@ -58,7 +58,7 @@ final class ImportServiceTests: XCTestCase {
         let url = try write("tweaks.deh", Data("Patch File for DeHackEd 3.0".utf8))
         let outcome = importer.importFiles(at: [url])
         XCTAssertEqual(outcome.imported, ["tweaks"])
-        XCTAssertEqual(try library.allWADs().first?.kindRaw, "DEH")
+        XCTAssertEqual(try library.allWADs().first?.kindRaw, WADKind.deh.rawValue)
     }
 
     func testImportsWadsOutOfZip() throws {
@@ -96,6 +96,36 @@ final class ImportServiceTests: XCTestCase {
 
         XCTAssertNotNil(outcome.rejected[name])
         XCTAssertFalse(FileManager.default.fileExists(atPath: junkURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: importFailedURL.path))
+    }
+
+    func testAdoptLooseFilesQuarantinesZipWhoseContentsAllFailImport() throws {
+        // The rejection from a corrupt inner .wad is recorded under the
+        // inner file's own name ("corrupt.wad"), never the zip's — so the
+        // zip-level keep/quarantine/delete decision can't be a lookup keyed
+        // on the zip's own basename (it would never find a rejection there
+        // and would wrongly delete the zip as if it had imported cleanly).
+        let docs = URL.documentsDirectory
+        let name = "bundle-\(UUID().uuidString).zip"
+        let zipURL = docs.appendingPathComponent(name)
+        let importFailedURL = docs.appendingPathComponent("Import Failed").appendingPathComponent(name)
+        defer {
+            try? FileManager.default.removeItem(at: zipURL)
+            try? FileManager.default.removeItem(at: importFailedURL)
+        }
+
+        let archive = try Archive(url: zipURL, accessMode: .create)
+        let badData = Data("not a wad".utf8)
+        try archive.addEntry(with: "corrupt.wad", type: .file,
+                             uncompressedSize: Int64(badData.count),
+                             provider: { pos, size in
+            badData.subdata(in: Int(pos)..<Int(pos) + size)
+        })
+
+        let outcome = importer.adoptLooseFiles()
+
+        XCTAssertFalse(outcome.rejected.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: zipURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: importFailedURL.path))
     }
 

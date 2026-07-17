@@ -24,6 +24,7 @@ struct BoomBoxApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(library: library, importer: importer)
+                .onOpenURL { url in _ = importer.importFiles(at: [url]) }
         }
         .modelContainer(container)
     }

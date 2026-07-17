@@ -3,6 +3,11 @@ import Foundation
 enum WADKind: String {
     case iwad = "IWAD"
     case pwad = "PWAD"
+    // Not producible by WADParser.parse (no on-disk WAD ever carries this
+    // magic) — exists so DeHackEd patches, which ImportService classifies
+    // by file extension rather than by parsing, share the same typed kind
+    // as IWADs/PWADs instead of a separately-tracked bare string literal.
+    case deh = "DEH"
 }
 
 enum MapFormat { case episodic, mapXX, none }

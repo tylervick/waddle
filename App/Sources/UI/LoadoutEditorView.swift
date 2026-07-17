@@ -11,9 +11,9 @@ struct LoadoutEditorView: View {
     @State private var dehIDs: [UUID] = []
     @State private var complevel: String?
 
-    private var iwads: [WADFile] { (try? library.allWADs())?.filter { $0.kindRaw == "IWAD" } ?? [] }
-    private var pwads: [WADFile] { (try? library.allWADs())?.filter { $0.kindRaw == "PWAD" } ?? [] }
-    private var dehs: [WADFile] { (try? library.allWADs())?.filter { $0.kindRaw == "DEH" } ?? [] }
+    private var iwads: [WADFile] { (try? library.allWADs())?.filter { $0.kindRaw == WADKind.iwad.rawValue } ?? [] }
+    private var pwads: [WADFile] { (try? library.allWADs())?.filter { $0.kindRaw == WADKind.pwad.rawValue } ?? [] }
+    private var dehs: [WADFile] { (try? library.allWADs())?.filter { $0.kindRaw == WADKind.deh.rawValue } ?? [] }
 
     var body: some View {
         NavigationStack {
