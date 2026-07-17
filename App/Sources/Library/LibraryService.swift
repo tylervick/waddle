@@ -80,6 +80,14 @@ final class LibraryService {
         return wad
     }
 
+    /// Points an existing row at a freshly re-stored file, for when the row's
+    /// backing file went missing from disk (e.g. deleted out-of-band) and a
+    /// re-import restored the content under a new store filename.
+    func repairFilename(of wad: WADFile, to filename: String) throws {
+        wad.filename = filename
+        try context.save()
+    }
+
     @discardableResult
     func createLoadout(name: String, iwadID: UUID, pwadIDs: [UUID],
                        dehIDs: [UUID]) throws -> Loadout {

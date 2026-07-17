@@ -75,4 +75,66 @@ final class ImportServiceTests: XCTestCase {
         XCTAssertEqual(outcome.imported, ["map"])
         XCTAssertEqual(try library.allWADs().first?.gameFamilyRaw, "doom1")
     }
+
+    // MARK: adoptLooseFiles
+
+    func testAdoptLooseFilesMovesRejectedFilesToImportFailed() throws {
+        // adoptLooseFiles scans the real app Documents directory (Files-app
+        // drop zone), not the tmp WADStore dir, so the fixture has to live
+        // there too.
+        let docs = URL.documentsDirectory
+        let name = "junk-\(UUID().uuidString).wad"
+        let junkURL = docs.appendingPathComponent(name)
+        let importFailedURL = docs.appendingPathComponent("Import Failed").appendingPathComponent(name)
+        try Data("not a wad".utf8).write(to: junkURL)
+        defer {
+            try? FileManager.default.removeItem(at: junkURL)
+            try? FileManager.default.removeItem(at: importFailedURL)
+        }
+
+        let outcome = importer.adoptLooseFiles()
+
+        XCTAssertNotNil(outcome.rejected[name])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: junkURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: importFailedURL.path))
+    }
+
+    // MARK: dedupe ordering
+
+    func testDuplicateImportDoesNotWriteNewStoreFile() throws {
+        let data = makeWAD(magic: "PWAD", lumps: ["MAP01"])
+        _ = importer.importFiles(at: [try write("a.wad", data)])
+        let storeDir = tmp.appendingPathComponent("WADs", isDirectory: true)
+        let before = try FileManager.default.contentsOfDirectory(
+            at: storeDir, includingPropertiesForKeys: nil).count
+
+        _ = importer.importFiles(at: [try write("b.wad", data)])
+
+        let after = try FileManager.default.contentsOfDirectory(
+            at: storeDir, includingPropertiesForKeys: nil).count
+        XCTAssertEqual(after, before)
+    }
+
+    // MARK: repair when the stored file went missing
+
+    func testReimportRestoresRowWhenStoredFileWasDeleted() throws {
+        let data = makeWAD(magic: "PWAD", lumps: ["MAP01"])
+        let first = importer.importFiles(at: [try write("a.wad", data)])
+        XCTAssertEqual(first.imported, ["a"])
+        let wad = try XCTUnwrap(library.allWADs().first)
+        try FileManager.default.removeItem(at: library.fileURL(for: wad))
+
+        let second = importer.importFiles(at: [try write("b.wad", data)])
+
+        XCTAssertEqual(second.imported, ["b"])
+        XCTAssertTrue(second.duplicates.isEmpty)
+        XCTAssertEqual(try library.allWADs().count, 1)
+        let repaired = try XCTUnwrap(try library.wad(id: wad.id))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: library.fileURL(for: repaired).path))
+
+        let storeDir = tmp.appendingPathComponent("WADs", isDirectory: true)
+        let filesInStore = try FileManager.default.contentsOfDirectory(
+            at: storeDir, includingPropertiesForKeys: nil)
+        XCTAssertEqual(filesInStore.count, 1)
+    }
 }
