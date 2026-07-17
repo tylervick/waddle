@@ -1,0 +1,672 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		143B583FB4A8735B54A0D3CE /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 788A54D0F0A32843E19A4732 /* ContentView.swift */; };
+		31E89127502D5F8A08A72520 /* EngineSmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DAEA477CDFD46F35D863009 /* EngineSmokeTests.swift */; };
+		348226CCB1E4C8E2341AEEEB /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 55BB978811E2B3432114C1C5 /* ZIPFoundation */; };
+		3EE7C043B5457CF65D807BA7 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EBC83039DA1ABE8EF1F50158 /* QuartzCore.framework */; };
+		3FB03CC61797DFEE338A5CC6 /* WADParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6C5A20BD03107E254D698CB /* WADParser.swift */; };
+		5C7D8E9F1A2B3C4D5E6F7A8B /* WADStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F1A2B3C4D5E6F7A8B5C7D8E /* WADStore.swift */; };
+		4D5E6F7A8B9C0D1E2F3A4B5C /* ZipExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F3A4B5C6D7E8F9A0B1C2D3E /* ZipExtractor.swift */; };
+		67943A118E5B1CB05C83D61C /* WoofEngine.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = CD02BA420A0E032995FC1A7D /* WoofEngine.xcframework */; };
+		6917974DEAC0DAF54B1B7281 /* EngineSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0359482FDF867D30DFBB61EA /* EngineSession.swift */; };
+		75A7133C7EF781B370A56760 /* woof.pk3 in Resources */ = {isa = PBXBuildFile; fileRef = B7907852986853FC9D42247A /* woof.pk3 */; };
+		86D841B7D2C4FC890DA66959 /* CoreMotion.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 984A0EDED18A897240635775 /* CoreMotion.framework */; };
+		8AB42587C4A60580C96080B7 /* BoomBoxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98DEF79F78B1BC21504E48AD /* BoomBoxApp.swift */; };
+		954CC021778B0387288ACECC /* CoreMedia.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9957B8006EB7A29A080C1680 /* CoreMedia.framework */; };
+		A16F4DFB091781C27650D584 /* GameData in Resources */ = {isa = PBXBuildFile; fileRef = 6E077047B8439DD7BD5C1DBD /* GameData */; };
+		AA8187B505FA2851DE212552 /* WADParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA6F7A2723165F068D8B2769 /* WADParserTests.swift */; };
+		8E7F0B1C2A3B5C7D9E4F1A2B /* WADStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A3B5C8D9E4F1A2B3C5D7E8F /* WADStoreTests.swift */; };
+		9C2D3E4F5A6B7C8D9E0F1A2B /* ZipExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E4F5A6B7C8D9E0F1A2B3C4D /* ZipExtractorTests.swift */; };
+		ACA9B3FBC797F4FEC553335D /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C32E3933D4F1E7B8FB22C196 /* CoreGraphics.framework */; };
+		B350BB61B6782A827D9055D6 /* OpenGLES.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 08E113A6BF5D8EBD3B5531C8 /* OpenGLES.framework */; };
+		B9234DA9DC971DE4BD9E19AA /* CoreHaptics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E678430A82E91C6A31356C8B /* CoreHaptics.framework */; };
+		BABD24F1A795C9EFF6A9D947 /* GameController.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 46699C439C8862B3840ADD69 /* GameController.framework */; };
+		BB10D0322EA9B3AD3E0E3853 /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BFE1AC1DE71965C62C7359C2 /* AudioToolbox.framework */; };
+		C54869AA10AB82517DE324B7 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9A7754A65DCD00B7885A8F71 /* AVFoundation.framework */; };
+		CA266FC10843379F95C3CDDB /* CoreAudio.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EB9B50931D86E5B7A4ACB773 /* CoreAudio.framework */; };
+		DD10BBA0A13A9B052491B9C9 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EC9BA5791110E5A44C37047E /* Metal.framework */; };
+		E27346CB7A7A3DED1B05D759 /* CoreBluetooth.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D56AB5BC94410384ACE3AE3B /* CoreBluetooth.framework */; };
+		EE34946A021A765843C4F208 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 694D5271D1B2117A914D737C /* UIKit.framework */; };
+		F3C60C7A8F1EC03E10C78E9E /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9CB3BF077549CD918DF471DC /* MetalKit.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		31BD5176D14D6374E0260CA6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 54ECCEF1516426E39A8621D5 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 6BC5D8583E08FAA631511908;
+			remoteInfo = BoomBox;
+		};
+		7A3036809F436C5CDBE7C668 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 54ECCEF1516426E39A8621D5 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 6BC5D8583E08FAA631511908;
+			remoteInfo = BoomBox;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		0359482FDF867D30DFBB61EA /* EngineSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineSession.swift; sourceTree = "<group>"; };
+		08E113A6BF5D8EBD3B5531C8 /* OpenGLES.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = OpenGLES.framework; path = System/Library/Frameworks/OpenGLES.framework; sourceTree = SDKROOT; };
+		108AF1064C0B2C993C31143E /* BoomBoxTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = BoomBoxTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		1DC77CBBCB398FAC12C0DAFF /* BoomBox.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BoomBox.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2DAEA477CDFD46F35D863009 /* EngineSmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineSmokeTests.swift; sourceTree = "<group>"; };
+		46699C439C8862B3840ADD69 /* GameController.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = GameController.framework; path = System/Library/Frameworks/GameController.framework; sourceTree = SDKROOT; };
+		694D5271D1B2117A914D737C /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		6E077047B8439DD7BD5C1DBD /* GameData */ = {isa = PBXFileReference; lastKnownFileType = folder; name = GameData; path = Resources/GameData; sourceTree = SOURCE_ROOT; };
+		788A54D0F0A32843E19A4732 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		984A0EDED18A897240635775 /* CoreMotion.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMotion.framework; path = System/Library/Frameworks/CoreMotion.framework; sourceTree = SDKROOT; };
+		98DEF79F78B1BC21504E48AD /* BoomBoxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoomBoxApp.swift; sourceTree = "<group>"; };
+		9957B8006EB7A29A080C1680 /* CoreMedia.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMedia.framework; path = System/Library/Frameworks/CoreMedia.framework; sourceTree = SDKROOT; };
+		9A7754A65DCD00B7885A8F71 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		9CB3BF077549CD918DF471DC /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+		B7907852986853FC9D42247A /* woof.pk3 */ = {isa = PBXFileReference; path = woof.pk3; sourceTree = "<group>"; };
+		BFE1AC1DE71965C62C7359C2 /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = System/Library/Frameworks/AudioToolbox.framework; sourceTree = SDKROOT; };
+		C32E3933D4F1E7B8FB22C196 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		CD02BA420A0E032995FC1A7D /* WoofEngine.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = WoofEngine.xcframework; path = ../Vendor/out/WoofEngine.xcframework; sourceTree = "<group>"; };
+		D56AB5BC94410384ACE3AE3B /* CoreBluetooth.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreBluetooth.framework; path = System/Library/Frameworks/CoreBluetooth.framework; sourceTree = SDKROOT; };
+		E678430A82E91C6A31356C8B /* CoreHaptics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreHaptics.framework; path = System/Library/Frameworks/CoreHaptics.framework; sourceTree = SDKROOT; };
+		EB9B50931D86E5B7A4ACB773 /* CoreAudio.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreAudio.framework; path = System/Library/Frameworks/CoreAudio.framework; sourceTree = SDKROOT; };
+		EBC83039DA1ABE8EF1F50158 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		EC9BA5791110E5A44C37047E /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		F6C5A20BD03107E254D698CB /* WADParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WADParser.swift; sourceTree = "<group>"; };
+		9F1A2B3C4D5E6F7A8B5C7D8E /* WADStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WADStore.swift; sourceTree = "<group>"; };
+		2F3A4B5C6D7E8F9A0B1C2D3E /* ZipExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZipExtractor.swift; sourceTree = "<group>"; };
+		F9796D3D943A0329EA79B512 /* BoomBoxUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = BoomBoxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		FA6F7A2723165F068D8B2769 /* WADParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WADParserTests.swift; sourceTree = "<group>"; };
+		7A3B5C8D9E4F1A2B3C5D7E8F /* WADStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WADStoreTests.swift; sourceTree = "<group>"; };
+		3E4F5A6B7C8D9E0F1A2B3C4D /* ZipExtractorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZipExtractorTests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		976427F493C0F4D53AABA19F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				67943A118E5B1CB05C83D61C /* WoofEngine.xcframework in Frameworks */,
+				348226CCB1E4C8E2341AEEEB /* ZIPFoundation in Frameworks */,
+				DD10BBA0A13A9B052491B9C9 /* Metal.framework in Frameworks */,
+				F3C60C7A8F1EC03E10C78E9E /* MetalKit.framework in Frameworks */,
+				3EE7C043B5457CF65D807BA7 /* QuartzCore.framework in Frameworks */,
+				EE34946A021A765843C4F208 /* UIKit.framework in Frameworks */,
+				ACA9B3FBC797F4FEC553335D /* CoreGraphics.framework in Frameworks */,
+				86D841B7D2C4FC890DA66959 /* CoreMotion.framework in Frameworks */,
+				B9234DA9DC971DE4BD9E19AA /* CoreHaptics.framework in Frameworks */,
+				BABD24F1A795C9EFF6A9D947 /* GameController.framework in Frameworks */,
+				CA266FC10843379F95C3CDDB /* CoreAudio.framework in Frameworks */,
+				BB10D0322EA9B3AD3E0E3853 /* AudioToolbox.framework in Frameworks */,
+				C54869AA10AB82517DE324B7 /* AVFoundation.framework in Frameworks */,
+				954CC021778B0387288ACECC /* CoreMedia.framework in Frameworks */,
+				E27346CB7A7A3DED1B05D759 /* CoreBluetooth.framework in Frameworks */,
+				B350BB61B6782A827D9055D6 /* OpenGLES.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0EFEA4A60EED03C541F36D7E /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				98DEF79F78B1BC21504E48AD /* BoomBoxApp.swift */,
+				788A54D0F0A32843E19A4732 /* ContentView.swift */,
+				0359482FDF867D30DFBB61EA /* EngineSession.swift */,
+				F9D92485168E0F7FC52DA38E /* WAD */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		4F5763D882B478A6D2A8B63C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				1DC77CBBCB398FAC12C0DAFF /* BoomBox.app */,
+				108AF1064C0B2C993C31143E /* BoomBoxTests.xctest */,
+				F9796D3D943A0329EA79B512 /* BoomBoxUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		5C88E4454AAFE0C861A63464 = {
+			isa = PBXGroup;
+			children = (
+				6E077047B8439DD7BD5C1DBD /* GameData */,
+				BD4E785C3CCC0DF08936ADA6 /* Resources */,
+				0EFEA4A60EED03C541F36D7E /* Sources */,
+				8827DFA23A6C2ABB4EB8170D /* Tests */,
+				C8C1E898F803E00175D8EDE9 /* UITests */,
+				C321C368487AF7935FA9019B /* Frameworks */,
+				4F5763D882B478A6D2A8B63C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		8827DFA23A6C2ABB4EB8170D /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				FA6F7A2723165F068D8B2769 /* WADParserTests.swift */,
+				7A3B5C8D9E4F1A2B3C5D7E8F /* WADStoreTests.swift */,
+				3E4F5A6B7C8D9E0F1A2B3C4D /* ZipExtractorTests.swift */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		BD4E785C3CCC0DF08936ADA6 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				B7907852986853FC9D42247A /* woof.pk3 */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		C321C368487AF7935FA9019B /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				BFE1AC1DE71965C62C7359C2 /* AudioToolbox.framework */,
+				9A7754A65DCD00B7885A8F71 /* AVFoundation.framework */,
+				EB9B50931D86E5B7A4ACB773 /* CoreAudio.framework */,
+				D56AB5BC94410384ACE3AE3B /* CoreBluetooth.framework */,
+				C32E3933D4F1E7B8FB22C196 /* CoreGraphics.framework */,
+				E678430A82E91C6A31356C8B /* CoreHaptics.framework */,
+				9957B8006EB7A29A080C1680 /* CoreMedia.framework */,
+				984A0EDED18A897240635775 /* CoreMotion.framework */,
+				46699C439C8862B3840ADD69 /* GameController.framework */,
+				EC9BA5791110E5A44C37047E /* Metal.framework */,
+				9CB3BF077549CD918DF471DC /* MetalKit.framework */,
+				08E113A6BF5D8EBD3B5531C8 /* OpenGLES.framework */,
+				EBC83039DA1ABE8EF1F50158 /* QuartzCore.framework */,
+				694D5271D1B2117A914D737C /* UIKit.framework */,
+				CD02BA420A0E032995FC1A7D /* WoofEngine.xcframework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		C8C1E898F803E00175D8EDE9 /* UITests */ = {
+			isa = PBXGroup;
+			children = (
+				2DAEA477CDFD46F35D863009 /* EngineSmokeTests.swift */,
+			);
+			path = UITests;
+			sourceTree = "<group>";
+		};
+		F9D92485168E0F7FC52DA38E /* WAD */ = {
+			isa = PBXGroup;
+			children = (
+				F6C5A20BD03107E254D698CB /* WADParser.swift */,
+				9F1A2B3C4D5E6F7A8B5C7D8E /* WADStore.swift */,
+				2F3A4B5C6D7E8F9A0B1C2D3E /* ZipExtractor.swift */,
+			);
+			path = WAD;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		018D4DC794B6C22BD4C70CB5 /* BoomBoxTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CE82645B533282B7EADCDACE /* Build configuration list for PBXNativeTarget "BoomBoxTests" */;
+			buildPhases = (
+				11DC4EE63618A8A451F11FED /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				689125FE5C8A412F6BA7048A /* PBXTargetDependency */,
+			);
+			name = BoomBoxTests;
+			packageProductDependencies = (
+			);
+			productName = BoomBoxTests;
+			productReference = 108AF1064C0B2C993C31143E /* BoomBoxTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		134DAA7E58E3AE730575709C /* BoomBoxUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0EA5D53B2C6E02EB811DC913 /* Build configuration list for PBXNativeTarget "BoomBoxUITests" */;
+			buildPhases = (
+				E66C9BBCCEDDB578452221B6 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				1117B973D1A06AD523D2B22A /* PBXTargetDependency */,
+			);
+			name = BoomBoxUITests;
+			packageProductDependencies = (
+			);
+			productName = BoomBoxUITests;
+			productReference = F9796D3D943A0329EA79B512 /* BoomBoxUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		6BC5D8583E08FAA631511908 /* BoomBox */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4052B4E5C46B21936ED32EFC /* Build configuration list for PBXNativeTarget "BoomBox" */;
+			buildPhases = (
+				37036F4E40539A89A3BF4DA7 /* Sources */,
+				BF08906A24AE52095D81179A /* Resources */,
+				976427F493C0F4D53AABA19F /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BoomBox;
+			packageProductDependencies = (
+				55BB978811E2B3432114C1C5 /* ZIPFoundation */,
+			);
+			productName = BoomBox;
+			productReference = 1DC77CBBCB398FAC12C0DAFF /* BoomBox.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		54ECCEF1516426E39A8621D5 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					134DAA7E58E3AE730575709C = {
+						TestTargetID = 6BC5D8583E08FAA631511908;
+					};
+				};
+			};
+			buildConfigurationList = C3A1C2A230097473A672E37B /* Build configuration list for PBXProject "BoomBox" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 5C88E4454AAFE0C861A63464;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				728647467EAB84F8E84B96A3 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 4F5763D882B478A6D2A8B63C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				6BC5D8583E08FAA631511908 /* BoomBox */,
+				018D4DC794B6C22BD4C70CB5 /* BoomBoxTests */,
+				134DAA7E58E3AE730575709C /* BoomBoxUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		BF08906A24AE52095D81179A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A16F4DFB091781C27650D584 /* GameData in Resources */,
+				75A7133C7EF781B370A56760 /* woof.pk3 in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		11DC4EE63618A8A451F11FED /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA8187B505FA2851DE212552 /* WADParserTests.swift in Sources */,
+				8E7F0B1C2A3B5C7D9E4F1A2B /* WADStoreTests.swift in Sources */,
+				9C2D3E4F5A6B7C8D9E0F1A2B /* ZipExtractorTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		37036F4E40539A89A3BF4DA7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8AB42587C4A60580C96080B7 /* BoomBoxApp.swift in Sources */,
+				143B583FB4A8735B54A0D3CE /* ContentView.swift in Sources */,
+				6917974DEAC0DAF54B1B7281 /* EngineSession.swift in Sources */,
+				3FB03CC61797DFEE338A5CC6 /* WADParser.swift in Sources */,
+				5C7D8E9F1A2B3C4D5E6F7A8B /* WADStore.swift in Sources */,
+				4D5E6F7A8B9C0D1E2F3A4B5C /* ZipExtractor.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E66C9BBCCEDDB578452221B6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				31E89127502D5F8A08A72520 /* EngineSmokeTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		1117B973D1A06AD523D2B22A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 6BC5D8583E08FAA631511908 /* BoomBox */;
+			targetProxy = 31BD5176D14D6374E0260CA6 /* PBXContainerItemProxy */;
+		};
+		689125FE5C8A412F6BA7048A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 6BC5D8583E08FAA631511908 /* BoomBox */;
+			targetProxy = 7A3036809F436C5CDBE7C668 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		1BA53E46D127DE644A84931B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"../Vendor/out\"",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
+				INFOPLIST_KEY_UIStatusBarHidden = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tylervick.BoomBox;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		3081C90F0B643BFD5DE762BB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"../Vendor/out\"",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
+				INFOPLIST_KEY_UIStatusBarHidden = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tylervick.BoomBox;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		7306AC2F2D32287F5BA8E950 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.tylervick.BoomBoxTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BoomBox.app/BoomBox";
+			};
+			name = Debug;
+		};
+		A410FD984ECBB510DB4AC45C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.tylervick.BoomBoxUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = BoomBox;
+			};
+			name = Debug;
+		};
+		AE3192E07749E163B88E4152 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.tylervick.BoomBoxTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BoomBox.app/BoomBox";
+			};
+			name = Release;
+		};
+		AF5EFE59F519CA35D548FEEB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.tylervick.BoomBoxUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = BoomBox;
+			};
+			name = Release;
+		};
+		B9C945FE222ECF50D4D1A97E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				OTHER_LDFLAGS = "-lc++";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		F17AB70A33F8ED805401336C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				OTHER_LDFLAGS = "-lc++";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0EA5D53B2C6E02EB811DC913 /* Build configuration list for PBXNativeTarget "BoomBoxUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A410FD984ECBB510DB4AC45C /* Debug */,
+				AF5EFE59F519CA35D548FEEB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		4052B4E5C46B21936ED32EFC /* Build configuration list for PBXNativeTarget "BoomBox" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1BA53E46D127DE644A84931B /* Debug */,
+				3081C90F0B643BFD5DE762BB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C3A1C2A230097473A672E37B /* Build configuration list for PBXProject "BoomBox" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B9C945FE222ECF50D4D1A97E /* Debug */,
+				F17AB70A33F8ED805401336C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		CE82645B533282B7EADCDACE /* Build configuration list for PBXNativeTarget "BoomBoxTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7306AC2F2D32287F5BA8E950 /* Debug */,
+				AE3192E07749E163B88E4152 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		728647467EAB84F8E84B96A3 /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/weichsel/ZIPFoundation";
+			requirement = {
+				kind = exactVersion;
+				version = 0.9.19;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		55BB978811E2B3432114C1C5 /* ZIPFoundation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 728647467EAB84F8E84B96A3 /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
+			productName = ZIPFoundation;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 54ECCEF1516426E39A8621D5 /* Project object */;
+}
