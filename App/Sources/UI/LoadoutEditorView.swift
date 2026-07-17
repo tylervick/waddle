@@ -37,12 +37,17 @@ struct LoadoutEditorView: View {
                     }
                     .onMove { pwadIDs.move(fromOffsets: $0, toOffset: $1) }
                     .onDelete { pwadIDs.remove(atOffsets: $0) }
-                    Menu("Add PWAD") {
+                    Menu {
                         ForEach(pwads.filter { !pwadIDs.contains($0.id) }, id: \.id) { wad in
                             Button(wad.displayName) { pwadIDs.append(wad.id) }
                                 .accessibilityIdentifier("addPWADButton-\(wad.displayName)")
                         }
+                    } label: {
+                        Text("Add PWAD")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                     }
+                    .accessibilityIdentifier("addPWADMenu")
                 }
                 Section("DeHackEd patches") {
                     ForEach(dehIDs, id: \.self) { id in
@@ -97,10 +102,12 @@ struct LoadoutEditorView: View {
             existing.pwadIDs = pwadIDs
             existing.dehIDs = dehIDs
             existing.complevel = complevel
+            try? library.saveChanges()
         } else {
             let loadout = try? library.createLoadout(name: name, iwadID: iwadID,
                                                      pwadIDs: pwadIDs, dehIDs: dehIDs)
             loadout?.complevel = complevel
+            try? library.saveChanges()
         }
         dismiss()
     }

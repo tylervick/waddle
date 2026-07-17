@@ -84,6 +84,7 @@ struct LoadoutGridView: View {
                 return library.fileURL(for: wad)
             }
             loadout.lastPlayed = .now
+            try? library.saveChanges()
             lastExitCode = EngineSession.play(arguments: args)
         } catch {
             lastExitCode = -101   // arg-building failure (missing WAD)

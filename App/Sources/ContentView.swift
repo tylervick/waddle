@@ -7,15 +7,30 @@ struct ContentView: View {
 
     var body: some View {
         TabView {
-            Tab("Play", systemImage: "play.circle.fill") {
-                LoadoutGridView(library: library, lastExitCode: $lastExitCode)
-            }
-            .accessibilityIdentifier("playTab")
+            // NOTE on tab-bar accessibility identifiers (iOS 26 "Liquid
+            // Glass" TabView): the native tab bar button is reconstructed by
+            // the system from the tabItem's icon/title; it does NOT inherit
+            // SwiftUI identifiers/modifiers set on the tabItem content
+            // (verified empirically — neither `.tabItem { Label(...)
+            // .accessibilityIdentifier(...) }` nor `Tab(...)
+            // .accessibilityIdentifier(...)` reach the rendered button). The
+            // identifiers below land on each tab's content-pane container
+            // instead, which IS reachable once that tab is showing. UI tests
+            // must switch tabs by the button's label text
+            // (`app.tabBars.buttons["Play"].tap()` / `["Library"].tap()`);
+            // use `app.otherElements["playTab"]` / `["libraryTab"]` to assert
+            // which tab's content is now on screen.
+            LoadoutGridView(library: library, lastExitCode: $lastExitCode)
+                .tabItem {
+                    Label("Play", systemImage: "play.circle.fill")
+                }
+                .accessibilityIdentifier("playTab")
 
-            Tab("Library", systemImage: "books.vertical") {
-                LibraryView(library: library, importer: importer)
-            }
-            .accessibilityIdentifier("libraryTab")
+            LibraryView(library: library, importer: importer)
+                .tabItem {
+                    Label("Library", systemImage: "books.vertical")
+                }
+                .accessibilityIdentifier("libraryTab")
         }
         .overlay(alignment: .bottom) {
             if let code = lastExitCode {

@@ -97,6 +97,14 @@ final class LibraryService {
         return loadout
     }
 
+    /// Persists in-place mutations made directly to fetched/created model
+    /// instances (e.g. editing an existing Loadout's fields, or bumping
+    /// lastPlayed) — those mutations aren't saved on their own; SwiftData's
+    /// autosave is not immediate/guaranteed at the point callers need it.
+    func saveChanges() throws {
+        try context.save()
+    }
+
     func loadoutsReferencing(wadID: UUID) throws -> [Loadout] {
         try context.fetch(FetchDescriptor<Loadout>()).filter {
             $0.iwadID == wadID || $0.pwadIDs.contains(wadID) || $0.dehIDs.contains(wadID)
