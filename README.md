@@ -55,4 +55,31 @@ works end to end, not just compiles.
   Xcode emit macOS-style codesign rules that break `simctl install` on an
   iOS target.
 - Engine sessions are launched with `-save <dir>` (not `-savedir`), pointing
-  at a per-IWAD directory under the app's Documents folder.
+  at a per-loadout directory (`Documents/Saves/<loadout-id>/`) so each
+  loadout keeps its own save games, even loadouts that share an IWAD.
+
+## WAD library
+
+Import WADs three ways: the in-app Import button, "Share → BoomBox" from
+another app, or drop files into the app's folder in the Files app (adopted
+on next launch). IWADs, PWADs, `.deh`/`.bex` patches, and zips containing
+any of those all work; zips are recursed into and duplicates are deduped by
+content hash. Files that fail to import (bad header, unsupported type,
+etc.) are never silently deleted — they're moved to `Documents/Import
+Failed/`, visible and recoverable from the Files app. Build **loadouts**
+(one IWAD + ordered PWADs/patches); each loadout keeps its own save games.
+Freedoom Phase 1+2 are bundled and pre-wired as loadouts.
+
+### Real-WAD test matrix
+
+`App/UITests/RealWADTests.swift` verifies vanilla/Boom/MBF21 content against
+real community WADs, plus a negative case built from a synthetic,
+unrecognized-IWAD fixture that `Scripts/provision-test-wads.sh` generates
+itself — not a real wrong-IWAD-pairing WAD. (Woof never auto-warps into a
+level without an explicit `-warp` flag, which this app never passes, so a
+real mismatched IWAD/PWAD pairing just idles harmlessly on the title screen
+instead of erroring; an unrecognized IWAD is the reliable way to make the
+engine actually fail.) The vanilla/Boom/MBF21 cases expect the real WADs in
+`~/Downloads/doom-test-wads/` (see the script header) provisioned via
+`Scripts/provision-test-wads.sh` after installing the app on the simulator;
+without them, only that test class fails.
