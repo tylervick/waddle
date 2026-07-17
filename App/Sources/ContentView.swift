@@ -12,7 +12,12 @@ struct ContentView: View {
                 // smoke test distinguishes "this session exited" from "stale
                 // label from the last session" by watching it disappear.
                 lastExitCode = nil
-                lastExitCode = EngineSession.play(iwad: "freedoom1.wad")
+                let iwad = Bundle.main.resourceURL!
+                    .appendingPathComponent("GameData/freedoom1.wad")
+                let saves = URL.documentsDirectory.appendingPathComponent("Saves/freedoom1")
+                try? FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
+                lastExitCode = EngineSession.play(
+                    arguments: ["woof", "-iwad", iwad.path, "-save", saves.path])
             }
             .buttonStyle(.borderedProminent)
             .accessibilityIdentifier("playFreedoom1")

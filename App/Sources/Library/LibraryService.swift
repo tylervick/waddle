@@ -135,7 +135,7 @@ final class LibraryService {
         return store.url(forFilename: wad.filename)
     }
 
-    static func savesDirectory(forLoadoutID id: UUID) -> URL {
+    nonisolated static func savesDirectory(forLoadoutID id: UUID) -> URL {
         URL.documentsDirectory
             .appendingPathComponent("Saves", isDirectory: true)
             .appendingPathComponent(id.uuidString, isDirectory: true)

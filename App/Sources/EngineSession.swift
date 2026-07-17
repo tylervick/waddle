@@ -8,33 +8,12 @@ import WoofEngine
 enum EngineSession {
     private(set) static var isRunning = false
 
-    /// Boots the engine with the given IWAD (a filename inside the app
-    /// bundle's GameData resources) and returns the engine exit code.
+    /// Boots the engine with a full argv (starting with "woof") and returns
+    /// the engine exit code. Build argv with LoadoutArguments.
     @discardableResult
-    static func play(iwad: String, extraArgs: [String] = []) -> Int32 {
+    static func play(arguments: [String]) -> Int32 {
         precondition(!isRunning, "engine session already running")
-        guard let gameData = Bundle.main.resourceURL?
-            .appendingPathComponent("GameData", isDirectory: true),
-            FileManager.default.fileExists(
-                atPath: gameData.appendingPathComponent(iwad).path)
-        else {
-            assertionFailure("missing bundled IWAD \(iwad)")
-            return -100
-        }
-
-        let saves = URL.documentsDirectory
-            .appendingPathComponent("Saves", isDirectory: true)
-            .appendingPathComponent((iwad as NSString).deletingPathExtension,
-                                    isDirectory: true)
-        try? FileManager.default.createDirectory(
-            at: saves, withIntermediateDirectories: true)
-
-        var arguments = [
-            "woof",
-            "-iwad", gameData.appendingPathComponent(iwad).path,
-            "-save", saves.path,
-        ]
-        arguments += extraArgs
+        precondition(arguments.first == "woof", "argv[0] must be the program name")
 
         // If the host asked for an auto-quit (UI testing), schedule it on a
         // background thread; WoofIOS_RequestQuit is thread-safe.
