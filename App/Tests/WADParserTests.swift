@@ -73,4 +73,19 @@ final class WADParserTests: XCTestCase {
         XCTAssertEqual(WADParser.gameFamily(of: ["E2M4"]), .doom1)
         XCTAssertEqual(WADParser.gameFamily(of: ["TEXTURE1"]), .unknown)
     }
+
+    func testParsesDataSliceWithNonZeroStartIndex() throws {
+        var padded = Data(repeating: 0xFF, count: 20)
+        padded.append(makeWAD(magic: "PWAD", lumps: ["MAP01"]))
+        let slice = padded[20...]
+        XCTAssertNotEqual(slice.startIndex, 0)
+        let wad = try WADParser.parse(slice)
+        XCTAssertEqual(wad.kind, .pwad)
+        XCTAssertEqual(wad.lumpNames, ["MAP01"])
+    }
+
+    func testNonASCIIDigitsAreNotMapLumps() {
+        XCTAssertEqual(WADParser.mapFormat(of: ["MAP٢²"]), .none)
+        XCTAssertEqual(WADParser.mapFormat(of: ["E٢M²"]), .none)
+    }
 }

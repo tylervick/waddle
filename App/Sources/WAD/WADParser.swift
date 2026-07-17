@@ -25,11 +25,12 @@ enum WADParser {
     /// directory entries of filepos(4) | size(4) | name(8, NUL-padded).
     static func parse(_ data: Data) throws -> ParsedWAD {
         guard data.count >= 12 else { throw WADParseError.tooSmall }
-        guard let kind = WADKind(rawValue: String(decoding: data.prefix(4), as: UTF8.self))
+        let base = data.startIndex
+        guard let kind = WADKind(rawValue: String(decoding: data[base..<base+4], as: UTF8.self))
         else { throw WADParseError.badMagic }
 
-        let numLumps = Int(readInt32LE(data, at: 4))
-        let dirOffset = Int(readInt32LE(data, at: 8))
+        let numLumps = Int(readInt32LE(data, at: base+4))
+        let dirOffset = Int(readInt32LE(data, at: base+8))
         guard numLumps >= 0, dirOffset >= 0,
               dirOffset + numLumps * 16 <= data.count
         else { throw WADParseError.corruptDirectory }
@@ -38,7 +39,7 @@ enum WADParser {
         names.reserveCapacity(numLumps)
         for i in 0..<numLumps {
             let entry = dirOffset + i * 16
-            let nameBytes = data[(entry + 8)..<(entry + 16)].prefix { $0 != 0 }
+            let nameBytes = data[(base + entry + 8)..<(base + entry + 16)].prefix { $0 != 0 }
             names.append(String(decoding: nameBytes, as: UTF8.self).uppercased())
         }
         return ParsedWAD(kind: kind, lumpNames: names)
@@ -64,10 +65,11 @@ enum WADParser {
 
     private static func isEpisodic(_ name: String) -> Bool {
         name.count == 4 && name.first == "E" && name[name.index(name.startIndex, offsetBy: 2)] == "M"
-            && name.dropFirst().first!.isNumber && name.last!.isNumber
+            && name.dropFirst().first.map { ("0"..."9").contains($0) } ?? false
+            && name.last.map { ("0"..."9").contains($0) } ?? false
     }
 
     private static func isMapXX(_ name: String) -> Bool {
-        name.count == 5 && name.hasPrefix("MAP") && name.dropFirst(3).allSatisfy(\.isNumber)
+        name.count == 5 && name.hasPrefix("MAP") && name.dropFirst(3).allSatisfy { ("0"..."9").contains($0) }
     }
 }
