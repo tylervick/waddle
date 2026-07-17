@@ -1,29 +1,30 @@
 import SwiftUI
 
 struct ContentView: View {
+    let library: LibraryService
+    let importer: ImportService
     @State private var lastExitCode: Int32?
 
     var body: some View {
-        VStack(spacing: 24) {
-            Text("BoomBox")
-                .font(.largeTitle.bold())
-            Button("Play Freedoom Phase 1") {
-                // Clear the previous session's exit label before booting: the
-                // smoke test distinguishes "this session exited" from "stale
-                // label from the last session" by watching it disappear.
-                lastExitCode = nil
-                let iwad = Bundle.main.resourceURL!
-                    .appendingPathComponent("GameData/freedoom1.wad")
-                let saves = URL.documentsDirectory.appendingPathComponent("Saves/freedoom1")
-                try? FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
-                lastExitCode = EngineSession.play(
-                    arguments: ["woof", "-iwad", iwad.path, "-save", saves.path])
+        TabView {
+            Tab("Play", systemImage: "play.circle.fill") {
+                LoadoutGridView(library: library, lastExitCode: $lastExitCode)
             }
-            .buttonStyle(.borderedProminent)
-            .accessibilityIdentifier("playFreedoom1")
+            .accessibilityIdentifier("playTab")
+
+            Tab("Library", systemImage: "books.vertical") {
+                LibraryView(library: library, importer: importer)
+            }
+            .accessibilityIdentifier("libraryTab")
+        }
+        .overlay(alignment: .bottom) {
             if let code = lastExitCode {
                 Text("Engine exited: \(code)")
+                    .font(.footnote.monospaced())
+                    .padding(6)
+                    .background(.thinMaterial, in: Capsule())
                     .accessibilityIdentifier("engineExitLabel")
+                    .padding(.bottom, 60)
             }
         }
     }
