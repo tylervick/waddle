@@ -54,7 +54,7 @@ Two halves in one app:
 
 ### Components
 - **Engine wrapper** (`EngineSession`): configures args
-  (`-iwad/-file/-deh/-savedir/-complevel`), presents the SDL view, runs the
+  (`-iwad/-file/-deh/-save/-complevel`), presents the SDL view, runs the
   engine, and returns control + exit status to SwiftUI.
 - **iOS patch set on Woof** (kept minimal, rebased on upstream releases):
   - Quit path: `exit()`/`I_Error` unwound back to the frontend instead of
@@ -99,7 +99,7 @@ discarded.
   game, import date. Files stored in `Documents/WADs/`.
 - `Loadout`: name, IWAD ref, ordered PWAD/DEH refs, optional complevel
   override (default: Woof auto-detect), last-played. Maps 1:1 to engine args.
-- Saves: per-loadout directory via `-savedir`, keyed by loadout ID.
+- Saves: per-loadout directory via `-save`, keyed by loadout ID.
   Sunlust and Eviternity saves never collide.
 
 **Referential rules:** deleting a loadout offers to delete its saves;

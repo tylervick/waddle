@@ -12,7 +12,6 @@ BSD-licensed (see its accompanying COPYING file).
 Requirements: Xcode 26.2+, Homebrew (`brew install cmake ninja xcodegen`).
 
 ```sh
-Scripts/vendor-woof.sh      # one-time: vendor pinned Woof! source (see Engine/WOOF_UPSTREAM.md)
 Scripts/build-deps.sh       # SDL3 + OpenAL Soft static libs (device + simulator)
 Scripts/build-engine.sh     # Woof! static lib + WoofEngine.xcframework; stages woof.pk3
 Scripts/fetch-freedoom.sh   # Freedoom WADs into App/Resources/GameData
@@ -32,6 +31,11 @@ works end to end, not just compiles.
 
 ### Deviations worth knowing about
 
+- **The Woof! source is committed (vendored) — do not run
+  `Scripts/vendor-woof.sh` as part of a normal build.** It re-downloads the
+  pinned upstream tree and clobbers the committed iOS patch set; it exists
+  only for maintainers updating the engine pin, following the procedure in
+  `Engine/WOOF_UPSTREAM.md`.
 - **Woof! is pinned to a `master` commit, not a release tag.**
   `Scripts/vendor-woof.sh` hardcodes `WOOF_COMMIT` to a specific commit on
   the SDL3-based tree (it reports itself as "Woof 15.2.0"). The newer-looking
