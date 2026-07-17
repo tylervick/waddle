@@ -35,6 +35,16 @@ static pthread_t session_thread;
 // locals don't reliably survive the longjmp back into WoofIOS_Run's frame).
 static struct sigaction previous_sigterm;
 
+// Touch-control shim state (Plan 3; see the block comment further down).
+// Declared here, ahead of WoofIOS_Run, because the unwind path below must
+// reset them across sessions -- same stale-global hazard as the statics
+// documented in WOOF_UPSTREAM.md's Task 10 section, extended to this
+// module by Plan 3 Task 1's fix round 1.
+static SDL_JoystickID touch_joystick_id;
+static SDL_Joystick *touch_joystick;
+static int touch_event_count;
+static float touch_turn_accum;
+
 void WoofIOS_ExitUnwind(int rc)
 {
     if (exit_env_valid)
@@ -102,6 +112,18 @@ int WoofIOS_Run(int argc, char **argv)
     if (code != 0)
     {
         sigaction(SIGTERM, &previous_sigterm, NULL);
+
+        // The session that just unwound already tore down SDL (its exit
+        // handlers freed any attached touch gamepad along with every
+        // other joystick), so these statics are stale/dangling now, not
+        // merely "detached" -- same stale-global hazard as the module
+        // statics in WOOF_UPSTREAM.md's Task 10 section. Reset them so
+        // the next session's WoofIOS_AttachTouchGamepad attaches fresh
+        // instead of trusting a pointer from a torn-down subsystem.
+        touch_joystick = NULL;
+        touch_joystick_id = 0;
+        touch_turn_accum = 0.0f;
+
         return code > 0 ? code - 1 : code;
     }
     exit_env_valid = 1;
@@ -136,10 +158,17 @@ int WoofIOS_Run(int argc, char **argv)
 // code path -- so the overlay never touches Woof!'s input tables directly;
 // it just drives the gamepad Woof! already knows how to read (respecting
 // the user's own gamepad bindings).
-
-static SDL_JoystickID touch_joystick_id;
-static SDL_Joystick *touch_joystick;
-static int touch_event_count;
+//
+// Turn is different: there is no SDL event path from a pushed
+// SDL_EVENT_MOUSE_MOTION into Woof!'s mouse handling. I_ReadMouse polls
+// SDL_GetRelativeMouseState() once per tic, which reads SDL's internal
+// accumulator that only SDL_SendMouseMotion (not part of the public API)
+// updates, and i_video.c's ProcessEvent has no motion case to relay a
+// pushed event into that accumulator either. So turn is delivered through
+// a shim-owned accumulator instead: WoofIOS_InjectRelativeTurn adds to
+// touch_turn_accum, and a small WOOF_IOS-guarded hook added to
+// I_ReadMouse (documented as an i_input.c patch in WOOF_UPSTREAM.md)
+// drains it via WoofIOS_ConsumeTouchTurn every tic.
 
 bool WoofIOS_AttachTouchGamepad(void)
 {
@@ -180,6 +209,19 @@ void WoofIOS_DetachTouchGamepad(void)
     {
         return;
     }
+    if (!SDL_WasInit(SDL_INIT_JOYSTICK))
+    {
+        // The joystick subsystem has already torn down (e.g. mid-quit,
+        // via the exit handlers I_SafeExit runs before unwinding back to
+        // WoofIOS_Run) and freed every open joystick along with it.
+        // touch_joystick is a dangling pointer at this point; closing or
+        // detaching through it would be a use-after-free. Just drop our
+        // references -- WoofIOS_Run's unwind path resets them too, but a
+        // caller may invoke this directly before that happens.
+        touch_joystick = NULL;
+        touch_joystick_id = 0;
+        return;
+    }
     SDL_CloseJoystick(touch_joystick);
     SDL_DetachVirtualJoystick(touch_joystick_id);
     touch_joystick = NULL;
@@ -211,14 +253,15 @@ void WoofIOS_SetTouchButton(int sdl_button, bool down)
 
 void WoofIOS_InjectRelativeTurn(float dx_points)
 {
-    SDL_Event event = {0};
-    event.type = SDL_EVENT_MOUSE_MOTION;
-    event.motion.xrel = dx_points;
-    event.motion.yrel = 0.0f;
-    if (SDL_PushEvent(&event))
-    {
-        touch_event_count++;
-    }
+    touch_turn_accum += dx_points;
+    touch_event_count++;
+}
+
+float WoofIOS_ConsumeTouchTurn(void)
+{
+    float value = touch_turn_accum;
+    touch_turn_accum = 0.0f;
+    return value;
 }
 
 void *WoofIOS_GetUIWindowPointer(void)

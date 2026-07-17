@@ -19,8 +19,11 @@ void WoofIOS_ExitUnwind(int rc);
 
 // --- Touch-control shim (Plan 3) ---
 // The native overlay drives a virtual SDL gamepad; the engine consumes it
-// through its normal, user-remappable gamepad bindings. Turn is injected as
-// relative mouse motion. All functions are main-thread-only (same thread as
+// through its normal, user-remappable gamepad bindings. Turn is injected
+// into a shim-owned accumulator (there is no SDL event path from a pushed
+// SDL_EVENT_MOUSE_MOTION to I_ReadMouse's polled SDL_GetRelativeMouseState
+// -- see WoofIOS_ConsumeTouchTurn below and the i_input.c patch documented
+// in WOOF_UPSTREAM.md). All functions are main-thread-only (same thread as
 // WoofIOS_Run; SDL pumps the run loop, so UIKit callbacks qualify).
 
 #include <stdbool.h>
@@ -32,5 +35,10 @@ void WoofIOS_SetTouchButton(int sdl_button, bool down);
 void WoofIOS_InjectRelativeTurn(float dx_points);
 void *WoofIOS_GetUIWindowPointer(void);
 int WoofIOS_DebugTouchEventCount(void);
+
+// Engine-internal: called only from i_input.c's I_ReadMouse (WOOF_IOS
+// build), not part of the overlay-facing API above. Returns the turn
+// accumulated since the last call and resets it to 0.
+float WoofIOS_ConsumeTouchTurn(void);
 
 #endif

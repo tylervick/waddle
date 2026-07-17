@@ -1030,6 +1030,18 @@ void I_ReadMouse(void)
 
     SDL_GetRelativeMouseState(&ev.data1.f, &ev.data2.f);
 
+#ifdef WOOF_IOS
+    // BoomBox's touch overlay has no real mouse to move, so it can't
+    // reach this function via SDL_GetRelativeMouseState()'s accumulator
+    // (that's only updated by SDL_SendMouseMotion, which isn't public
+    // API, and there's no SDL_EVENT_MOUSE_MOTION case in i_video.c's
+    // ProcessEvent to relay a pushed event into it either). Instead it
+    // hands off relative turn through its own accumulator, drained here
+    // once per tic; see woof_ios.c's touch-control shim.
+    extern float WoofIOS_ConsumeTouchTurn(void);
+    ev.data1.f += WoofIOS_ConsumeTouchTurn();
+#endif
+
     if (ev.data1.f || ev.data2.f)
     {
         D_PostEvent(&ev);
