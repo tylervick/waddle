@@ -39,6 +39,25 @@ Current patches:
   `I_Error` is occasionally reachable from helper threads, and unwinding
   a foreign stack is undefined behavior. Each session also clears the
   previous session's accumulated error text via `I_ResetErrorMessages()`.
+  Plan 3 Task 1 added a touch-control shim: `WoofIOS_AttachTouchGamepad`/
+  `WoofIOS_DetachTouchGamepad`/`WoofIOS_SetTouchAxis`/`WoofIOS_SetTouchButton`
+  drive a virtual `SDL_JOYSTICK_TYPE_GAMEPAD` joystick that the native
+  overlay owns, `WoofIOS_InjectRelativeTurn` pushes relative mouse motion
+  for turning, and `WoofIOS_GetUIWindowPointer` exposes the SDL window's
+  `UIWindow*` for the overlay to attach into. No fallback attach hook was
+  needed: verified that Woof! auto-opens a gamepad attached mid-session
+  through its existing `SDL_EVENT_GAMEPAD_ADDED` handling —
+  `src/i_video.c:517-519` (`ProcessEvent`) calls `I_OpenGamepad(ev->gdevice.which)`
+  unconditionally on that event (not gated on `joy_device`/`I_GamepadEnabled`),
+  and `I_OpenGamepad` (`src/i_input.c:566-604`) opens it via
+  `SDL_OpenGamepad` when no gamepad is already active. SDL fires
+  `SDL_EVENT_GAMEPAD_ADDED` for the virtual joystick because
+  `SDL_IsGamepad()` resolves true for it: the virtual-joystick driver
+  tags the synthesized GUID's type byte with `SDL_JOYSTICK_TYPE_GAMEPAD`
+  (`Vendor/src/SDL/src/joystick/virtual/SDL_virtualjoystick.c:234`) and,
+  since the shim leaves `button_mask`/`axis_mask` zeroed, auto-fills both
+  from `naxes`/`nbuttons` (same file, ~198-231) with a 1:1 index mapping
+  covering every `SDL_GAMEPAD_BUTTON_*`/`SDL_GAMEPAD_AXIS_*`.
 - `src/i_system.c` — added a `WOOF_IOS`-only `I_ResetErrorMessages()`:
   `I_ErrorInternal()` deliberately appends to its static `errmsg` buffer
   so nested errors within one exit sequence share a dialog, but across

@@ -17,4 +17,20 @@ void WoofIOS_RequestQuit(void);
 // Internal: called by I_SafeExit instead of exit(). Unwinds to WoofIOS_Run.
 void WoofIOS_ExitUnwind(int rc);
 
+// --- Touch-control shim (Plan 3) ---
+// The native overlay drives a virtual SDL gamepad; the engine consumes it
+// through its normal, user-remappable gamepad bindings. Turn is injected as
+// relative mouse motion. All functions are main-thread-only (same thread as
+// WoofIOS_Run; SDL pumps the run loop, so UIKit callbacks qualify).
+
+#include <stdbool.h>
+
+bool WoofIOS_AttachTouchGamepad(void);
+void WoofIOS_DetachTouchGamepad(void);
+void WoofIOS_SetTouchAxis(int sdl_axis, float value);
+void WoofIOS_SetTouchButton(int sdl_button, bool down);
+void WoofIOS_InjectRelativeTurn(float dx_points);
+void *WoofIOS_GetUIWindowPointer(void);
+int WoofIOS_DebugTouchEventCount(void);
+
 #endif

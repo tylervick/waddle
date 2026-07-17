@@ -94,6 +94,7 @@ int WoofIOS_Run(int argc, char **argv)
     // end-of-test terminate) behaves normally.
     struct sigaction ignore_term;
     memset(&ignore_term, 0, sizeof(ignore_term));
+    sigemptyset(&ignore_term.sa_mask);
     ignore_term.sa_handler = SIG_IGN;
     sigaction(SIGTERM, &ignore_term, &previous_sigterm);
 
@@ -121,4 +122,121 @@ int WoofIOS_Run(int argc, char **argv)
 
     // D_DoomMain never returns; quits funnel through I_SafeExit -> unwind.
     return 0;
+}
+
+// --- Touch-control shim (Plan 3) ---
+//
+// The native overlay creates a single virtual SDL gamepad shaped like a
+// standard controller (SDL_JOYSTICK_TYPE_GAMEPAD, full axis/button counts,
+// no explicit button_mask/axis_mask -- SDL's virtual-joystick driver fills
+// both in from naxes/nbuttons when they're left zero, covering every
+// SDL_GAMEPAD_BUTTON_*/SDL_GAMEPAD_AXIS_* index 1:1). Woof! then picks it up
+// through its normal SDL_EVENT_GAMEPAD_ADDED handling -- see Step 3's
+// verification in Engine/WOOF_UPSTREAM.md / the commit body for the exact
+// code path -- so the overlay never touches Woof!'s input tables directly;
+// it just drives the gamepad Woof! already knows how to read (respecting
+// the user's own gamepad bindings).
+
+static SDL_JoystickID touch_joystick_id;
+static SDL_Joystick *touch_joystick;
+static int touch_event_count;
+
+bool WoofIOS_AttachTouchGamepad(void)
+{
+    if (touch_joystick)
+    {
+        return true;
+    }
+    if (!SDL_WasInit(SDL_INIT_JOYSTICK))
+    {
+        return false; // engine hasn't initialized input yet; caller retries
+    }
+
+    SDL_VirtualJoystickDesc desc;
+    SDL_INIT_INTERFACE(&desc);
+    desc.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+    desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
+    desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+    desc.name = "BoomBox Touch Controls";
+
+    touch_joystick_id = SDL_AttachVirtualJoystick(&desc);
+    if (touch_joystick_id == 0)
+    {
+        return false;
+    }
+    touch_joystick = SDL_OpenJoystick(touch_joystick_id);
+    if (!touch_joystick)
+    {
+        SDL_DetachVirtualJoystick(touch_joystick_id);
+        touch_joystick_id = 0;
+        return false;
+    }
+    return true;
+}
+
+void WoofIOS_DetachTouchGamepad(void)
+{
+    if (!touch_joystick)
+    {
+        return;
+    }
+    SDL_CloseJoystick(touch_joystick);
+    SDL_DetachVirtualJoystick(touch_joystick_id);
+    touch_joystick = NULL;
+    touch_joystick_id = 0;
+}
+
+void WoofIOS_SetTouchAxis(int sdl_axis, float value)
+{
+    if (!touch_joystick)
+    {
+        return;
+    }
+    if (value > 1.0f) value = 1.0f;
+    if (value < -1.0f) value = -1.0f;
+    SDL_SetJoystickVirtualAxis(touch_joystick, sdl_axis,
+                               (Sint16)(value * 32767.0f));
+    touch_event_count++;
+}
+
+void WoofIOS_SetTouchButton(int sdl_button, bool down)
+{
+    if (!touch_joystick)
+    {
+        return;
+    }
+    SDL_SetJoystickVirtualButton(touch_joystick, sdl_button, down);
+    touch_event_count++;
+}
+
+void WoofIOS_InjectRelativeTurn(float dx_points)
+{
+    SDL_Event event = {0};
+    event.type = SDL_EVENT_MOUSE_MOTION;
+    event.motion.xrel = dx_points;
+    event.motion.yrel = 0.0f;
+    if (SDL_PushEvent(&event))
+    {
+        touch_event_count++;
+    }
+}
+
+void *WoofIOS_GetUIWindowPointer(void)
+{
+    int count = 0;
+    SDL_Window **windows = SDL_GetWindows(&count);
+    void *result = NULL;
+    if (windows && count > 0)
+    {
+        result = SDL_GetPointerProperty(SDL_GetWindowProperties(windows[0]),
+                                        SDL_PROP_WINDOW_UIKIT_WINDOW_POINTER,
+                                        NULL);
+    }
+    SDL_free(windows);
+    return result;
+}
+
+int WoofIOS_DebugTouchEventCount(void)
+{
+    return touch_event_count;
 }
