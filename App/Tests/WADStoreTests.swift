@@ -58,4 +58,20 @@ final class WADStoreTests: XCTestCase {
         try store.delete(filename: "a.wad")
         XCTAssertFalse(FileManager.default.fileExists(atPath: store.url(forFilename: "a.wad").path))
     }
+
+    func testTraversalNamesAreConfinedToStoreDirectory() throws {
+        let src = try writeSource("evil.wad", "payload")
+        let stored = try store.store(fileAt: src, preferredName: "../../evil.wad")
+        XCTAssertEqual(stored.filename, "evil.wad")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.url(forFilename: stored.filename).path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: store.directory.deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent("evil.wad").path))
+    }
+
+    func testDegenerateNamesGetFallback() throws {
+        let src = try writeSource("dot.wad", "x")
+        let stored = try store.store(fileAt: src, preferredName: "..")
+        XCTAssertEqual(stored.filename, "unnamed.wad")
+    }
 }

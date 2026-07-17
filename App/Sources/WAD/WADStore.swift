@@ -24,10 +24,20 @@ struct WADStore {
         WADStore(directory: URL.documentsDirectory.appendingPathComponent("WADs", isDirectory: true))
     }
 
+    /// Untrusted names (zip entries, picker files) must never escape the
+    /// store directory: keep only the basename and drop path tricks.
+    private static func sanitized(_ name: String) -> String {
+        let base = (name as NSString).lastPathComponent
+            .replacingOccurrences(of: "\0", with: "")
+        return (base.isEmpty || base == "." || base == "..") ? "unnamed.wad" : base
+    }
+
     func store(fileAt source: URL, preferredName: String) throws -> StoredWAD {
         guard let data = try? Data(contentsOf: source) else { throw WADStoreError.unreadable }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let sha1 = Self.sha1(of: data)
+
+        let preferredName = Self.sanitized(preferredName)
 
         // Dedupe by content hash against everything already in the store.
         let existing = (try? FileManager.default.contentsOfDirectory(
@@ -52,7 +62,7 @@ struct WADStore {
     }
 
     func url(forFilename filename: String) -> URL {
-        directory.appendingPathComponent(filename)
+        directory.appendingPathComponent(Self.sanitized(filename))
     }
 
     func delete(filename: String) throws {
