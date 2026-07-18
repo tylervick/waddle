@@ -47,7 +47,11 @@ enum EngineSession {
         }
 
         isRunning = true
-        defer { isRunning = false }
+        OverlayPresenter.shared.begin()
+        defer {
+            OverlayPresenter.shared.end()
+            isRunning = false
+        }
 
         var argv: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) }
         defer { argv.forEach { free($0) } }
