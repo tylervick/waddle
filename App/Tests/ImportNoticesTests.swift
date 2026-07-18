@@ -28,3 +28,14 @@ final class ImportNoticesTests: XCTestCase {
             "2 failed (moved to Import Failed)")
     }
 }
+
+@MainActor
+final class ImportNoticesMessageTests: XCTestCase {
+    func testPostMessageShowsBanner() {
+        let notices = ImportNotices()
+        notices.post(message: "Created loadout Sunlust — find it in Play")
+        XCTAssertEqual(notices.current, "Created loadout Sunlust — find it in Play")
+        notices.dismiss()
+        XCTAssertNil(notices.current)
+    }
+}

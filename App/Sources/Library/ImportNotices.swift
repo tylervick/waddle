@@ -10,7 +10,13 @@ final class ImportNotices {
 
     func post(outcome: ImportOutcome) {
         guard let text = Self.summary(of: outcome) else { return }
-        current = text
+        post(message: text)
+    }
+
+    /// One-off notices that aren't import outcomes (e.g. "Created loadout …"),
+    /// sharing the same banner and auto-dismiss behavior.
+    func post(message: String) {
+        current = message
         dismissTask?.cancel()
         dismissTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(6))

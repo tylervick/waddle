@@ -14,19 +14,7 @@ struct LibraryView: View {
         NavigationStack {
             List {
                 ForEach(wads, id: \.id) { wad in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(wad.displayName)
-                            Text(wad.isBundled ? "Bundled" : wad.filename)
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Text(wad.kindRaw)
-                            .font(.caption.bold())
-                            .padding(4)
-                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-                    }
-                    .deleteDisabled(wad.isBundled)
+                    row(for: wad)
                 }
                 .onDelete(perform: delete)
             }
@@ -64,6 +52,60 @@ struct LibraryView: View {
         }
     }
 
+    /// PWAD rows get a "New Loadout" shortcut (swipe + context menu). Custom
+    /// swipe actions suppress onDelete's automatic swipe on that row, so PWAD
+    /// rows also carry an explicit trailing Delete to keep parity.
+    @ViewBuilder
+    private func row(for wad: WADFile) -> some View {
+        let base = HStack {
+            VStack(alignment: .leading) {
+                Text(wad.displayName)
+                Text(wad.isBundled ? "Bundled" : wad.filename)
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text(wad.kindRaw)
+                .font(.caption.bold())
+                .padding(4)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+        }
+        .deleteDisabled(wad.isBundled)
+
+        if wad.kindRaw == WADKind.pwad.rawValue {
+            base
+                .swipeActions(edge: .leading) { newLoadoutButton(for: wad) }
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) {
+                        delete(wad)
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+                .contextMenu { newLoadoutButton(for: wad) }
+        } else {
+            base
+        }
+    }
+
+    private func newLoadoutButton(for wad: WADFile) -> some View {
+        Button {
+            createLoadout(from: wad)
+        } label: {
+            Label("New Loadout", systemImage: "plus.rectangle.on.rectangle")
+        }
+        .tint(.blue)
+        .accessibilityIdentifier("newLoadoutFromPWAD-\(wad.displayName)")
+    }
+
+    private func createLoadout(from wad: WADFile) {
+        guard let iwad = try? library.suggestedIWAD(for: wad) else { return }
+        guard (try? library.createLoadout(name: wad.displayName, iwadID: iwad.id,
+                                          pwadIDs: [wad.id], dehIDs: [])) != nil else { return }
+        ImportNotices.shared.post(
+            message: "Created loadout \(wad.displayName) — find it in Play")
+        NotificationCenter.default.post(name: .libraryDidChange, object: nil)
+    }
+
     private var importTypes: [UTType] {
         var types: [UTType] = [.zip]
         if let wad = UTType(filenameExtension: "wad") { types.append(wad) }
@@ -90,13 +132,16 @@ struct LibraryView: View {
 
     private func delete(at offsets: IndexSet) {
         for index in offsets {
-            let wad = wads[index]
-            do {
-                try library.deleteWAD(wad, force: false)
-            } catch LibraryError.wadReferencedByLoadouts(let names) {
-                deleteBlocked = names
-            } catch {}
+            delete(wads[index])
         }
+    }
+
+    private func delete(_ wad: WADFile) {
+        do {
+            try library.deleteWAD(wad, force: false)
+        } catch LibraryError.wadReferencedByLoadouts(let names) {
+            deleteBlocked = names
+        } catch {}
         refresh()
     }
 
