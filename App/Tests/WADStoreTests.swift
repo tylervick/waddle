@@ -32,11 +32,46 @@ final class WADStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: store.url(forFilename: "a.wad").path))
     }
 
-    func testDuplicateContentIsDeduplicated() throws {
-        _ = try store.store(fileAt: writeSource("a.wad", "same"), preferredName: "a.wad")
-        let dup = try store.store(fileAt: writeSource("b.wad", "same"), preferredName: "b.wad")
-        XCTAssertTrue(dup.isDuplicate)
-        XCTAssertEqual(dup.filename, "a.wad")   // points at the existing file
+    // Adaptation (Plan 3 Task 7): store() used to rescan+rehash every file
+    // already on disk to dedupe by content — that on-disk rescan is gone
+    // (dedupe is the caller's job now: ImportService checks the library's
+    // sha1 index, a single lookup, before ever calling store()). Two direct
+    // store() calls with identical content now just produce two
+    // independent files; this test is rewritten to assert that, replacing
+    // the old testDuplicateContentIsDeduplicated which asserted the
+    // opposite (on-disk dedup) behavior.
+    func testStoreDoesNotDedupeOnDiskContentIsCallersJob() throws {
+        let first = try store.store(fileAt: writeSource("a.wad", "same"), preferredName: "a.wad")
+        let second = try store.store(fileAt: writeSource("b.wad", "same"), preferredName: "b.wad")
+        XCTAssertFalse(second.isDuplicate)
+        XCTAssertEqual(second.filename, "b.wad")
+        XCTAssertNotEqual(first.filename, second.filename)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.url(forFilename: "a.wad").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.url(forFilename: "b.wad").path))
+    }
+
+    func testStreamedHashMatchesInMemoryHash() throws {
+        let src = try writeSource("h.wad", "streamed hashing test payload")
+        let streamed = try WADStore.sha1(ofFileAt: src)
+        let inMemory = WADStore.sha1(of: try Data(contentsOf: src))
+        XCTAssertEqual(streamed, inMemory)
+    }
+
+    func testUnreadableSourceThrows() {
+        XCTAssertThrowsError(try WADStore.sha1(
+            ofFileAt: tmp.appendingPathComponent("nope.wad")))
+        XCTAssertThrowsError(try store.store(
+            fileAt: tmp.appendingPathComponent("nope.wad"), preferredName: "nope.wad")) {
+            XCTAssertEqual($0 as? WADStoreError, .unreadable)
+        }
+    }
+
+    func testPrecomputedHashSkipsRehash() throws {
+        let src = try writeSource("p.wad", "content")
+        let expected = WADStore.sha1(of: Data("content".utf8))
+        let stored = try store.store(fileAt: src, preferredName: "p.wad",
+                                     precomputedSHA1: expected)
+        XCTAssertEqual(stored.sha1, expected)
     }
 
     func testNameCollisionWithDifferentContentGetsSuffix() throws {

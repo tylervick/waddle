@@ -78,7 +78,7 @@ final class ImportServiceTests: XCTestCase {
 
     // MARK: adoptLooseFiles
 
-    func testAdoptLooseFilesMovesRejectedFilesToImportFailed() throws {
+    func testAdoptLooseFilesMovesRejectedFilesToImportFailed() async throws {
         // adoptLooseFiles scans the real app Documents directory (Files-app
         // drop zone), not the tmp WADStore dir, so the fixture has to live
         // there too.
@@ -92,14 +92,14 @@ final class ImportServiceTests: XCTestCase {
             try? FileManager.default.removeItem(at: importFailedURL)
         }
 
-        let outcome = importer.adoptLooseFiles()
+        let outcome = await importer.adoptLooseFiles()
 
         XCTAssertNotNil(outcome.rejected[name])
         XCTAssertFalse(FileManager.default.fileExists(atPath: junkURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: importFailedURL.path))
     }
 
-    func testAdoptLooseFilesQuarantinesZipWhoseContentsAllFailImport() throws {
+    func testAdoptLooseFilesQuarantinesZipWhoseContentsAllFailImport() async throws {
         // The rejection from a corrupt inner .wad is recorded under the
         // inner file's own name ("corrupt.wad"), never the zip's — so the
         // zip-level keep/quarantine/delete decision can't be a lookup keyed
@@ -122,7 +122,7 @@ final class ImportServiceTests: XCTestCase {
             badData.subdata(in: Int(pos)..<Int(pos) + size)
         })
 
-        let outcome = importer.adoptLooseFiles()
+        let outcome = await importer.adoptLooseFiles()
 
         XCTAssertFalse(outcome.rejected.isEmpty)
         XCTAssertFalse(FileManager.default.fileExists(atPath: zipURL.path))

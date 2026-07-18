@@ -57,6 +57,14 @@ final class ZipExtractorTests: XCTestCase {
         XCTAssertTrue(result.files.isEmpty)
     }
 
+    func testOversizeEntriesAreSkippedAndReported() throws {
+        let zip = try makeZip(entries: ["big.wad": "0123456789", "ok.wad": "PWAD"])
+        let result = try ZipExtractor.extractGameFiles(from: zip, maxEntryBytes: 5)
+        defer { try? FileManager.default.removeItem(at: result.dir) }
+        XCTAssertEqual(result.files.map(\.name), ["ok.wad"])
+        XCTAssertEqual(result.skippedOversize, ["big.wad"])
+    }
+
     func testDuplicateBasenamesGetUniquified() throws {
         let zip = try makeZip(entries: [
             "a/map.wad": "content1",
