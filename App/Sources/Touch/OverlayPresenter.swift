@@ -19,6 +19,7 @@ final class OverlayPresenter {
     private let gamepad = TouchGamepad()
     private var overlay: TouchOverlayView?
     private var pollTimer: Timer?
+    private var observerTokens: [NSObjectProtocol] = []
 
     func begin() {
         end() // safety: never double-install
@@ -65,43 +66,52 @@ final class OverlayPresenter {
     }
 
     private func registerNotificationObservers() {
+        // Guard against double-registration: if already registered, return early
+        guard observerTokens.isEmpty else { return }
+
         let center = NotificationCenter.default
-        center.addObserver(
-            forName: NSNotification.Name.GCControllerDidConnect,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.applyPolicy()
-        }
-        center.addObserver(
-            forName: NSNotification.Name.GCControllerDidDisconnect,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.applyPolicy()
-        }
-        center.addObserver(
-            forName: NSNotification.Name.GCKeyboardDidConnect,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.applyPolicy()
-        }
-        center.addObserver(
-            forName: NSNotification.Name.GCKeyboardDidDisconnect,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.applyPolicy()
-        }
+        observerTokens.append(
+            center.addObserver(
+                forName: NSNotification.Name.GCControllerDidConnect,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.applyPolicy()
+            }
+        )
+        observerTokens.append(
+            center.addObserver(
+                forName: NSNotification.Name.GCControllerDidDisconnect,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.applyPolicy()
+            }
+        )
+        observerTokens.append(
+            center.addObserver(
+                forName: NSNotification.Name.GCKeyboardDidConnect,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.applyPolicy()
+            }
+        )
+        observerTokens.append(
+            center.addObserver(
+                forName: NSNotification.Name.GCKeyboardDidDisconnect,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.applyPolicy()
+            }
+        )
     }
 
     private func unregisterNotificationObservers() {
         let center = NotificationCenter.default
-        center.removeObserver(self, name: NSNotification.Name.GCControllerDidConnect, object: nil)
-        center.removeObserver(self, name: NSNotification.Name.GCControllerDidDisconnect, object: nil)
-        center.removeObserver(self, name: NSNotification.Name.GCKeyboardDidConnect, object: nil)
-        center.removeObserver(self, name: NSNotification.Name.GCKeyboardDidDisconnect, object: nil)
+        observerTokens.forEach { center.removeObserver($0) }
+        observerTokens.removeAll()
     }
 
     private func applyPolicy() {
