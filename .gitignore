@@ -5,5 +5,6 @@ App/Resources/GameData/
 App/Resources/woof.pk3
 App/*.xcodeproj
 App/Info.plist
+App/Sources/Generated/
 build/
 DerivedData/

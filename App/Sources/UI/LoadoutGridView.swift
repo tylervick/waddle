@@ -6,6 +6,8 @@ struct LoadoutGridView: View {
     @State private var loadouts: [Loadout] = []
     @State private var editorLoadout: Loadout?
     @State private var showNewEditor = false
+    @AppStorage(TouchControlScheme.userDefaultsKey) private var touchScheme: TouchControlScheme = .defaultScheme
+    @AppStorage(debugHUDUserDefaultsKey) private var debugHUD: Bool = false
 
     private let columns = [GridItem(.adaptive(minimum: 200), spacing: 16)]
 
@@ -20,13 +22,21 @@ struct LoadoutGridView: View {
                 .padding()
             }
             .navigationTitle("BoomBox")
-            .toolbar {
-                Button {
-                    showNewEditor = true
-                } label: {
-                    Label("New Loadout", systemImage: "plus")
+            .toolbar { toolbarContent }
+            // .overlay, not .safeAreaInset -- a conditionally-empty
+            // safeAreaInset directly above a ScrollView/LazyVGrid crashed
+            // SwiftUI's layout engine here (HVGrid.minorGeometry, SwiftUI
+            // internal, iOS 26.2 SDK); .overlay is the same pattern
+            // ContentView already uses successfully for its own
+            // conditional post-session labels.
+            .overlay(alignment: .bottom) {
+                if debugHUD {
+                    Text("BoomBox \(BuildInfo.commit) (\(BuildInfo.branch)) · built \(BuildInfo.builtAt)")
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 4)
+                        .accessibilityIdentifier("buildInfoLabel")
                 }
-                .accessibilityIdentifier("newLoadoutButton")
             }
             .sheet(isPresented: $showNewEditor, onDismiss: refresh) {
                 LoadoutEditorView(library: library, existing: nil)
@@ -36,6 +46,40 @@ struct LoadoutGridView: View {
             }
             .onAppear(perform: refresh)
         }
+    }
+
+    // Split out of `body`: a toolbar this size inline was enough for the
+    // Swift type checker to give up entirely ("failed to produce diagnostic
+    // for expression") rather than report a real error.
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigationBarLeading) {
+            touchSchemeMenu
+        }
+        ToolbarItem(placement: .navigationBarTrailing) {
+            Button {
+                showNewEditor = true
+            } label: {
+                Label("New Loadout", systemImage: "plus")
+            }
+            .accessibilityIdentifier("newLoadoutButton")
+        }
+    }
+
+    private var touchSchemeMenu: some View {
+        Menu {
+            Picker("Touch Controls", selection: $touchScheme) {
+                Text("Classic").tag(TouchControlScheme.classic)
+                Text("Modern").tag(TouchControlScheme.modern)
+            }
+            .accessibilityIdentifier("touchSchemePicker")
+
+            Toggle("Show Debug Info", isOn: $debugHUD)
+                .accessibilityIdentifier("debugHUDToggle")
+        } label: {
+            Label("Touch Controls", systemImage: "gearshape")
+        }
+        .accessibilityIdentifier("touchSchemeMenu")
     }
 
     private func tile(for loadout: Loadout) -> some View {

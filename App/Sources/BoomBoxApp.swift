@@ -15,7 +15,6 @@ struct BoomBoxApp: App {
             library = LibraryService(context: context, store: store)
             importer = ImportService(library: library, store: store)
             try library.seedBundledContentIfNeeded()
-            _ = importer.adoptLooseFiles()
         } catch {
             fatalError("SwiftData container failed: \(error)")
         }
@@ -24,6 +23,7 @@ struct BoomBoxApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(library: library, importer: importer)
+                .task { _ = await importer.adoptLooseFiles() }
                 .onOpenURL { url in _ = importer.importFiles(at: [url]) }
         }
         .modelContainer(container)

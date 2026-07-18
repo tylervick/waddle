@@ -11,16 +11,15 @@ final class RealWADTests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["BOOMBOX_AUTOQUIT_SECONDS"] = "10"
         app.launch()
-        // Loose-file adoption (BoomBoxApp.init -> ImportService.adoptLooseFiles)
-        // runs synchronously before the first frame renders. Whichever test
-        // happens to run first after provisioning finds all three provisioned
-        // WADs (including the 293 MB Eviternity II) still sitting in
-        // Documents and pays for hashing + copying all of them before the
-        // launcher UI exists at all. Wait generously for a landmark element
-        // instead of assuming the UI is ready immediately after launch()
-        // returns.
+        // Loose-file adoption (ImportService.adoptLooseFiles) now runs
+        // asynchronously off a `.task` on ContentView's first frame (Plan 3
+        // Task 7), not synchronously in BoomBoxApp.init — so the launcher UI
+        // shows up immediately and does NOT wait on hashing/copying the
+        // provisioned WADs (including the 293 MB Eviternity II). Adoption
+        // finishing is awaited separately, per-loadout, in
+        // waitForWADAvailable below.
         XCTAssertTrue(app.tabBars.buttons["Play"].waitForExistence(timeout: 90),
-                      "launcher UI never appeared (loose-file adoption stalled?)")
+                      "launcher UI never appeared")
         // Dismiss the loose-file adoption alert if it fired this launch.
         // NOTE: launch-time adoption is currently silent (no alert; the
         // "Import complete" alert only fires from LibraryView's manual
@@ -31,12 +30,56 @@ final class RealWADTests: XCTestCase {
         return app
     }
 
+    /// Waits for `name` to show up in the Library tab's WAD list.
+    ///
+    /// Async adoption (Plan 3 Task 7) means a provisioned loose WAD may not
+    /// be registered into the library for a few seconds after launch (the
+    /// 293 MB Eviternity II in particular needs to be hashed + copied off
+    /// Main first). LoadoutEditorView's "Add PWAD" menu is NOT a fix point
+    /// to poll directly: its `pwads` list is a plain computed property, not
+    /// a reactive SwiftData query, so it only reflects the library's
+    /// current contents at the moment that view's body is (re-)evaluated —
+    /// simply leaving the "New Loadout" sheet open longer never picks up a
+    /// WAD that gets registered after the sheet was presented. LibraryView
+    /// re-fetches on every `onAppear`, and switching tabs re-fires it, so
+    /// poll there instead — then open a *fresh* "New Loadout" sheet only
+    /// once the target WAD is confirmed present, so its first render
+    /// already reflects it.
+    private func waitForWADAvailable(app: XCUIApplication, name: String,
+                                     timeout: TimeInterval = 90,
+                                     file: StaticString = #filePath, line: UInt = #line) {
+        let libraryTab = app.tabBars.buttons["Library"]
+        let playTab = app.tabBars.buttons["Play"]
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            libraryTab.tap()
+            if app.staticTexts[name].waitForExistence(timeout: 2) {
+                playTab.tap()
+                return
+            }
+            playTab.tap()
+        } while Date() < deadline
+        XCTFail("WAD '\(name)' never appeared in the Library tab (async adoption stalled?)",
+                file: file, line: line)
+    }
+
     /// Creates (if needed) and plays a loadout; asserts session length.
     private func runLoadout(app: XCUIApplication, name: String, iwad: String,
                             pwad: String?, expectFullSession: Bool,
                             file: StaticString = #filePath, line: UInt = #line) {
         let tile = app.buttons["loadout-\(name)"]
         if !tile.exists {
+            if let pwad {
+                waitForWADAvailable(app: app, name: pwad, file: file, line: line)
+            }
+            if !iwad.hasPrefix("Freedoom") {
+                // Bundled Freedoom IWADs are registered synchronously at
+                // launch and always available; anything else (e.g. the
+                // provisioned "badiwad" fixture) is a loose file subject to
+                // the same async adoption race as PWADs above — wait for it
+                // too, or the picker tap below can race the hash/copy.
+                waitForWADAvailable(app: app, name: iwad, file: file, line: line)
+            }
             app.buttons["newLoadoutButton"].tap()
             let nameField = app.textFields["loadoutNameField"]
             XCTAssertTrue(nameField.waitForExistence(timeout: 5), file: file, line: line)
@@ -124,7 +167,7 @@ final class RealWADTests: XCTestCase {
     /// Engine/woof/src/i_exit.c + woof_ios.c) unwinds cleanly back to
     /// WoofIOS_Run's caller instead of terminating the process.
     @MainActor
-    func testWrongIWADPairingFailsSoft() {
+    func testUnrecognizedIWADFailsSoft() {
         let app = launchApp()
         runLoadout(app: app, name: "BadIWAD", iwad: "badiwad",
                    pwad: nil, expectFullSession: false)

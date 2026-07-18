@@ -76,9 +76,57 @@ final class ImportServiceTests: XCTestCase {
         XCTAssertEqual(try library.allWADs().first?.gameFamilyRaw, "doom1")
     }
 
+    // MARK: oversize zip entries
+
+    /// A zip whose only game-file entry blows the size cap: nothing gets
+    /// extracted, so the old "no files extracted" guard rejected the zip
+    /// once under its own name. The fix moves that bookkeeping onto the
+    /// skipped entry itself, but the net behavior a caller cares about —
+    /// the zip is rejected and nothing imports — must stay the same.
+    func testOversizeOnlyZipStillRejectedWithoutImporting() throws {
+        let big = Data(repeating: 0, count: 64)
+        let zipURL = tmp.appendingPathComponent("big-only.zip")
+        let archive = try Archive(url: zipURL, accessMode: .create)
+        try archive.addEntry(with: "big.wad", type: .file,
+                             uncompressedSize: Int64(big.count),
+                             provider: { pos, size in big.subdata(in: Int(pos)..<Int(pos) + size) })
+        importer.maxZipEntryBytes = 5
+
+        let outcome = importer.importFiles(at: [zipURL])
+
+        XCTAssertTrue(outcome.imported.isEmpty)
+        XCTAssertEqual(outcome.rejected["big.wad"], "Entry exceeds the 512 MB import limit.")
+    }
+
+    /// A zip with one importable wad and one entry over the cap: the valid
+    /// file must still import, AND the oversize entry must be recorded as
+    /// its own rejection rather than silently dropped. Previously the drop
+    /// happened because the "no files extracted" guard never fires once
+    /// *something* extracted — the skipped entry's existence just vanished,
+    /// and (via adoptLooseFiles) the zip carrying it got deleted as a clean
+    /// import.
+    func testMixedZipImportsValidEntryAndRejectsOversizeEntry() throws {
+        let wadData = makeWAD(magic: "PWAD", lumps: ["MAP01"])
+        let big = Data(repeating: 0, count: wadData.count + 1000)
+        let zipURL = tmp.appendingPathComponent("mixed.zip")
+        let archive = try Archive(url: zipURL, accessMode: .create)
+        try archive.addEntry(with: "ok.wad", type: .file,
+                             uncompressedSize: Int64(wadData.count),
+                             provider: { pos, size in wadData.subdata(in: Int(pos)..<Int(pos) + size) })
+        try archive.addEntry(with: "big.wad", type: .file,
+                             uncompressedSize: Int64(big.count),
+                             provider: { pos, size in big.subdata(in: Int(pos)..<Int(pos) + size) })
+        importer.maxZipEntryBytes = Int64(wadData.count)
+
+        let outcome = importer.importFiles(at: [zipURL])
+
+        XCTAssertEqual(outcome.imported, ["ok"])
+        XCTAssertEqual(outcome.rejected["big.wad"], "Entry exceeds the 512 MB import limit.")
+    }
+
     // MARK: adoptLooseFiles
 
-    func testAdoptLooseFilesMovesRejectedFilesToImportFailed() throws {
+    func testAdoptLooseFilesMovesRejectedFilesToImportFailed() async throws {
         // adoptLooseFiles scans the real app Documents directory (Files-app
         // drop zone), not the tmp WADStore dir, so the fixture has to live
         // there too.
@@ -92,14 +140,14 @@ final class ImportServiceTests: XCTestCase {
             try? FileManager.default.removeItem(at: importFailedURL)
         }
 
-        let outcome = importer.adoptLooseFiles()
+        let outcome = await importer.adoptLooseFiles()
 
         XCTAssertNotNil(outcome.rejected[name])
         XCTAssertFalse(FileManager.default.fileExists(atPath: junkURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: importFailedURL.path))
     }
 
-    func testAdoptLooseFilesQuarantinesZipWhoseContentsAllFailImport() throws {
+    func testAdoptLooseFilesQuarantinesZipWhoseContentsAllFailImport() async throws {
         // The rejection from a corrupt inner .wad is recorded under the
         // inner file's own name ("corrupt.wad"), never the zip's — so the
         // zip-level keep/quarantine/delete decision can't be a lookup keyed
@@ -122,11 +170,49 @@ final class ImportServiceTests: XCTestCase {
             badData.subdata(in: Int(pos)..<Int(pos) + size)
         })
 
-        let outcome = importer.adoptLooseFiles()
+        let outcome = await importer.adoptLooseFiles()
 
         XCTAssertFalse(outcome.rejected.isEmpty)
         XCTAssertFalse(FileManager.default.fileExists(atPath: zipURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: importFailedURL.path))
+    }
+
+    /// Plan 2 consciously accepted "import wins, delete the zip" when a
+    /// candidate's *other* entries are simply corrupt (see the all-fail
+    /// case above) — those bytes were never recoverable anyway. An oversize
+    /// entry is different: it's legitimate content that only failed
+    /// because of the import-time size cap, so deleting the zip would
+    /// destroy the only surviving copy. The adopt path must quarantine
+    /// instead, even though ok.wad did import successfully.
+    func testAdoptLooseFilesQuarantinesMixedZipWithOversizeEntryEvenThoughSomethingImported() async throws {
+        let docs = URL.documentsDirectory
+        let name = "mixed-\(UUID().uuidString).zip"
+        let zipURL = docs.appendingPathComponent(name)
+        let importFailedURL = docs.appendingPathComponent("Import Failed").appendingPathComponent(name)
+        defer {
+            try? FileManager.default.removeItem(at: zipURL)
+            try? FileManager.default.removeItem(at: importFailedURL)
+        }
+
+        let wadData = makeWAD(magic: "PWAD", lumps: ["MAP01"])
+        let big = Data(repeating: 0, count: wadData.count + 1000)
+        let archive = try Archive(url: zipURL, accessMode: .create)
+        try archive.addEntry(with: "ok.wad", type: .file,
+                             uncompressedSize: Int64(wadData.count),
+                             provider: { pos, size in wadData.subdata(in: Int(pos)..<Int(pos) + size) })
+        try archive.addEntry(with: "big.wad", type: .file,
+                             uncompressedSize: Int64(big.count),
+                             provider: { pos, size in big.subdata(in: Int(pos)..<Int(pos) + size) })
+        importer.maxZipEntryBytes = Int64(wadData.count)
+
+        let outcome = await importer.adoptLooseFiles()
+
+        XCTAssertEqual(outcome.imported, ["ok"])
+        XCTAssertEqual(outcome.rejected["big.wad"], "Entry exceeds the 512 MB import limit.")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: zipURL.path),
+                       "zip should have been moved out of Documents")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: importFailedURL.path),
+                      "zip should be quarantined, not deleted, once it contributed an oversize rejection")
     }
 
     // MARK: dedupe ordering

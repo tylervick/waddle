@@ -1,4 +1,5 @@
 import SwiftUI
+import WoofEngine
 
 struct ContentView: View {
     let library: LibraryService
@@ -40,6 +41,23 @@ struct ContentView: View {
                     .background(.thinMaterial, in: Capsule())
                     .accessibilityIdentifier("engineExitLabel")
                     .padding(.bottom, 60)
+            }
+            if ProcessInfo.processInfo.environment["BOOMBOX_DEBUG_INPUT_COUNTS"] != nil,
+               lastExitCode != nil {
+                Text("touchEvents: \(WoofIOS_DebugTouchEventCount())")
+                    .font(.footnote.monospaced())
+                    .accessibilityIdentifier("touchEventCountLabel")
+                    .padding(.bottom, 100)
+                // Cached mid-session (TouchGamepad.lastFireReleaseTriggerResidue) --
+                // WoofIOS_DebugTriggerValue() itself would just return -1 by
+                // now, since the session that attached the touch gamepad
+                // has already torn it down.
+                if let residue = TouchGamepad.lastFireReleaseTriggerResidue {
+                    Text("triggerResidue: \(residue)")
+                        .font(.footnote.monospaced())
+                        .accessibilityIdentifier("triggerResidueLabel")
+                        .padding(.bottom, 130)
+                }
             }
         }
     }

@@ -39,6 +39,95 @@ Current patches:
   `I_Error` is occasionally reachable from helper threads, and unwinding
   a foreign stack is undefined behavior. Each session also clears the
   previous session's accumulated error text via `I_ResetErrorMessages()`.
+  Plan 3 Task 1 added a touch-control shim: `WoofIOS_AttachTouchGamepad`/
+  `WoofIOS_DetachTouchGamepad`/`WoofIOS_SetTouchAxis`/`WoofIOS_SetTouchButton`
+  drive a virtual `SDL_JOYSTICK_TYPE_GAMEPAD` joystick that the native
+  overlay owns, and `WoofIOS_GetUIWindowPointer` exposes the SDL window's
+  `UIWindow*` for the overlay to attach into. No fallback attach hook was
+  needed: verified that Woof! auto-opens a gamepad attached mid-session
+  through its existing `SDL_EVENT_GAMEPAD_ADDED` handling —
+  `src/i_video.c:517-519` (`ProcessEvent`) calls `I_OpenGamepad(ev->gdevice.which)`
+  unconditionally on that event (not gated on `joy_device`/`I_GamepadEnabled`),
+  and `I_OpenGamepad` (`src/i_input.c:566-604`) opens it via
+  `SDL_OpenGamepad` when no gamepad is already active. SDL fires
+  `SDL_EVENT_GAMEPAD_ADDED` for the virtual joystick because
+  `SDL_IsGamepad()` resolves true for it: the virtual-joystick driver
+  tags the synthesized GUID's type byte with `SDL_JOYSTICK_TYPE_GAMEPAD`
+  (`Vendor/src/SDL/src/joystick/virtual/SDL_virtualjoystick.c:234`) and,
+  since the shim leaves `button_mask`/`axis_mask` zeroed, auto-fills both
+  from `naxes`/`nbuttons` (same file, ~198-231) with a 1:1 index mapping
+  covering every `SDL_GAMEPAD_BUTTON_*`/`SDL_GAMEPAD_AXIS_*`. Turn does
+  *not* go through an SDL event: `WoofIOS_InjectRelativeTurn` adds to a
+  shim-owned accumulator (`touch_turn_accum`) drained once per tic by a
+  small hook in `src/i_input.c` (see that bullet below) — see fix round 1
+  for why the originally-planned `SDL_PushEvent(SDL_EVENT_MOUSE_MOTION)`
+  design was a no-op.
+
+  Fix round (device testing, post-Plan-3): FIRE autofired forever in-game
+  after a single press. `WoofIOS_SetTouchAxis` drove `input_fire`'s
+  `GAMEPAD_RIGHT_TRIGGER` as a scaled float, but the virtual joystick's
+  auto-generated mapping exposes both trigger inputs as FULL-RANGE axes —
+  plain `a4`/`a5`, no `+`/`-` half-axis prefix, because
+  `VIRTUAL_JoystickGetGamepadMapping` sets each trigger's mapping `.kind`
+  to `EMappingKind_Axis` without a `half_axis_positive`/`negative` flag
+  (`Vendor/src/SDL/src/joystick/virtual/SDL_virtualjoystick.c:953-961`) and
+  the mapping-string serializer only emits a prefix when one of those
+  flags is set
+  (`Vendor/src/SDL/src/joystick/SDL_gamepad.c:2285-2290`). SDL linearly
+  remaps that full raw range onto the trigger's `0..SDL_JOYSTICK_AXIS_MAX`
+  gamepad-axis output, so a released trigger written as raw `0` (a scaled
+  float `0.0`) read back as gamepad-axis ~50% — permanently above
+  `trigger_threshold` (`src/i_gamepad.c`). Added `WoofIOS_SetTouchTrigger`,
+  which instead writes the raw axis to `SDL_JOYSTICK_AXIS_MAX`/`_MIN`
+  digitally (press/release only, no partial pull), and initializes both
+  trigger axes to `SDL_JOYSTICK_AXIS_MIN` right after attach (a virtual
+  joystick's axes default to `0`, which under this mapping is the same
+  ~50%-pulled latent bug at session start, before any touch). Also added
+  `WoofIOS_DebugTriggerValue` (test/debug telemetry only): opens a
+  gamepad-layer view of `touch_joystick` — eagerly, right after attach, not
+  lazily on first call, because empirically a just-opened `SDL_Gamepad`'s
+  very first `SDL_GetGamepadAxis` read after an axis change can observe a
+  stale value — and returns `SDL_GetGamepadAxis(..., SDL_GAMEPAD_AXIS_RIGHT_TRIGGER)`
+  normalized to `0..1`, i.e. the value Woof's `TriggerToButton`
+  (`src/i_input.c`) actually reads, not just the raw value the overlay
+  wrote. This is what the app's debug HUD and the regression test
+  (`TouchControlsTests.testFireReleaseClearsTriggerResidue`) both sample.
+
+  Second fix round (device testing): MAP did nothing (wired to
+  `SDL_GAMEPAD_BUTTON_BACK`, which has no entry anywhere in `m_input.c`'s
+  `default_inputs` table — guessed, not verified, same mistake class as
+  the FIRE/USE mixup above). Rewired to `GAMEPAD_NORTH`
+  (`input_map`, `m_input.c:689-690`), which is correct for gameplay but
+  collides with a *menu-context* binding on the same physical button:
+  `m_input.c:624-628` also binds NORTH to `input_menu_clear`, and
+  `m_input.c:564,576` binds SOUTH (USE) to `gamepad_confirm`. In the
+  Load/Save menu, a `MENU_CLEAR` action on a populated slot arms a delete
+  confirmation (`delete_verify`, `mn_menu.c:3368-3378`, gated on
+  `AnyLoadSaveMenu()` + `AllowDeleteSaveGame()`), and a following
+  `MENU_ENTER` confirms `M_DeleteGame` (`mn_menu.c:2806-2814`) — two
+  overlay taps (MAP then USE) could silently delete a save with no visible
+  prompt on the touch overlay. Rather than move MAP off its correct
+  gameplay default, added `WoofIOS_IsMenuActive`, a thin wrapper reading
+  the engine's own `menuactive` global (`doomstat.h:251`, defined
+  `mn_menu.c:104`) — true only while an actual menu screen is overlaying
+  the game (title/demo state does not set it). The touch overlay
+  (`TouchOverlayView`) polls this on a lightweight always-on timer
+  (independent of the debug HUD, which is opt-in) and hides the automap
+  button whenever a menu is up, restoring it the instant the menu closes.
+- `src/i_input.c` — `I_ReadMouse()` gets a `WOOF_IOS`-only hook, added in
+  Plan 3 Task 1 fix round 1: right after the existing
+  `SDL_GetRelativeMouseState(&ev.data1.f, &ev.data2.f)` call, add
+  `ev.data1.f += WoofIOS_ConsumeTouchTurn();`. Rationale: the touch
+  overlay's relative-turn drag has no real mouse to move, so it can't
+  reach `I_ReadMouse` through SDL's normal path —
+  `SDL_GetRelativeMouseState()` reads an internal accumulator that only
+  `SDL_SendMouseMotion()` (not public API) updates, and
+  `src/i_video.c`'s `ProcessEvent` has no `SDL_EVENT_MOUSE_MOTION` case
+  to relay a pushed event into it either. `WoofIOS_ConsumeTouchTurn()`
+  (declared in `woof_ios.h`, engine-internal) drains and zeroes the
+  shim's own accumulator every call, so the touch contribution folds
+  straight into the same float `I_ReadMouse` already posts as `ev_mouse`
+  — no separate event type, no truncation (both are `float`).
 - `src/i_system.c` — added a `WOOF_IOS`-only `I_ResetErrorMessages()`:
   `I_ErrorInternal()` deliberately appends to its static `errmsg` buffer
   so nested errors within one exit sequence share a dialog, but across
@@ -138,6 +227,22 @@ only ever runs once):
   (default action); not observed — it has only ever arrived while a
   session was running. This file is iOS-only, so no `WOOF_IOS` guard is
   needed.
+- `src/woof_ios.c` — fourth instance of the same hazard, caught in review
+  during Plan 3 Task 1 (fix round 1) rather than by the XCUITest: the
+  touch-control shim's own statics (`touch_joystick`, `touch_joystick_id`,
+  `touch_turn_accum`) outlive a session the same way everything above
+  does. `SDL_Quit`'s exit handlers free every open joystick — including
+  the virtual gamepad `touch_joystick` points at — before
+  `WoofIOS_ExitUnwind` ever runs, so by the time the next
+  `WoofIOS_Run` starts, `touch_joystick` is dangling, not just detached.
+  `WoofIOS_DetachTouchGamepad()` now checks `SDL_WasInit(SDL_INIT_JOYSTICK)`
+  first and only nulls its statics (skipping `SDL_CloseJoystick`/
+  `SDL_DetachVirtualJoystick`) when the subsystem is already torn down,
+  and `WoofIOS_Run`'s unwind branch (`code != 0`, right after restoring
+  the SIGTERM disposition) explicitly resets `touch_joystick`,
+  `touch_joystick_id`, and `touch_turn_accum` so the next session's
+  `WoofIOS_AttachTouchGamepad` attaches fresh. This file is iOS-only, so
+  no `WOOF_IOS` guard is needed here either.
 
 Related (not upstream files): `Scripts/build-engine.sh` passes
 `-DCMAKE_FIND_ROOT_PATH="$OUT/$platform"` in addition to

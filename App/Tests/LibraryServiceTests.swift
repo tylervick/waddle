@@ -85,4 +85,14 @@ final class LibraryServiceTests: XCTestCase {
                                                 pwadIDs: [b.id, a.id], dehIDs: [])
         XCTAssertEqual(loadout.pwadIDs, [b.id, a.id])
     }
+
+    func testAllLoadoutsSortsMostRecentFirst() throws {
+        let iwad = try service.registerImported(filename: "d.wad", sha1: "s1",
+                                                kind: "IWAD", family: "doom2")
+        let old = try service.createLoadout(name: "Old", iwadID: iwad.id, pwadIDs: [], dehIDs: [])
+        let recent = try service.createLoadout(name: "Recent", iwadID: iwad.id, pwadIDs: [], dehIDs: [])
+        old.lastPlayed = Date(timeIntervalSinceNow: -3600)
+        recent.lastPlayed = Date()
+        XCTAssertEqual(try service.allLoadouts().map(\.name), ["Recent", "Old"])
+    }
 }
