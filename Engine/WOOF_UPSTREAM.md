@@ -62,6 +62,36 @@ Current patches:
   small hook in `src/i_input.c` (see that bullet below) — see fix round 1
   for why the originally-planned `SDL_PushEvent(SDL_EVENT_MOUSE_MOTION)`
   design was a no-op.
+
+  Fix round (device testing, post-Plan-3): FIRE autofired forever in-game
+  after a single press. `WoofIOS_SetTouchAxis` drove `input_fire`'s
+  `GAMEPAD_RIGHT_TRIGGER` as a scaled float, but the virtual joystick's
+  auto-generated mapping exposes both trigger inputs as FULL-RANGE axes —
+  plain `a4`/`a5`, no `+`/`-` half-axis prefix, because
+  `VIRTUAL_JoystickGetGamepadMapping` sets each trigger's mapping `.kind`
+  to `EMappingKind_Axis` without a `half_axis_positive`/`negative` flag
+  (`Vendor/src/SDL/src/joystick/virtual/SDL_virtualjoystick.c:953-961`) and
+  the mapping-string serializer only emits a prefix when one of those
+  flags is set
+  (`Vendor/src/SDL/src/joystick/SDL_gamepad.c:2285-2290`). SDL linearly
+  remaps that full raw range onto the trigger's `0..SDL_JOYSTICK_AXIS_MAX`
+  gamepad-axis output, so a released trigger written as raw `0` (a scaled
+  float `0.0`) read back as gamepad-axis ~50% — permanently above
+  `trigger_threshold` (`src/i_gamepad.c`). Added `WoofIOS_SetTouchTrigger`,
+  which instead writes the raw axis to `SDL_JOYSTICK_AXIS_MAX`/`_MIN`
+  digitally (press/release only, no partial pull), and initializes both
+  trigger axes to `SDL_JOYSTICK_AXIS_MIN` right after attach (a virtual
+  joystick's axes default to `0`, which under this mapping is the same
+  ~50%-pulled latent bug at session start, before any touch). Also added
+  `WoofIOS_DebugTriggerValue` (test/debug telemetry only): opens a
+  gamepad-layer view of `touch_joystick` — eagerly, right after attach, not
+  lazily on first call, because empirically a just-opened `SDL_Gamepad`'s
+  very first `SDL_GetGamepadAxis` read after an axis change can observe a
+  stale value — and returns `SDL_GetGamepadAxis(..., SDL_GAMEPAD_AXIS_RIGHT_TRIGGER)`
+  normalized to `0..1`, i.e. the value Woof's `TriggerToButton`
+  (`src/i_input.c`) actually reads, not just the raw value the overlay
+  wrote. This is what the app's debug HUD and the regression test
+  (`TouchControlsTests.testFireReleaseClearsTriggerResidue`) both sample.
 - `src/i_input.c` — `I_ReadMouse()` gets a `WOOF_IOS`-only hook, added in
   Plan 3 Task 1 fix round 1: right after the existing
   `SDL_GetRelativeMouseState(&ev.data1.f, &ev.data2.f)` call, add
