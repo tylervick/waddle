@@ -64,6 +64,10 @@ final class TouchGamepad {
     /// default to be retuned once we can play on a device.
     var turnSensitivity: Float = 1.5
 
+    /// User tuning (turnSpeed/moveSensitivity multipliers), set by
+    /// OverlayPresenter from persisted UserDefaults at overlay-install time.
+    var tuning: TouchTuning = .default
+
     @discardableResult
     func attachIfPossible() -> Bool {
         isAttached = WoofIOS_AttachTouchGamepad()
@@ -80,7 +84,7 @@ final class TouchGamepad {
     /// three movement-relevant axes every call, so switching schemes never
     /// leaves a stale nonzero value on an axis the new scheme doesn't drive.
     func setMovement(x: Float, y: Float, scheme: TouchControlScheme) {
-        let mapping = scheme.axisMapping(stickX: x, stickY: y)
+        let mapping = tuning.apply(to: scheme.axisMapping(stickX: x, stickY: y))
         WoofIOS_SetTouchAxis(sdlAxisLeftX, mapping.leftX)
         WoofIOS_SetTouchAxis(sdlAxisLeftY, mapping.leftY)
         WoofIOS_SetTouchAxis(sdlAxisRightX, mapping.rightX)
@@ -114,6 +118,6 @@ final class TouchGamepad {
     }
 
     func turn(byPoints dx: CGFloat) {
-        WoofIOS_InjectRelativeTurn(Float(dx) * turnSensitivity)
+        WoofIOS_InjectRelativeTurn(Float(dx) * tuning.scaledTurnSensitivity(base: turnSensitivity))
     }
 }

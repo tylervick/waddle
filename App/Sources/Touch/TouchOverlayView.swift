@@ -8,6 +8,7 @@ import WoofEngine
 final class TouchOverlayView: UIView {
     private let gamepad: TouchGamepad
     private let scheme: TouchControlScheme
+    private let tuning: TouchTuning
     private let debugHUDEnabled: Bool
 
     private var stickTouch: UITouch?
@@ -26,9 +27,10 @@ final class TouchOverlayView: UIView {
     private var menuPolicyTimer: Timer?
 
     init(gamepad: TouchGamepad, scheme: TouchControlScheme = .defaultScheme,
-         debugHUDEnabled: Bool = false) {
+         tuning: TouchTuning = .default, debugHUDEnabled: Bool = false) {
         self.gamepad = gamepad
         self.scheme = scheme
+        self.tuning = tuning
         self.debugHUDEnabled = debugHUDEnabled
         super.init(frame: .zero)
         backgroundColor = .clear
@@ -189,9 +191,10 @@ final class TouchOverlayView: UIView {
     private func updateDebugHUD() {
         let trigger = WoofIOS_DebugTriggerValue()
         debugHUDLabel?.text = String(
-            format: "build %@ (%@) · %@ · events %d · trigger %.2f",
+            format: "build %@ (%@) · %@ · events %d · trigger %.2f · turn %.2f · dz %.2f · move %.2f",
             BuildInfo.commit, BuildInfo.branch, scheme == .classic ? "classic" : "modern",
-            WoofIOS_DebugTouchEventCount(), trigger)
+            WoofIOS_DebugTouchEventCount(), trigger,
+            tuning.turnSpeed, tuning.stickDeadZone, tuning.moveSensitivity)
     }
 
     // MARK: Buttons
@@ -242,7 +245,8 @@ final class TouchOverlayView: UIView {
             let point = touch.location(in: self)
             if stickTouch == nil && point.x < bounds.width * 0.4 {
                 stickTouch = touch
-                stickModel = TouchStickModel(center: point, radius: 60)
+                stickModel = TouchStickModel(center: point, radius: 60,
+                                             deadZone: CGFloat(tuning.stickDeadZone))
                 drawStick(at: point)
             } else if scheme.usesDragTurn && turnTouch == nil && point.x >= bounds.width * 0.4 {
                 turnTouch = touch

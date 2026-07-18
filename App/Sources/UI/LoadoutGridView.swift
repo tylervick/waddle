@@ -8,6 +8,7 @@ struct LoadoutGridView: View {
     @State private var showNewEditor = false
     @AppStorage(TouchControlScheme.userDefaultsKey) private var touchScheme: TouchControlScheme = .defaultScheme
     @AppStorage(debugHUDUserDefaultsKey) private var debugHUD: Bool = false
+    @State private var showControlFeel = false
 
     private let columns = [GridItem(.adaptive(minimum: 200), spacing: 16)]
 
@@ -37,6 +38,9 @@ struct LoadoutGridView: View {
                         .padding(.vertical, 4)
                         .accessibilityIdentifier("buildInfoLabel")
                 }
+            }
+            .sheet(isPresented: $showControlFeel) {
+                ControlFeelView()
             }
             .sheet(isPresented: $showNewEditor, onDismiss: refresh) {
                 LoadoutEditorView(library: library, existing: nil)
@@ -76,6 +80,15 @@ struct LoadoutGridView: View {
 
             Toggle("Show Debug Info", isOn: $debugHUD)
                 .accessibilityIdentifier("debugHUDToggle")
+
+            // Sliders can't render inside a Menu (UIMenu has no slider row),
+            // so the tuning sliders live in a sheet opened from here.
+            Button {
+                showControlFeel = true
+            } label: {
+                Label("Control Feel…", systemImage: "slider.horizontal.3")
+            }
+            .accessibilityIdentifier("controlFeelButton")
         } label: {
             Label("Touch Controls", systemImage: "gearshape")
         }
