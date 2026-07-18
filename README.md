@@ -72,10 +72,21 @@ Freedoom Phase 1+2 are bundled and pre-wired as loadouts.
 
 ## Controls
 
-- **Touch:** left side of the screen is a floating movement stick; dragging
-  on the right side turns. On-screen buttons: FIRE, USE, weapon prev/next,
-  automap (MAP), and menu (≡). The overlay drives a virtual gamepad, so all
-  bindings are remappable in Woof!'s own setup menu.
+- **Touch:** left side of the screen is a floating movement stick. On-screen
+  buttons: FIRE, USE, weapon prev/next, automap (MAP), and menu (≡). Two
+  touch control schemes are available from the gear menu on the Play tab
+  ("Touch Controls: Classic / Modern", persisted across launches):
+  - **Classic** (default): the stick's horizontal axis turns, vertical axis
+    moves forward/back — no strafe, matching how classic WADs expect to be
+    played. The right side of the screen has no drag gesture; it only hosts
+    buttons.
+  - **Modern:** twin-stick strafe — the stick moves in all directions
+    (forward/back + strafe), and dragging on the right side turns. The
+    right side shows the same base/knob visuals as the movement stick while
+    dragging.
+
+  The overlay drives a virtual gamepad, so all bindings are remappable in
+  Woof!'s own setup menu.
 - **Controllers:** Xbox/PlayStation/Switch/MFi via GameController — the
   touch overlay hides automatically while one is connected.
 - **Keyboard & mouse:** hardware keyboards hide the overlay; mouse look

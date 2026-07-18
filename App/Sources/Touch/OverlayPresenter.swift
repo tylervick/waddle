@@ -53,7 +53,11 @@ final class OverlayPresenter {
 
         let window = Unmanaged<UIWindow>.fromOpaque(pointer)
             .takeUnretainedValue()
-        let view = TouchOverlayView(gamepad: gamepad)
+        // Read once at install time (matches the Play tab picker's
+        // UserDefaults key); the overlay doesn't observe live changes mid-
+        // session, only picks up a new scheme on the next install.
+        let scheme = TouchControlScheme.current()
+        let view = TouchOverlayView(gamepad: gamepad, scheme: scheme)
         view.frame = window.bounds
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         window.addSubview(view)

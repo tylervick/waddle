@@ -6,23 +6,28 @@ import UIKit
 /// and we want zero interference with SDL's own event handling.
 final class TouchOverlayView: UIView {
     private let gamepad: TouchGamepad
+    private let scheme: TouchControlScheme
 
     private var stickTouch: UITouch?
     private var stickModel = TouchStickModel(center: .zero, radius: 60)
     private var turnTouch: UITouch?
+    private var turnModel = TouchStickModel(center: .zero, radius: 60)
     private var lastTurnX: CGFloat = 0
 
     private let stickBase = CAShapeLayer()
     private let stickKnob = CAShapeLayer()
+    private let turnBase = CAShapeLayer()
+    private let turnKnob = CAShapeLayer()
 
-    init(gamepad: TouchGamepad) {
+    init(gamepad: TouchGamepad, scheme: TouchControlScheme = .defaultScheme) {
         self.gamepad = gamepad
+        self.scheme = scheme
         super.init(frame: .zero)
         backgroundColor = .clear
         isMultipleTouchEnabled = true
         accessibilityIdentifier = "touchOverlay"
 
-        for layer in [stickBase, stickKnob] {
+        for layer in [stickBase, stickKnob, turnBase, turnKnob] {
             layer.fillColor = UIColor.white.withAlphaComponent(0.12).cgColor
             layer.strokeColor = UIColor.white.withAlphaComponent(0.35).cgColor
             layer.lineWidth = 2
@@ -30,12 +35,26 @@ final class TouchOverlayView: UIView {
             self.layer.addSublayer(layer)
         }
 
-        addButton("FIRE", id: "fireButton", button: .south, size: 84)
-        addButton("USE", id: "useButton", button: .east, size: 64)
-        addButton("◀", id: "weaponPrevButton", button: .leftShoulder, size: 48)
-        addButton("▶", id: "weaponNextButton", button: .rightShoulder, size: 48)
-        addButton("MAP", id: "automapButton", button: .back, size: 48)
-        addButton("≡", id: "menuButton", button: .start, size: 48)
+        // FIRE drives Woof's RIGHT_TRIGGER axis directly (see TouchGamepad
+        // .setFireTrigger); every other button goes through setButton.
+        addButton("FIRE", id: "fireButton", size: 84) { [weak self] down in
+            self?.gamepad.setFireTrigger(down: down)
+        }
+        addButton("USE", id: "useButton", size: 64) { [weak self] down in
+            self?.gamepad.setButton(.south, down: down)
+        }
+        addButton("◀", id: "weaponPrevButton", size: 48) { [weak self] down in
+            self?.gamepad.setButton(.leftShoulder, down: down)
+        }
+        addButton("▶", id: "weaponNextButton", size: 48) { [weak self] down in
+            self?.gamepad.setButton(.rightShoulder, down: down)
+        }
+        addButton("MAP", id: "automapButton", size: 48) { [weak self] down in
+            self?.gamepad.setButton(.back, down: down)
+        }
+        addButton("≡", id: "menuButton", size: 48) { [weak self] down in
+            self?.gamepad.setButton(.start, down: down)
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -44,11 +63,9 @@ final class TouchOverlayView: UIView {
 
     private var buttons: [OverlayButton] = []
 
-    private func addButton(_ title: String, id: String, button: TouchButton,
-                           size: CGFloat) {
-        let control = OverlayButton(title: title, size: size) { [weak self] down in
-            self?.gamepad.setButton(button, down: down)
-        }
+    private func addButton(_ title: String, id: String, size: CGFloat,
+                           onPress: @escaping (Bool) -> Void) {
+        let control = OverlayButton(title: title, size: size, onPress: onPress)
         control.accessibilityIdentifier = id
         buttons.append(control)
         addSubview(control)
@@ -81,9 +98,11 @@ final class TouchOverlayView: UIView {
                 stickTouch = touch
                 stickModel = TouchStickModel(center: point, radius: 60)
                 drawStick(at: point)
-            } else if turnTouch == nil && point.x >= bounds.width * 0.4 {
+            } else if scheme.usesDragTurn && turnTouch == nil && point.x >= bounds.width * 0.4 {
                 turnTouch = touch
                 lastTurnX = point.x
+                turnModel = TouchStickModel(center: point, radius: 60)
+                drawTurnStick(at: point)
             }
         }
     }
@@ -93,11 +112,12 @@ final class TouchOverlayView: UIView {
             let point = touch.location(in: self)
             if touch == stickTouch {
                 let axes = stickModel.axes(for: point)
-                gamepad.setMovement(x: axes.x, y: axes.y)
-                moveKnob(to: stickModel.knobPosition(for: point))
+                gamepad.setMovement(x: axes.x, y: axes.y, scheme: scheme)
+                moveKnob(stickKnob, to: stickModel.knobPosition(for: point))
             } else if touch == turnTouch {
                 gamepad.turn(byPoints: point.x - lastTurnX)
                 lastTurnX = point.x
+                moveKnob(turnKnob, to: turnModel.knobPosition(for: point))
             }
         }
     }
@@ -114,11 +134,13 @@ final class TouchOverlayView: UIView {
         for touch in touches {
             if touch == stickTouch {
                 stickTouch = nil
-                gamepad.setMovement(x: 0, y: 0)
+                gamepad.setMovement(x: 0, y: 0, scheme: scheme)
                 stickBase.isHidden = true
                 stickKnob.isHidden = true
             } else if touch == turnTouch {
                 turnTouch = nil
+                turnBase.isHidden = true
+                turnKnob.isHidden = true
             }
         }
     }
@@ -129,13 +151,28 @@ final class TouchOverlayView: UIView {
         stickBase.path = UIBezierPath(
             arcCenter: center, radius: 60, startAngle: 0,
             endAngle: .pi * 2, clockwise: true).cgPath
-        moveKnob(to: center)
+        moveKnob(stickKnob, to: center)
         stickBase.isHidden = false
         stickKnob.isHidden = false
     }
 
-    private func moveKnob(to point: CGPoint) {
-        stickKnob.path = UIBezierPath(
+    /// Turn-region visuals (modern scheme only, gated by usesDragTurn in
+    /// touchesBegan): same base/knob circle look as the movement stick, so
+    /// the previously-invisible right turn region now shows where the
+    /// finger landed and how far it has dragged. The knob still only feeds
+    /// the x-drag delta into gamepad.turn(byPoints:) -- this model just
+    /// gives it a place to visually clamp to, matching the movement stick.
+    private func drawTurnStick(at center: CGPoint) {
+        turnBase.path = UIBezierPath(
+            arcCenter: center, radius: 60, startAngle: 0,
+            endAngle: .pi * 2, clockwise: true).cgPath
+        moveKnob(turnKnob, to: center)
+        turnBase.isHidden = false
+        turnKnob.isHidden = false
+    }
+
+    private func moveKnob(_ knob: CAShapeLayer, to point: CGPoint) {
+        knob.path = UIBezierPath(
             arcCenter: point, radius: 26, startAngle: 0,
             endAngle: .pi * 2, clockwise: true).cgPath
     }

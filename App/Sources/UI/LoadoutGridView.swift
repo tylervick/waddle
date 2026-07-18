@@ -6,6 +6,7 @@ struct LoadoutGridView: View {
     @State private var loadouts: [Loadout] = []
     @State private var editorLoadout: Loadout?
     @State private var showNewEditor = false
+    @AppStorage(TouchControlScheme.userDefaultsKey) private var touchScheme: TouchControlScheme = .defaultScheme
 
     private let columns = [GridItem(.adaptive(minimum: 200), spacing: 16)]
 
@@ -20,14 +21,7 @@ struct LoadoutGridView: View {
                 .padding()
             }
             .navigationTitle("BoomBox")
-            .toolbar {
-                Button {
-                    showNewEditor = true
-                } label: {
-                    Label("New Loadout", systemImage: "plus")
-                }
-                .accessibilityIdentifier("newLoadoutButton")
-            }
+            .toolbar { toolbarContent }
             .sheet(isPresented: $showNewEditor, onDismiss: refresh) {
                 LoadoutEditorView(library: library, existing: nil)
             }
@@ -36,6 +30,37 @@ struct LoadoutGridView: View {
             }
             .onAppear(perform: refresh)
         }
+    }
+
+    // Split out of `body`: a toolbar this size inline was enough for the
+    // Swift type checker to give up entirely ("failed to produce diagnostic
+    // for expression") rather than report a real error.
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigationBarLeading) {
+            touchSchemeMenu
+        }
+        ToolbarItem(placement: .navigationBarTrailing) {
+            Button {
+                showNewEditor = true
+            } label: {
+                Label("New Loadout", systemImage: "plus")
+            }
+            .accessibilityIdentifier("newLoadoutButton")
+        }
+    }
+
+    private var touchSchemeMenu: some View {
+        Menu {
+            Picker("Touch Controls", selection: $touchScheme) {
+                Text("Classic").tag(TouchControlScheme.classic)
+                Text("Modern").tag(TouchControlScheme.modern)
+            }
+            .accessibilityIdentifier("touchSchemePicker")
+        } label: {
+            Label("Touch Controls", systemImage: "gearshape")
+        }
+        .accessibilityIdentifier("touchSchemeMenu")
     }
 
     private func tile(for loadout: Loadout) -> some View {
