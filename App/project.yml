@@ -25,6 +25,7 @@ targets:
       base:
         CURRENT_PROJECT_VERSION: 1
         MARKETING_VERSION: "1.0"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     # Document-type registration (CFBundleDocumentTypes +
     # UTImportedTypeDeclarations, needed for "Share -> Open in BoomBox" on
     # .wad files) is nested-dictionary plist content with no INFOPLIST_KEY_
@@ -99,6 +100,8 @@ targets:
           - Generated/BuildInfo.generated.swift
       - path: Sources/Generated/BuildInfo.generated.swift
         optional: true
+      # App icon (regenerate with `swift Scripts/generate-app-icon.swift`).
+      - path: Assets.xcassets
       # NOTE: deliberately Resources/GameData, not Resources. A folder
       # reference whose bundle-root name is literally "Resources" makes
       # Xcode emit macOS-style Contents/Resources codesign rules
