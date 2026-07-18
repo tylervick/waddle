@@ -45,6 +45,14 @@ static SDL_Joystick *touch_joystick;
 static int touch_event_count;
 static float touch_turn_accum;
 
+// Lazily-opened gamepad-layer view of touch_joystick, used only by
+// WoofIOS_DebugTriggerValue (test telemetry) to read back the value Woof's
+// gamepad API reports, as opposed to the raw joystick axis the overlay
+// writes. SDL ref-counts the underlying joystick per instance ID (see
+// SDL_OpenJoystick), so opening this alongside touch_joystick is safe and
+// closing it independently does not invalidate touch_joystick.
+static SDL_Gamepad *touch_gamepad;
+
 void WoofIOS_ExitUnwind(int rc)
 {
     if (exit_env_valid)
@@ -123,6 +131,10 @@ int WoofIOS_Run(int argc, char **argv)
         touch_joystick = NULL;
         touch_joystick_id = 0;
         touch_turn_accum = 0.0f;
+        // Same dangling-pointer hazard as touch_joystick above: SDL_Quit's
+        // exit handlers already freed every open gamepad along with every
+        // joystick, so touch_gamepad is stale, not merely detached.
+        touch_gamepad = NULL;
 
         return code > 0 ? code - 1 : code;
     }
@@ -200,6 +212,27 @@ bool WoofIOS_AttachTouchGamepad(void)
         touch_joystick_id = 0;
         return false;
     }
+
+    // A virtual joystick's axes default to 0 on attach. Under the
+    // full-range trigger mapping (see WoofIOS_SetTouchTrigger), a raw axis
+    // of 0 reads as ~50% pulled at the gamepad layer -- both triggers would
+    // start every session already above trigger_threshold (i_gamepad.c),
+    // an instant latent autofire before any touch. Initialize both to
+    // released up front.
+    SDL_SetJoystickVirtualAxis(touch_joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER,
+                               SDL_JOYSTICK_AXIS_MIN);
+    SDL_SetJoystickVirtualAxis(touch_joystick, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER,
+                               SDL_JOYSTICK_AXIS_MIN);
+
+    // Open the debug-telemetry gamepad view now rather than waiting for
+    // WoofIOS_DebugTriggerValue's first call. Empirically, a freshly opened
+    // SDL_Gamepad's very first SDL_GetGamepadAxis read after an axis change
+    // can observe a stale value (observed returning 0 immediately after a
+    // write that should read back ~0.5) -- opening it here, well before any
+    // FIRE press/release, means the first *measurement* is never also the
+    // first *open*, so telemetry reflects reality instead of this
+    // early-access artifact.
+    touch_gamepad = SDL_OpenGamepad(touch_joystick_id);
     return true;
 }
 
@@ -213,14 +246,24 @@ void WoofIOS_DetachTouchGamepad(void)
     {
         // The joystick subsystem has already torn down (e.g. mid-quit,
         // via the exit handlers I_SafeExit runs before unwinding back to
-        // WoofIOS_Run) and freed every open joystick along with it.
-        // touch_joystick is a dangling pointer at this point; closing or
-        // detaching through it would be a use-after-free. Just drop our
-        // references -- WoofIOS_Run's unwind path resets them too, but a
-        // caller may invoke this directly before that happens.
+        // WoofIOS_Run) and freed every open joystick/gamepad along with
+        // it. touch_joystick/touch_gamepad are dangling pointers at this
+        // point; closing or detaching through them would be a
+        // use-after-free. Just drop our references -- WoofIOS_Run's
+        // unwind path resets them too, but a caller may invoke this
+        // directly before that happens.
         touch_joystick = NULL;
         touch_joystick_id = 0;
+        touch_gamepad = NULL;
         return;
+    }
+    if (touch_gamepad)
+    {
+        // Ref-counted alongside touch_joystick (see the touch_gamepad
+        // declaration above); closing this first just drops the debug
+        // telemetry's own reference, it does not close touch_joystick.
+        SDL_CloseGamepad(touch_gamepad);
+        touch_gamepad = NULL;
     }
     SDL_CloseJoystick(touch_joystick);
     SDL_DetachVirtualJoystick(touch_joystick_id);
@@ -248,6 +291,38 @@ void WoofIOS_SetTouchButton(int sdl_button, bool down)
         return;
     }
     SDL_SetJoystickVirtualButton(touch_joystick, sdl_button, down);
+    touch_event_count++;
+}
+
+// Fix round (user device-testing): FIRE autofired forever after a single
+// press, working only once as a menu-select. Root cause: Woof!'s default
+// gamepad bindings read FIRE through the *gamepad* layer's RIGHT_TRIGGER,
+// but the virtual joystick's auto-generated mapping exposes both trigger
+// inputs as FULL-RANGE axes -- plain "a4"/"a5", no "+" half-axis prefix.
+// VIRTUAL_JoystickGetGamepadMapping sets each trigger's mapping .kind to
+// EMappingKind_Axis without setting a half_axis_positive/negative flag
+// (Vendor/src/SDL/src/joystick/virtual/SDL_virtualjoystick.c:953-961), and
+// the mapping-string serializer only emits a "+"/"-" prefix when one of
+// those flags is set (Vendor/src/SDL/src/joystick/SDL_gamepad.c:2285-2290)
+// -- so the generated input mapping is a bare "a5", full-range. SDL then
+// linearly maps that full raw range (SDL_JOYSTICK_AXIS_MIN..MAX) onto the
+// trigger's gamepad-axis output range (0..SDL_JOYSTICK_AXIS_MAX): a raw
+// axis of 0 (what WoofIOS_SetTouchAxis's `down ? 1.0 : 0.0` wrote on
+// release) reads back as ~50% pulled at the gamepad layer -- permanently
+// above trigger_threshold (i_gamepad.c), which is exactly what
+// TriggerToButton (i_input.c) polls to synthesize the FIRE button event.
+// Released must therefore write the raw axis all the way to
+// SDL_JOYSTICK_AXIS_MIN (maps to gamepad-axis 0); pressed writes
+// SDL_JOYSTICK_AXIS_MAX (maps to gamepad-axis max). Digital press/release
+// only -- there is no partial-pull touch gesture to preserve here.
+void WoofIOS_SetTouchTrigger(int sdl_axis, bool down)
+{
+    if (!touch_joystick)
+    {
+        return;
+    }
+    SDL_SetJoystickVirtualAxis(touch_joystick, sdl_axis,
+                               down ? SDL_JOYSTICK_AXIS_MAX : SDL_JOYSTICK_AXIS_MIN);
     touch_event_count++;
 }
 
@@ -282,4 +357,24 @@ void *WoofIOS_GetUIWindowPointer(void)
 int WoofIOS_DebugTouchEventCount(void)
 {
     return touch_event_count;
+}
+
+float WoofIOS_DebugTriggerValue(void)
+{
+    if (!touch_joystick || touch_joystick_id == 0)
+    {
+        return -1.0f;
+    }
+    if (!touch_gamepad)
+    {
+        // Lazily open a gamepad-layer view of the same instance;
+        // ref-counted alongside touch_joystick, see the declaration above.
+        touch_gamepad = SDL_OpenGamepad(touch_joystick_id);
+        if (!touch_gamepad)
+        {
+            return -1.0f;
+        }
+    }
+    Sint16 raw = SDL_GetGamepadAxis(touch_gamepad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
+    return (float)raw / (float)SDL_JOYSTICK_AXIS_MAX;
 }

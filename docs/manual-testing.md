@@ -10,9 +10,14 @@ overlay to remain visible even when input devices are connected.
 - [ ] "Touch Controls" gear menu on the Play tab toggles Classic/Modern and
       persists across app relaunch (accessibilityIdentifier
       `touchSchemePicker`)
-- [ ] FIRE actually fires (continuous fire with chaingun held down), USE
-      opens doors — verify both, not just that a button does *something*
-- [ ] Weapon prev/next cycles; MAP toggles automap; ≡ opens the menu and
+- [ ] FIRE actually fires (continuous fire with chaingun held down), **and
+      releasing FIRE actually stops the fire** — this app previously shipped
+      a bug where FIRE autofired forever after a single press (fixed: the
+      virtual joystick's trigger axis is now driven digitally, MIN/MAX only;
+      see `WoofIOS_SetTouchTrigger` in `Engine/woof/src/woof_ios.c`)
+- [ ] USE opens doors — verify it does something, not just that FIRE does
+- [ ] Weapon prev/next cycles; MAP toggles automap (previously silently did
+      nothing — was wired to an unbound button); ≡ opens the menu and
       the stick + FIRE/USE navigate it
 - [ ] Overlay hides/shows when a controller connects/disconnects mid-session
 

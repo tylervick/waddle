@@ -32,9 +32,28 @@ bool WoofIOS_AttachTouchGamepad(void);
 void WoofIOS_DetachTouchGamepad(void);
 void WoofIOS_SetTouchAxis(int sdl_axis, float value);
 void WoofIOS_SetTouchButton(int sdl_button, bool down);
+
+// Drives a trigger axis (SDL_GAMEPAD_AXIS_LEFT_TRIGGER/RIGHT_TRIGGER) as a
+// digital press/release rather than a scaled float. Required because the
+// virtual joystick auto-maps both trigger inputs as FULL-RANGE axes (plain
+// "a4"/"a5", no "+" half-axis prefix -- see the fix-round comment on this
+// function in woof_ios.c for the full citation trail), so writing a scaled
+// float through WoofIOS_SetTouchAxis leaves the gamepad-layer trigger value
+// stuck around 50% on release instead of 0%, permanently above
+// trigger_threshold (i_gamepad.c) -- the FIRE-autofires-forever regression.
+// `down` true writes SDL_JOYSTICK_AXIS_MAX; false writes SDL_JOYSTICK_AXIS_MIN.
+void WoofIOS_SetTouchTrigger(int sdl_axis, bool down);
+
 void WoofIOS_InjectRelativeTurn(float dx_points);
 void *WoofIOS_GetUIWindowPointer(void);
 int WoofIOS_DebugTouchEventCount(void);
+
+// Debug/test telemetry only: returns the RIGHT_TRIGGER axis value as Woof's
+// *gamepad* layer (not the raw joystick axis) reports it, normalized to
+// 0..1, or -1 if the touch gamepad isn't attached / can't be opened. Lets a
+// UITest verify the MAPPED value actually seen by TriggerToButton
+// (i_input.c), not just the raw value the overlay wrote.
+float WoofIOS_DebugTriggerValue(void);
 
 // Engine-internal: called only from i_input.c's I_ReadMouse (WOOF_IOS
 // build), not part of the overlay-facing API above. Returns the turn

@@ -53,8 +53,17 @@ enum EngineSession {
             isRunning = false
         }
 
-        var argv: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) }
+        var effectiveArguments = arguments
+        // Test-only (same seam family as BOOMBOX_AUTOQUIT_SECONDS above):
+        // Woof never auto-warps into a level without an explicit -warp flag
+        // (see README), so a UITest that needs in-game state -- not just
+        // the title screen -- has no menu-free path there otherwise.
+        if ProcessInfo.processInfo.environment["BOOMBOX_TEST_WARP"] != nil {
+            effectiveArguments += ["-warp", "1", "-skill", "1"]
+        }
+
+        var argv: [UnsafeMutablePointer<CChar>?] = effectiveArguments.map { strdup($0) }
         defer { argv.forEach { free($0) } }
-        return WoofIOS_Run(Int32(arguments.count), &argv)
+        return WoofIOS_Run(Int32(effectiveArguments.count), &argv)
     }
 }

@@ -35,8 +35,39 @@ final class TouchOverlayView: UIView {
             self.layer.addSublayer(layer)
         }
 
-        // FIRE drives Woof's RIGHT_TRIGGER axis directly (see TouchGamepad
-        // .setFireTrigger); every other button goes through setButton.
+        // --- Button wiring audit ---
+        // Every control below is wired against Woof!'s *default* gamepad
+        // binding, verified directly in Engine/woof/src/m_input.c (not
+        // guessed -- two rounds of device testing (FIRE/USE, then MAP) each
+        // found a control that had been guessed wrong and silently did
+        // nothing). Check this table before wiring a new button:
+        //
+        //   Control       Wired to (TouchButton)   Woof default (m_input.c)
+        //   -----------   ----------------------   --------------------------------
+        //   FIRE          RIGHT_TRIGGER axis        input_fire: GAMEPAD_RIGHT_TRIGGER
+        //                 (not a button at all --   (:656,658) -- synthesized from the
+        //                 see setFireTrigger)        trigger axis, see TouchButton's
+        //                                            doc comment in TouchGamepad.swift
+        //   USE           .south                     input_use: GAMEPAD_SOUTH (:654-655)
+        //   weapon prev   .leftShoulder              input_prevweapon: GAMEPAD_LEFT_SHOULDER
+        //                                             (:659-660)
+        //   weapon next   .rightShoulder             input_nextweapon: GAMEPAD_RIGHT_SHOULDER
+        //                                             (:661-662)
+        //   MAP           .north                     input_map: GAMEPAD_NORTH (:689-690).
+        //                                             Previously wired to .back
+        //                                             (SDL_GAMEPAD_BUTTON_BACK), which has
+        //                                             no entry anywhere in default_inputs --
+        //                                             guessed, unbound, silently did nothing.
+        //   MENU (≡)      .start                     input_menu_escape: GAMEPAD_START
+        //                                             (:618-622) -- *not* input_escape
+        //                                             (m_input.c:633, key-only, no gamepad
+        //                                             binding). MN_Responder's !menuactive
+        //                                             branch (mn_menu.c:3193-3204) treats a
+        //                                             MENU_ESCAPE action (derived from
+        //                                             input_menu_escape) as "open the menu"
+        //                                             when none is active, "back/cancel"
+        //                                             once one already is -- confirmed correct,
+        //                                             not changed by either fix round.
         addButton("FIRE", id: "fireButton", size: 84) { [weak self] down in
             self?.gamepad.setFireTrigger(down: down)
         }
@@ -50,7 +81,7 @@ final class TouchOverlayView: UIView {
             self?.gamepad.setButton(.rightShoulder, down: down)
         }
         addButton("MAP", id: "automapButton", size: 48) { [weak self] down in
-            self?.gamepad.setButton(.back, down: down)
+            self?.gamepad.setButton(.north, down: down)
         }
         addButton("≡", id: "menuButton", size: 48) { [weak self] down in
             self?.gamepad.setButton(.start, down: down)

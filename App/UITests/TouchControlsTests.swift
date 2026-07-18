@@ -99,4 +99,56 @@ final class TouchControlsTests: XCTestCase {
             of: "touchEvents: ", with: "")) ?? 0
         XCTAssertGreaterThan(count, 0, "modern-scheme drag-turn never reached the SDL shim")
     }
+
+    /// Regression test for a device-testing bug: FIRE autofired forever
+    /// in-game after a single press. Root cause: the virtual joystick's
+    /// auto-mapping exposes triggers as full-range axes, so writing a
+    /// scaled-float release (0.0) left the gamepad-layer RIGHT_TRIGGER
+    /// value at ~50% -- permanently above Woof's trigger_threshold (see
+    /// the WoofIOS_SetTouchTrigger doc comment in woof_ios.c for the full
+    /// citation trail). BOOMBOX_TEST_WARP puts the session in-game (no
+    /// scripted menu navigation) so FIRE exercises its real gameplay path,
+    /// not the title screen's menu-select behavior. Classic scheme (the
+    /// default) is fine here -- FIRE is scheme-independent.
+    @MainActor
+    func testFireReleaseClearsTriggerResidue() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["BOOMBOX_AUTOQUIT_SECONDS"] = "14"
+        app.launchEnvironment["BOOMBOX_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["BOOMBOX_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["BOOMBOX_TEST_WARP"] = "1"
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        play.tap()
+
+        let fire = app.buttons["fireButton"]
+        XCTAssertTrue(fire.waitForExistence(timeout: 20), "overlay never installed")
+
+        // A real down+up: press(forDuration:) synthesizes touchesBegan,
+        // holds, then touchesEnded -- OverlayButton's onPress(true) then
+        // onPress(false), same as a real fingertip tap-and-release.
+        fire.press(forDuration: 0.2)
+
+        // Also exercise the MAP fix (NORTH, not the unbound BACK) while
+        // we're in-game; not this test's core assertion, just confirms the
+        // button wiring doesn't crash the session.
+        app.buttons["automapButton"].tap()
+
+        // Session ends via autoquit; the ~0.3s post-release telemetry
+        // sample (TouchGamepad.setFireTrigger) has long since landed by
+        // the time this fires.
+        let exitLabel = app.staticTexts["engineExitLabel"]
+        XCTAssertTrue(exitLabel.waitForExistence(timeout: 90))
+        XCTAssertEqual(exitLabel.label, "Engine exited: 0")
+
+        let residueLabel = app.staticTexts["triggerResidueLabel"]
+        XCTAssertTrue(residueLabel.waitForExistence(timeout: 5),
+                      "no trigger-residue telemetry sampled")
+        let residue = Float(residueLabel.label.replacingOccurrences(
+            of: "triggerResidue: ", with: "")) ?? 999
+        XCTAssertLessThanOrEqual(residue, 0.05,
+            "FIRE trigger still reads \(residue) after release -- autofire regression")
+    }
 }
