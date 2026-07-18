@@ -72,6 +72,14 @@ final class RealWADTests: XCTestCase {
             if let pwad {
                 waitForWADAvailable(app: app, name: pwad, file: file, line: line)
             }
+            if !iwad.hasPrefix("Freedoom") {
+                // Bundled Freedoom IWADs are registered synchronously at
+                // launch and always available; anything else (e.g. the
+                // provisioned "badiwad" fixture) is a loose file subject to
+                // the same async adoption race as PWADs above — wait for it
+                // too, or the picker tap below can race the hash/copy.
+                waitForWADAvailable(app: app, name: iwad, file: file, line: line)
+            }
             app.buttons["newLoadoutButton"].tap()
             let nameField = app.textFields["loadoutNameField"]
             XCTAssertTrue(nameField.waitForExistence(timeout: 5), file: file, line: line)

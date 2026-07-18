@@ -20,6 +20,17 @@ final class ImportService {
     private let library: LibraryService
     private let store: WADStore
 
+    /// Injectable seam for tests only: production always relies on
+    /// ZipExtractor's own 512 MB default. Internal (not private) so
+    /// ImportServiceTests can shrink it to exercise the oversize-rejection
+    /// path without shipping a real 512 MB fixture.
+    var maxZipEntryBytes: Int64 = ZipExtractor.maxEntryBytes
+
+    /// Reason recorded for every zip entry ZipExtractor skips for being
+    /// over the size cap. Shared by both extraction paths and matched by
+    /// name in adoptLooseFiles's keep/quarantine/delete decision below.
+    private static let oversizeRejectionReason = "Entry exceeds the 512 MB import limit."
+
     init(library: LibraryService, store: WADStore) {
         self.library = library
         self.store = store
@@ -74,11 +85,18 @@ final class ImportService {
             // (which a zip whose contents all fail would never populate).
             let before = (imported: outcome.imported.count,
                           duplicates: outcome.duplicates.count,
-                          rejected: outcome.rejected.count)
+                          rejectedKeys: Set(outcome.rejected.keys))
             await importOneAsync(url: url, into: &outcome)
             let contributedImportedOrDuplicate =
                 outcome.imported.count > before.imported || outcome.duplicates.count > before.duplicates
-            if contributedImportedOrDuplicate {
+            // Whether THIS candidate's pass added an oversize rejection
+            // (vs. some other candidate that happened to already have one
+            // under the same key) — diff against the keys snapshotted
+            // above, then check the newly-added reasons specifically.
+            let contributedOversizeRejection = outcome.rejected
+                .filter { !before.rejectedKeys.contains($0.key) }
+                .values.contains(Self.oversizeRejectionReason)
+            if contributedImportedOrDuplicate && !contributedOversizeRejection {
                 // Imported or duplicate either way, the content now lives in
                 // the store (or already did); the loose original is redundant.
                 try? FileManager.default.removeItem(at: url)
@@ -89,6 +107,16 @@ final class ImportService {
                 // explain a failure for; move it somewhere visible/
                 // recoverable in the Files app instead, so the scan doesn't
                 // re-report it forever.
+                //
+                // A candidate that both imported something AND contributed
+                // an oversize rejection also lands here, even though the
+                // plain "imported/duplicate" branch above would otherwise
+                // delete it: Plan 2 accepted deleting a zip whose *other*
+                // entries were simply corrupt (that content was never
+                // recoverable anyway), but an entry skipped purely for
+                // being oversize is legitimate content that only missed the
+                // cut on size — deleting the zip would destroy the only
+                // surviving copy, so it gets quarantined instead.
                 moveToImportFailed(url)
             }
         }
@@ -126,12 +154,21 @@ final class ImportService {
         switch url.pathExtension.lowercased() {
         case "zip":
             do {
-                let extraction = try ZipExtractor.extractGameFiles(from: url)
+                let extraction = try ZipExtractor.extractGameFiles(from: url, maxEntryBytes: maxZipEntryBytes)
                 defer { try? FileManager.default.removeItem(at: extraction.dir) }
+                // Record every oversize entry unconditionally — not just
+                // when it's the only thing in the zip. A zip that also
+                // contains a valid file must not lose all record of the
+                // entry it dropped: without this, the adopt path sees a
+                // clean import and deletes the zip, destroying the
+                // oversized content's only copy.
+                for oversizeName in extraction.skippedOversize {
+                    outcome.rejected[oversizeName] = Self.oversizeRejectionReason
+                }
                 if extraction.files.isEmpty {
-                    outcome.rejected[name] = extraction.skippedOversize.isEmpty
-                        ? "No WAD or DEH files inside the zip."
-                        : "Contains an oversized entry (>512 MB)."
+                    if extraction.skippedOversize.isEmpty {
+                        outcome.rejected[name] = "No WAD or DEH files inside the zip."
+                    }
                     return
                 }
                 for file in extraction.files {
@@ -215,12 +252,18 @@ final class ImportService {
             // zips, and the brief scopes the off-main move to hashing and
             // copying); only the per-entry hash+store work below is async.
             do {
-                let extraction = try ZipExtractor.extractGameFiles(from: url)
+                let extraction = try ZipExtractor.extractGameFiles(from: url, maxEntryBytes: maxZipEntryBytes)
                 defer { try? FileManager.default.removeItem(at: extraction.dir) }
+                // See the sync path above: record every oversize entry
+                // unconditionally so a partially-valid zip doesn't lose all
+                // trace of what it dropped.
+                for oversizeName in extraction.skippedOversize {
+                    outcome.rejected[oversizeName] = Self.oversizeRejectionReason
+                }
                 if extraction.files.isEmpty {
-                    outcome.rejected[name] = extraction.skippedOversize.isEmpty
-                        ? "No WAD or DEH files inside the zip."
-                        : "Contains an oversized entry (>512 MB)."
+                    if extraction.skippedOversize.isEmpty {
+                        outcome.rejected[name] = "No WAD or DEH files inside the zip."
+                    }
                     return
                 }
                 for file in extraction.files {
