@@ -30,4 +30,12 @@ final class EngineErrorAlertTests: XCTestCase {
         let alert = EngineErrorAlert.from(exitCode: -101, engineMessage: nil)
         XCTAssertEqual(alert?.engineMessage, "The engine reported no details (exit code -101).")
     }
+
+    func testReentrancyExitMapsToAccurateAlert() {
+        let alert = EngineErrorAlert.from(exitCode: -102,
+                                          engineMessage: "Another session is already running.")
+        XCTAssertEqual(alert?.engineMessage, "Another session is already running.")
+        XCTAssertNil(alert?.hint)   // not a WAD-pairing problem
+        XCTAssertEqual(alert?.title, "Couldn't run this loadout")
+    }
 }

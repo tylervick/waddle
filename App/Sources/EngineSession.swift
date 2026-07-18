@@ -18,6 +18,12 @@ enum EngineSession {
     /// play() does, without booting a real engine.
     static func beginSessionForTesting() { sessionGeneration += 1 }
 
+    /// Test-only: forces the isRunning flag so play()'s reentrancy guard
+    /// path is reachable without booting a real engine (the guard returns
+    /// before any engine/overlay work, so calling play() under this flag
+    /// is side-effect-free).
+    static func setRunningForTesting(_ running: Bool) { isRunning = running }
+
     /// True if `generation` (captured at the start of some session) still
     /// matches the current session. False once a later session has begun.
     static func isCurrentGeneration(_ generation: Int) -> Bool {
@@ -28,7 +34,13 @@ enum EngineSession {
     /// the engine exit code. Build argv with LoadoutArguments.
     @discardableResult
     static func play(arguments: [String]) -> Int32 {
-        guard !isRunning else { return -102 }  // defense-in-depth: never crash (ledger item)
+        // Defense-in-depth: never crash (ledger item). Overwrite
+        // lastErrorMessage too — leaving it untouched here would pair the
+        // -102 alert with a previous session's stale error text.
+        guard !isRunning else {
+            lastErrorMessage = "Another session is already running."
+            return -102
+        }
         precondition(arguments.first == "woof", "argv[0] must be the program name")
 
         sessionGeneration += 1
