@@ -21,6 +21,9 @@ enum ZipExtractor {
 
     static func extractGameFiles(from zipURL: URL, maxEntryBytes: Int64) throws
         -> (dir: URL, files: [ExtractedFile], skippedOversize: [String]) {
+        // A negative cap would otherwise first surface as a UInt64
+        // conversion trap deep in the entry loop below.
+        precondition(maxEntryBytes >= 0, "cap must be non-negative")
         let archive = try Archive(url: zipURL, accessMode: .read)
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("wad-import-\(UUID().uuidString)", isDirectory: true)

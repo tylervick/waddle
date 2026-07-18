@@ -14,6 +14,7 @@ enum EngineSession {
     /// returns (the buffer itself is reset at the next session start).
     private(set) static var lastErrorMessage: String?
 
+    #if DEBUG
     /// Test-only bookkeeping hook: bumps the generation counter the same way
     /// play() does, without booting a real engine.
     static func beginSessionForTesting() { sessionGeneration += 1 }
@@ -23,6 +24,7 @@ enum EngineSession {
     /// before any engine/overlay work, so calling play() under this flag
     /// is side-effect-free).
     static func setRunningForTesting(_ running: Bool) { isRunning = running }
+    #endif
 
     /// True if `generation` (captured at the start of some session) still
     /// matches the current session. False once a later session has begun.
@@ -44,11 +46,14 @@ enum EngineSession {
         precondition(arguments.first == "woof", "argv[0] must be the program name")
 
         sessionGeneration += 1
+
+        #if DEBUG
         let generation = sessionGeneration
 
         // Autoquit (UI testing): only quit the session it was armed for, so
         // a stale timer left over from a prior session can't reach into the
-        // next one and quit it early.
+        // next one and quit it early. Debug builds only — release carries
+        // no test seams.
         if let secondsString = ProcessInfo.processInfo
             .environment["BOOMBOX_AUTOQUIT_SECONDS"],
             let seconds = Double(secondsString)
@@ -62,6 +67,7 @@ enum EngineSession {
                 }
             }
         }
+        #endif
 
         isRunning = true
         OverlayPresenter.shared.begin()
@@ -71,6 +77,7 @@ enum EngineSession {
         }
 
         var effectiveArguments = arguments
+        #if DEBUG
         // Test-only (same seam family as BOOMBOX_AUTOQUIT_SECONDS above):
         // Woof never auto-warps into a level without an explicit -warp flag
         // (see README), so a UITest that needs in-game state -- not just
@@ -78,6 +85,7 @@ enum EngineSession {
         if ProcessInfo.processInfo.environment["BOOMBOX_TEST_WARP"] != nil {
             effectiveArguments += ["-warp", "1", "-skill", "1"]
         }
+        #endif
 
         var argv: [UnsafeMutablePointer<CChar>?] = effectiveArguments.map { strdup($0) }
         defer { argv.forEach { free($0) } }

@@ -95,7 +95,9 @@ final class ImportServiceTests: XCTestCase {
         let outcome = importer.importFiles(at: [zipURL])
 
         XCTAssertTrue(outcome.imported.isEmpty)
-        XCTAssertEqual(outcome.rejected["big.wad"], "Entry exceeds the 512 MB import limit.")
+        // The reason string reports the cap actually in effect; these tests
+        // shrink it below 1 MB, which integer-divides down to "0 MB".
+        XCTAssertEqual(outcome.rejected["big.wad"], "Entry exceeds the 0 MB import limit.")
     }
 
     /// A zip with one importable wad and one entry over the cap: the valid
@@ -121,7 +123,7 @@ final class ImportServiceTests: XCTestCase {
         let outcome = importer.importFiles(at: [zipURL])
 
         XCTAssertEqual(outcome.imported, ["ok"])
-        XCTAssertEqual(outcome.rejected["big.wad"], "Entry exceeds the 512 MB import limit.")
+        XCTAssertEqual(outcome.rejected["big.wad"], "Entry exceeds the 0 MB import limit.")
     }
 
     // MARK: adoptLooseFiles
@@ -208,7 +210,7 @@ final class ImportServiceTests: XCTestCase {
         let outcome = await importer.adoptLooseFiles()
 
         XCTAssertEqual(outcome.imported, ["ok"])
-        XCTAssertEqual(outcome.rejected["big.wad"], "Entry exceeds the 512 MB import limit.")
+        XCTAssertEqual(outcome.rejected["big.wad"], "Entry exceeds the 0 MB import limit.")
         XCTAssertFalse(FileManager.default.fileExists(atPath: zipURL.path),
                        "zip should have been moved out of Documents")
         XCTAssertTrue(FileManager.default.fileExists(atPath: importFailedURL.path),

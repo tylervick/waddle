@@ -26,6 +26,11 @@ Current patches:
 - `src/i_exit.c` — on iOS, `I_SafeExit()` unwinds to the host app via
   `WoofIOS_ExitUnwind()` instead of calling `exit()`, and resets its
   priority counter so a second engine session can run exit handlers again.
+  Also (Plan 4): `I_AtSignal()` skips a `func` already in `atsignal_funcs`
+  (identity check) under `WOOF_IOS` — every session's `D_DoomMain`
+  re-registers the same handlers, and unlike the exit lists (drained by
+  `I_SafeExit` each session) nothing ever drains the signal list short of
+  an actual fatal signal, so it grew by one entry set per session.
 - `src/woof_ios.h` / `src/woof_ios.c` — iOS entry point (`WoofIOS_Run`)
   replacing `i_main.c`, plus `WoofIOS_RequestQuit`. `WoofIOS_Run` calls
   `SDL_SetMainReady()` before anything else: the host app's `main()` is

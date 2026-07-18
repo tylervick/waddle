@@ -52,6 +52,7 @@ struct ContentView: View {
                     .accessibilityIdentifier("engineExitLabel")
                     .padding(.bottom, 60)
             }
+            #if DEBUG
             if ProcessInfo.processInfo.environment["BOOMBOX_DEBUG_INPUT_COUNTS"] != nil,
                lastExitCode != nil {
                 Text("touchEvents: \(WoofIOS_DebugTouchEventCount())")
@@ -69,6 +70,7 @@ struct ContentView: View {
                         .padding(.bottom, 130)
                 }
             }
+            #endif
         }
     }
 }

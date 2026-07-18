@@ -29,7 +29,11 @@ final class ImportService {
     /// Reason recorded for every zip entry ZipExtractor skips for being
     /// over the size cap. Shared by both extraction paths and matched by
     /// name in adoptLooseFiles's keep/quarantine/delete decision below.
-    private static let oversizeRejectionReason = "Entry exceeds the 512 MB import limit."
+    /// Derived from the cap actually in effect so the user-facing number
+    /// can never drift from the enforced limit.
+    private var oversizeRejectionReason: String {
+        "Entry exceeds the \(maxZipEntryBytes / (1024 * 1024)) MB import limit."
+    }
 
     init(library: LibraryService, store: WADStore) {
         self.library = library
@@ -95,7 +99,7 @@ final class ImportService {
             // above, then check the newly-added reasons specifically.
             let contributedOversizeRejection = outcome.rejected
                 .filter { !before.rejectedKeys.contains($0.key) }
-                .values.contains(Self.oversizeRejectionReason)
+                .values.contains(oversizeRejectionReason)
             if contributedImportedOrDuplicate && !contributedOversizeRejection {
                 // Imported or duplicate either way, the content now lives in
                 // the store (or already did); the loose original is redundant.
@@ -163,7 +167,7 @@ final class ImportService {
                 // clean import and deletes the zip, destroying the
                 // oversized content's only copy.
                 for oversizeName in extraction.skippedOversize {
-                    outcome.rejected[oversizeName] = Self.oversizeRejectionReason
+                    outcome.rejected[oversizeName] = oversizeRejectionReason
                 }
                 if extraction.files.isEmpty {
                     if extraction.skippedOversize.isEmpty {
@@ -258,7 +262,7 @@ final class ImportService {
                 // unconditionally so a partially-valid zip doesn't lose all
                 // trace of what it dropped.
                 for oversizeName in extraction.skippedOversize {
-                    outcome.rejected[oversizeName] = Self.oversizeRejectionReason
+                    outcome.rejected[oversizeName] = oversizeRejectionReason
                 }
                 if extraction.files.isEmpty {
                     if extraction.skippedOversize.isEmpty {

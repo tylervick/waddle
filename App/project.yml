@@ -130,6 +130,13 @@ targets:
       - path: Resources/woof.pk3
         type: file
         buildPhase: resources
+      # Privacy manifest (App Store requirement). App-scoped settings only
+      # — scheme/tuning/debug toggles via UserDefaults (reason CA92.1); no
+      # tracking, no data collection, no network. A loose file reference
+      # lands it at the bundle root, where App Store Connect expects it.
+      - path: PrivacyInfo.xcprivacy
+        type: file
+        buildPhase: resources
     dependencies:
       - framework: ../Vendor/out/WoofEngine.xcframework
         embed: false
