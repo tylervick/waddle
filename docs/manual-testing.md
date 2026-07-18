@@ -21,6 +21,15 @@ overlay to remain visible even when input devices are connected.
 - [ ] Weapon prev/next cycles; MAP toggles automap (previously silently did
       nothing — was wired to an unbound button); ≡ opens the menu and
       the stick + FIRE/USE navigate it
+- [ ] MAP is hidden/unresponsive whenever a menu is on screen (options,
+      Load/Save, etc.), and reappears the instant the menu closes — MAP's
+      correct gameplay button (NORTH) doubles as `input_menu_clear` in
+      Woof's menu-navigation bindings, so an overlay tap on MAP followed by
+      a tap on USE inside the Load/Save menu could otherwise arm and
+      confirm a savegame delete with no prompt visible on the overlay.
+      Specifically: open Load or Save with a populated slot, confirm MAP
+      does nothing (no delete-confirmation state, slot list unchanged),
+      then back out to gameplay and confirm MAP toggles the automap again
 - [ ] Overlay hides/shows when a controller connects/disconnects mid-session
 
 ### Classic scheme (default)

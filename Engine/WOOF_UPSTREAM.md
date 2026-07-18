@@ -92,6 +92,28 @@ Current patches:
   (`src/i_input.c`) actually reads, not just the raw value the overlay
   wrote. This is what the app's debug HUD and the regression test
   (`TouchControlsTests.testFireReleaseClearsTriggerResidue`) both sample.
+
+  Second fix round (device testing): MAP did nothing (wired to
+  `SDL_GAMEPAD_BUTTON_BACK`, which has no entry anywhere in `m_input.c`'s
+  `default_inputs` table — guessed, not verified, same mistake class as
+  the FIRE/USE mixup above). Rewired to `GAMEPAD_NORTH`
+  (`input_map`, `m_input.c:689-690`), which is correct for gameplay but
+  collides with a *menu-context* binding on the same physical button:
+  `m_input.c:624-628` also binds NORTH to `input_menu_clear`, and
+  `m_input.c:564,576` binds SOUTH (USE) to `gamepad_confirm`. In the
+  Load/Save menu, a `MENU_CLEAR` action on a populated slot arms a delete
+  confirmation (`delete_verify`, `mn_menu.c:3368-3378`, gated on
+  `AnyLoadSaveMenu()` + `AllowDeleteSaveGame()`), and a following
+  `MENU_ENTER` confirms `M_DeleteGame` (`mn_menu.c:2806-2814`) — two
+  overlay taps (MAP then USE) could silently delete a save with no visible
+  prompt on the touch overlay. Rather than move MAP off its correct
+  gameplay default, added `WoofIOS_IsMenuActive`, a thin wrapper reading
+  the engine's own `menuactive` global (`doomstat.h:251`, defined
+  `mn_menu.c:104`) — true only while an actual menu screen is overlaying
+  the game (title/demo state does not set it). The touch overlay
+  (`TouchOverlayView`) polls this on a lightweight always-on timer
+  (independent of the debug HUD, which is opt-in) and hides the automap
+  button whenever a menu is up, restoring it the instant the menu closes.
 - `src/i_input.c` — `I_ReadMouse()` gets a `WOOF_IOS`-only hook, added in
   Plan 3 Task 1 fix round 1: right after the existing
   `SDL_GetRelativeMouseState(&ev.data1.f, &ev.data2.f)` call, add

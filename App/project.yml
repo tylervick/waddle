@@ -72,7 +72,28 @@ targets:
         outputFiles:
           - $(SRCROOT)/Sources/Generated/BuildInfo.generated.swift
     sources:
+      # Generated/BuildInfo.generated.swift is excluded from this recursive
+      # scan and given its own explicit `optional: true` entry below
+      # instead: XcodeGen's directory scan is a static file list snapshotted
+      # at `xcodegen generate` time, so on a clean checkout (file missing --
+      # it's gitignored, produced by Scripts/generate-build-info.sh) it
+      # would simply not exist in the project, and the preBuildScripts
+      # phase further down would then be writing into a file the compiler
+      # never sees -- "no such source file" wasn't the failure mode found,
+      # it silently succeeded and BuildInfo just wasn't in Compile Sources,
+      # so every reference to `BuildInfo.*` failed to compile. An explicit
+      # `optional: true` source entry, by contrast, always reserves a
+      # Compile Sources slot for that exact path, present or not at
+      # generate time -- so the pre-build script's freshly generated file
+      # lands somewhere Xcode already agreed to compile. Listing it twice
+      # (once from the recursive scan, once explicitly) would risk a
+      # duplicate Compile Sources entry once the file exists, hence the
+      # exclude here.
       - path: Sources
+        excludes:
+          - Generated/BuildInfo.generated.swift
+      - path: Sources/Generated/BuildInfo.generated.swift
+        optional: true
       # NOTE: deliberately Resources/GameData, not Resources. A folder
       # reference whose bundle-root name is literally "Resources" makes
       # Xcode emit macOS-style Contents/Resources codesign rules

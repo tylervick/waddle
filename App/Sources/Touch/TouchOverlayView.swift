@@ -23,6 +23,7 @@ final class TouchOverlayView: UIView {
 
     private var debugHUDLabel: UILabel?
     private var debugHUDTimer: Timer?
+    private var menuPolicyTimer: Timer?
 
     init(gamepad: TouchGamepad, scheme: TouchControlScheme = .defaultScheme,
          debugHUDEnabled: Bool = false) {
@@ -75,6 +76,23 @@ final class TouchOverlayView: UIView {
         //                                             when none is active, "back/cancel"
         //                                             once one already is -- confirmed correct,
         //                                             not changed by either fix round.
+        //
+        // Second thing to check before wiring a new button: m_input.c's
+        // *menu-navigation* input table (input_menu_up/down/escape/clear/
+        // etc., m_input.c:560-630, `M_InputPredefined`/`M_UpdateConfirmCancel`)
+        // reuses the same physical gamepad buttons as the gameplay table
+        // above for a *different* purpose while a menu is on screen --
+        // it's a separate binding set Woof switches to contextually, not
+        // an override of the gameplay one. NORTH is exactly this case:
+        // correct as MAP's gameplay default, but m_input.c:624-628 also
+        // binds it to input_menu_clear, and SOUTH (USE) doubles as
+        // gamepad_confirm (m_input.c:564,576) in that same table. Combined,
+        // MAP+USE in the Load/Save menu arms and confirms a savegame
+        // delete (mn_menu.c:3368-3378, :2806-2814) -- see
+        // updateAutomapAvailability() below, which hides MAP whenever
+        // WoofIOS_IsMenuActive() reports a menu on screen so the overlay
+        // can't trigger this. A future button add must check *both*
+        // tables, not just the gameplay one.
         addButton("FIRE", id: "fireButton", size: 84) { [weak self] down in
             self?.gamepad.setFireTrigger(down: down)
         }
@@ -93,6 +111,11 @@ final class TouchOverlayView: UIView {
         addButton("≡", id: "menuButton", size: 48) { [weak self] down in
             self?.gamepad.setButton(.start, down: down)
         }
+
+        // Always on -- independent of debugHUDEnabled below, which is
+        // opt-in and off by default. This one is a correctness fix (see
+        // the wiring audit above), not a debug aid.
+        startMenuPolicyTimer()
 
         if debugHUDEnabled {
             let label = UILabel()
@@ -114,11 +137,34 @@ final class TouchOverlayView: UIView {
     // `deinit` runs in a nonisolated context that Swift 6 won't let touch
     // it. OverlayPresenter.end() already calls removeFromSuperview() on
     // this view the instant a session ends (on the main actor), so that's
-    // the reliable, correctly-isolated place to invalidate the timer.
+    // the reliable, correctly-isolated place to invalidate both timers.
     override func removeFromSuperview() {
         debugHUDTimer?.invalidate()
         debugHUDTimer = nil
+        menuPolicyTimer?.invalidate()
+        menuPolicyTimer = nil
         super.removeFromSuperview()
+    }
+
+    // MARK: Menu-context automap suppression (always on, see wiring audit)
+
+    /// MAP (NORTH) doubles as input_menu_clear in Woof's menu-navigation
+    /// input table -- see the wiring audit's second table. Lightweight
+    /// always-on poll (not gated on the debug HUD toggle) so the overlay
+    /// never lets a menu-context tap on MAP through. Restores the button
+    /// the instant WoofIOS_IsMenuActive() reports the menu closed.
+    private func startMenuPolicyTimer() {
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+            self?.updateAutomapAvailability()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        menuPolicyTimer = timer
+        updateAutomapAvailability()
+    }
+
+    private func updateAutomapAvailability() {
+        let hideForMenu = WoofIOS_IsMenuActive()
+        buttons.first { $0.accessibilityIdentifier == "automapButton" }?.isHidden = hideForMenu
     }
 
     // MARK: Debug HUD (opt-in, "Show Debug Info" toggle on the Play tab)

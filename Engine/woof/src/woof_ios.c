@@ -22,6 +22,7 @@
 #include "SDL3/SDL_main.h"
 
 #include "config.h"
+#include "doomtype.h" // `boolean` typedef backing the `menuactive` extern below
 #include "i_printf.h"
 #include "m_argv.h"
 
@@ -121,19 +122,26 @@ int WoofIOS_Run(int argc, char **argv)
     {
         sigaction(SIGTERM, &previous_sigterm, NULL);
 
-        // The session that just unwound already tore down SDL (its exit
-        // handlers freed any attached touch gamepad along with every
-        // other joystick), so these statics are stale/dangling now, not
-        // merely "detached" -- same stale-global hazard as the module
-        // statics in WOOF_UPSTREAM.md's Task 10 section. Reset them so
-        // the next session's WoofIOS_AttachTouchGamepad attaches fresh
-        // instead of trusting a pointer from a torn-down subsystem.
+        // The session that just unwound already tore down every open
+        // gamepad/joystick -- including our virtual one -- via Woof's own
+        // I_ShutdownGamepad (i_input.c:411-415, `SDL_QuitSubSystem(SDL_INIT_GAMEPAD)`),
+        // registered as an I_AtExit handler (i_input.c:486) that runs as
+        // part of I_SafeExit's normal exit sequence, before it ever
+        // unwinds back here. SDL_QuitSubSystem(GAMEPAD) itself cascades
+        // into SDL_QuitSubSystem(JOYSTICK) too ("game controller implies
+        // joystick", Vendor/src/SDL/src/SDL.c:614-619). So these statics
+        // are stale/dangling now, not merely "detached" -- same
+        // stale-global hazard as the module statics in WOOF_UPSTREAM.md's
+        // Task 10 section. Reset them so the next session's
+        // WoofIOS_AttachTouchGamepad attaches fresh instead of trusting a
+        // pointer from a torn-down subsystem.
         touch_joystick = NULL;
         touch_joystick_id = 0;
         touch_turn_accum = 0.0f;
-        // Same dangling-pointer hazard as touch_joystick above: SDL_Quit's
-        // exit handlers already freed every open gamepad along with every
-        // joystick, so touch_gamepad is stale, not merely detached.
+        // Same dangling-pointer hazard as touch_joystick above: the same
+        // I_ShutdownGamepad-driven teardown already freed every open
+        // gamepad along with every joystick, so touch_gamepad is stale,
+        // not merely detached.
         touch_gamepad = NULL;
 
         return code > 0 ? code - 1 : code;
@@ -257,6 +265,14 @@ void WoofIOS_DetachTouchGamepad(void)
         touch_gamepad = NULL;
         return;
     }
+    // Defensive: unreachable in the current production call graph. The
+    // only caller (TouchGamepad.detach(), via OverlayPresenter.end()) only
+    // ever runs after WoofIOS_Run has returned, by which point
+    // I_ShutdownGamepad has already torn the subsystem down (see the
+    // WoofIOS_Run unwind branch above) -- so SDL_WasInit(SDL_INIT_JOYSTICK)
+    // is always false by the time we'd get here today, and this branch
+    // never executes. Kept for a caller that might one day detach while a
+    // session is still fully live.
     if (touch_gamepad)
     {
         // Ref-counted alongside touch_joystick (see the touch_gamepad
@@ -352,6 +368,29 @@ void *WoofIOS_GetUIWindowPointer(void)
     }
     SDL_free(windows);
     return result;
+}
+
+// Fix round (device testing): MAP's gameplay default is correct
+// (GAMEPAD_NORTH, see the TouchButton doc comment in TouchGamepad.swift /
+// the wiring audit in TouchOverlayView.swift), but NORTH is *also*
+// input_menu_clear's default binding (m_input.c:624-628) -- see the audit
+// block's second table for the menu-context collision this causes with
+// USE (SOUTH = gamepad_confirm, m_input.c:564,576): in the Load/Save menu,
+// MENU_CLEAR on a populated slot arms a delete confirmation
+// (`delete_verify`, mn_menu.c:3368-3378, gated on AnyLoadSaveMenu() +
+// AllowDeleteSaveGame()), and a subsequent MENU_ENTER (USE) confirms
+// M_DeleteGame (mn_menu.c:2806-2814) -- two overlay taps silently delete a
+// save. Rather than rebind MAP away from its correct gameplay default,
+// the overlay (TouchOverlayView) polls this to hide/disable the automap
+// button whenever a menu is on screen. `menuactive` (doomstat.h:251,
+// defined mn_menu.c:104) is only true while an actual menu screen -- main
+// menu, options, Load/Save, etc. -- is overlaying the game; the title/demo
+// state does not set it.
+extern boolean menuactive;
+
+bool WoofIOS_IsMenuActive(void)
+{
+    return menuactive != 0;
 }
 
 int WoofIOS_DebugTouchEventCount(void)

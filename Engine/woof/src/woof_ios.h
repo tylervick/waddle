@@ -48,6 +48,16 @@ void WoofIOS_InjectRelativeTurn(float dx_points);
 void *WoofIOS_GetUIWindowPointer(void);
 int WoofIOS_DebugTouchEventCount(void);
 
+// True whenever Woof's escape-menu system (mn_menu.c) is overlaying the
+// game -- title/demo state does not count, only an actually-open menu
+// screen (main menu, options, Load/Save, etc.). A thin wrapper around the
+// engine's own `menuactive` global (doomstat.h) so the overlay can suppress
+// controls whose gameplay binding collides with a *menu-context* binding
+// on the same physical button -- see the fix-round comment on
+// WoofIOS_IsMenuActive's implementation in woof_ios.c for the MAP/NORTH
+// case this was added for.
+bool WoofIOS_IsMenuActive(void);
+
 // Debug/test telemetry only: returns the RIGHT_TRIGGER axis value as Woof's
 // *gamepad* layer (not the raw joystick axis) reports it, normalized to
 // 0..1, or -1 if the touch gamepad isn't attached / can't be opened. Lets a
