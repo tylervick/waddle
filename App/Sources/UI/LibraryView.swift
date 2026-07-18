@@ -43,7 +43,9 @@ struct LibraryView: View {
                           allowedContentTypes: importTypes,
                           allowsMultipleSelection: true) { result in
                 if case .success(let urls) = result {
-                    lastOutcome = importer.importFiles(at: urls)
+                    let outcome = importer.importFiles(at: urls)
+                    lastOutcome = outcome
+                    ImportNotices.shared.post(outcome: outcome)
                     refresh()
                 }
             }
@@ -58,6 +60,7 @@ struct LibraryView: View {
                 Text("Used by: \(deleteBlocked.joined(separator: ", ")). Remove it from those loadouts first.")
             }
             .onAppear(perform: refresh)
+            .onReceive(NotificationCenter.default.publisher(for: .libraryDidChange)) { _ in refresh() }
         }
     }
 

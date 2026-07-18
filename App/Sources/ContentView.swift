@@ -34,6 +34,16 @@ struct ContentView: View {
                 .accessibilityIdentifier("libraryTab")
         }
         .overlay(alignment: .bottom) {
+            if let notice = ImportNotices.shared.current {
+                Text(notice)
+                    .font(.footnote)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.thinMaterial, in: Capsule())
+                    .accessibilityIdentifier("importNoticeBanner")
+                    .onTapGesture { ImportNotices.shared.dismiss() }
+                    .padding(.bottom, 100)
+            }
             if let code = lastExitCode {
                 Text("Engine exited: \(code)")
                     .font(.footnote.monospaced())
