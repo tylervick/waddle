@@ -114,6 +114,13 @@ final class RealWADTests: XCTestCase {
         } else {
             XCTAssertNotEqual(exitLabel.label, "Engine exited: 0",
                 "bad WAD selection unexpectedly booted", file: file, line: line)
+            // The engine's own error text must surface as a launcher alert
+            // (Plan 4 Task 1). Dismiss it before the interactivity check
+            // below — a presented alert intercepts hits on everything else.
+            let alert = app.alerts["Couldn't run this loadout"]
+            XCTAssertTrue(alert.waitForExistence(timeout: 5),
+                          "engine error alert not shown", file: file, line: line)
+            alert.buttons["OK"].tap()
             // App survived the engine error — launcher still interactive.
             // Tab-bar buttons carry no accessibility id on iOS 26 (the
             // native tab bar is reconstructed by the system and doesn't

@@ -1,0 +1,33 @@
+import XCTest
+@testable import BoomBox
+
+final class EngineErrorAlertTests: XCTestCase {
+    func testCleanExitProducesNoAlert() {
+        XCTAssertNil(EngineErrorAlert.from(exitCode: 0, engineMessage: nil))
+    }
+
+    func testErrorExitCarriesEngineText() {
+        let alert = EngineErrorAlert.from(exitCode: -1,
+                                          engineMessage: "Unknown or invalid IWAD file.")
+        XCTAssertEqual(alert?.engineMessage, "Unknown or invalid IWAD file.")
+        XCTAssertNotNil(alert?.hint)   // IWAD problems get a hint
+    }
+
+    func testWrongIWADHint() {
+        let alert = EngineErrorAlert.from(exitCode: -1,
+                                          engineMessage: "W_GetNumForName: TEXTURE2 not found")
+        XCTAssertEqual(alert?.hint,
+            "This usually means the WAD needs a different base game (IWAD). Try pairing it with Doom II / Freedoom Phase 2.")
+    }
+
+    func testUnknownErrorHasNoHintButStillAlerts() {
+        let alert = EngineErrorAlert.from(exitCode: -1, engineMessage: "Z_Malloc: failure")
+        XCTAssertNil(alert?.hint)
+        XCTAssertEqual(alert?.title, "Couldn't run this loadout")
+    }
+
+    func testMissingMessageGetsGenericText() {
+        let alert = EngineErrorAlert.from(exitCode: -101, engineMessage: nil)
+        XCTAssertEqual(alert?.engineMessage, "The engine reported no details (exit code -101).")
+    }
+}

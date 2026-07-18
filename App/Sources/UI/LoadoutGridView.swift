@@ -9,6 +9,7 @@ struct LoadoutGridView: View {
     @AppStorage(TouchControlScheme.userDefaultsKey) private var touchScheme: TouchControlScheme = .defaultScheme
     @AppStorage(debugHUDUserDefaultsKey) private var debugHUD: Bool = false
     @State private var showControlFeel = false
+    @State private var errorAlert: EngineErrorAlert?
 
     private let columns = [GridItem(.adaptive(minimum: 200), spacing: 16)]
 
@@ -47,6 +48,14 @@ struct LoadoutGridView: View {
             }
             .sheet(item: $editorLoadout, onDismiss: refresh) { loadout in
                 LoadoutEditorView(library: library, existing: loadout)
+            }
+            .alert(errorAlert?.title ?? "", isPresented: Binding(
+                get: { errorAlert != nil }, set: { if !$0 { errorAlert = nil } }
+            ), presenting: errorAlert) { _ in
+                Button("OK") { errorAlert = nil }
+            } message: { alert in
+                Text([alert.engineMessage, alert.hint].compactMap { $0 }
+                    .joined(separator: "\n\n"))
             }
             .onAppear(perform: refresh)
         }
@@ -143,8 +152,13 @@ struct LoadoutGridView: View {
             loadout.lastPlayed = .now
             try? library.saveChanges()
             lastExitCode = EngineSession.play(arguments: args)
+            errorAlert = EngineErrorAlert.from(exitCode: lastExitCode ?? 0,
+                                               engineMessage: EngineSession.lastErrorMessage)
         } catch {
             lastExitCode = -101   // arg-building failure (missing WAD)
+            errorAlert = EngineErrorAlert.from(
+                exitCode: -101,
+                engineMessage: "A file in this loadout is missing from the library.")
         }
         refresh()
     }

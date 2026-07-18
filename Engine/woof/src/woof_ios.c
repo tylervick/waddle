@@ -398,6 +398,15 @@ int WoofIOS_DebugTouchEventCount(void)
     return touch_event_count;
 }
 
+const char *WoofIOS_LastErrorMessage(void)
+{
+    // Declared locally rather than in i_system.h, same as the
+    // I_ResetErrorMessages extern in WoofIOS_Run above — both live in
+    // i_system.c's WOOF_IOS-only patch block.
+    extern const char *I_GetErrorMessage(void);
+    return I_GetErrorMessage();
+}
+
 float WoofIOS_DebugTriggerValue(void)
 {
     if (!touch_joystick || touch_joystick_id == 0)

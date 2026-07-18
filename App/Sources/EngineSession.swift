@@ -9,6 +9,11 @@ enum EngineSession {
     private(set) static var isRunning = false
     private(set) static var sessionGeneration = 0
 
+    /// Engine error text from the most recent session; nil on clean exit.
+    /// Captured from the engine's errmsg buffer right after WoofIOS_Run
+    /// returns (the buffer itself is reset at the next session start).
+    private(set) static var lastErrorMessage: String?
+
     /// Test-only bookkeeping hook: bumps the generation counter the same way
     /// play() does, without booting a real engine.
     static func beginSessionForTesting() { sessionGeneration += 1 }
@@ -23,7 +28,7 @@ enum EngineSession {
     /// the engine exit code. Build argv with LoadoutArguments.
     @discardableResult
     static func play(arguments: [String]) -> Int32 {
-        precondition(!isRunning, "engine session already running")
+        guard !isRunning else { return -102 }  // defense-in-depth: never crash (ledger item)
         precondition(arguments.first == "woof", "argv[0] must be the program name")
 
         sessionGeneration += 1
@@ -64,6 +69,9 @@ enum EngineSession {
 
         var argv: [UnsafeMutablePointer<CChar>?] = effectiveArguments.map { strdup($0) }
         defer { argv.forEach { free($0) } }
-        return WoofIOS_Run(Int32(effectiveArguments.count), &argv)
+        let code = WoofIOS_Run(Int32(effectiveArguments.count), &argv)
+        lastErrorMessage = code == 0 ? nil
+            : String(cString: WoofIOS_LastErrorMessage())
+        return code
     }
 }

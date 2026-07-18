@@ -132,7 +132,12 @@ Current patches:
   `I_ErrorInternal()` deliberately appends to its static `errmsg` buffer
   so nested errors within one exit sequence share a dialog, but across
   engine sessions in the same process that text is stale and would be
-  prepended to the next session's first error dialog.
+  prepended to the next session's first error dialog. Same block also
+  adds a read-only `I_GetErrorMessage()` accessor (returns `errmsg`;
+  empty string after a clean exit) so the host app can surface the
+  engine's actual error text in its own alert after a session unwinds —
+  SDL's `I_ErrorMsg` message box never fires in the iOS embedding. Both
+  are declared via local `extern` in `woof_ios.c`, not in `i_system.h`.
 - `CMakeLists.txt` (top-level) — added `find_package(Threads REQUIRED)`
   before `find_package(OpenAL REQUIRED)`: our Vendor-built OpenAL Soft's
   exported `OpenALTargets.cmake` links `Threads::Threads` in its interface
