@@ -1,4 +1,5 @@
 import SwiftUI
+import WoofEngine
 
 struct ContentView: View {
     let library: LibraryService
@@ -40,6 +41,13 @@ struct ContentView: View {
                     .background(.thinMaterial, in: Capsule())
                     .accessibilityIdentifier("engineExitLabel")
                     .padding(.bottom, 60)
+            }
+            if ProcessInfo.processInfo.environment["BOOMBOX_DEBUG_INPUT_COUNTS"] != nil,
+               let code = lastExitCode {
+                Text("touchEvents: \(WoofIOS_DebugTouchEventCount())")
+                    .font(.footnote.monospaced())
+                    .accessibilityIdentifier("touchEventCountLabel")
+                    .padding(.bottom, 100)
             }
         }
     }

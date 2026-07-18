@@ -115,6 +115,23 @@ final class OverlayPresenter {
     }
 
     private func applyPolicy() {
+        // Test-only escape hatch (Plan 3 Task 6): under the iOS Simulator's
+        // XCUITest automation session, GameController reports a phantom
+        // GCController *and* GCKeyboard.coalesced as connected (the host
+        // Mac's own keyboard, plus something about the automation session
+        // itself) for the whole session -- confirmed via diagnostic
+        // logging, not the simulator-keyboard flakiness Task 5 anticipated.
+        // That's correct, unit-tested production behavior
+        // (PhysicalInputPolicyTests) firing on a false positive in this one
+        // harness, which made the touch overlay permanently inaccessible to
+        // XCUITest -- TouchControlsTests couldn't verify install, input, or
+        // teardown at all. Only ever set by the UI test; never present in a
+        // real session.
+        if ProcessInfo.processInfo.environment["BOOMBOX_FORCE_TOUCH_OVERLAY"] != nil {
+            overlay?.isHidden = false
+            return
+        }
+
         let policy = PhysicalInputPolicy(
             controllerConnected: !GCController.controllers().isEmpty,
             hardwareKeyboardConnected: GCKeyboard.coalesced != nil
