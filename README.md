@@ -99,6 +99,19 @@ Freedoom Phase 1+2 are bundled and pre-wired as loadouts.
 
   The overlay drives a virtual gamepad, so all bindings are remappable in
   Woof!'s own setup menu.
+- **Control feel tuning:** the same gear menu has a "Control Feel…" sheet
+  with three persisted sliders (values are read when a session's overlay
+  installs, so mid-session changes apply to the next session):
+  - **Turn Speed** (0.25–3.0, default 1.0): multiplies the classic scheme's
+    stick turn and the modern scheme's drag-to-turn sensitivity.
+  - **Stick Dead Zone** (0.05–0.4, default 0.2): fraction of the movement
+    stick's radius that ignores small wobbles before movement registers.
+  - **Move Sensitivity** (0.5–1.5, default 1.0): scales forward/back and
+    strafe output.
+
+  With "Show Debug Info" on, the in-session HUD shows the effective values
+  (`turn`/`dz`/`move`) — see `docs/manual-testing.md` for the on-device
+  tuning procedure.
 - **Controllers:** Xbox/PlayStation/Switch/MFi via GameController — the
   touch overlay hides automatically while one is connected.
 - **Keyboard & mouse:** hardware keyboards hide the overlay; mouse look

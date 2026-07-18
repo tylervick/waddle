@@ -31,6 +31,29 @@ overlay to remain visible even when input devices are connected.
       does nothing (no delete-confirmation state, slot list unchanged),
       then back out to gameplay and confirm MAP toggles the automap again
 - [ ] Overlay hides/shows when a controller connects/disconnects mid-session
+- [ ] "Control Feel…" in the gear menu opens the tuning sheet; the three
+      sliders (accessibilityIdentifiers `turnSpeedSlider`,
+      `stickDeadZoneSlider`, `moveSensitivitySlider`) persist across app
+      relaunch, and Reset to Defaults restores 1.00 / 0.20 / 1.00
+
+### Control-feel tuning procedure (on-device)
+
+Goal: find preferred slider values interactively instead of code-tweak
+loops, then report them back so the defaults can be baked in.
+
+1. Turn on "Show Debug Info" (gear menu) so the in-session HUD shows the
+   effective values as `turn <x.xx> · dz <x.xx> · move <x.xx>` — what the
+   HUD shows is what the session is actually using.
+2. Open "Control Feel…", adjust one slider, and start a session (values are
+   read at overlay install, so mid-session changes apply to the *next*
+   session — leave a session and re-enter after each adjustment).
+3. Retest the feel per the scheme checklists above (classic stick turn,
+   modern drag-turn, dead-zone wobble rejection, forward/strafe speed).
+4. Repeat per slider until it feels right; note interactions (a larger dead
+   zone shrinks the stick's active band, which makes mid-deflection turning
+   in classic feel faster for the same thumb travel).
+5. Report the preferred `turn`/`dz`/`move` values (screenshot of the HUD
+   line is enough) so they can be baked in as defaults.
 
 ### Classic scheme (default)
 - [ ] Movement stick appears where the left thumb lands; releases to neutral
@@ -58,7 +81,7 @@ persisted across relaunch).
 - [ ] During an engine session, a translucent line appears along the top
       edge (accessibilityIdentifier `sessionDebugHUD`), refreshing twice a
       second, reading `build <commit> (<branch>) · <scheme> · events <n> ·
-      trigger <0.00-1.00>`:
+      trigger <0.00-1.00> · turn <x.xx> · dz <x.xx> · move <x.xx>`:
       - `<scheme>`: the active touch control scheme (classic/modern)
       - `events`: the shim's cumulative touch-event counter (same one
         `touchEventCountLabel` shows post-session) — should climb as you
@@ -68,6 +91,9 @@ persisted across relaunch).
         held, and must drop back to `0.00` within a fraction of a second of
         releasing FIRE (this is the same telemetry that caught the FIRE
         autofire regression above, just live instead of sampled once)
+      - `turn`/`dz`/`move`: the effective Control Feel tuning values this
+        session is using (turnSpeed, stickDeadZone, moveSensitivity — read
+        once at overlay install, see the tuning procedure above)
       - the HUD never intercepts touches and doesn't overlap the button row
 
 ## Physical controller (Xbox/PS/Switch)

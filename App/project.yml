@@ -12,6 +12,11 @@ settings:
     SWIFT_VERSION: "6.0"
     OTHER_LDFLAGS: "-lc++"
     TARGETED_DEVICE_FAMILY: "1,2"
+    # Personal team (OU of the "Apple Development: Tyler Vick" cert) so
+    # device runs sign out of the box — xcodegen regenerates the project,
+    # which would wipe a team set by hand in Xcode's Signing pane.
+    DEVELOPMENT_TEAM: 352UZEKYPP
+    CODE_SIGN_STYLE: Automatic
 targets:
   BoomBox:
     type: application

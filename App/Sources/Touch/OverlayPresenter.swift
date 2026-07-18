@@ -61,11 +61,15 @@ final class OverlayPresenter {
         // Read once at install time (matches the Play tab picker's
         // UserDefaults key); the overlay doesn't observe live changes mid-
         // session, only picks up a new scheme on the next install. Same
-        // read-once-at-install policy for the debug HUD toggle.
+        // read-once-at-install policy for the debug HUD toggle and the
+        // Control Feel tuning sliders — mid-session slider changes apply
+        // to the next session.
         let scheme = TouchControlScheme.current()
+        let tuning = TouchTuning.current()
+        gamepad.tuning = tuning
         let debugHUDEnabled = UserDefaults.standard.bool(forKey: debugHUDUserDefaultsKey)
         let view = TouchOverlayView(gamepad: gamepad, scheme: scheme,
-                                    debugHUDEnabled: debugHUDEnabled)
+                                    tuning: tuning, debugHUDEnabled: debugHUDEnabled)
         view.frame = window.bounds
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         window.addSubview(view)
