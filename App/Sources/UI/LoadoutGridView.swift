@@ -9,6 +9,7 @@ struct LoadoutGridView: View {
     @AppStorage(TouchControlScheme.userDefaultsKey) private var touchScheme: TouchControlScheme = .defaultScheme
     @AppStorage(debugHUDUserDefaultsKey) private var debugHUD: Bool = false
     @State private var showControlFeel = false
+    @State private var showAbout = false
     @State private var errorAlert: EngineErrorAlert?
 
     private let columns = [GridItem(.adaptive(minimum: 200), spacing: 16)]
@@ -42,6 +43,9 @@ struct LoadoutGridView: View {
             }
             .sheet(isPresented: $showControlFeel) {
                 ControlFeelView()
+            }
+            .sheet(isPresented: $showAbout) {
+                NavigationStack { AboutView() }
             }
             .sheet(isPresented: $showNewEditor, onDismiss: refresh) {
                 LoadoutEditorView(library: library, existing: nil)
@@ -98,6 +102,13 @@ struct LoadoutGridView: View {
                 Label("Control Feel…", systemImage: "slider.horizontal.3")
             }
             .accessibilityIdentifier("controlFeelButton")
+
+            Button {
+                showAbout = true
+            } label: {
+                Label("About", systemImage: "info.circle")
+            }
+            .accessibilityIdentifier("aboutButton")
         } label: {
             Label("Touch Controls", systemImage: "gearshape")
         }

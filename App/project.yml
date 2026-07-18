@@ -112,6 +112,12 @@ targets:
       - path: Resources/GameData
         type: folder
         buildPhase: resources
+      # License texts surfaced by AboutView (GPL compliance). Same
+      # folder-reference pattern as GameData (must NOT be named
+      # "Resources"); lands in the bundle as Licenses/*.
+      - path: Resources/Licenses
+        type: folder
+        buildPhase: resources
       # woof.pk3 must land at the bundle root (sibling of the executable,
       # NOT under GameData/): Woof! finds it via SDL_GetBasePath(), which
       # resolves to the app bundle root on iOS, and there's no argv flag
