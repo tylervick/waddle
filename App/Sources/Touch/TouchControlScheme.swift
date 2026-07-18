@@ -27,7 +27,18 @@ enum TouchControlScheme: String, CaseIterable {
     /// .userDefaultsKey)` (this type is String-RawRepresentable, so
     /// @AppStorage works directly) so the Play tab picker and this read stay
     /// on the same key.
+    ///
+    /// Test-only override: `BOOMBOX_TOUCH_SCHEME` ("classic"/"modern") in
+    /// the process environment wins over UserDefaults, letting a UITest pin
+    /// the scheme without depending on @AppStorage/UserDefaults timing --
+    /// same test-seam pattern as `BOOMBOX_AUTOQUIT_SECONDS` (EngineSession)
+    /// and `BOOMBOX_FORCE_TOUCH_OVERLAY` (OverlayPresenter). Never set
+    /// outside a test launch environment.
     static func current(defaults: UserDefaults = .standard) -> TouchControlScheme {
+        if let raw = ProcessInfo.processInfo.environment["BOOMBOX_TOUCH_SCHEME"],
+           let scheme = TouchControlScheme(rawValue: raw) {
+            return scheme
+        }
         guard let raw = defaults.string(forKey: userDefaultsKey) else { return defaultScheme }
         return TouchControlScheme(rawValue: raw) ?? defaultScheme
     }
