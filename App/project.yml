@@ -59,6 +59,18 @@ targets:
             UTTypeConformsTo: [public.data]
             UTTypeTagSpecification:
               public.filename-extension: [deh, bex]
+    preBuildScripts:
+      - name: Generate Build Info
+        # Regenerates App/Sources/Generated/BuildInfo.generated.swift with
+        # the current commit/branch/build time before every build (see
+        # Scripts/generate-build-info.sh's header for why a *placeholder*
+        # must also exist before the first `xcodegen generate`, or this
+        # file never gets picked up at all). `outputFiles` tells Xcode this
+        # phase produces that file, so it's sequenced before compilation.
+        script: |
+          "$SRCROOT/../Scripts/generate-build-info.sh"
+        outputFiles:
+          - $(SRCROOT)/Sources/Generated/BuildInfo.generated.swift
     sources:
       - path: Sources
       # NOTE: deliberately Resources/GameData, not Resources. A folder

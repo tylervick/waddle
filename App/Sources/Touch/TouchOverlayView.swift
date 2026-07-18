@@ -1,4 +1,5 @@
 import UIKit
+import WoofEngine
 
 /// Transparent full-screen overlay: left region = movement stick,
 /// right region = drag-to-turn, plus edge-anchored buttons. Pure UIKit —
@@ -7,6 +8,7 @@ import UIKit
 final class TouchOverlayView: UIView {
     private let gamepad: TouchGamepad
     private let scheme: TouchControlScheme
+    private let debugHUDEnabled: Bool
 
     private var stickTouch: UITouch?
     private var stickModel = TouchStickModel(center: .zero, radius: 60)
@@ -19,9 +21,14 @@ final class TouchOverlayView: UIView {
     private let turnBase = CAShapeLayer()
     private let turnKnob = CAShapeLayer()
 
-    init(gamepad: TouchGamepad, scheme: TouchControlScheme = .defaultScheme) {
+    private var debugHUDLabel: UILabel?
+    private var debugHUDTimer: Timer?
+
+    init(gamepad: TouchGamepad, scheme: TouchControlScheme = .defaultScheme,
+         debugHUDEnabled: Bool = false) {
         self.gamepad = gamepad
         self.scheme = scheme
+        self.debugHUDEnabled = debugHUDEnabled
         super.init(frame: .zero)
         backgroundColor = .clear
         isMultipleTouchEnabled = true
@@ -86,9 +93,60 @@ final class TouchOverlayView: UIView {
         addButton("≡", id: "menuButton", size: 48) { [weak self] down in
             self?.gamepad.setButton(.start, down: down)
         }
+
+        if debugHUDEnabled {
+            let label = UILabel()
+            label.accessibilityIdentifier = "sessionDebugHUD"
+            label.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+            label.textColor = UIColor.white.withAlphaComponent(0.6)
+            label.backgroundColor = UIColor.black.withAlphaComponent(0.3)
+            label.textAlignment = .center
+            label.isUserInteractionEnabled = false // never intercepts touches
+            addSubview(label)
+            debugHUDLabel = label
+            startDebugHUDTimer()
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
+
+    // Torn down here rather than `deinit`: Timer is non-Sendable, and
+    // `deinit` runs in a nonisolated context that Swift 6 won't let touch
+    // it. OverlayPresenter.end() already calls removeFromSuperview() on
+    // this view the instant a session ends (on the main actor), so that's
+    // the reliable, correctly-isolated place to invalidate the timer.
+    override func removeFromSuperview() {
+        debugHUDTimer?.invalidate()
+        debugHUDTimer = nil
+        super.removeFromSuperview()
+    }
+
+    // MARK: Debug HUD (opt-in, "Show Debug Info" toggle on the Play tab)
+
+    /// Live telemetry refreshed on a main-runloop timer (not just once at
+    /// install): commit/branch identify exactly which build is running on
+    /// a test device, active scheme confirms which control mapping is live,
+    /// and the touch-event count + trigger value are the same debug
+    /// counters TouchControlsTests reads post-session, but updating in
+    /// real time here -- e.g. this is what would have shown the FIRE
+    /// autofire bug's stuck ~0.5 trigger value live, during the session,
+    /// rather than only after the fact.
+    private func startDebugHUDTimer() {
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            self?.updateDebugHUD()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        debugHUDTimer = timer
+        updateDebugHUD()
+    }
+
+    private func updateDebugHUD() {
+        let trigger = WoofIOS_DebugTriggerValue()
+        debugHUDLabel?.text = String(
+            format: "build %@ (%@) · %@ · events %d · trigger %.2f",
+            BuildInfo.commit, BuildInfo.branch, scheme == .classic ? "classic" : "modern",
+            WoofIOS_DebugTouchEventCount(), trigger)
+    }
 
     // MARK: Buttons
 
@@ -106,14 +164,25 @@ final class TouchOverlayView: UIView {
         super.layoutSubviews()
         let inset = safeAreaInsets
         let b = bounds
+        // The debug HUD claims a thin strip at the very top edge; push the
+        // top button row down to clear it so the HUD never overlaps them
+        // (only takes effect when the "Show Debug Info" toggle is on --
+        // zero layout change otherwise).
+        let hudReservedHeight: CGFloat = debugHUDEnabled ? 22 : 0
+        if let debugHUDLabel {
+            debugHUDLabel.frame = CGRect(x: b.minX + inset.left, y: b.minY + inset.top,
+                                         width: b.width - inset.left - inset.right,
+                                         height: hudReservedHeight)
+        }
+        let topRowY = b.minY + inset.top + hudReservedHeight
         // Right-hand cluster: FIRE big, USE above it, shoulders top corners,
         // MAP + MENU at top edge.
         place("fireButton", x: b.maxX - inset.right - 70, y: b.maxY - inset.bottom - 90)
         place("useButton", x: b.maxX - inset.right - 160, y: b.maxY - inset.bottom - 60)
-        place("weaponPrevButton", x: b.minX + inset.left + 40, y: b.minY + inset.top + 40)
-        place("weaponNextButton", x: b.maxX - inset.right - 40, y: b.minY + inset.top + 40)
-        place("automapButton", x: b.midX - 40, y: b.minY + inset.top + 32)
-        place("menuButton", x: b.midX + 40, y: b.minY + inset.top + 32)
+        place("weaponPrevButton", x: b.minX + inset.left + 40, y: topRowY + 40)
+        place("weaponNextButton", x: b.maxX - inset.right - 40, y: topRowY + 40)
+        place("automapButton", x: b.midX - 40, y: topRowY + 32)
+        place("menuButton", x: b.midX + 40, y: topRowY + 32)
     }
 
     private func place(_ id: String, x: CGFloat, y: CGFloat) {

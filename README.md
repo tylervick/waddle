@@ -12,10 +12,12 @@ BSD-licensed (see its accompanying COPYING file).
 Requirements: Xcode 26.2+, Homebrew (`brew install cmake ninja xcodegen`).
 
 ```sh
-Scripts/build-deps.sh       # SDL3 + OpenAL Soft static libs (device + simulator)
-Scripts/build-engine.sh     # Woof! static lib + WoofEngine.xcframework; stages woof.pk3
-Scripts/fetch-freedoom.sh   # Freedoom WADs into App/Resources/GameData
-cd App && xcodegen generate # generate BoomBox.xcodeproj
+Scripts/build-deps.sh          # SDL3 + OpenAL Soft static libs (device + simulator)
+Scripts/build-engine.sh        # Woof! static lib + WoofEngine.xcframework; stages woof.pk3
+Scripts/fetch-freedoom.sh      # Freedoom WADs into App/Resources/GameData
+Scripts/generate-build-info.sh # seeds App/Sources/Generated/ (gitignored) so xcodegen's
+                                # static file scan picks it up; regenerated every build after
+cd App && xcodegen generate    # generate BoomBox.xcodeproj
 ```
 
 Then build/run the `BoomBox` scheme in Xcode, or from the command line:
@@ -91,6 +93,10 @@ Freedoom Phase 1+2 are bundled and pre-wired as loadouts.
   touch overlay hides automatically while one is connected.
 - **Keyboard & mouse:** hardware keyboards hide the overlay; mouse look
   works on iPad (indirect input events are enabled).
+- **Debug HUD:** the same gear menu has a "Show Debug Info" toggle
+  (persisted) that adds a build-stamp footer on the Play tab and a live
+  commit/scheme/touch-event/trigger-value overlay during engine sessions —
+  see `docs/manual-testing.md` for what each field means.
 
 ### Real-WAD test matrix
 

@@ -2,6 +2,11 @@ import UIKit
 import GameController
 import WoofEngine
 
+/// UserDefaults key for the Play tab's "Show Debug Info" toggle (LoadoutGridView's
+/// @AppStorage("debugHUD")): gates both the launcher's build-info footer and
+/// the in-session debug HUD this file reads at install time, below.
+let debugHUDUserDefaultsKey = "debugHUD"
+
 struct PhysicalInputPolicy: Equatable {
     var controllerConnected: Bool
     var hardwareKeyboardConnected: Bool
@@ -55,9 +60,12 @@ final class OverlayPresenter {
             .takeUnretainedValue()
         // Read once at install time (matches the Play tab picker's
         // UserDefaults key); the overlay doesn't observe live changes mid-
-        // session, only picks up a new scheme on the next install.
+        // session, only picks up a new scheme on the next install. Same
+        // read-once-at-install policy for the debug HUD toggle.
         let scheme = TouchControlScheme.current()
-        let view = TouchOverlayView(gamepad: gamepad, scheme: scheme)
+        let debugHUDEnabled = UserDefaults.standard.bool(forKey: debugHUDUserDefaultsKey)
+        let view = TouchOverlayView(gamepad: gamepad, scheme: scheme,
+                                    debugHUDEnabled: debugHUDEnabled)
         view.frame = window.bounds
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         window.addSubview(view)

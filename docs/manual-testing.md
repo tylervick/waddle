@@ -14,7 +14,9 @@ overlay to remain visible even when input devices are connected.
       releasing FIRE actually stops the fire** — this app previously shipped
       a bug where FIRE autofired forever after a single press (fixed: the
       virtual joystick's trigger axis is now driven digitally, MIN/MAX only;
-      see `WoofIOS_SetTouchTrigger` in `Engine/woof/src/woof_ios.c`)
+      see `WoofIOS_SetTouchTrigger` in `Engine/woof/src/woof_ios.c`).
+      Turning on the debug HUD (below) and watching `trigger` drop to `0.00`
+      right after release is the fastest way to confirm this on a device.
 - [ ] USE opens doors — verify it does something, not just that FIRE does
 - [ ] Weapon prev/next cycles; MAP toggles automap (previously silently did
       nothing — was wired to an unbound button); ≡ opens the menu and
@@ -34,6 +36,30 @@ overlay to remain visible even when input devices are connected.
 - [ ] Drag-to-turn on the right half shows the same base/knob visuals as
       the movement stick, knob follows the finger's x-drag, and recenters
       on release; turn sensitivity comfortable
+
+## Debug HUD
+Turn this on for every session below: "Show Debug Info" in the same gear
+menu as the touch scheme picker (accessibilityIdentifier `debugHUDToggle`,
+persisted across relaunch).
+- [ ] Play tab shows a footer line once enabled: `BoomBox <commit> (<branch>)
+      · built <date time>` (accessibilityIdentifier `buildInfoLabel`) —
+      commit matches `git rev-parse --short HEAD` (with a trailing `+` if
+      the tree had uncommitted changes at build time), branch matches
+      `git branch --show-current`
+- [ ] During an engine session, a translucent line appears along the top
+      edge (accessibilityIdentifier `sessionDebugHUD`), refreshing twice a
+      second, reading `build <commit> (<branch>) · <scheme> · events <n> ·
+      trigger <0.00-1.00>`:
+      - `<scheme>`: the active touch control scheme (classic/modern)
+      - `events`: the shim's cumulative touch-event counter (same one
+        `touchEventCountLabel` shows post-session) — should climb as you
+        use the stick/buttons/turn
+      - `trigger`: RIGHT_TRIGGER as Woof's gamepad layer currently sees it,
+        live — `0.00` at rest/released, rises toward `1.00` while FIRE is
+        held, and must drop back to `0.00` within a fraction of a second of
+        releasing FIRE (this is the same telemetry that caught the FIRE
+        autofire regression above, just live instead of sampled once)
+      - the HUD never intercepts touches and doesn't overlap the button row
 
 ## Physical controller (Xbox/PS/Switch)
 - [ ] Sticks move/turn, face buttons fire/use, shoulders cycle weapons
