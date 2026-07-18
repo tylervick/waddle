@@ -1,5 +1,12 @@
 import UIKit
+import GameController
 import WoofEngine
+
+struct PhysicalInputPolicy: Equatable {
+    var controllerConnected: Bool
+    var hardwareKeyboardConnected: Bool
+    var overlayShouldShow: Bool { !controllerConnected && !hardwareKeyboardConnected }
+}
 
 /// Installs the touch overlay into SDL's UIWindow once the engine session
 /// creates it, and removes it when the session ends. Works because SDL pumps
@@ -20,6 +27,8 @@ final class OverlayPresenter {
         }
         RunLoop.main.add(timer, forMode: .common)
         pollTimer = timer
+
+        registerNotificationObservers()
     }
 
     func end() {
@@ -28,6 +37,8 @@ final class OverlayPresenter {
         overlay?.removeFromSuperview()
         overlay = nil
         gamepad.detach()
+
+        unregisterNotificationObservers()
     }
 
     private func tryInstall() {
@@ -49,5 +60,55 @@ final class OverlayPresenter {
 
         pollTimer?.invalidate()
         pollTimer = nil
+
+        applyPolicy()
+    }
+
+    private func registerNotificationObservers() {
+        let center = NotificationCenter.default
+        center.addObserver(
+            forName: NSNotification.Name.GCControllerDidConnect,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.applyPolicy()
+        }
+        center.addObserver(
+            forName: NSNotification.Name.GCControllerDidDisconnect,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.applyPolicy()
+        }
+        center.addObserver(
+            forName: NSNotification.Name.GCKeyboardDidConnect,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.applyPolicy()
+        }
+        center.addObserver(
+            forName: NSNotification.Name.GCKeyboardDidDisconnect,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.applyPolicy()
+        }
+    }
+
+    private func unregisterNotificationObservers() {
+        let center = NotificationCenter.default
+        center.removeObserver(self, name: NSNotification.Name.GCControllerDidConnect, object: nil)
+        center.removeObserver(self, name: NSNotification.Name.GCControllerDidDisconnect, object: nil)
+        center.removeObserver(self, name: NSNotification.Name.GCKeyboardDidConnect, object: nil)
+        center.removeObserver(self, name: NSNotification.Name.GCKeyboardDidDisconnect, object: nil)
+    }
+
+    private func applyPolicy() {
+        let policy = PhysicalInputPolicy(
+            controllerConnected: !GCController.controllers().isEmpty,
+            hardwareKeyboardConnected: GCKeyboard.coalesced != nil
+        )
+        overlay?.isHidden = !policy.overlayShouldShow
     }
 }
