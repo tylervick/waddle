@@ -9,7 +9,16 @@ BSD-licensed (see its accompanying COPYING file).
 
 ## Building
 
-Requirements: Xcode 26.2+, Homebrew (`brew install cmake ninja xcodegen`).
+Requirements: Xcode 26.2+, and the CLI tools `cmake`, `ninja`, and
+`xcodegen`. The pinned versions are in `mise.toml` — with
+[mise](https://mise.jdx.dev) installed, `mise install` fetches them all;
+otherwise `brew install cmake ninja xcodegen` works too (unpinned).
+
+```sh
+mise run bootstrap   # build deps + engine, fetch Freedoom, generate Xcode project
+```
+
+Or run the steps individually:
 
 ```sh
 Scripts/build-deps.sh          # SDL3 + OpenAL Soft static libs (device + simulator)
@@ -20,7 +29,8 @@ Scripts/generate-build-info.sh # seeds App/Sources/Generated/ (gitignored) so xc
 cd App && xcodegen generate    # generate BoomBox.xcodeproj
 ```
 
-Then build/run the `BoomBox` scheme in Xcode, or from the command line:
+Then build/run the `BoomBox` scheme in Xcode, or from the command line
+(`mise run test` is a shortcut for this):
 
 ```sh
 xcodebuild -project App/BoomBox.xcodeproj -scheme BoomBox \

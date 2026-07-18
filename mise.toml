@@ -1,0 +1,38 @@
+[tools]
+cmake = "4.3.4"
+ninja = "1.13.2"
+xcodegen = "2.45.4"
+
+[tasks.build-deps]
+description = "SDL3 + OpenAL Soft static libs (device + simulator)"
+run = "Scripts/build-deps.sh"
+
+[tasks.build-engine]
+description = "Woof! static lib + WoofEngine.xcframework; stages woof.pk3"
+run = "Scripts/build-engine.sh"
+depends = ["build-deps"]
+
+[tasks.fetch-freedoom]
+description = "Freedoom WADs into App/Resources/GameData"
+run = "Scripts/fetch-freedoom.sh"
+
+[tasks.generate]
+description = "Generate BoomBox.xcodeproj"
+run = "xcodegen generate"
+dir = "App"
+# project.yml references GameData/ and woof.pk3, which these tasks produce;
+# wait for them when run together (e.g. bootstrap) without dragging a full
+# engine build into a standalone `mise run generate`.
+wait_for = ["build-engine", "fetch-freedoom"]
+
+[tasks.bootstrap]
+description = "Full from-scratch setup"
+depends = ["build-engine", "fetch-freedoom", "generate"]
+
+[tasks.test]
+description = "Build and run the test suite (incl. engine smoke check) on simulator"
+run = """
+xcodebuild -project App/BoomBox.xcodeproj -scheme BoomBox \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
+"""
+depends = ["generate"]
