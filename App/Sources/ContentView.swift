@@ -43,7 +43,7 @@ struct ContentView: View {
                     .padding(.bottom, 60)
             }
             if ProcessInfo.processInfo.environment["BOOMBOX_DEBUG_INPUT_COUNTS"] != nil,
-               let code = lastExitCode {
+               lastExitCode != nil {
                 Text("touchEvents: \(WoofIOS_DebugTouchEventCount())")
                     .font(.footnote.monospaced())
                     .accessibilityIdentifier("touchEventCountLabel")

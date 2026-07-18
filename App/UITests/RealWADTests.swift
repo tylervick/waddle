@@ -159,7 +159,7 @@ final class RealWADTests: XCTestCase {
     /// Engine/woof/src/i_exit.c + woof_ios.c) unwinds cleanly back to
     /// WoofIOS_Run's caller instead of terminating the process.
     @MainActor
-    func testWrongIWADPairingFailsSoft() {
+    func testUnrecognizedIWADFailsSoft() {
         let app = launchApp()
         runLoadout(app: app, name: "BadIWAD", iwad: "badiwad",
                    pwad: nil, expectFullSession: false)

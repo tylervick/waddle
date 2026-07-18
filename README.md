@@ -70,6 +70,17 @@ Failed/`, visible and recoverable from the Files app. Build **loadouts**
 (one IWAD + ordered PWADs/patches); each loadout keeps its own save games.
 Freedoom Phase 1+2 are bundled and pre-wired as loadouts.
 
+## Controls
+
+- **Touch:** left side of the screen is a floating movement stick; dragging
+  on the right side turns. On-screen buttons: FIRE, USE, weapon prev/next,
+  automap (MAP), and menu (≡). The overlay drives a virtual gamepad, so all
+  bindings are remappable in Woof!'s own setup menu.
+- **Controllers:** Xbox/PlayStation/Switch/MFi via GameController — the
+  touch overlay hides automatically while one is connected.
+- **Keyboard & mouse:** hardware keyboards hide the overlay; mouse look
+  works on iPad (indirect input events are enabled).
+
 ### Real-WAD test matrix
 
 `App/UITests/RealWADTests.swift` verifies vanilla/Boom/MBF21 content against

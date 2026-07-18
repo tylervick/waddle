@@ -13,6 +13,8 @@ final class LoadoutArgumentsTests: XCTestCase {
         let loadout = Loadout(name: "F1", iwadID: UUID())
         let args = try LoadoutArguments.build(
             loadout: loadout, resolve: resolver([loadout.iwadID: "/gd/freedoom1.wad"]))
+        let loadoutID = loadout.id
+        addTeardownBlock { try? FileManager.default.removeItem(at: LibraryService.savesDirectory(forLoadoutID: loadoutID)) }
         XCTAssertEqual(Array(args.prefix(3)), ["woof", "-iwad", "/gd/freedoom1.wad"])
         XCTAssertEqual(args[3], "-save")
         XCTAssertTrue(args[4].hasSuffix("/Saves/\(loadout.id.uuidString)"))
@@ -30,6 +32,8 @@ final class LoadoutArgumentsTests: XCTestCase {
             b: "/wads/Eviternity II.wad",
             deh: "/wads/fix.deh",
         ]))
+        let loadoutID = loadout.id
+        addTeardownBlock { try? FileManager.default.removeItem(at: LibraryService.savesDirectory(forLoadoutID: loadoutID)) }
         let fileIdx = args.firstIndex(of: "-file")!
         XCTAssertEqual(args[fileIdx + 1], "/wads/Eviternity II.wad") // order preserved, space intact
         XCTAssertEqual(args[fileIdx + 2], "/wads/a.wad")
