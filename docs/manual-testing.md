@@ -106,6 +106,10 @@ persisted across relaunch).
 ## Keyboard & mouse (iPad)
 - [ ] WASD + mouse look; overlay hidden while keyboard is connected
 
+## iPad multitasking
+- [ ] iPad windowed multitasking mode: app renders upright and playable in a
+      resizable window
+
 ## Performance
 - [ ] Cold launch with a 300MB WAD in Documents: first frame < 3s,
       adoption completes in the background without UI stalls
