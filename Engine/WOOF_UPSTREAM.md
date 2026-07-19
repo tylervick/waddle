@@ -44,6 +44,13 @@ Current patches:
   `I_Error` is occasionally reachable from helper threads, and unwinding
   a foreign stack is undefined behavior. Each session also clears the
   previous session's accumulated error text via `I_ResetErrorMessages()`.
+  Plan 4 Task 7b added `SDL_SetHint(SDL_HINT_ORIENTATIONS, ...)` (all four
+  orientations) before `D_DoomMain`: without the hint, SDL's
+  `UIKit_GetSupportedOrientations` falls back to the window's aspect ratio
+  for a non-resizable window, and Woof's wider-than-tall window locked the
+  interface to landscape for the whole session — device rotation was
+  ignored. SDL intersects the hint with the app's Info.plist orientation
+  mask, so the plist stays authoritative.
   Plan 3 Task 1 added a touch-control shim: `WoofIOS_AttachTouchGamepad`/
   `WoofIOS_DetachTouchGamepad`/`WoofIOS_SetTouchAxis`/`WoofIOS_SetTouchButton`
   drive a virtual `SDL_JOYSTICK_TYPE_GAMEPAD` joystick that the native

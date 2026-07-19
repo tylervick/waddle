@@ -193,12 +193,17 @@ Device classes:
   11-inch class and cannot produce 13-inch-class images, so the script
   creates the 13-inch device on demand.)
 
-**iPadOS 26 windowing (resolved — fix ships before submission):** the
+**iPadOS 26 windowing (resolved — fix landed, Plan 4 Task 7b):** the
 owner decided at the gate to fix windowed-mode support rather than ship it
-as a limitation; the app will support all orientations and iPadOS
-windowed multitasking (the fix lands as the next commit on this branch).
-The App Review notes state this support. Screenshots were captured in
-Full Screen Apps mode and remain valid.
+as a limitation. The app now supports portrait + both landscapes on
+iPhone and all four orientations on iPad (`UIRequiresFullScreen`
+removed), and in iPadOS 26's default Windowed Apps mode it opens upright
+and playable in a resizable window; mid-session rotation and live window
+resizing re-letterbox the game without crashing (verified on iPhone and
+iPad simulators — the engine-side half of the fix is an
+`SDL_HINT_ORIENTATIONS` hint in `woof_ios.c`, without which SDL locked
+sessions to landscape). The App Review notes state this support.
+Screenshots were captured in Full Screen Apps mode and remain valid.
 
 Technical background (kept for the record): at capture time, iPadOS 26's
 default "Windowed Apps" multitasking style rendered the then
@@ -207,9 +212,11 @@ portrait window; the capture script switched the simulator to Settings →
 "Full Screen Apps" to photograph it. Xcode also emitted the runtime
 warning "`UIRequiresFullScreen` will soon be ignored; support for all
 orientations will soon be required," which motivated fixing this
-properly. Once the windowing fix lands, re-running
+properly. With the fix landed, re-running
 `Scripts/capture-screenshots.sh` should work without the Settings
-workaround (its temp test tolerates either mode).
+workaround (its temp test tolerates either mode). Note the Task 7b
+verification left the iPad Pro 13-inch simulator back in the default
+Windowed Apps mode.
 
 ## 13. Decisions log (filled at the user gate)
 

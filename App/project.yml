@@ -37,9 +37,20 @@ targets:
       properties:
         UILaunchScreen: {}
         UIStatusBarHidden: true
-        UIRequiresFullScreen: true
         UIApplicationSupportsIndirectInputEvents: true
+        # All orientations + no UIRequiresFullScreen: required for iPadOS 26's
+        # default "Windowed Apps" multitasking style (the old landscape-only +
+        # fullscreen posture rendered sideways-letterboxed there, and Xcode
+        # warns UIRequiresFullScreen will soon be ignored). SDL's iOS backend
+        # feeds rotation/window resizes to Woof! as resize events, so the game
+        # letterboxes to whatever shape it's given.
         UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UIFileSharingEnabled: true

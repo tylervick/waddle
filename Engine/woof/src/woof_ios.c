@@ -94,6 +94,19 @@ int WoofIOS_Run(int argc, char **argv)
     // again for a later session.
     SDL_SetMainReady();
 
+    // Allow every interface orientation for the SDL-owned game window
+    // (Plan 4 Task 7b, all-orientations + iPadOS windowed multitasking).
+    // Without this hint, UIKit_GetSupportedOrientations
+    // (Vendor/src/SDL/src/video/uikit/SDL_uikitwindow.m) falls back to the
+    // window's aspect ratio -- Woof's window is wider than tall, so every
+    // session forced the interface to landscape and device rotation was
+    // ignored. SDL intersects this hint with the app's Info.plist
+    // UISupportedInterfaceOrientations (and strips upside-down on iPhone
+    // itself), so the plist remains the source of truth for what the app
+    // as a whole allows.
+    SDL_SetHint(SDL_HINT_ORIENTATIONS,
+                "Portrait PortraitUpsideDown LandscapeLeft LandscapeRight");
+
     // Ignore SIGTERM for the duration of the session. SDL's default signal
     // handling (SDL_quit.c) turns SIGTERM into SDL_EVENT_QUIT -- a desktop
     // convention with no counterpart on iOS, where apps are never asked to

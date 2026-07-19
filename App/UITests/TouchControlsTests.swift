@@ -151,4 +151,92 @@ final class TouchControlsTests: XCTestCase {
         XCTAssertLessThanOrEqual(residue, 0.05,
             "FIRE trigger still reads \(residue) after release -- autofire regression")
     }
+
+    /// All-orientations support (Plan 4 Task 7b): a session started in
+    /// portrait must survive rotating to landscape and back. SDL's iOS
+    /// backend forwards rotations to Woof! as window-resize events (Woof
+    /// re-letterboxes, same as a desktop window resize), and the overlay's
+    /// autoresizingMask + proportional layoutSubviews must follow the new
+    /// bounds -- so after each rotation FIRE is tapped again, and the
+    /// post-session shim event count proves post-rotation touches still
+    /// reached SDL at the repositioned coordinates. "Survives" is asserted
+    /// via the engineExitLabel protocol: the armed autoquit ends the session
+    /// with exit code 0 only if the engine is still running normally after
+    /// both rotations (a mid-session crash would kill the app and fail the
+    /// waits below instead).
+    @MainActor
+    func testSessionSurvivesRotation() throws {
+        // Explicit start orientation: the suite shares a simulator, so don't
+        // inherit whatever a previous test (or the screenshot script) left.
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchEnvironment["BOOMBOX_AUTOQUIT_SECONDS"] = "25"
+        app.launchEnvironment["BOOMBOX_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["BOOMBOX_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+
+        // Environmental guard: on some simulators XCUIDevice's orientation
+        // setter silently never rotates the *interface* (observed on an
+        // iPhone 17 Pro simulator whose window carried a stale stored
+        // rotation — the identical run passed on iPhone 17 Pro Max). Probe
+        // with the plain SwiftUI launcher first: if even that doesn't
+        // rotate, the simulator can't exercise this test at all — skip
+        // rather than fail. If the launcher rotates but the session later
+        // doesn't, that's the app bug this test exists to catch — fail.
+        XCUIDevice.shared.orientation = .landscapeLeft
+        Thread.sleep(forTimeInterval: 2)
+        let launcherRotates = app.frame.width > app.frame.height
+        XCUIDevice.shared.orientation = .portrait
+        Thread.sleep(forTimeInterval: 2)
+        try XCTSkipUnless(launcherRotates,
+            "this simulator does not perform interface rotation; run on one that does")
+
+        play.tap()
+
+        let fire = app.buttons["fireButton"]
+        XCTAssertTrue(fire.waitForExistence(timeout: 20), "overlay never installed")
+        attachScreenshot(named: "session-portrait")
+
+        XCTAssertLessThan(app.frame.width, app.frame.height,
+                          "session did not start with a portrait interface")
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        Thread.sleep(forTimeInterval: 2) // let SDL deliver + Woof apply the resize
+        XCTAssertGreaterThan(app.frame.width, app.frame.height,
+                             "interface did not rotate to landscape mid-session")
+        XCTAssertTrue(fire.isHittable, "FIRE not hittable after portrait -> landscape")
+        fire.tap()
+        attachScreenshot(named: "session-landscape")
+
+        XCUIDevice.shared.orientation = .portrait
+        Thread.sleep(forTimeInterval: 2)
+        XCTAssertLessThan(app.frame.width, app.frame.height,
+                          "interface did not rotate back to portrait mid-session")
+        XCTAssertTrue(fire.isHittable, "FIRE not hittable after landscape -> portrait")
+        fire.tap()
+        attachScreenshot(named: "session-portrait-back")
+
+        let exitLabel = app.staticTexts["engineExitLabel"]
+        XCTAssertTrue(exitLabel.waitForExistence(timeout: 90),
+                      "session did not survive rotation to a clean autoquit")
+        XCTAssertEqual(exitLabel.label, "Engine exited: 0")
+        XCTAssertFalse(fire.exists, "overlay not torn down after session")
+
+        let countLabel = app.staticTexts["touchEventCountLabel"]
+        XCTAssertTrue(countLabel.waitForExistence(timeout: 5))
+        let count = Int(countLabel.label.replacingOccurrences(
+            of: "touchEvents: ", with: "")) ?? 0
+        XCTAssertGreaterThan(count, 0, "post-rotation touches never reached the SDL shim")
+    }
+
+    @MainActor
+    private func attachScreenshot(named name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
 }

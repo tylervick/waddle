@@ -106,9 +106,14 @@ persisted across relaunch).
 ## Keyboard & mouse (iPad)
 - [ ] WASD + mouse look; overlay hidden while keyboard is connected
 
-## iPad multitasking
-- [ ] iPad windowed multitasking mode: app renders upright and playable in a
-      resizable window
+## Orientation & iPad multitasking
+- [ ] iPhone: launcher and a session render upright in portrait (game
+      letterboxed); rotating mid-session both directions re-letterboxes,
+      overlay buttons follow, session survives
+- [ ] iPad windowed multitasking mode (default "Windowed Apps"): app opens
+      upright and playable in a resizable window
+- [ ] iPad: live-resizing the window mid-session re-letterboxes the game
+      without crashing; overlay controls stay usable in the resized window
 
 ## Performance
 - [ ] Cold launch with a 300MB WAD in Documents: first frame < 3s,
