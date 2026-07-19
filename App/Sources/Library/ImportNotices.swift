@@ -8,8 +8,8 @@ final class ImportNotices {
     private(set) var current: String?
     private var dismissTask: Task<Void, Never>?
 
-    func post(outcome: ImportOutcome) {
-        guard let text = Self.summary(of: outcome) else { return }
+    func post(outcome: ImportOutcome, quarantines: Bool = false) {
+        guard let text = Self.summary(of: outcome, quarantines: quarantines) else { return }
         post(message: text)
     }
 
@@ -32,7 +32,11 @@ final class ImportNotices {
     // nonisolated: pure function over the outcome value, so the class-level
     // @MainActor isolation would only get in the way of synchronous callers
     // (XCTest methods are nonisolated under Swift 6).
-    nonisolated static func summary(of outcome: ImportOutcome) -> String? {
+    // `quarantines` should be true only for the adoption path
+    // (ImportService.adoptLooseFiles), which actually moves rejects into
+    // Import Failed; the picker and onOpenURL paths leave rejected files
+    // where they were, so their banner shouldn't claim otherwise.
+    nonisolated static func summary(of outcome: ImportOutcome, quarantines: Bool = false) -> String? {
         var parts: [String] = []
         if !outcome.imported.isEmpty {
             parts.append("Imported \(outcome.imported.joined(separator: ", "))")
@@ -41,7 +45,8 @@ final class ImportNotices {
             parts.append("\(outcome.duplicates.count) already in library")
         }
         if !outcome.rejected.isEmpty {
-            parts.append("\(outcome.rejected.count) failed (moved to Import Failed)")
+            let suffix = quarantines ? " (moved to Import Failed)" : ""
+            parts.append("\(outcome.rejected.count) failed\(suffix)")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }

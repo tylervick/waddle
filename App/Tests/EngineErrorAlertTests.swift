@@ -31,6 +31,12 @@ final class EngineErrorAlertTests: XCTestCase {
         XCTAssertEqual(alert?.engineMessage, "The engine reported no details (exit code -101).")
     }
 
+    func testFailedToLoadWrongIWADHint() {
+        let alert = EngineErrorAlert.from(exitCode: -1,
+                                          engineMessage: "Failed to load /path/badiwad.wad")
+        XCTAssertNotNil(alert?.hint)   // D_AddFile's "Failed to load" is a wrong-IWAD marker too
+    }
+
     func testReentrancyExitMapsToAccurateAlert() {
         let alert = EngineErrorAlert.from(exitCode: -102,
                                           engineMessage: "Another session is already running.")

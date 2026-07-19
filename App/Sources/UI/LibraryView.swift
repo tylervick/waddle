@@ -98,9 +98,15 @@ struct LibraryView: View {
     }
 
     private func createLoadout(from wad: WADFile) {
-        guard let iwad = try? library.suggestedIWAD(for: wad) else { return }
+        guard let iwad = try? library.suggestedIWAD(for: wad) else {
+            ImportNotices.shared.post(message: "Couldn't create a loadout for \(wad.displayName).")
+            return
+        }
         guard (try? library.createLoadout(name: wad.displayName, iwadID: iwad.id,
-                                          pwadIDs: [wad.id], dehIDs: [])) != nil else { return }
+                                          pwadIDs: [wad.id], dehIDs: [])) != nil else {
+            ImportNotices.shared.post(message: "Couldn't create a loadout for \(wad.displayName).")
+            return
+        }
         ImportNotices.shared.post(
             message: "Created loadout \(wad.displayName) — find it in Play")
         NotificationCenter.default.post(name: .libraryDidChange, object: nil)

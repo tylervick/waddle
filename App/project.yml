@@ -35,6 +35,7 @@ targets:
     info:
       path: Info.plist
       properties:
+        CFBundleDisplayName: BoomBox
         UILaunchScreen: {}
         # No encryption beyond what the OS provides (no HTTPS calls, no
         # crypto) — lets App Store Connect skip the export-compliance

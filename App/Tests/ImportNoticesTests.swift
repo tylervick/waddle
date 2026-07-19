@@ -12,20 +12,30 @@ final class ImportNoticesTests: XCTestCase {
         XCTAssertEqual(ImportNotices.summary(of: outcome), "Imported Sunlust")
     }
 
-    func testMixedOutcome() {
+    func testMixedOutcomeDuringAdoptionMentionsQuarantine() {
         var outcome = ImportOutcome()
         outcome.imported = ["Sunlust", "Scythe"]
         outcome.duplicates = ["Eviternity II"]
         outcome.rejected = ["junk.wad": "Not a WAD file (bad header magic)."]
-        XCTAssertEqual(ImportNotices.summary(of: outcome),
+        XCTAssertEqual(ImportNotices.summary(of: outcome, quarantines: true),
             "Imported Sunlust, Scythe · 1 already in library · 1 failed (moved to Import Failed)")
     }
 
-    func testRejectionOnly() {
+    func testRejectionOnlyDuringAdoptionMentionsQuarantine() {
         var outcome = ImportOutcome()
         outcome.rejected = ["a.wad": "x", "b.zip": "y"]
-        XCTAssertEqual(ImportNotices.summary(of: outcome),
+        XCTAssertEqual(ImportNotices.summary(of: outcome, quarantines: true),
             "2 failed (moved to Import Failed)")
+    }
+
+    // Picker (fileImporter) and onOpenURL paths don't move rejects into
+    // Import Failed, so their banner must not claim they were quarantined
+    // (quarantines defaults to false — only ImportService.adoptLooseFiles's
+    // call site opts in).
+    func testRejectionOnlyOutsideAdoptionIsPlain() {
+        var outcome = ImportOutcome()
+        outcome.rejected = ["a.wad": "x", "b.zip": "y"]
+        XCTAssertEqual(ImportNotices.summary(of: outcome), "2 failed")
     }
 }
 

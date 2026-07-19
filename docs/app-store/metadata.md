@@ -187,7 +187,7 @@ Captured by `Scripts/capture-screenshots.sh` into
 Device classes:
 
 - **iPhone 6.9" (required):** iPhone 17 Pro Max simulator — 2868×1320
-  landscape (the app is landscape-only).
+  landscape.
 - **iPad 13" (required for iPad):** iPad Pro 13-inch (M4) simulator —
   2752×2064 landscape. (The pre-existing "iPad (A16)" simulator is
   11-inch class and cannot produce 13-inch-class images, so the script

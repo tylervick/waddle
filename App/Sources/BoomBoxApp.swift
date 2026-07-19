@@ -23,7 +23,10 @@ struct BoomBoxApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(library: library, importer: importer)
-                .task { ImportNotices.shared.post(outcome: await importer.adoptLooseFiles()) }
+                .task {
+                    ImportNotices.shared.post(outcome: await importer.adoptLooseFiles(),
+                                              quarantines: true)
+                }
                 .onOpenURL { url in
                     let outcome = importer.importFiles(at: [url])
                     ImportNotices.shared.post(outcome: outcome)
