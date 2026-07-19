@@ -36,6 +36,10 @@ targets:
       path: Info.plist
       properties:
         UILaunchScreen: {}
+        # No encryption beyond what the OS provides (no HTTPS calls, no
+        # crypto) — lets App Store Connect skip the export-compliance
+        # question on every upload.
+        ITSAppUsesNonExemptEncryption: false
         UIStatusBarHidden: true
         UIApplicationSupportsIndirectInputEvents: true
         # All orientations + no UIRequiresFullScreen: required for iPadOS 26's

@@ -1,11 +1,37 @@
-# BoomBox (working name)
+# BoomBox: WAD Player
 
 A free, open-source Doom source-port app for iPhone and iPad, built on
 [Woof!](https://github.com/fabiangreffrath/woof) (Boom/MBF21 compatibility).
-Bundles [Freedoom](https://freedoom.github.io/); users import their own WADs.
+Bundles [Freedoom](https://freedoom.github.io/) so it plays out of the box;
+import your own WADs — commercial IWADs you own, community megawads,
+DeHackEd patches — for everything else.
 
-Licensed under the GNU GPL v2 (see COPYING). Freedoom content is
-BSD-licensed (see its accompanying COPYING file).
+<p>
+  <img src="docs/app-store/screenshots/iphone-6.9/05-ingame.png"
+       alt="In-game: Freedoom Phase 1 with the touch control overlay" width="49%">
+  <img src="docs/app-store/screenshots/iphone-6.9/01-loadout-grid.png"
+       alt="Play tab: loadout grid" width="49%">
+</p>
+
+## Licensing
+
+BoomBox is free software under the **GNU GPL v2** (see [COPYING](COPYING)),
+the license of the Woof!/Boom/MBF lineage it descends from. Bundled and
+linked components: [Freedoom](https://freedoom.github.io/) data
+(BSD-style), [SDL3](https://libsdl.org) (zlib),
+[OpenAL Soft](https://openal-soft.org) (LGPL-2.1, conveyed under the GPL),
+and [ZIPFoundation](https://github.com/weichsel/ZIPFoundation) (MIT). Full
+license texts ship in the app (About screen) and live in
+[`App/Resources/Licenses/`](App/Resources/Licenses/), with attribution
+notes in
+[`App/Resources/Licenses/NOTICES.md`](App/Resources/Licenses/NOTICES.md).
+The engine's provenance and the iOS patch set carried on top of upstream
+are documented in [`Engine/WOOF_UPSTREAM.md`](Engine/WOOF_UPSTREAM.md).
+
+No commercial game content is included or downloaded — only the freely
+licensed Freedoom WADs are bundled. This project is not affiliated with or
+endorsed by id Software or Bethesda. The app collects no data of any kind
+(see [PRIVACY.md](PRIVACY.md)).
 
 ## Building
 
@@ -15,6 +41,7 @@ Requirements: Xcode 26.2+, and the CLI tools `cmake`, `ninja`, and
 otherwise `brew install cmake ninja xcodegen` works too (unpinned).
 
 ```sh
+mise install         # pinned cmake / ninja / xcodegen
 mise run bootstrap   # build deps + engine, fetch Freedoom, generate Xcode project
 ```
 
@@ -40,6 +67,11 @@ xcodebuild -project App/BoomBox.xcodeproj -scheme BoomBox \
 `test` (not `build`) also runs the engine boot/quit/relaunch smoke check on
 the simulator — the fastest way to confirm a from-scratch build actually
 works end to end, not just compiles.
+
+For App Store builds, `Scripts/archive.sh` produces the Release archive
+and .ipa (requires a signed-in developer account for the configured team);
+the submission steps live in
+[`docs/app-store/submission-checklist.md`](docs/app-store/submission-checklist.md).
 
 ### Deviations worth knowing about
 
