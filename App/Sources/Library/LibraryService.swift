@@ -60,6 +60,21 @@ final class LibraryService {
         return try context.fetch(descriptor).first
     }
 
+    /// Best-guess IWAD for a PWAD (spec §4 "New loadout with [detected IWAD]"):
+    /// a user-imported IWAD of the same family wins; bundled Freedoom is the
+    /// always-available fallback (doom1 -> phase 1, everything else -> phase 2).
+    func suggestedIWAD(for pwad: WADFile) throws -> WADFile? {
+        let iwads = try allWADs().filter { $0.kindRaw == WADKind.iwad.rawValue }
+        if let match = iwads.first(where: {
+            !$0.isBundled && $0.gameFamilyRaw == pwad.gameFamilyRaw
+        }) {
+            return match
+        }
+        let fallback = pwad.gameFamilyRaw == GameFamily.doom1.rawValue
+            ? "freedoom1.wad" : "freedoom2.wad"
+        return iwads.first { $0.isBundled && $0.filename == fallback }
+    }
+
     private func wadByFilename(_ filename: String, bundled: Bool) throws -> WADFile? {
         var descriptor = FetchDescriptor<WADFile>(
             predicate: #Predicate { $0.filename == filename && $0.isBundled == bundled })

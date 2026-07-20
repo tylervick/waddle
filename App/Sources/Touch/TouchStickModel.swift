@@ -4,7 +4,10 @@ import CoreGraphics
 struct TouchStickModel: Equatable {
     var center: CGPoint
     var radius: CGFloat
-    var deadZone: CGFloat = 0.2
+    /// Fraction of radius with no output. Defaults to 0 (raw pass-through):
+    /// the engine applies its own radial deadzone to gamepad axes, so any
+    /// app-side zone is additive on top of it (see TouchTuning.default).
+    var deadZone: CGFloat = 0
 
     func axes(for touch: CGPoint) -> (x: Float, y: Float) {
         let dx = touch.x - center.x

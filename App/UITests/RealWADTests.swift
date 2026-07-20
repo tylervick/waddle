@@ -114,6 +114,26 @@ final class RealWADTests: XCTestCase {
         } else {
             XCTAssertNotEqual(exitLabel.label, "Engine exited: 0",
                 "bad WAD selection unexpectedly booted", file: file, line: line)
+            // The engine's own error text must surface as a launcher alert
+            // (Plan 4 Task 1). Dismiss it before the interactivity check
+            // below — a presented alert intercepts hits on everything else.
+            let alert = app.alerts["Couldn't run this loadout"]
+            XCTAssertTrue(alert.waitForExistence(timeout: 5),
+                          "engine error alert not shown", file: file, line: line)
+            // Not just the (hardcoded) title: the body must carry the
+            // engine's own errmsg text, proving the errmsg → shim →
+            // EngineSession → alert pipeline end to end. The zero-lump
+            // fixture actually dies in D_AddFile's I_Error("Failed to load
+            // %s", file) — W_AddPath rejects it before CheckIWAD's "Unknown
+            // or invalid IWAD file." is ever reached (verified via the
+            // alert hierarchy in a debug run; older comments claiming
+            // CheckIWAD fires were source-reading, not observation). Match
+            // stable substrings only — the full path varies per container.
+            XCTAssertTrue(alert.staticTexts.matching(NSPredicate(
+                format: "label CONTAINS 'Failed to load' AND label CONTAINS 'badiwad.wad'"))
+                .firstMatch.exists,
+                "alert body missing the engine's error text", file: file, line: line)
+            alert.buttons["OK"].tap()
             // App survived the engine error — launcher still interactive.
             // Tab-bar buttons carry no accessibility id on iOS 26 (the
             // native tab bar is reconstructed by the system and doesn't
@@ -161,9 +181,11 @@ final class RealWADTests: XCTestCase {
     /// handled non-fatally (a dummy patch is substituted), and DEHACKED's
     /// hard-fail path is dead code upstream. Scripts/provision-test-wads.sh
     /// instead drops a synthetic 12-byte "IWAD"-header file with zero
-    /// lumps (badiwad.wad); CheckIWAD() can't find a gamemode signature in
-    /// it and calls I_Error("Unknown or invalid IWAD file.") before the
-    /// title screen renders — a real, argv-only engine failure that (per
+    /// lumps (badiwad.wad); in practice W_AddPath() rejects the zero-lump
+    /// file and D_AddFile() calls I_Error("Failed to load <path>") before
+    /// the title screen renders (observed in the surfaced alert text —
+    /// CheckIWAD's "Unknown or invalid IWAD file." path is never reached)
+    /// — a real, argv-only engine failure that (per
     /// Engine/woof/src/i_exit.c + woof_ios.c) unwinds cleanly back to
     /// WoofIOS_Run's caller instead of terminating the process.
     @MainActor

@@ -9,6 +9,8 @@ struct LoadoutGridView: View {
     @AppStorage(TouchControlScheme.userDefaultsKey) private var touchScheme: TouchControlScheme = .defaultScheme
     @AppStorage(debugHUDUserDefaultsKey) private var debugHUD: Bool = false
     @State private var showControlFeel = false
+    @State private var showAbout = false
+    @State private var errorAlert: EngineErrorAlert?
 
     private let columns = [GridItem(.adaptive(minimum: 200), spacing: 16)]
 
@@ -42,11 +44,22 @@ struct LoadoutGridView: View {
             .sheet(isPresented: $showControlFeel) {
                 ControlFeelView()
             }
+            .sheet(isPresented: $showAbout) {
+                NavigationStack { AboutView() }
+            }
             .sheet(isPresented: $showNewEditor, onDismiss: refresh) {
                 LoadoutEditorView(library: library, existing: nil)
             }
             .sheet(item: $editorLoadout, onDismiss: refresh) { loadout in
                 LoadoutEditorView(library: library, existing: loadout)
+            }
+            .alert(errorAlert?.title ?? "", isPresented: Binding(
+                get: { errorAlert != nil }, set: { if !$0 { errorAlert = nil } }
+            ), presenting: errorAlert) { _ in
+                Button("OK") { errorAlert = nil }
+            } message: { alert in
+                Text([alert.engineMessage, alert.hint].compactMap { $0 }
+                    .joined(separator: "\n\n"))
             }
             .onAppear(perform: refresh)
         }
@@ -89,6 +102,13 @@ struct LoadoutGridView: View {
                 Label("Control Feel…", systemImage: "slider.horizontal.3")
             }
             .accessibilityIdentifier("controlFeelButton")
+
+            Button {
+                showAbout = true
+            } label: {
+                Label("About", systemImage: "info.circle")
+            }
+            .accessibilityIdentifier("aboutButton")
         } label: {
             Label("Touch Controls", systemImage: "gearshape")
         }
@@ -143,8 +163,13 @@ struct LoadoutGridView: View {
             loadout.lastPlayed = .now
             try? library.saveChanges()
             lastExitCode = EngineSession.play(arguments: args)
+            errorAlert = EngineErrorAlert.from(exitCode: lastExitCode ?? 0,
+                                               engineMessage: EngineSession.lastErrorMessage)
         } catch {
-            lastExitCode = -101   // arg-building failure (missing WAD)
+            lastExitCode = EngineSession.ExitCode.argumentFailure   // arg-building failure (missing WAD)
+            errorAlert = EngineErrorAlert.from(
+                exitCode: EngineSession.ExitCode.argumentFailure,
+                engineMessage: "A file in this loadout is missing from the library.")
         }
         refresh()
     }

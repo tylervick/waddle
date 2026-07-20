@@ -8,7 +8,9 @@ final class TouchTuningTests: XCTestCase {
 
     func testDefaultValues() {
         XCTAssertEqual(TouchTuning.default.turnSpeed, 1.0)
-        XCTAssertEqual(TouchTuning.default.stickDeadZone, 0.2)
+        // 0: the engine already applies its own radial deadzone to gamepad
+        // axes; an app-side default would stack on top (see TouchTuning).
+        XCTAssertEqual(TouchTuning.default.stickDeadZone, 0.0)
         XCTAssertEqual(TouchTuning.default.moveSensitivity, 1.0)
     }
 
@@ -20,7 +22,7 @@ final class TouchTuningTests: XCTestCase {
 
     func testSliderRanges() {
         XCTAssertEqual(TouchTuning.turnSpeedRange, 0.25...3.0)
-        XCTAssertEqual(TouchTuning.stickDeadZoneRange, 0.05...0.4)
+        XCTAssertEqual(TouchTuning.stickDeadZoneRange, 0.0...0.4)
         XCTAssertEqual(TouchTuning.moveSensitivityRange, 0.5...1.5)
     }
 
@@ -63,7 +65,7 @@ final class TouchTuningTests: XCTestCase {
             defaults.set(0.0, forKey: TouchTuning.moveSensitivityKey)
             let tuning = TouchTuning.current(defaults: defaults)
             XCTAssertEqual(tuning.turnSpeed, 0.25)
-            XCTAssertEqual(tuning.stickDeadZone, 0.05)
+            XCTAssertEqual(tuning.stickDeadZone, 0.0)
             XCTAssertEqual(tuning.moveSensitivity, 0.5)
         }
     }

@@ -22,4 +22,17 @@ final class EngineSessionGenerationTests: XCTestCase {
         EngineSession.beginSessionForTesting()
         XCTAssertFalse(EngineSession.isCurrentGeneration(captured))
     }
+
+    /// The -102 reentrancy guard must leave an accurate lastErrorMessage,
+    /// never a stale one from an earlier failed session (fix-round finding:
+    /// the guard previously returned without touching it, so a -102 alert
+    /// could show the previous session's error text).
+    func testReentrantPlaySetsAccurateErrorMessage() {
+        EngineSession.setRunningForTesting(true)
+        defer { EngineSession.setRunningForTesting(false) }
+        let code = EngineSession.play(arguments: ["woof"])
+        XCTAssertEqual(code, -102)
+        XCTAssertEqual(EngineSession.lastErrorMessage,
+                       "Another session is already running.")
+    }
 }

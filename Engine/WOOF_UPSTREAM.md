@@ -26,6 +26,11 @@ Current patches:
 - `src/i_exit.c` — on iOS, `I_SafeExit()` unwinds to the host app via
   `WoofIOS_ExitUnwind()` instead of calling `exit()`, and resets its
   priority counter so a second engine session can run exit handlers again.
+  Also (Plan 4): `I_AtSignal()` skips a `func` already in `atsignal_funcs`
+  (identity check) under `WOOF_IOS` — every session's `D_DoomMain`
+  re-registers the same handlers, and unlike the exit lists (drained by
+  `I_SafeExit` each session) nothing ever drains the signal list short of
+  an actual fatal signal, so it grew by one entry set per session.
 - `src/woof_ios.h` / `src/woof_ios.c` — iOS entry point (`WoofIOS_Run`)
   replacing `i_main.c`, plus `WoofIOS_RequestQuit`. `WoofIOS_Run` calls
   `SDL_SetMainReady()` before anything else: the host app's `main()` is
@@ -39,6 +44,13 @@ Current patches:
   `I_Error` is occasionally reachable from helper threads, and unwinding
   a foreign stack is undefined behavior. Each session also clears the
   previous session's accumulated error text via `I_ResetErrorMessages()`.
+  Plan 4 Task 7b added `SDL_SetHint(SDL_HINT_ORIENTATIONS, ...)` (all four
+  orientations) before `D_DoomMain`: without the hint, SDL's
+  `UIKit_GetSupportedOrientations` falls back to the window's aspect ratio
+  for a non-resizable window, and Woof's wider-than-tall window locked the
+  interface to landscape for the whole session — device rotation was
+  ignored. SDL intersects the hint with the app's Info.plist orientation
+  mask, so the plist stays authoritative.
   Plan 3 Task 1 added a touch-control shim: `WoofIOS_AttachTouchGamepad`/
   `WoofIOS_DetachTouchGamepad`/`WoofIOS_SetTouchAxis`/`WoofIOS_SetTouchButton`
   drive a virtual `SDL_JOYSTICK_TYPE_GAMEPAD` joystick that the native
@@ -132,7 +144,12 @@ Current patches:
   `I_ErrorInternal()` deliberately appends to its static `errmsg` buffer
   so nested errors within one exit sequence share a dialog, but across
   engine sessions in the same process that text is stale and would be
-  prepended to the next session's first error dialog.
+  prepended to the next session's first error dialog. Same block also
+  adds a read-only `I_GetErrorMessage()` accessor (returns `errmsg`;
+  empty string after a clean exit) so the host app can surface the
+  engine's actual error text in its own alert after a session unwinds —
+  SDL's `I_ErrorMsg` message box never fires in the iOS embedding. Both
+  are declared via local `extern` in `woof_ios.c`, not in `i_system.h`.
 - `CMakeLists.txt` (top-level) — added `find_package(Threads REQUIRED)`
   before `find_package(OpenAL REQUIRED)`: our Vendor-built OpenAL Soft's
   exported `OpenALTargets.cmake` links `Threads::Threads` in its interface

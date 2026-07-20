@@ -48,6 +48,10 @@ void WoofIOS_InjectRelativeTurn(float dx_points);
 void *WoofIOS_GetUIWindowPointer(void);
 int WoofIOS_DebugTouchEventCount(void);
 
+// Last engine error text (Woof!'s i_system.c errmsg buffer). Empty string
+// when the previous session exited cleanly. Reset at each session start.
+const char *WoofIOS_LastErrorMessage(void);
+
 // True whenever Woof's escape-menu system (mn_menu.c) is overlaying the
 // game -- title/demo state does not count, only an actually-open menu
 // screen (main menu, options, Load/Save, etc.). A thin wrapper around the

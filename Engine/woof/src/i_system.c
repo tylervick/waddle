@@ -67,6 +67,14 @@ void I_ResetErrorMessages(void)
 {
     errmsg[0] = '\0';
 }
+
+// Read-only view of errmsg for the iOS host app: after a session unwinds
+// with an error, the host surfaces this text in its own UI (SDL's message
+// box in I_ErrorMsg never fires there). Empty string after a clean exit.
+const char *I_GetErrorMessage(void)
+{
+    return errmsg;
+}
 #endif
 
 void I_ErrorInternal(const char *prefix, const char *error, ...)

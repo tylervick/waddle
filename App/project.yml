@@ -25,6 +25,7 @@ targets:
       base:
         CURRENT_PROJECT_VERSION: 1
         MARKETING_VERSION: "1.0"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     # Document-type registration (CFBundleDocumentTypes +
     # UTImportedTypeDeclarations, needed for "Share -> Open in BoomBox" on
     # .wad files) is nested-dictionary plist content with no INFOPLIST_KEY_
@@ -34,11 +35,27 @@ targets:
     info:
       path: Info.plist
       properties:
+        CFBundleDisplayName: BoomBox
         UILaunchScreen: {}
+        # No encryption beyond what the OS provides (no HTTPS calls, no
+        # crypto) — lets App Store Connect skip the export-compliance
+        # question on every upload.
+        ITSAppUsesNonExemptEncryption: false
         UIStatusBarHidden: true
-        UIRequiresFullScreen: true
         UIApplicationSupportsIndirectInputEvents: true
+        # All orientations + no UIRequiresFullScreen: required for iPadOS 26's
+        # default "Windowed Apps" multitasking style (the old landscape-only +
+        # fullscreen posture rendered sideways-letterboxed there, and Xcode
+        # warns UIRequiresFullScreen will soon be ignored). SDL's iOS backend
+        # feeds rotation/window resizes to Woof! as resize events, so the game
+        # letterboxes to whatever shape it's given.
         UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UIFileSharingEnabled: true
@@ -99,6 +116,8 @@ targets:
           - Generated/BuildInfo.generated.swift
       - path: Sources/Generated/BuildInfo.generated.swift
         optional: true
+      # App icon (regenerate with `swift Scripts/generate-app-icon.swift`).
+      - path: Assets.xcassets
       # NOTE: deliberately Resources/GameData, not Resources. A folder
       # reference whose bundle-root name is literally "Resources" makes
       # Xcode emit macOS-style Contents/Resources codesign rules
@@ -112,6 +131,12 @@ targets:
       - path: Resources/GameData
         type: folder
         buildPhase: resources
+      # License texts surfaced by AboutView (GPL compliance). Same
+      # folder-reference pattern as GameData (must NOT be named
+      # "Resources"); lands in the bundle as Licenses/*.
+      - path: Resources/Licenses
+        type: folder
+        buildPhase: resources
       # woof.pk3 must land at the bundle root (sibling of the executable,
       # NOT under GameData/): Woof! finds it via SDL_GetBasePath(), which
       # resolves to the app bundle root on iOS, and there's no argv flag
@@ -119,6 +144,13 @@ targets:
       # EngineSession.swift). A loose file reference here, rather than a
       # folder reference, copies just the file to the bundle root.
       - path: Resources/woof.pk3
+        type: file
+        buildPhase: resources
+      # Privacy manifest (App Store requirement). App-scoped settings only
+      # — scheme/tuning/debug toggles via UserDefaults (reason CA92.1); no
+      # tracking, no data collection, no network. A loose file reference
+      # lands it at the bundle root, where App Store Connect expects it.
+      - path: PrivacyInfo.xcprivacy
         type: file
         buildPhase: resources
     dependencies:

@@ -19,10 +19,16 @@ struct TouchTuning: Equatable {
     static let moveSensitivityKey = "moveSensitivity"
 
     static let turnSpeedRange = 0.25...3.0
-    static let stickDeadZoneRange = 0.05...0.4
+    static let stickDeadZoneRange = 0.0...0.4
     static let moveSensitivityRange = 0.5...1.5
 
-    static let `default` = TouchTuning(turnSpeed: 1.0, stickDeadZone: 0.2,
+    /// stickDeadZone defaults to 0 because the stick feeds a virtual SDL
+    /// gamepad, and Woof! already applies its own 15% radial inner deadzone
+    /// (plus rescale) to gamepad axes engine-side (i_gamepad.c,
+    /// joy_movement_inner_deadzone / joy_camera_inner_deadzone). An app-side
+    /// zone stacks on top of that, deadening the first ~third of stick
+    /// travel; the slider exists only for users who want *extra* deadzone.
+    static let `default` = TouchTuning(turnSpeed: 1.0, stickDeadZone: 0.0,
                                        moveSensitivity: 1.0)
 
     /// Reads the persisted tuning, clamping each value into its slider range

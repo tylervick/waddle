@@ -14,19 +14,7 @@ struct LibraryView: View {
         NavigationStack {
             List {
                 ForEach(wads, id: \.id) { wad in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(wad.displayName)
-                            Text(wad.isBundled ? "Bundled" : wad.filename)
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Text(wad.kindRaw)
-                            .font(.caption.bold())
-                            .padding(4)
-                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-                    }
-                    .deleteDisabled(wad.isBundled)
+                    row(for: wad)
                 }
                 .onDelete(perform: delete)
             }
@@ -43,7 +31,9 @@ struct LibraryView: View {
                           allowedContentTypes: importTypes,
                           allowsMultipleSelection: true) { result in
                 if case .success(let urls) = result {
-                    lastOutcome = importer.importFiles(at: urls)
+                    let outcome = importer.importFiles(at: urls)
+                    lastOutcome = outcome
+                    ImportNotices.shared.post(outcome: outcome)
                     refresh()
                 }
             }
@@ -58,7 +48,68 @@ struct LibraryView: View {
                 Text("Used by: \(deleteBlocked.joined(separator: ", ")). Remove it from those loadouts first.")
             }
             .onAppear(perform: refresh)
+            .onReceive(NotificationCenter.default.publisher(for: .libraryDidChange)) { _ in refresh() }
         }
+    }
+
+    /// PWAD rows get a "New Loadout" shortcut (swipe + context menu). Custom
+    /// swipe actions suppress onDelete's automatic swipe on that row, so PWAD
+    /// rows also carry an explicit trailing Delete to keep parity.
+    @ViewBuilder
+    private func row(for wad: WADFile) -> some View {
+        let base = HStack {
+            VStack(alignment: .leading) {
+                Text(wad.displayName)
+                Text(wad.isBundled ? "Bundled" : wad.filename)
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text(wad.kindRaw)
+                .font(.caption.bold())
+                .padding(4)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+        }
+        .deleteDisabled(wad.isBundled)
+
+        if wad.kindRaw == WADKind.pwad.rawValue {
+            base
+                .swipeActions(edge: .leading) { newLoadoutButton(for: wad) }
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) {
+                        delete(wad)
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+                .contextMenu { newLoadoutButton(for: wad) }
+        } else {
+            base
+        }
+    }
+
+    private func newLoadoutButton(for wad: WADFile) -> some View {
+        Button {
+            createLoadout(from: wad)
+        } label: {
+            Label("New Loadout", systemImage: "plus.rectangle.on.rectangle")
+        }
+        .tint(.blue)
+        .accessibilityIdentifier("newLoadoutFromPWAD-\(wad.displayName)")
+    }
+
+    private func createLoadout(from wad: WADFile) {
+        guard let iwad = try? library.suggestedIWAD(for: wad) else {
+            ImportNotices.shared.post(message: "Couldn't create a loadout for \(wad.displayName).")
+            return
+        }
+        guard (try? library.createLoadout(name: wad.displayName, iwadID: iwad.id,
+                                          pwadIDs: [wad.id], dehIDs: [])) != nil else {
+            ImportNotices.shared.post(message: "Couldn't create a loadout for \(wad.displayName).")
+            return
+        }
+        ImportNotices.shared.post(
+            message: "Created loadout \(wad.displayName) — find it in Play")
+        NotificationCenter.default.post(name: .libraryDidChange, object: nil)
     }
 
     private var importTypes: [UTType] {
@@ -87,13 +138,16 @@ struct LibraryView: View {
 
     private func delete(at offsets: IndexSet) {
         for index in offsets {
-            let wad = wads[index]
-            do {
-                try library.deleteWAD(wad, force: false)
-            } catch LibraryError.wadReferencedByLoadouts(let names) {
-                deleteBlocked = names
-            } catch {}
+            delete(wads[index])
         }
+    }
+
+    private func delete(_ wad: WADFile) {
+        do {
+            try library.deleteWAD(wad, force: false)
+        } catch LibraryError.wadReferencedByLoadouts(let names) {
+            deleteBlocked = names
+        } catch {}
         refresh()
     }
 
