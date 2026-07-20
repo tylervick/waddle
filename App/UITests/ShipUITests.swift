@@ -26,7 +26,7 @@ final class ShipUITests: XCTestCase {
         // The Licenses section may start below the fold (guaranteed in
         // landscape, possible in portrait), and List rows are lazy -- they
         // don't exist in the hierarchy until scrolled on-screen.
-        let gplRow = app.descendants(matching: .any)["BoomBox & Woof! — GPL-2.0"]
+        let gplRow = app.descendants(matching: .any)["WADdle & Woof! — GPL-2.0"]
         var swipes = 0
         while !gplRow.exists && swipes < 6 {
             aboutList.swipeUp()

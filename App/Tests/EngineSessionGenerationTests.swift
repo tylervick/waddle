@@ -1,5 +1,5 @@
 import XCTest
-@testable import BoomBox
+@testable import WADdle
 
 /// The autoquit timer must only fire for the session it was created for
 /// (ledgered Plan-1 finding: a stale timer could quit the NEXT session).

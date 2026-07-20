@@ -28,16 +28,16 @@ enum TouchControlScheme: String, CaseIterable {
     /// @AppStorage works directly) so the Play tab picker and this read stay
     /// on the same key.
     ///
-    /// Test-only override (Debug builds only): `BOOMBOX_TOUCH_SCHEME`
+    /// Test-only override (Debug builds only): `WADDLE_TOUCH_SCHEME`
     /// ("classic"/"modern") in the process environment wins over
     /// UserDefaults, letting a UITest pin the scheme without depending on
     /// @AppStorage/UserDefaults timing -- same test-seam pattern as
-    /// `BOOMBOX_AUTOQUIT_SECONDS` (EngineSession) and
-    /// `BOOMBOX_FORCE_TOUCH_OVERLAY` (OverlayPresenter). Never set
+    /// `WADDLE_AUTOQUIT_SECONDS` (EngineSession) and
+    /// `WADDLE_FORCE_TOUCH_OVERLAY` (OverlayPresenter). Never set
     /// outside a test launch environment.
     static func current(defaults: UserDefaults = .standard) -> TouchControlScheme {
         #if DEBUG
-        if let raw = ProcessInfo.processInfo.environment["BOOMBOX_TOUCH_SCHEME"],
+        if let raw = ProcessInfo.processInfo.environment["WADDLE_TOUCH_SCHEME"],
            let scheme = TouchControlScheme(rawValue: raw) {
             return scheme
         }

@@ -48,7 +48,7 @@ private let sdlAxisRightTrigger: Int32 = 5 // SDL_GAMEPAD_AXIS_RIGHT_TRIGGER (Ve
 final class TouchGamepad {
     private(set) var isAttached = false
 
-    /// Debug/test telemetry only (BOOMBOX_DEBUG_INPUT_COUNTS): the
+    /// Debug/test telemetry only (WADDLE_DEBUG_INPUT_COUNTS): the
     /// gamepad-layer RIGHT_TRIGGER value sampled ~0.3s after the most
     /// recent FIRE release. WoofIOS_DebugTriggerValue() reads live engine
     /// state that's torn down (and returns -1) the instant the session

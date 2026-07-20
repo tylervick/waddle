@@ -86,7 +86,7 @@ final class ImportService {
 
     /// Adopts files users dropped into Documents via the Files app
     /// (UIFileSharingEnabled exposes it), plus files iOS copied into
-    /// Documents/Inbox/ for a non-in-place "Open in BoomBox" share/open.
+    /// Documents/Inbox/ for a non-in-place "Open in WADdle" share/open.
     /// Call on launch/foreground.
     ///
     /// Runs off the launch path: hashing and copying (the expensive parts —

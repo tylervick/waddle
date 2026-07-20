@@ -5,8 +5,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT/App" && xcodegen generate && cd "$ROOT"
-ARCHIVE="$ROOT/Vendor/archive/BoomBox.xcarchive"
-xcodebuild -project App/BoomBox.xcodeproj -scheme BoomBox \
+ARCHIVE="$ROOT/Vendor/archive/WADdle.xcarchive"
+xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
   -destination 'generic/platform=iOS' -configuration Release \
   -archivePath "$ARCHIVE" archive
 xcodebuild -exportArchive -archivePath "$ARCHIVE" \

@@ -1,11 +1,11 @@
 #!/bin/bash
-# Copies local test WADs into the booted simulator's BoomBox Documents dir
+# Copies local test WADs into the booted simulator's WADdle Documents dir
 # so the app's loose-file adoption imports them on next launch.
 # Usage: Scripts/provision-test-wads.sh [device-name]
 set -euo pipefail
 DEVICE="${1:-iPhone 17 Pro}"
 SRC="$HOME/Downloads/doom-test-wads"
-BUNDLE_ID="com.tylervick.BoomBox"
+BUNDLE_ID="com.tylervick.waddle"
 
 xcrun simctl boot "$DEVICE" 2>/dev/null || true
 CONTAINER="$(xcrun simctl get_app_container "$DEVICE" "$BUNDLE_ID" data)"

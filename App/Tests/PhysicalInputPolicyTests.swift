@@ -1,5 +1,5 @@
 import XCTest
-@testable import BoomBox
+@testable import WADdle
 
 final class PhysicalInputPolicyTests: XCTestCase {
     func testNoPhysicalInputShowsOverlay() {

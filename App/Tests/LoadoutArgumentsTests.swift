@@ -1,5 +1,5 @@
 import XCTest
-@testable import BoomBox
+@testable import WADdle
 
 final class LoadoutArgumentsTests: XCTestCase {
     private func resolver(_ map: [UUID: String]) -> (UUID) throws -> URL {

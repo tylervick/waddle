@@ -2,7 +2,7 @@ import SwiftData
 import SwiftUI
 
 @main
-struct BoomBoxApp: App {
+struct WADdleApp: App {
     let container: ModelContainer
     let library: LibraryService
     let importer: ImportService

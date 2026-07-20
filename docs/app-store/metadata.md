@@ -1,4 +1,4 @@
-# App Store metadata — BoomBox (working name)
+# App Store metadata — WADdle
 
 **Status: APPROVED at the Plan 4 Task 7 user gate (2026-07-18).**
 Decisions recorded in the log at the bottom.
@@ -7,8 +7,33 @@ Decisions recorded in the log at the bottom.
 
 ## 1. App name (30 chars max) — DECIDED
 
-**Final name: "BoomBox: WAD Player"** (option 1 below, approved
-2026-07-18). The research and alternatives are kept for the record.
+**Final name: "WADdle"** (chosen 2026-07-20, superseding the earlier
+"BoomBox: WAD Player" pick). "WADdle" hides **WAD** — the Doom file format
+the app plays — inside *waddle*, in the whimsical spirit of the source-port
+lineage it belongs to (its engine is **Woof!**, alongside *Crispy Doom* and
+*Chocolate Doom*). No descriptor is needed in the name; the subtitle carries
+the plain description.
+
+**Scope note:** this was a full rename, done pre-submission while it was
+still free to change. Everything moved to the new name — the bundle ID
+(`com.tylervick.waddle`, lowercase), the Xcode target/scheme/project
+(`WADdle`), the GitHub repo (`tylervick/waddle`), the UTI identifiers
+(`com.tylervick.waddle.*`), and the `WADDLE_*` test-seam env vars. Nothing
+user- or developer-facing retains "BoomBox".
+
+**Knock-out checks (2026-07-20):**
+- **Trademark — clear for this use.** A live registered "WADDLE" mark exists
+  in Nice Class 9 (software), but it is owned by Waddle IP Pty Ltd, an
+  Australian invoice-lending fintech (now part of Commonwealth Bank).
+  Confusion turns on related goods; a B2B lending platform and a retro FPS
+  game do not overlap.
+- **App Store — crowded but category-separated.** Several unrelated "Waddle"
+  apps exist (couples, family activities, navigation, a drawing game), none
+  an FPS/source-port. Similar names coexist commonly on the store and the
+  Games category separates us; a similarity rejection is possible but
+  unlikely. The crowding was explicitly accepted by the owner.
+
+The earlier "BoomBox" research and alternatives are kept below for the record.
 
 **Research (2026-07-18):** the bare name "BoomBox" is crowded on the App
 Store — *Boombox.io*, *Boombox: Social Music Recs*, *The Boombox*, and
@@ -29,11 +54,10 @@ the app *name*.)
 | 3 | **Boomslayer** | 10 | Punchy, game-flavored, nods to the Boom engine lineage; clearly not a music app | "Slayer" is adjacent to Bethesda's "Doom Slayer" marketing — low but nonzero trademark-adjacency risk; says nothing about function (subtitle has to work hard) |
 | 4 | **Boomport** | 8 | Portmanteau of *Boom* + *source port* — names the exact engine family; unique in research; zero music collision | Reads as "boom port" (shipping?) to laypeople; drier than the alternatives |
 
-All four avoid "Doom". None has been formally cleared: **owner should run an
-App Store search plus a quick USPTO/EUIPO knock-out search on the chosen
-name before the Task 8 submission.** The App Store *display name* is
-independent of the bundle ID, so options 2–4 do not require a bundle-ID
-change.
+All four avoided "Doom", as does the chosen name **WADdle**. The knock-out
+search called for here was run on WADdle on 2026-07-20 (results recorded
+above). The App Store *display name* is independent of the bundle ID, so
+WADdle does not require a bundle-ID change.
 
 ## 2. Subtitle (30 chars max)
 
@@ -53,12 +77,12 @@ chars).
 
 > **Play the classic-Doom-engine games you own, anywhere.**
 >
-> BoomBox is a source port of the classic Doom engine for iPhone and iPad,
+> WADdle is a source port of the classic Doom engine for iPhone and iPad,
 > built on Woof! — the modern continuation of the Boom and MBF ports that
 > faithfully preserves original gameplay while supporting today's mods, up
 > through the MBF21 standard.
 >
-> **Ready to play out of the box.** BoomBox bundles Freedoom Phase 1 and
+> **Ready to play out of the box.** WADdle bundles Freedoom Phase 1 and
 > Phase 2: two complete, freely licensed games built by the Freedoom
 > project for this engine family. Tap and play — nothing to configure.
 >
@@ -75,11 +99,11 @@ chars).
 > and modern drag-to-turn) and adjustable feel — plus full support for
 > game controllers and hardware keyboards.
 >
-> **Open source.** BoomBox is free software under the GPL-2.0, like the
+> **Open source.** WADdle is free software under the GPL-2.0, like the
 > engine it descends from. Source code for the entire app is available on
 > GitHub.
 >
-> BoomBox includes no copyrighted commercial game content. Only the freely
+> WADdle includes no copyrighted commercial game content. Only the freely
 > licensed Freedoom data is bundled; commercial WADs must be imported by
 > you, from copies you own. This app is not affiliated with or endorsed by
 > id Software or Bethesda.
@@ -91,13 +115,13 @@ chars).
 
 ## 6. URLs
 
-- **Support URL:** https://github.com/tylervick/boombox
+- **Support URL:** https://github.com/tylervick/waddle
   ⚠️ Repo is currently **private** — must flip public before submission
   (also a GPL-compliance requirement; already a Plan 4 ledger item).
 - **Marketing URL (optional):** same repo, or none.
 - **Privacy Policy URL:** `PRIVACY.md` at the repo root (decided
   2026-07-18). Once the repo is public the URL is
-  https://github.com/tylervick/boombox/blob/main/PRIVACY.md. The app
+  https://github.com/tylervick/waddle/blob/main/PRIVACY.md. The app
   collects nothing (see `App/PrivacyInfo.xcprivacy`); the policy says so
   in plain language.
 
@@ -222,7 +246,7 @@ Windowed Apps mode.
 
 | Decision | Choice | Date |
 |----------|--------|------|
-| Final app name | **BoomBox: WAD Player** | 2026-07-18 |
+| Final app name | ~~BoomBox: WAD Player~~ → **WADdle** (superseded) | 2026-07-18 → 2026-07-20 |
 | Subtitle wording | Approved as drafted ("Play classic Doom WADs") | 2026-07-18 |
 | Description tone | Approved as drafted (incl. promotional text and keywords) | 2026-07-18 |
 | Age-rating answers confirmed | Approved as drafted (§8 table) | 2026-07-18 |

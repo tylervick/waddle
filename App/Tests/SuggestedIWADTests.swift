@@ -1,6 +1,6 @@
 import SwiftData
 import XCTest
-@testable import BoomBox
+@testable import WADdle
 
 @MainActor
 final class SuggestedIWADTests: XCTestCase {

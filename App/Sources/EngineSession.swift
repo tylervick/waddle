@@ -73,7 +73,7 @@ enum EngineSession {
         // next one and quit it early. Debug builds only — release carries
         // no test seams.
         if let secondsString = ProcessInfo.processInfo
-            .environment["BOOMBOX_AUTOQUIT_SECONDS"],
+            .environment["WADDLE_AUTOQUIT_SECONDS"],
             let seconds = Double(secondsString)
         {
             Thread.detachNewThread {
@@ -96,11 +96,11 @@ enum EngineSession {
 
         var effectiveArguments = arguments
         #if DEBUG
-        // Test-only (same seam family as BOOMBOX_AUTOQUIT_SECONDS above):
+        // Test-only (same seam family as WADDLE_AUTOQUIT_SECONDS above):
         // Woof never auto-warps into a level without an explicit -warp flag
         // (see README), so a UITest that needs in-game state -- not just
         // the title screen -- has no menu-free path there otherwise.
-        if ProcessInfo.processInfo.environment["BOOMBOX_TEST_WARP"] != nil {
+        if ProcessInfo.processInfo.environment["WADDLE_TEST_WARP"] != nil {
             effectiveArguments += ["-warp", "1", "-skill", "1"]
         }
         #endif

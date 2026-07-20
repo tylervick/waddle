@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct AboutView: View {
-    private let sourceURL = URL(string: "https://github.com/tylervick/boombox")!
+    private let sourceURL = URL(string: "https://github.com/tylervick/waddle")!
 
     var body: some View {
         List {
@@ -13,7 +13,7 @@ struct AboutView: View {
             }
             Section("Open source") {
                 Link("Source code on GitHub", destination: sourceURL)
-                Text("BoomBox is free software under the GNU GPL v2. It bundles Freedoom and plays your own WAD files; no game data is included from commercial releases.")
+                Text("WADdle is free software under the GNU GPL v2. It bundles Freedoom and plays your own WAD files; no game data is included from commercial releases.")
                     .font(.footnote)
             }
             Section("Licenses") {
@@ -29,7 +29,7 @@ struct AboutView: View {
     }
 
     private var licenseFiles: [(String, String)] {
-        [("BoomBox & Woof! — GPL-2.0", "APP-LICENSE-GPL2"),
+        [("WADdle & Woof! — GPL-2.0", "APP-LICENSE-GPL2"),
          ("Third-party notices", "NOTICES"),
          ("Freedoom — BSD", "FREEDOOM-BSD"),
          ("SDL 3 — zlib", "SDL3-ZLIB"),
