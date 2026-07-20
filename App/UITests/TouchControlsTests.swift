@@ -2,14 +2,14 @@ import XCTest
 
 /// Proves the touch overlay installs over a live engine session and that
 /// stick/button/turn gestures actually reach SDL (via the shim's debug
-/// counter, surfaced post-session when BOOMBOX_DEBUG_INPUT_COUNTS is set).
+/// counter, surfaced post-session when WADDLE_DEBUG_INPUT_COUNTS is set).
 final class TouchControlsTests: XCTestCase {
 
     @MainActor
     func testOverlayInstallsAndInputsReachEngine() throws {
         let app = XCUIApplication()
-        app.launchEnvironment["BOOMBOX_AUTOQUIT_SECONDS"] = "14"
-        app.launchEnvironment["BOOMBOX_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "14"
+        app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
         // The Simulator's XCUITest automation session registers a phantom
         // GCController and reports GCKeyboard.coalesced non-nil (the host
         // Mac's own keyboard) for the whole session, which correctly -- but
@@ -17,7 +17,7 @@ final class TouchControlsTests: XCTestCase {
         // overlay when physical input is present" policy (Task 5) and makes
         // the overlay permanently inaccessible to this test. Force it
         // visible; see OverlayPresenter.applyPolicy().
-        app.launchEnvironment["BOOMBOX_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launch()
 
         let play = app.buttons["playFreedoom1"]
@@ -59,7 +59,7 @@ final class TouchControlsTests: XCTestCase {
     /// Classic is the default scheme (usesDragTurn == false), so the test
     /// above never exercises the right-side drag-to-turn gesture at all --
     /// touchesBegan silently ignores it. This test pins the scheme to
-    /// modern via the BOOMBOX_TOUCH_SCHEME test seam (see
+    /// modern via the WADDLE_TOUCH_SCHEME test seam (see
     /// TouchControlScheme.current()) and performs *only* the turn drag --
     /// no buttons, no stick -- so the shim's event count can only have come
     /// from the drag-turn path, isolating it from the button/stick
@@ -67,10 +67,10 @@ final class TouchControlsTests: XCTestCase {
     @MainActor
     func testModernSchemeDragTurnReachesEngine() throws {
         let app = XCUIApplication()
-        app.launchEnvironment["BOOMBOX_AUTOQUIT_SECONDS"] = "14"
-        app.launchEnvironment["BOOMBOX_DEBUG_INPUT_COUNTS"] = "1"
-        app.launchEnvironment["BOOMBOX_FORCE_TOUCH_OVERLAY"] = "1"
-        app.launchEnvironment["BOOMBOX_TOUCH_SCHEME"] = "modern"
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "14"
+        app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_TOUCH_SCHEME"] = "modern"
         app.launch()
 
         let play = app.buttons["playFreedoom1"]
@@ -106,17 +106,17 @@ final class TouchControlsTests: XCTestCase {
     /// scaled-float release (0.0) left the gamepad-layer RIGHT_TRIGGER
     /// value at ~50% -- permanently above Woof's trigger_threshold (see
     /// the WoofIOS_SetTouchTrigger doc comment in woof_ios.c for the full
-    /// citation trail). BOOMBOX_TEST_WARP puts the session in-game (no
+    /// citation trail). WADDLE_TEST_WARP puts the session in-game (no
     /// scripted menu navigation) so FIRE exercises its real gameplay path,
     /// not the title screen's menu-select behavior. Classic scheme (the
     /// default) is fine here -- FIRE is scheme-independent.
     @MainActor
     func testFireReleaseClearsTriggerResidue() throws {
         let app = XCUIApplication()
-        app.launchEnvironment["BOOMBOX_AUTOQUIT_SECONDS"] = "14"
-        app.launchEnvironment["BOOMBOX_DEBUG_INPUT_COUNTS"] = "1"
-        app.launchEnvironment["BOOMBOX_FORCE_TOUCH_OVERLAY"] = "1"
-        app.launchEnvironment["BOOMBOX_TEST_WARP"] = "1"
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "14"
+        app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
         app.launch()
 
         let play = app.buttons["playFreedoom1"]
@@ -170,9 +170,9 @@ final class TouchControlsTests: XCTestCase {
         // inherit whatever a previous test (or the screenshot script) left.
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
-        app.launchEnvironment["BOOMBOX_AUTOQUIT_SECONDS"] = "25"
-        app.launchEnvironment["BOOMBOX_DEBUG_INPUT_COUNTS"] = "1"
-        app.launchEnvironment["BOOMBOX_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "25"
+        app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launch()
 
         let play = app.buttons["playFreedoom1"]

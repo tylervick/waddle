@@ -144,7 +144,7 @@ final class OverlayPresenter {
         // teardown at all. Only ever set by the UI test; never present in a
         // real session.
         #if DEBUG
-        if ProcessInfo.processInfo.environment["BOOMBOX_FORCE_TOUCH_OVERLAY"] != nil {
+        if ProcessInfo.processInfo.environment["WADDLE_FORCE_TOUCH_OVERLAY"] != nil {
             overlay?.isHidden = false
             return
         }

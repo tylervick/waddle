@@ -1,5 +1,5 @@
 #!/usr/bin/env swift
-// Generates the BoomBox app icon: a deterministic 1024x1024 PNG with a dark
+// Generates the WADdle app icon: a deterministic 1024x1024 PNG with a dark
 // charcoal field, a subtle vignette, and a centered upward flame mark built
 // from three overlapping teardrop beziers in a Doom-orange gradient
 // (#FF6A00 -> #FFC933). No text. Run from the repo root:

@@ -1,4 +1,4 @@
-# App Store submission checklist — BoomBox: WAD Player
+# App Store submission checklist — WADdle
 
 Ordered owner checklist for the first submission. Everything below is a
 human-only step (Apple ID sign-in, App Store Connect forms, review
@@ -19,7 +19,7 @@ paste; `docs/app-store/screenshots/` holds the images;
       kagi@tylervick.com ... missing Xcode-Token` — re-authenticate that
       account (or remove/re-add it) before exporting.
 - [ ] **Repo public** (GPL compliance + the support/privacy URLs below
-      must resolve): `gh repo edit tylervick/boombox --visibility public
+      must resolve): `gh repo edit tylervick/waddle --visibility public
       --accept-visibility-change-consequences`. Do this BEFORE submitting
       for review — App Review may open the links.
 
@@ -27,29 +27,29 @@ paste; `docs/app-store/screenshots/` holds the images;
 
 - [ ] App Store Connect → My Apps → **+** → New App:
   - Platform: **iOS**
-  - Name: **BoomBox: WAD Player** (§1 of metadata.md; if taken/rejected
+  - Name: **WADdle** (§1 of metadata.md; if taken/rejected
     for similarity, fallback options are recorded in the same section)
   - Primary language: **English (U.S.)**
-  - Bundle ID: **com.tylervick.BoomBox** (register it under
+  - Bundle ID: **com.tylervick.waddle** (register it under
     Certificates, Identifiers & Profiles first if it isn't offered in the
     dropdown; no special capabilities needed)
-  - SKU: anything stable, e.g. `boombox-ios`
+  - SKU: anything stable, e.g. `waddle-ios`
 - [ ] Note: creating this record (plus program membership) is what
       unblocks `xcodebuild -exportArchive` / upload. Until it exists,
       export fails with `error: exportArchive No profiles for
-      'com.tylervick.BoomBox' were found` — this is the current state.
+      'com.tylervick.waddle' were found` — this is the current state.
 
 ## 2. Build and upload
 
 - [ ] `Scripts/archive.sh` — regenerates the project, builds the Release
-      archive to `Vendor/archive/BoomBox.xcarchive`, and exports a signed
+      archive to `Vendor/archive/WADdle.xcarchive`, and exports a signed
       .ipa to `Vendor/archive/export/`.
 - [ ] Upload, either way:
   - **Xcode Organizer:** Window → Organizer → Archives → Distribute App →
     App Store Connect → Upload (skips the manual .ipa entirely), or
-  - **Transporter / CLI:** upload `Vendor/archive/export/BoomBox.ipa`
+  - **Transporter / CLI:** upload `Vendor/archive/export/WADdle.ipa`
     with the Transporter app, or
-    `xcrun altool --upload-app -f Vendor/archive/export/BoomBox.ipa -t ios
+    `xcrun altool --upload-app -f Vendor/archive/export/WADdle.ipa -t ios
     --apiKey <key> --apiIssuer <issuer>`.
 - [ ] Export compliance never prompts at upload:
       `ITSAppUsesNonExemptEncryption = NO` is baked into the Info.plist
@@ -60,14 +60,14 @@ paste; `docs/app-store/screenshots/` holds the images;
 
 ## 3. Version page — paste from metadata.md
 
-- [ ] **Name / Subtitle:** §1–2 ("BoomBox: WAD Player" / "Play classic
+- [ ] **Name / Subtitle:** §1–2 ("WADdle" / "Play classic
       Doom WADs")
 - [ ] **Promotional text:** §3
 - [ ] **Description:** §4
 - [ ] **Keywords:** §5 (`doom,wad,fps,retro,source port,freedoom,boom,classic`)
-- [ ] **Support URL:** https://github.com/tylervick/boombox
+- [ ] **Support URL:** https://github.com/tylervick/waddle
 - [ ] **Privacy Policy URL:**
-      https://github.com/tylervick/boombox/blob/main/PRIVACY.md
+      https://github.com/tylervick/waddle/blob/main/PRIVACY.md
    (verify this URL resolves (HTTP 200) after PR #4 merges to main, before entering it in App Store Connect)
 - [ ] **Category:** Games → Action (§7)
 - [ ] **Copyright:** `© 2026 Tyler Vick; engine GPL-2.0` (§10)

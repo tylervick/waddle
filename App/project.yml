@@ -1,4 +1,4 @@
-name: BoomBox
+name: WADdle
 options:
   bundleIdPrefix: com.tylervick
   deploymentTarget:
@@ -18,7 +18,7 @@ settings:
     DEVELOPMENT_TEAM: 352UZEKYPP
     CODE_SIGN_STYLE: Automatic
 targets:
-  BoomBox:
+  WADdle:
     type: application
     platform: iOS
     settings:
@@ -26,8 +26,9 @@ targets:
         CURRENT_PROJECT_VERSION: 1
         MARKETING_VERSION: "1.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        PRODUCT_BUNDLE_IDENTIFIER: com.tylervick.waddle
     # Document-type registration (CFBundleDocumentTypes +
-    # UTImportedTypeDeclarations, needed for "Share -> Open in BoomBox" on
+    # UTImportedTypeDeclarations, needed for "Share -> Open in WADdle" on
     # .wad files) is nested-dictionary plist content with no INFOPLIST_KEY_
     # build-setting mapping, so this target needs a real Info.plist. XcodeGen
     # writes it to App/Info.plist at `xcodegen generate` time (same lifecycle
@@ -35,7 +36,7 @@ targets:
     info:
       path: Info.plist
       properties:
-        CFBundleDisplayName: BoomBox
+        CFBundleDisplayName: WADdle
         UILaunchScreen: {}
         # No encryption beyond what the OS provides (no HTTPS calls, no
         # crypto) — lets App Store Connect skip the export-compliance
@@ -63,20 +64,20 @@ targets:
         CFBundleDocumentTypes:
           - CFBundleTypeName: Doom WAD
             LSHandlerRank: Owner
-            LSItemContentTypes: [com.tylervick.boombox.wad]
+            LSItemContentTypes: [com.tylervick.waddle.wad]
           - CFBundleTypeName: DeHackEd Patch
             LSHandlerRank: Owner
-            LSItemContentTypes: [com.tylervick.boombox.deh]
+            LSItemContentTypes: [com.tylervick.waddle.deh]
           - CFBundleTypeName: Zip Archive
             LSHandlerRank: Alternate
             LSItemContentTypes: [public.zip-archive]
         UTImportedTypeDeclarations:
-          - UTTypeIdentifier: com.tylervick.boombox.wad
+          - UTTypeIdentifier: com.tylervick.waddle.wad
             UTTypeDescription: Doom WAD
             UTTypeConformsTo: [public.data]
             UTTypeTagSpecification:
               public.filename-extension: [wad]
-          - UTTypeIdentifier: com.tylervick.boombox.deh
+          - UTTypeIdentifier: com.tylervick.waddle.deh
             UTTypeDescription: DeHackEd Patch
             UTTypeConformsTo: [public.data]
             UTTypeTagSpecification:
@@ -171,7 +172,7 @@ targets:
       - sdk: CoreMedia.framework
       - sdk: CoreBluetooth.framework
       - sdk: OpenGLES.framework
-  BoomBoxUITests:
+  WADdleUITests:
     type: bundle.ui-testing
     platform: iOS
     sources: [UITests]
@@ -181,8 +182,8 @@ targets:
         # it, CodeSign fails with "target does not have an Info.plist file".
         GENERATE_INFOPLIST_FILE: true
     dependencies:
-      - target: BoomBox
-  BoomBoxTests:
+      - target: WADdle
+  WADdleTests:
     type: bundle.unit-test
     platform: iOS
     sources: [Tests]
@@ -190,13 +191,13 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: true
     dependencies:
-      - target: BoomBox
+      - target: WADdle
 schemes:
-  BoomBox:
+  WADdle:
     build:
       targets:
-        BoomBox: all
+        WADdle: all
     test:
       targets:
-        - BoomBoxTests
-        - BoomBoxUITests
+        - WADdleTests
+        - WADdleUITests

@@ -1,6 +1,6 @@
-# BoomBox Privacy Policy
+# WADdle Privacy Policy
 
-BoomBox does not collect any data of any kind.
+WADdle does not collect any data of any kind.
 
 - The app makes no network connections.
 - There are no analytics, no tracking, and no third-party SDKs that phone

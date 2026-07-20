@@ -19,12 +19,12 @@
 # `badiwad.wad` negative-test fixture — it would show up as a bogus IWAD in
 # the library list and IWAD picker in the marketing shots.
 #
-# In-game shots launch with BOOMBOX_TEST_WARP (menu-free path into a level;
-# Woof never auto-warps otherwise) and BOOMBOX_FORCE_TOUCH_OVERLAY (the
+# In-game shots launch with WADDLE_TEST_WARP (menu-free path into a level;
+# Woof never auto-warps otherwise) and WADDLE_FORCE_TOUCH_OVERLAY (the
 # XCUITest automation session registers a phantom game controller that
 # would hide the touch overlay; on a real device with no controller the
 # overlay is visible, so forcing it reproduces the shipping UX). No debug
-# HUD/label env vars (BOOMBOX_DEBUG_INPUT_COUNTS etc.) are set.
+# HUD/label env vars (WADDLE_DEBUG_INPUT_COUNTS etc.) are set.
 #
 # Usage:
 #   Scripts/capture-screenshots.sh              # everything, in order
@@ -35,13 +35,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-BUNDLE_ID="com.tylervick.BoomBox"
+BUNDLE_ID="com.tylervick.waddle"
 WAD_SRC="$HOME/Downloads/doom-test-wads"
 DERIVED="App/build"
-APP_PATH="$DERIVED/Build/Products/Debug-iphonesimulator/BoomBox.app"
+APP_PATH="$DERIVED/Build/Products/Debug-iphonesimulator/WADdle.app"
 TEST_FILE="App/UITests/ScreenshotCaptureTests.swift"
 OUT_ROOT="docs/app-store/screenshots"
-RESULTS_ROOT="${TMPDIR:-/tmp}/boombox-screenshots"
+RESULTS_ROOT="${TMPDIR:-/tmp}/waddle-screenshots"
 
 IPHONE_NAME="iPhone 17 Pro Max"
 IPAD_NAME="iPad Pro 13-inch (M4)"
@@ -193,8 +193,8 @@ final class ScreenshotCaptureTests: XCTestCase {
         let app = XCUIApplication()
         // Menu-free path in-game + overlay visible under XCUITest's phantom
         // controller; neither adds any on-screen debug chrome.
-        app.launchEnvironment["BOOMBOX_TEST_WARP"] = "1"
-        app.launchEnvironment["BOOMBOX_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launch()
         forceLandscape()
 
@@ -224,7 +224,7 @@ prepare() {
     # generic one adds x86_64, which WoofEngine.xcframework doesn't ship.
     # The arm64 products run on every simulator on this Apple Silicon host.
     xcodebuild build-for-testing \
-        -project App/BoomBox.xcodeproj -scheme BoomBox \
+        -project App/WADdle.xcodeproj -scheme WADdle \
         -destination "platform=iOS Simulator,name=$IPHONE_NAME" \
         -derivedDataPath "$DERIVED" -quiet
 }
@@ -301,9 +301,9 @@ capture() {  # $1 = iphone | ipad
     result="$RESULTS_ROOT/$slug.xcresult"
     rm -rf "$result"; mkdir -p "$RESULTS_ROOT"
     xcodebuild test-without-building \
-        -project App/BoomBox.xcodeproj -scheme BoomBox \
+        -project App/WADdle.xcodeproj -scheme WADdle \
         -destination "platform=iOS Simulator,id=$udid" \
-        -only-testing:BoomBoxUITests/ScreenshotCaptureTests \
+        -only-testing:WADdleUITests/ScreenshotCaptureTests \
         -derivedDataPath "$DERIVED" \
         -resultBundlePath "$result" -quiet
 

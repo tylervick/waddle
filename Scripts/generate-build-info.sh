@@ -13,7 +13,7 @@
 #      BuildInfo.generated.swift to the project, and it would silently
 #      stay missing even after later builds create it.
 #   2. Automatically, on every build after that, via project.yml's
-#      preBuildScripts phase on the BoomBox target (declared with this
+#      preBuildScripts phase on the WADdle target (declared with this
 #      file as its output, so Xcode sequences it before compilation) --
 #      this is what keeps commit/branch/builtAt fresh per build.
 set -euo pipefail

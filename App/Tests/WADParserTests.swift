@@ -1,5 +1,5 @@
 import XCTest
-@testable import BoomBox
+@testable import WADdle
 
 /// Builds a syntactically valid WAD in memory.
 /// Layout: 12-byte header | lump directory (16 bytes/lump, zero data).

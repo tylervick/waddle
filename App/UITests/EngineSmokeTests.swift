@@ -9,7 +9,7 @@ final class EngineSmokeTests: XCTestCase {
         let autoquitSeconds = 10.0
 
         let app = XCUIApplication()
-        app.launchEnvironment["BOOMBOX_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
         app.launch()
 
         for cycle in 1...2 {
@@ -41,7 +41,7 @@ final class EngineSmokeTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(
                 elapsed, autoquitSeconds - 1.0,
                 "cycle \(cycle): engine exited after only \(elapsed)s — " +
-                "it should run ~\(autoquitSeconds)s until BOOMBOX_AUTOQUIT_SECONDS fires")
+                "it should run ~\(autoquitSeconds)s until WADDLE_AUTOQUIT_SECONDS fires")
         }
     }
 }

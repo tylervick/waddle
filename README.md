@@ -1,4 +1,4 @@
-# BoomBox: WAD Player
+# WADdle
 
 A free, open-source Doom source-port app for iPhone and iPad, built on
 [Woof!](https://github.com/fabiangreffrath/woof) (Boom/MBF21 compatibility).
@@ -15,7 +15,7 @@ DeHackEd patches — for everything else.
 
 ## Licensing
 
-BoomBox is free software under the **GNU GPL v2** (see [COPYING](COPYING)),
+WADdle is free software under the **GNU GPL v2** (see [COPYING](COPYING)),
 the license of the Woof!/Boom/MBF lineage it descends from. Bundled and
 linked components: [Freedoom](https://freedoom.github.io/) data
 (BSD-style), [SDL3](https://libsdl.org) (zlib),
@@ -53,14 +53,14 @@ Scripts/build-engine.sh        # Woof! static lib + WoofEngine.xcframework; stag
 Scripts/fetch-freedoom.sh      # Freedoom WADs into App/Resources/GameData
 Scripts/generate-build-info.sh # seeds App/Sources/Generated/ (gitignored) so xcodegen's
                                 # static file scan picks it up; regenerated every build after
-cd App && xcodegen generate    # generate BoomBox.xcodeproj
+cd App && xcodegen generate    # generate WADdle.xcodeproj
 ```
 
-Then build/run the `BoomBox` scheme in Xcode, or from the command line
+Then build/run the `WADdle` scheme in Xcode, or from the command line
 (`mise run test` is a shortcut for this):
 
 ```sh
-xcodebuild -project App/BoomBox.xcodeproj -scheme BoomBox \
+xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 ```
 
@@ -104,7 +104,7 @@ the submission steps live in
 
 ## WAD library
 
-Import WADs three ways: the in-app Import button, "Share → BoomBox" from
+Import WADs three ways: the in-app Import button, "Share → WADdle" from
 another app, or drop files into the app's folder in the Files app (adopted
 on next launch). IWADs, PWADs, `.deh`/`.bex` patches, and zips containing
 any of those all work; zips are recursed into and duplicates are deduped by

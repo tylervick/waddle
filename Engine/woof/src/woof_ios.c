@@ -219,7 +219,7 @@ bool WoofIOS_AttachTouchGamepad(void)
     desc.type = SDL_JOYSTICK_TYPE_GAMEPAD;
     desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
     desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
-    desc.name = "BoomBox Touch Controls";
+    desc.name = "WADdle Touch Controls";
 
     touch_joystick_id = SDL_AttachVirtualJoystick(&desc);
     if (touch_joystick_id == 0)

@@ -9,11 +9,11 @@ final class RealWADTests: XCTestCase {
 
     private func launchApp() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchEnvironment["BOOMBOX_AUTOQUIT_SECONDS"] = "10"
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "10"
         app.launch()
         // Loose-file adoption (ImportService.adoptLooseFiles) now runs
         // asynchronously off a `.task` on ContentView's first frame (Plan 3
-        // Task 7), not synchronously in BoomBoxApp.init — so the launcher UI
+        // Task 7), not synchronously in WADdleApp.init — so the launcher UI
         // shows up immediately and does NOT wait on hashing/copying the
         // provisioned WADs (including the 293 MB Eviternity II). Adoption
         // finishing is awaited separately, per-loadout, in

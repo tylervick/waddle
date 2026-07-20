@@ -2,7 +2,7 @@
 
 Run before each release build (simulator can't cover physical input).
 
-Note: `BOOMBOX_FORCE_TOUCH_OVERLAY` is a test-only environment variable that bypasses
+Note: `WADDLE_FORCE_TOUCH_OVERLAY` is a test-only environment variable that bypasses
 the automatic overlay hide policy on physical controllers and keyboards, forcing the
 overlay to remain visible even when input devices are connected.
 
@@ -73,7 +73,7 @@ loops, then report them back so the defaults can be baked in.
 Turn this on for every session below: "Show Debug Info" in the same gear
 menu as the touch scheme picker (accessibilityIdentifier `debugHUDToggle`,
 persisted across relaunch).
-- [ ] Play tab shows a footer line once enabled: `BoomBox <commit> (<branch>)
+- [ ] Play tab shows a footer line once enabled: `WADdle <commit> (<branch>)
       · built <date time>` (accessibilityIdentifier `buildInfoLabel`) —
       commit matches `git rev-parse --short HEAD` (with a trailing `+` if
       the tree had uncommitted changes at build time), branch matches

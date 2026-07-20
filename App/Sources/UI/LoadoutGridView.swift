@@ -24,7 +24,7 @@ struct LoadoutGridView: View {
                 }
                 .padding()
             }
-            .navigationTitle("BoomBox")
+            .navigationTitle("WADdle")
             .toolbar { toolbarContent }
             // .overlay, not .safeAreaInset -- a conditionally-empty
             // safeAreaInset directly above a ScrollView/LazyVGrid crashed
@@ -34,7 +34,7 @@ struct LoadoutGridView: View {
             // conditional post-session labels.
             .overlay(alignment: .bottom) {
                 if debugHUD {
-                    Text("BoomBox \(BuildInfo.commit) (\(BuildInfo.branch)) · built \(BuildInfo.builtAt)")
+                    Text("WADdle \(BuildInfo.commit) (\(BuildInfo.branch)) · built \(BuildInfo.builtAt)")
                         .font(.caption2.monospaced())
                         .foregroundStyle(.secondary)
                         .padding(.vertical, 4)

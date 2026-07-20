@@ -1,6 +1,6 @@
 import XCTest
 import ZIPFoundation
-@testable import BoomBox
+@testable import WADdle
 
 final class ZipExtractorTests: XCTestCase {
     var tmp: URL!

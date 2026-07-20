@@ -17,7 +17,7 @@ description = "Freedoom WADs into App/Resources/GameData"
 run = "Scripts/fetch-freedoom.sh"
 
 [tasks.generate]
-description = "Generate BoomBox.xcodeproj"
+description = "Generate WADdle.xcodeproj"
 run = "xcodegen generate"
 dir = "App"
 # project.yml references GameData/ and woof.pk3, which these tasks produce;
@@ -32,7 +32,7 @@ depends = ["build-engine", "fetch-freedoom", "generate"]
 [tasks.test]
 description = "Build and run the test suite (incl. engine smoke check) on simulator"
 run = """
-xcodebuild -project App/BoomBox.xcodeproj -scheme BoomBox \
+xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 """
 depends = ["generate"]

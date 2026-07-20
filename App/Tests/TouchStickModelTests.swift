@@ -1,5 +1,5 @@
 import XCTest
-@testable import BoomBox
+@testable import WADdle
 
 final class TouchStickModelTests: XCTestCase {
     // Explicit deadZone: these tests pin the dead-zone *math*; the struct's

@@ -1,7 +1,7 @@
 # Third-party notices
 
-BoomBox is free software under the GNU GPL v2 (see APP-LICENSE-GPL2.txt).
-Complete corresponding source: https://github.com/tylervick/boombox
+WADdle is free software under the GNU GPL v2 (see APP-LICENSE-GPL2.txt).
+Complete corresponding source: https://github.com/tylervick/waddle
 
 - Woof! (Doom engine) — GPL-2.0, © Fabian Greffrath and contributors.
   Vendored with iOS patches; see Engine/WOOF_UPSTREAM.md in the source repo.
