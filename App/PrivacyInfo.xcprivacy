@@ -18,6 +18,18 @@
                 <string>CA92.1</string>
             </array>
         </dict>
+        <!-- The statically linked engine's miniz zip reader references stat()
+             (verified: `_stat` is an undefined symbol in libWoofEngine.a), a
+             required-reason API. C617.1 = timestamps of files inside the app
+             container (imported WADs/zips). -->
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>C617.1</string>
+            </array>
+        </dict>
     </array>
 </dict>
 </plist>

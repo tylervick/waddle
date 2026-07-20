@@ -31,6 +31,16 @@ final class EngineErrorAlertTests: XCTestCase {
         XCTAssertEqual(alert?.engineMessage, "The engine reported no details (exit code -101).")
     }
 
+    func testGenericNotFoundMessageHasNoHint() {
+        // "not found" alone is too broad a marker (e.g. R_InitSprites can
+        // report a missing sprite lump for reasons that have nothing to do
+        // with IWAD pairing); W_GetNumForName is the real wrong-IWAD
+        // signature and already covers the pairing case below.
+        let alert = EngineErrorAlert.from(exitCode: -1,
+                                          engineMessage: "R_InitSprites: sprite TROO not found")
+        XCTAssertNil(alert?.hint)
+    }
+
     func testFailedToLoadWrongIWADHint() {
         let alert = EngineErrorAlert.from(exitCode: -1,
                                           engineMessage: "Failed to load /path/badiwad.wad")

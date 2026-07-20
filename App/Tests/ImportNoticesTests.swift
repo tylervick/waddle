@@ -37,6 +37,41 @@ final class ImportNoticesTests: XCTestCase {
         outcome.rejected = ["a.wad": "x", "b.zip": "y"]
         XCTAssertEqual(ImportNotices.summary(of: outcome), "2 failed")
     }
+
+    // MARK: merge
+
+    func testMergeAppendsImportedAndDuplicates() {
+        var aggregate = ImportOutcome()
+        aggregate.imported = ["Sunlust"]
+        var candidate = ImportOutcome()
+        candidate.imported = ["Scythe"]
+        candidate.duplicates = ["Eviternity II"]
+
+        aggregate.merge(candidate)
+
+        XCTAssertEqual(aggregate.imported, ["Sunlust", "Scythe"])
+        XCTAssertEqual(aggregate.duplicates, ["Eviternity II"])
+    }
+
+    // Two independent candidates (e.g. two different zips) can each reject
+    // an entry under the identical basename. LibraryView.summary(of:) lists
+    // every rejected key/value to the user, so silently overwriting on
+    // collision would hide one of them; merge uniquifies instead (same
+    // suffixing convention as ImportService.moveToImportFailed uses for
+    // on-disk name clashes) so both survive and the "N failed" count stays
+    // accurate.
+    func testMergeUniquifiesCollidingRejectedKeys() {
+        var aggregate = ImportOutcome()
+        aggregate.rejected = ["big.wad": "Entry exceeds the 5 MB import limit."]
+        var candidate = ImportOutcome()
+        candidate.rejected = ["big.wad": "Entry exceeds the 5 MB import limit."]
+
+        aggregate.merge(candidate)
+
+        XCTAssertEqual(aggregate.rejected.count, 2)
+        XCTAssertEqual(aggregate.rejected["big.wad"], "Entry exceeds the 5 MB import limit.")
+        XCTAssertEqual(aggregate.rejected["big (2).wad"], "Entry exceeds the 5 MB import limit.")
+    }
 }
 
 @MainActor

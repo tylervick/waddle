@@ -166,9 +166,9 @@ struct LoadoutGridView: View {
             errorAlert = EngineErrorAlert.from(exitCode: lastExitCode ?? 0,
                                                engineMessage: EngineSession.lastErrorMessage)
         } catch {
-            lastExitCode = -101   // arg-building failure (missing WAD)
+            lastExitCode = EngineSession.ExitCode.argumentFailure   // arg-building failure (missing WAD)
             errorAlert = EngineErrorAlert.from(
-                exitCode: -101,
+                exitCode: EngineSession.ExitCode.argumentFailure,
                 engineMessage: "A file in this loadout is missing from the library.")
         }
         refresh()

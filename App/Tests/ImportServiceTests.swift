@@ -217,6 +217,64 @@ final class ImportServiceTests: XCTestCase {
                       "zip should be quarantined, not deleted, once it contributed an oversize rejection")
     }
 
+    /// Regression: adoptLooseFiles used to decide keep/quarantine/delete by
+    /// diffing a *shared* outcome's rejected-dictionary keys before/after
+    /// each candidate, to isolate what that candidate contributed. When two
+    /// zips each drop an oversize entry under the identical basename, the
+    /// second zip's rejection landed on a key the first zip had already
+    /// added — the diff saw nothing "new" for it — so a zip that also
+    /// imported a valid wad got DELETED instead of quarantined, destroying
+    /// the only surviving copy of its oversize entry. adoptLooseFiles now
+    /// tracks each candidate's own local ImportOutcome, immune to this.
+    func testAdoptLooseFilesQuarantinesBothZipsWhenOversizeEntriesShareABasename() async throws {
+        let docs = URL.documentsDirectory
+        let firstName = "first-\(UUID().uuidString).zip"
+        let secondName = "second-\(UUID().uuidString).zip"
+        let firstURL = docs.appendingPathComponent(firstName)
+        let secondURL = docs.appendingPathComponent(secondName)
+        let firstFailedURL = docs.appendingPathComponent("Import Failed").appendingPathComponent(firstName)
+        let secondFailedURL = docs.appendingPathComponent("Import Failed").appendingPathComponent(secondName)
+        defer {
+            try? FileManager.default.removeItem(at: firstURL)
+            try? FileManager.default.removeItem(at: secondURL)
+            try? FileManager.default.removeItem(at: firstFailedURL)
+            try? FileManager.default.removeItem(at: secondFailedURL)
+        }
+
+        let wadData = makeWAD(magic: "PWAD", lumps: ["MAP01"])
+        let big = Data(repeating: 0, count: wadData.count + 1000)
+
+        // First zip: an oversize entry only, no valid content.
+        let firstArchive = try Archive(url: firstURL, accessMode: .create)
+        try firstArchive.addEntry(with: "big.wad", type: .file,
+                                 uncompressedSize: Int64(big.count),
+                                 provider: { pos, size in big.subdata(in: Int(pos)..<Int(pos) + size) })
+
+        // Second zip: a valid wad PLUS an oversize entry with the exact same
+        // basename ("big.wad") as the first zip's.
+        let secondArchive = try Archive(url: secondURL, accessMode: .create)
+        try secondArchive.addEntry(with: "ok.wad", type: .file,
+                                  uncompressedSize: Int64(wadData.count),
+                                  provider: { pos, size in wadData.subdata(in: Int(pos)..<Int(pos) + size) })
+        try secondArchive.addEntry(with: "big.wad", type: .file,
+                                  uncompressedSize: Int64(big.count),
+                                  provider: { pos, size in big.subdata(in: Int(pos)..<Int(pos) + size) })
+
+        importer.maxZipEntryBytes = Int64(wadData.count)
+
+        let outcome = await importer.adoptLooseFiles()
+
+        XCTAssertEqual(outcome.imported, ["ok"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: firstURL.path),
+                       "first zip should have been moved out of Documents")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: secondURL.path),
+                       "second zip should have been moved out of Documents")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: firstFailedURL.path),
+                      "first zip (oversize-only) should be quarantined, not deleted")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: secondFailedURL.path),
+                      "second zip should be quarantined even though ok.wad imported, not deleted")
+    }
+
     // MARK: dedupe ordering
 
     func testDuplicateImportDoesNotWriteNewStoreFile() throws {

@@ -19,7 +19,7 @@ struct EngineErrorAlert: Equatable {
     }
 
     private static func hint(for message: String) -> String? {
-        let wrongIWADMarkers = ["W_GetNumForName", "not found", "Unknown or invalid IWAD", "Failed to load"]
+        let wrongIWADMarkers = ["W_GetNumForName", "Unknown or invalid IWAD", "Failed to load"]
         if wrongIWADMarkers.contains(where: message.contains) {
             if message.contains("IWAD") {
                 return "The base game file wasn't recognized. Pick a supported IWAD (Doom, Doom II, Freedoom…) for this loadout."

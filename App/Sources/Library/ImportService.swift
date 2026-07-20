@@ -4,6 +4,32 @@ struct ImportOutcome: Equatable {
     var imported: [String] = []
     var duplicates: [String] = []
     var rejected: [String: String] = [:]
+
+    /// Folds a per-candidate outcome into this aggregate. `imported` and
+    /// `duplicates` simply append — every entry there already names a
+    /// distinct stored file. `rejected` is keyed by the candidate's own
+    /// filename, so two independent candidates (e.g. two different zips)
+    /// can each reject an entry under the identical basename; both
+    /// LibraryView.summary(of:) and ImportNotices.summary(of:quarantines:)
+    /// read `rejected` (the former lists every key/value to the user, the
+    /// latter just counts them), so silently overwriting on collision would
+    /// both hide one file's reason and undercount "N failed" — uniquify the
+    /// same way moveToImportFailed already does for on-disk name clashes.
+    mutating func merge(_ other: ImportOutcome) {
+        imported += other.imported
+        duplicates += other.duplicates
+        for (name, reason) in other.rejected {
+            var candidate = name
+            var counter = 2
+            while rejected[candidate] != nil {
+                let base = (name as NSString).deletingPathExtension
+                let ext = (name as NSString).pathExtension
+                candidate = ext.isEmpty ? "\(base) (\(counter))" : "\(base) (\(counter)).\(ext)"
+                counter += 1
+            }
+            rejected[candidate] = reason
+        }
+    }
 }
 
 /// Result of the off-main parse+hash step for a candidate .wad, handed back
@@ -67,10 +93,8 @@ final class ImportService {
     /// a loose WAD can be hundreds of MB) happen on detached background
     /// tasks, with only the SwiftData lookups/writes hopping back to the
     /// MainActor. Candidates are still processed one at a time (not
-    /// fanned out concurrently): the delta/quarantine bookkeeping below
-    /// mutates a single `outcome` sequentially, and concurrent candidates
-    /// would also contend on the same store directory's collision-suffix
-    /// scan.
+    /// fanned out concurrently): each candidate's store write would also
+    /// contend on the same store directory's collision-suffix scan.
     func adoptLooseFiles() async -> ImportOutcome {
         var outcome = ImportOutcome()
         let docs = URL.documentsDirectory
@@ -81,48 +105,36 @@ final class ImportService {
         }
         for url in candidates {
             // A single candidate (e.g. a zip) can fan out into many inner
-            // importOne calls, each recording its own imported/duplicate/
-            // rejected entry under its own inner filename — not the
-            // candidate's. Snapshot the outcome before and diff after so the
-            // keep/quarantine/delete decision below is about what THIS
-            // candidate contributed, not a lookup keyed on its own basename
-            // (which a zip whose contents all fail would never populate).
-            let before = (imported: outcome.imported.count,
-                          duplicates: outcome.duplicates.count,
-                          rejectedKeys: Set(outcome.rejected.keys))
-            await importOneAsync(url: url, into: &outcome)
-            let contributedImportedOrDuplicate =
-                outcome.imported.count > before.imported || outcome.duplicates.count > before.duplicates
-            // Whether THIS candidate's pass added an oversize rejection
-            // (vs. some other candidate that happened to already have one
-            // under the same key) — diff against the keys snapshotted
-            // above, then check the newly-added reasons specifically.
-            let contributedOversizeRejection = outcome.rejected
-                .filter { !before.rejectedKeys.contains($0.key) }
-                .values.contains(oversizeRejectionReason)
-            if contributedImportedOrDuplicate && !contributedOversizeRejection {
-                // Imported or duplicate either way, the content now lives in
-                // the store (or already did); the loose original is redundant.
+            // importOneAsync calls, each recording its own imported/
+            // duplicate/rejected entry under its own inner filename — not
+            // the candidate's. Give each candidate a fresh LOCAL outcome so
+            // the keep/quarantine/delete decision below reads only what
+            // THIS candidate contributed. (An earlier version diffed a
+            // shared outcome's dictionary keys before/after instead; that
+            // broke when two candidates rejected an entry under the exact
+            // same basename — e.g. two zips each dropping an oversize
+            // "SAME.wad" — because the second candidate's rejection landed
+            // on an already-present key and the diff saw nothing "new".)
+            var local = ImportOutcome()
+            await importOneAsync(url: url, into: &local)
+            if local.rejected.isEmpty {
+                // Nothing about this candidate failed (a clean import, a
+                // pure duplicate, or both) — the content now lives in the
+                // store (or already did); the loose original is redundant.
                 try? FileManager.default.removeItem(at: url)
             } else {
-                // Contributed at least one rejection, or nothing at all
-                // (e.g. an empty zip, which importOne rejects under its own
-                // name) — either way don't destroy a file the user can't
-                // explain a failure for; move it somewhere visible/
-                // recoverable in the Files app instead, so the scan doesn't
-                // re-report it forever.
-                //
-                // A candidate that both imported something AND contributed
-                // an oversize rejection also lands here, even though the
-                // plain "imported/duplicate" branch above would otherwise
-                // delete it: Plan 2 accepted deleting a zip whose *other*
-                // entries were simply corrupt (that content was never
-                // recoverable anyway), but an entry skipped purely for
-                // being oversize is legitimate content that only missed the
-                // cut on size — deleting the zip would destroy the only
-                // surviving copy, so it gets quarantined instead.
+                // This candidate contributed at least one rejection — a
+                // fully-corrupt file, an empty zip, or a zip that imported
+                // something valid alongside an oversize/corrupt entry.
+                // Don't destroy a file the user can't explain a failure
+                // for; move it somewhere visible/recoverable in the Files
+                // app instead, so the scan doesn't re-report it forever.
+                // (An oversize entry in particular is legitimate content
+                // that only missed the cut on size — deleting the zip
+                // would destroy its only surviving copy.)
                 moveToImportFailed(url)
             }
+            outcome.merge(local)
         }
         return outcome
     }

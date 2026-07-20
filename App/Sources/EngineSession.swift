@@ -6,6 +6,24 @@ import WoofEngine
 /// pumps UIKit events internally, so the app stays responsive to the system).
 @MainActor
 enum EngineSession {
+    /// Swift-side-only sentinel exit codes for app-layer failures that never
+    /// reach the engine at all, so they can still flow through the same
+    /// `EngineErrorAlert.from(exitCode:engineMessage:)` path as a real
+    /// engine exit. WoofIOS_Run itself only ever returns 0 (clean) or -1
+    /// (its own generic failure exit) — these values are never returned by
+    /// the engine.
+    enum ExitCode {
+        /// LoadoutArguments.build threw before the engine could even start
+        /// (e.g. a loadout references a WAD that's gone missing from the
+        /// library). Reported by LoadoutGridView.play(_:) in place of a
+        /// real engine exit code.
+        static let argumentFailure: Int32 = -101
+
+        /// play(arguments:)'s reentrancy guard fired: a session was already
+        /// running when a second play() call came in.
+        static let reentrant: Int32 = -102
+    }
+
     private(set) static var isRunning = false
     private(set) static var sessionGeneration = 0
 
@@ -38,10 +56,10 @@ enum EngineSession {
     static func play(arguments: [String]) -> Int32 {
         // Defense-in-depth: never crash (ledger item). Overwrite
         // lastErrorMessage too — leaving it untouched here would pair the
-        // -102 alert with a previous session's stale error text.
+        // reentrant alert with a previous session's stale error text.
         guard !isRunning else {
             lastErrorMessage = "Another session is already running."
-            return -102
+            return ExitCode.reentrant
         }
         precondition(arguments.first == "woof", "argv[0] must be the program name")
 
