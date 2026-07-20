@@ -68,6 +68,7 @@ paste; `docs/app-store/screenshots/` holds the images;
 - [ ] **Support URL:** https://github.com/tylervick/boombox
 - [ ] **Privacy Policy URL:**
       https://github.com/tylervick/boombox/blob/main/PRIVACY.md
+   (verify this URL resolves (HTTP 200) after PR #4 merges to main, before entering it in App Store Connect)
 - [ ] **Category:** Games → Action (§7)
 - [ ] **Copyright:** `© 2026 Tyler Vick; engine GPL-2.0` (§10)
 - [ ] **Screenshots:** upload from `docs/app-store/screenshots/` in the
