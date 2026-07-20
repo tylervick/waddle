@@ -2,12 +2,22 @@ import XCTest
 @testable import BoomBox
 
 final class TouchStickModelTests: XCTestCase {
-    let stick = TouchStickModel(center: CGPoint(x: 100, y: 100), radius: 50)
+    // Explicit deadZone: these tests pin the dead-zone *math*; the struct's
+    // default is 0 (engine applies its own deadzone — see TouchStickModel).
+    let stick = TouchStickModel(center: CGPoint(x: 100, y: 100), radius: 50,
+                                deadZone: 0.2)
 
     func testCenterIsNeutral() {
         let axes = stick.axes(for: CGPoint(x: 100, y: 100))
         XCTAssertEqual(axes.x, 0)
         XCTAssertEqual(axes.y, 0)
+    }
+
+    func testDefaultDeadZoneIsZeroPassThrough() {
+        let raw = TouchStickModel(center: CGPoint(x: 100, y: 100), radius: 50)
+        let axes = raw.axes(for: CGPoint(x: 125, y: 100))
+        XCTAssertEqual(axes.x, 0.5, accuracy: 0.001)
+        XCTAssertEqual(axes.y, 0.0, accuracy: 0.001)
     }
 
     func testInsideDeadZoneIsNeutral() {

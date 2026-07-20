@@ -60,9 +60,11 @@ final class TouchGamepad {
     /// Points-to-mouse-counts calibration for `turn(byPoints:)`. The value
     /// this produces is further scaled by Woof's own mouse-sensitivity
     /// pipeline (default mouse_sens_angle ~= 16) once it reaches the engine,
-    /// so this is only the app-side knob, not the whole feel; expect this
-    /// default to be retuned once we can play on a device.
-    var turnSensitivity: Float = 1.5
+    /// so this is only the app-side knob, not the whole feel. 4.0 is the
+    /// play-tested value from woof-ios (TouchControlsView.lookSensitivity),
+    /// which feeds the same drag-delta -> mouse-motion path into the same
+    /// engine mouse pipeline.
+    var turnSensitivity: Float = 4.0
 
     /// User tuning (turnSpeed/moveSensitivity multipliers), set by
     /// OverlayPresenter from persisted UserDefaults at overlay-install time.
