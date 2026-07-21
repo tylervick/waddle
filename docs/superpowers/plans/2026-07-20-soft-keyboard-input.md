@@ -172,22 +172,43 @@ void WoofIOS_InjectChar(char c)
     text.type = ev_text;
     text.data1.i = (unsigned char)c; // save-name reads data1; menu uppercases
     D_PostEvent(&text);
+
+    // Release immediately: an ev_keydown that no responder consumes (every
+    // non-final cheat letter -- M_FindCheats returns 0 until a full sequence
+    // matches) otherwise latches gamekeydown[data1] in G_Responder (g_game.c),
+    // and letters like w/a/s/d and digits are bound to movement/weapon
+    // actions, so the player would move forever. The paired keyup clears it
+    // in the same event batch (processed before the next ticcmd is built).
+    event_t up = {0};
+    up.type = ev_keyup;
+    up.data1.i = lower;
+    D_PostEvent(&up);
 }
 
 void WoofIOS_InjectBackspace(void)
 {
-    event_t ev = {0};
-    ev.type = ev_keydown;
-    ev.data1.i = KEY_BACKSPACE; // mn_menu save-name reads ch (= data1)
-    D_PostEvent(&ev);
+    event_t down = {0};
+    down.type = ev_keydown;
+    down.data1.i = KEY_BACKSPACE; // mn_menu save-name reads ch (= data1)
+    D_PostEvent(&down);
+
+    event_t up = {0};
+    up.type = ev_keyup;
+    up.data1.i = KEY_BACKSPACE; // pair the release (see WoofIOS_InjectChar)
+    D_PostEvent(&up);
 }
 
 void WoofIOS_InjectMenuConfirm(void)
 {
-    event_t ev = {0};
-    ev.type = ev_keydown;
-    ev.data1.i = KEY_ENTER; // input_menu_enter -> MENU_ENTER commits the save
-    D_PostEvent(&ev);
+    event_t down = {0};
+    down.type = ev_keydown;
+    down.data1.i = KEY_ENTER; // input_menu_enter -> MENU_ENTER commits the save
+    D_PostEvent(&down);
+
+    event_t up = {0};
+    up.type = ev_keyup;
+    up.data1.i = KEY_ENTER; // pair the release (see WoofIOS_InjectChar)
+    D_PostEvent(&up);
 }
 ```
 
