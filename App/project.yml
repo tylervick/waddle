@@ -23,7 +23,7 @@ targets:
     platform: iOS
     settings:
       base:
-        CURRENT_PROJECT_VERSION: 1
+        CURRENT_PROJECT_VERSION: 2
         MARKETING_VERSION: "1.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: com.tylervick.waddle
@@ -37,6 +37,12 @@ targets:
       path: Info.plist
       properties:
         CFBundleDisplayName: WADdle
+        # Wire the bundle version/build number to the build settings above so
+        # they're the single source of truth. Without these, xcodegen writes a
+        # hardcoded CFBundleVersion of "1" and bumping CURRENT_PROJECT_VERSION
+        # has no effect (App Store rejects a re-used build number).
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         # No encryption beyond what the OS provides (no HTTPS calls, no
         # crypto) — lets App Store Connect skip the export-compliance
@@ -44,6 +50,10 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         UIStatusBarHidden: true
         UIApplicationSupportsIndirectInputEvents: true
+        # Wireless game controllers connect over Bluetooth; SDL's controller
+        # support references CoreBluetooth, so App Store validation requires
+        # this purpose string (ITMS-90683). Honest — this is a real feature.
+        NSBluetoothAlwaysUsageDescription: WADdle uses Bluetooth to connect wireless game controllers.
         # All orientations + no UIRequiresFullScreen: required for iPadOS 26's
         # default "Windowed Apps" multitasking style (the old landscape-only +
         # fullscreen posture rendered sideways-letterboxed there, and Xcode
