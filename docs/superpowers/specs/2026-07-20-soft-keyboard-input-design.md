@@ -100,9 +100,12 @@ happens to be.
                          · save menu  → M_Responder save-name (reads ev_text.data1)
 ```
 
-No pausing and **no DOOM menu is opened** by the gesture — cheats require the
-game live. The text field is a **character funnel**, never a document: it stays
-empty so it accumulates no state and offers the OS no prediction context.
+The gesture is **gated by input context** (§5.3): the tap only summons the
+keyboard while actively in a level, and the keyboard auto-dismisses if the
+player leaves gameplay. No pausing and **no DOOM menu is opened** by the gesture
+— cheats require the game live. The text field is a **character funnel**, never
+a document: it stays empty so it accumulates no state and offers the OS no
+prediction context.
 
 ### 5.1 C bridge (`Engine/woof/src/woof_ios.c` / `woof_ios.h`)
 
@@ -141,7 +144,43 @@ concurrently):
   next to the existing `WoofIOS_*` wrappers, behind a `TextInjecting` protocol
   so the bridge is swappable for a test spy (see §7).
 
-### 5.3 Interaction guard
+### 5.3 Input-context gating (the guard)
+
+The gesture and keyboard must appear **only** in the right engine context —
+never accidentally at the title screen or in ordinary menus. Because cheats
+require *no* menu but save-name entry happens *inside* a menu, the guard
+distinguishes contexts rather than a blunt game-vs-menu check.
+
+New C query in the bridge:
+
+```c
+typedef enum {
+    WOOF_TEXT_CTX_NONE = 0,   // title, menus, intermission/finale, demo, etc.
+    WOOF_TEXT_CTX_GAMEPLAY,   // gamestate == GS_LEVEL && !menuactive && !paused
+    WOOF_TEXT_CTX_SAVENAME,   // menu save-string entry sub-state is active
+} WoofIOS_TextInputContext;
+
+WoofIOS_TextInputContext WoofIOS_GetTextInputContext(void);
+```
+
+`gamestate` and `menuactive` are engine globals reachable from `woof_ios.c` via
+the existing headers; the save-string-entry flag is `static` in `mn_menu.c` and
+gets a one-line accessor/extern to expose it.
+
+Gate behaviors on the Swift side:
+
+- **Tap-time gate (primary guard):** the four-finger tap queries context when it
+  fires and toggles the keyboard **only** when context is `GAMEPLAY`. In any
+  other context the tap is ignored — no accidental pop-ups at menus or title.
+- **Auto-dismiss:** a lightweight poll (reusing the overlay's existing timer
+  cadence, ~0.2–0.25 s) dismisses the keyboard if it is visible and context
+  drops to `NONE` (player dies, level ends, menu opened, quit to title) — so the
+  keyboard can never get stranded over a non-gameplay screen.
+- **Save-name auto-present:** when context becomes `SAVENAME`, present the
+  keyboard automatically (you cannot type the name otherwise); dismiss when it
+  leaves. This reuses the same query and the same injection primitive.
+
+### 5.4 Interaction guard
 
 While the keyboard is visible, suppress the overlay's stick/turn/button input
 (the keyboard covers the bottom-left stick; the exposed upper turn area must not
@@ -174,9 +213,12 @@ custom input-preview bar.
 - **Unit (Swift, TDD seam):** drive the character-pump through a fake
   `TextInjecting` spy. Assert `"iddqd"` → five ordered `injectChar` calls;
   delete → `injectBackspace`; Return → dismiss; and that the field returns
-  `false` so it never accumulates.
-- **UITest (XCUITest):** four-finger tap summons the system keyboard (assert it
-  appears); typing + Return dismisses it.
+  `false` so it never accumulates. Gate logic: with a fake context provider,
+  assert the tap is ignored unless `GAMEPLAY`, and that a transition to `NONE`
+  while visible triggers dismiss.
+- **UITest (XCUITest):** four-finger tap summons the system keyboard **only
+  in-game** (assert it appears in a level and does **not** appear at the title
+  screen / main menu); typing + Return dismisses it.
 - **Device manual verification:** actual `iddqd` → god-mode HUD confirmation,
   and a save-name round-trip — per the project's device-verified-playable bar
   (simulator text input is flaky; our direct-post path reduces exposure but
@@ -186,8 +228,9 @@ custom input-preview bar.
 
 | File | Change |
 |---|---|
-| `Engine/woof/src/woof_ios.c` / `.h` | Add `WoofIOS_InjectChar` / `WoofIOS_InjectBackspace` |
-| `App/Sources/Touch/TouchOverlayView.swift` | 4-finger tap recognizer; show/hide keyboard; interaction guard |
+| `Engine/woof/src/woof_ios.c` / `.h` | Add `WoofIOS_InjectChar` / `WoofIOS_InjectBackspace` / `WoofIOS_GetTextInputContext` |
+| `Engine/woof/src/mn_menu.c` | One-line accessor/extern exposing the save-string-entry flag |
+| `App/Sources/Touch/TouchOverlayView.swift` | 4-finger tap recognizer; context-gated show/hide keyboard; interaction guard |
 | `App/Sources/Touch/TouchKeyboard.swift` (new) | `CheatTextField` + delegate + `deleteBackward` override |
 | `App/Sources/Touch/TouchGamepad.swift` | `injectChar` / `injectBackspace` wrappers behind `TextInjecting` |
 | `App/Sources/UI/ControlFeelView.swift` | One-line discovery hint (optional) |
