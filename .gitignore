@@ -8,3 +8,4 @@ App/Info.plist
 App/Sources/Generated/
 build/
 DerivedData/
+Scripts/.appstore.env
