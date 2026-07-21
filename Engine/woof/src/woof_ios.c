@@ -21,7 +21,13 @@
 #include "SDL3/SDL.h"
 #include "SDL3/SDL_main.h"
 
+#include <ctype.h>
+
 #include "config.h"
+#include "d_event.h"  // event_t / ev_keydown / ev_text
+#include "d_main.h"   // D_PostEvent
+#include "doomdef.h"  // gamestate_t, GS_LEVEL
+#include "doomkeys.h" // KEY_BACKSPACE, KEY_ENTER
 #include "doomtype.h" // `boolean` typedef backing the `menuactive` extern below
 #include "i_printf.h"
 #include "m_argv.h"
@@ -404,6 +410,64 @@ extern boolean menuactive;
 bool WoofIOS_IsMenuActive(void)
 {
     return menuactive != 0;
+}
+
+// --- Soft-keyboard text injection (see woof_ios.h) ---
+// Post synthesized events directly onto the engine queue via D_PostEvent,
+// bypassing SDL text input entirely. Cheats read ev_keydown.data2
+// (m_cheat.c's M_FindCheats); the menu save-name field reads ev_text.data1
+// plus the KEY_BACKSPACE/KEY_ENTER keydowns (mn_menu.c). D_ProcessEvents
+// runs M_InputTrackEvent then the responder chain on each queued event, so
+// a KEY_ENTER keydown activates input_menu_enter -> MENU_ENTER exactly as a
+// real key would (m_input.c M_InputActivated matches ev_keydown.data1).
+// Main-thread-only, same as the touch functions.
+extern gamestate_t gamestate; // doomstat.h
+extern int paused;            // doomstat.h
+boolean MN_SaveStringEntering(void); // mn_menu.c (saveStringEnter is static)
+
+WoofIOS_TextInputContext WoofIOS_GetTextInputContext(void)
+{
+    if (MN_SaveStringEntering())
+    {
+        return WOOF_TEXT_CTX_SAVENAME;
+    }
+    if (gamestate == GS_LEVEL && !menuactive && !paused)
+    {
+        return WOOF_TEXT_CTX_GAMEPLAY;
+    }
+    return WOOF_TEXT_CTX_NONE;
+}
+
+void WoofIOS_InjectChar(char c)
+{
+    int lower = tolower((unsigned char)c);
+
+    event_t key = {0};
+    key.type = ev_keydown;
+    key.data1.i = lower; // Doom key id; letters == lowercase ASCII
+    key.data2.i = lower; // cheat matcher reads data2 (lowercase ASCII)
+    D_PostEvent(&key);
+
+    event_t text = {0};
+    text.type = ev_text;
+    text.data1.i = (unsigned char)c; // save-name reads data1; menu uppercases
+    D_PostEvent(&text);
+}
+
+void WoofIOS_InjectBackspace(void)
+{
+    event_t ev = {0};
+    ev.type = ev_keydown;
+    ev.data1.i = KEY_BACKSPACE; // mn_menu save-name reads ch (= data1)
+    D_PostEvent(&ev);
+}
+
+void WoofIOS_InjectMenuConfirm(void)
+{
+    event_t ev = {0};
+    ev.type = ev_keydown;
+    ev.data1.i = KEY_ENTER; // input_menu_enter -> MENU_ENTER commits the save
+    D_PostEvent(&ev);
 }
 
 int WoofIOS_DebugTouchEventCount(void)
