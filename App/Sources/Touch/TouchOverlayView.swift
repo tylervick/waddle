@@ -137,6 +137,12 @@ final class TouchOverlayView: UIView {
             }
             self.dismissKeyboard()
         }
+        keyboard.onExternalDismiss = { [weak self] in
+            // Keyboard went away on its own (system dismiss / focus steal);
+            // resync overlay control-lock state. dismissKeyboard() is
+            // idempotent, so a redundant call is harmless.
+            self?.dismissKeyboard()
+        }
 
         // Small but non-zero frame in a corner: a zero-frame accessibility
         // element can be treated as off-screen and go missing from the
@@ -248,6 +254,10 @@ final class TouchOverlayView: UIView {
     }
 
     private func presentKeyboard() {
+        // Only lock the gameplay controls if the keyboard actually came up;
+        // a failed becomeFirstResponder would otherwise leave controls inert
+        // with no keyboard on screen (review Minor #2).
+        guard keyboard.present() else { return }
         // Interaction guard: stop movement and make the gameplay controls
         // inert while typing, so touches near or under the keyboard cannot
         // steer or fire.
@@ -260,7 +270,6 @@ final class TouchOverlayView: UIView {
         turnKnob.isHidden = true
         keyboardActive = true
         for button in buttons { button.isUserInteractionEnabled = false }
-        keyboard.present()
         keyboardActiveMarker.isHidden = false
     }
 

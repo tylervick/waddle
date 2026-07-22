@@ -42,6 +42,12 @@ final class TouchKeyboard: NSObject, UITextFieldDelegate {
     /// means "commit save-name" or just "dismiss".
     var onReturn: (() -> Void)?
 
+    /// Invoked when the field ends editing for a reason OTHER than our own
+    /// dismiss() (system keyboard hide, focus steal) so the overlay can
+    /// resync its control-lock state.
+    var onExternalDismiss: (() -> Void)?
+    private var dismissing = false
+
     init(injector: TextInjecting) {
         self.injector = injector
         super.init()
@@ -67,7 +73,9 @@ final class TouchKeyboard: NSObject, UITextFieldDelegate {
     }
 
     func dismiss() {
+        dismissing = true
         field.resignFirstResponder()
+        dismissing = false
         isVisible = false
     }
 
@@ -89,5 +97,15 @@ final class TouchKeyboard: NSObject, UITextFieldDelegate {
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         onReturn?()
         return false
+    }
+
+    func textFieldDidEndEditing(_ textField: UITextField) {
+        // Fires whenever the field loses first responder for ANY reason,
+        // including the system hiding the keyboard or another responder
+        // stealing focus. Resync so the overlay never sits with controls
+        // disabled and no keyboard on screen. The `dismissing` guard skips
+        // this for our own dismiss() path (which already resyncs).
+        isVisible = false
+        if !dismissing { onExternalDismiss?() }
     }
 }
