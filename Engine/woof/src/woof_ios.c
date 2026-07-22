@@ -440,6 +440,15 @@ WoofIOS_TextInputContext WoofIOS_GetTextInputContext(void)
 
 void WoofIOS_InjectChar(char c)
 {
+    // Belt-and-suspenders gate: keyboard visibility is reconciled by a 0.25s
+    // poll, so a keystroke can land in the poll window after the engine has
+    // left a text context. Drop it here (synchronous, authoritative) so a
+    // stray letter can't reach an ordinary menu.
+    if (WoofIOS_GetTextInputContext() == WOOF_TEXT_CTX_NONE)
+    {
+        return;
+    }
+
     int lower = tolower((unsigned char)c);
 
     event_t key = {0};
@@ -467,6 +476,14 @@ void WoofIOS_InjectChar(char c)
 
 void WoofIOS_InjectBackspace(void)
 {
+    // Backspace only means anything in save-name entry; drop it elsewhere so it
+    // can't trigger MENU_BACKSPACE navigation if the keyboard outlives the
+    // context by a poll tick (see WoofIOS_InjectChar).
+    if (WoofIOS_GetTextInputContext() != WOOF_TEXT_CTX_SAVENAME)
+    {
+        return;
+    }
+
     event_t down = {0};
     down.type = ev_keydown;
     down.data1.i = KEY_BACKSPACE; // mn_menu save-name reads ch (= data1)
@@ -480,6 +497,13 @@ void WoofIOS_InjectBackspace(void)
 
 void WoofIOS_InjectMenuConfirm(void)
 {
+    // Confirm (Enter) only means "commit save name"; drop it elsewhere so it
+    // can't activate a menu item if the context changed under the poll.
+    if (WoofIOS_GetTextInputContext() != WOOF_TEXT_CTX_SAVENAME)
+    {
+        return;
+    }
+
     event_t down = {0};
     down.type = ev_keydown;
     down.data1.i = KEY_ENTER; // input_menu_enter -> MENU_ENTER commits the save

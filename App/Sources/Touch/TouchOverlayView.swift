@@ -269,7 +269,9 @@ final class TouchOverlayView: UIView {
         turnBase.isHidden = true
         turnKnob.isHidden = true
         keyboardActive = true
-        for button in buttons { button.isUserInteractionEnabled = false }
+        for button in buttons where button.accessibilityIdentifier != "menuButton" {
+            button.isUserInteractionEnabled = false
+        }
         keyboardActiveMarker.isHidden = false
     }
 

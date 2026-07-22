@@ -24,6 +24,15 @@ final class TouchKeyboardTests: XCTestCase {
         XCTAssertEqual(String(String.UnicodeScalarView(spy.characters)), "iddqd")
     }
 
+    func testNonASCIICharactersAreDropped() {
+        let spy = SpyInjector()
+        let kb = TouchKeyboard(injector: spy)
+        _ = kb.textField(kb.field,
+                         shouldChangeCharactersIn: NSRange(location: 1, length: 0),
+                         replacementString: "é")
+        XCTAssertTrue(spy.characters.isEmpty)
+    }
+
     func testEmptyReplacementInjectsBackspace() {
         let spy = SpyInjector()
         let kb = TouchKeyboard(injector: spy)
