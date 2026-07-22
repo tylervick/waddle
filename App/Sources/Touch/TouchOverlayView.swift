@@ -343,10 +343,16 @@ final class TouchOverlayView: UIView {
     // MARK: Touches (stick + turn; buttons handle their own)
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        // Checked before the keyboardActive guard below so a four-finger tap
-        // can dismiss the keyboard while it's active, not just summon it.
+        // Snapshot BEFORE updateSummonTracking: a four-finger dismiss tap
+        // flips keyboardActive false mid-call (updateSummonTracking ->
+        // handleSummonTap -> dismissKeyboard), and without this snapshot the
+        // guard below would then see false and let those same four dismiss
+        // touches fall through into stick/turn assignment, steering the
+        // player. The tracking call must still run first so a tap can dismiss
+        // while the keyboard is active, not only summon it.
+        let wasKeyboardActive = keyboardActive
         updateSummonTracking(began: touches)
-        if keyboardActive { return }
+        if wasKeyboardActive || keyboardActive { return }
         for touch in touches {
             let point = touch.location(in: self)
             if stickTouch == nil && point.x < bounds.width * 0.4 {
