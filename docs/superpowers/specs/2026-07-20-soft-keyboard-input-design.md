@@ -85,19 +85,27 @@ post **both** an `ev_keydown` (for cheats) and an `ev_text` (for save-names) per
 character, so the same keystroke routes correctly wherever the responder chain
 happens to be.
 
-## 5. Architecture
+> **As-built note (updated post-implementation):** two design details changed
+> during implementation — see §5.2. (1) The four-finger tap is detected by
+> counting touches in `touchesBegan`/`endTouches`, **not** a
+> `UITapGestureRecognizer` (which never fires its target-action inside SDL's
+> directly-owned `UIWindow`). (2) Delete is caught via the delegate's
+> empty-`replacementString` callback with a sentinel kept in the field, **not**
+> a `deleteBackward()` override. A third bridge function,
+> `WoofIOS_InjectMenuConfirm`, was added for the save-name Return path, and all
+> three inject functions guard on the engine text context (§5.1).
 
-```
-4-finger tap on TouchOverlayView
+```text
+4-finger tap on TouchOverlayView (touch-count detection)
    → show hidden CheatTextField, becomeFirstResponder
    → iOS system keyboard appears over the running (unpaused) game
-   → each keystroke → UITextFieldDelegate / deleteBackward override
-        → TouchGamepad.injectChar(_:) / injectBackspace()
-            → WoofIOS_InjectChar(c) / WoofIOS_InjectBackspace()
-                → D_PostEvent(ev_keydown{data1,data2}) + D_PostEvent(ev_text{data1})
+   → each keystroke → UITextFieldDelegate (sentinel-based deletion)
+        → TouchGamepad.injectChar(_:) / injectBackspace() / injectMenuConfirm()
+            → WoofIOS_InjectChar(c) / WoofIOS_InjectBackspace() / WoofIOS_InjectMenuConfirm()
+                → D_PostEvent(ev_keydown{data1,data2}) + D_PostEvent(ev_text{data1}) + D_PostEvent(ev_keyup{data1})
                     → Woof responder chain
                          · game live  → M_CheatResponder (reads ev_keydown.data2)
-                         · save menu  → M_Responder save-name (reads ev_text.data1)
+                         · save menu  → M_Responder save-name (reads ev_text.data1, KEY_ENTER/KEY_BACKSPACE)
 ```
 
 The gesture is **gated by input context** (§5.3): the tap only summons the
@@ -114,28 +122,44 @@ main-thread-only contract; UIKit callbacks run on the main thread where SDL
 pumps the run loop, so the `events[]` ring buffer is never touched
 concurrently):
 
-- `void WoofIOS_InjectChar(char c)` — posts two events via `D_PostEvent`:
+- `void WoofIOS_InjectChar(char c)` — posts, via `D_PostEvent`:
   - `ev_keydown` with `data1 = doom key id for c` (letters map to their
     lowercase ASCII, itself a valid nonzero Doom key id) and `data2 = tolower(c)`.
   - `ev_text` with `data1 = c` (raw; the menu uppercases as needed).
-- `void WoofIOS_InjectBackspace(void)` — posts `ev_keydown` with
-  `data1 = KEY_BACKSPACE`.
+  - a paired `ev_keyup` (same `data1`) in the same batch, so an unconsumed
+    cheat letter cannot latch `gamekeydown[]` and leave the player moving.
+- `void WoofIOS_InjectBackspace(void)` — posts `ev_keydown`/`ev_keyup` with
+  `data1 = KEY_BACKSPACE` (save-name editing).
+- `void WoofIOS_InjectMenuConfirm(void)` — posts `ev_keydown`/`ev_keyup` with
+  `data1 = KEY_ENTER`, committing the save-name field (`input_menu_enter` →
+  `MENU_ENTER`).
+
+**Context guard (as-built):** because keyboard visibility is reconciled by a
+0.25 s poll, a keystroke can arrive up to a poll tick after the engine has left
+its text context. Each inject function therefore checks
+`WoofIOS_GetTextInputContext()` synchronously and drops input that no longer
+applies: `InjectChar` returns in `NONE`; `InjectBackspace`/`InjectMenuConfirm`
+act only in `SAVENAME`. This prevents a stray letter/Backspace/Enter from
+navigating an ordinary menu.
 
 ### 5.2 Swift / UIKit (`App/Sources/Touch/`)
 
-- **`TouchOverlayView.swift`** — add a
-  `UITapGestureRecognizer(numberOfTouchesRequired: 4)` that toggles keyboard
-  visibility. A discrete 4-finger tap coexists with the existing 1–2 finger
-  stick/turn/button tracking without interference.
+- **`TouchOverlayView.swift`** — detect the four-finger tap by counting live
+  touches in `touchesBegan`/`endTouches` (a `summonTouches`/`summonArmed`
+  latch), **not** a `UITapGestureRecognizer` — the recognizer reaches
+  `.recognized` but never fires its target-action inside SDL's directly-owned
+  `UIWindow` (no `UIViewController`-hosted scene). It coexists with the existing
+  1–2 finger stick/turn/button tracking without interference.
 - **New `TouchKeyboard.swift`** — owns the text field + delegate so
   `TouchOverlayView` doesn't grow another responsibility. Contains:
   - `CheatTextField: UITextField` subclass, configured for a clean stream:
     `autocorrectionType = .no`, `autocapitalizationType = .none`,
     `spellCheckingType = .no`, `smart{Quotes,Dashes,InsertDelete}Type = .no`,
     `inlinePredictionType = .no` (iOS 17+), `keyboardType = .asciiCapable`,
-    `keyboardAppearance = .dark`. **Overrides `deleteBackward()`** to call
-    `injectBackspace()` — the robust way to catch the delete key while the
-    field stays empty (an empty field never reports deletions via the delegate).
+    `keyboardAppearance = .dark`. A non-breaking-space **sentinel** is kept in
+    the field so the delete key always produces a delegate callback; deletion is
+    detected via the delegate's empty-`replacementString` branch (which calls
+    `injectBackspace()`), **not** a `deleteBackward()` override.
   - `UITextFieldDelegate`:
     `textField(_:shouldChangeCharactersIn:replacementString:)` injects each
     character then **returns `false`** (field never accumulates);
