@@ -2965,6 +2965,14 @@ static boolean AllowDeleteSaveGame(void)
                 && LoadAutoSaveDef.menuitems[index].status));
 }
 
+// Exposes the (static) save-name text-entry state so the iOS host
+// (woof_ios.c's soft keyboard) can gate its keyboard to the save-name
+// field. Nonzero whenever the Load/Save menu is capturing a typed name.
+boolean MN_SaveStringEntering(void)
+{
+    return saveStringEnter != 0;
+}
+
 boolean M_Responder(event_t *ev)
 {
     int ch;

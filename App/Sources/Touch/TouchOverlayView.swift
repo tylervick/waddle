@@ -25,6 +25,11 @@ final class TouchOverlayView: UIView {
     private var debugHUDLabel: UILabel?
     private var debugHUDTimer: Timer?
     private var menuPolicyTimer: Timer?
+    private let keyboard: TouchKeyboard
+    private var keyboardActive = false
+    private let keyboardActiveMarker = UIView()
+    private var summonTouches = Set<UITouch>()
+    private var summonArmed = true
 
     init(gamepad: TouchGamepad, scheme: TouchControlScheme = .defaultScheme,
          tuning: TouchTuning = .default, debugHUDEnabled: Bool = false) {
@@ -32,6 +37,7 @@ final class TouchOverlayView: UIView {
         self.scheme = scheme
         self.tuning = tuning
         self.debugHUDEnabled = debugHUDEnabled
+        self.keyboard = TouchKeyboard(injector: gamepad)
         super.init(frame: .zero)
         backgroundColor = .clear
         isMultipleTouchEnabled = true
@@ -119,6 +125,35 @@ final class TouchOverlayView: UIView {
         // the wiring audit above), not a debug aid.
         startMenuPolicyTimer()
 
+        // Soft keyboard: four-finger tap summons the iOS keyboard over the
+        // live game for cheat/text entry (see the design spec). The field is
+        // an invisible funnel; Return commits a save-name (only in that
+        // context) then dismisses.
+        addSubview(keyboard.field)
+        keyboard.onReturn = { [weak self] in
+            guard let self else { return }
+            if self.gamepad.currentTextInputContext() == .saveName {
+                self.gamepad.injectMenuConfirm()
+            }
+            self.dismissKeyboard()
+        }
+        keyboard.onExternalDismiss = { [weak self] in
+            // Keyboard went away on its own (system dismiss / focus steal);
+            // resync overlay control-lock state. dismissKeyboard() is
+            // idempotent, so a redundant call is harmless.
+            self?.dismissKeyboard()
+        }
+
+        // Small but non-zero frame in a corner: a zero-frame accessibility
+        // element can be treated as off-screen and go missing from the
+        // XCUITest tree. Non-interactive and effectively invisible.
+        keyboardActiveMarker.frame = CGRect(x: 2, y: 2, width: 2, height: 2)
+        keyboardActiveMarker.accessibilityIdentifier = "softKeyboardActive"
+        keyboardActiveMarker.isAccessibilityElement = true
+        keyboardActiveMarker.isUserInteractionEnabled = false
+        keyboardActiveMarker.isHidden = true
+        addSubview(keyboardActiveMarker)
+
         if debugHUDEnabled {
             let label = UILabel()
             label.accessibilityIdentifier = "sessionDebugHUD"
@@ -145,6 +180,7 @@ final class TouchOverlayView: UIView {
         debugHUDTimer = nil
         menuPolicyTimer?.invalidate()
         menuPolicyTimer = nil
+        if keyboard.isVisible { keyboard.dismiss() }
         super.removeFromSuperview()
     }
 
@@ -158,6 +194,7 @@ final class TouchOverlayView: UIView {
     private func startMenuPolicyTimer() {
         let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
             self?.updateAutomapAvailability()
+            self?.updateKeyboardForContext()
         }
         RunLoop.main.add(timer, forMode: .common)
         menuPolicyTimer = timer
@@ -167,6 +204,82 @@ final class TouchOverlayView: UIView {
     private func updateAutomapAvailability() {
         let hideForMenu = WoofIOS_IsMenuActive()
         buttons.first { $0.accessibilityIdentifier == "automapButton" }?.isHidden = hideForMenu
+    }
+
+    // MARK: Soft keyboard (four-finger tap; see design spec)
+
+    /// Four fingers (not three): normal play uses at most ~2-3 touches, so
+    /// four is unambiguous, and it matches id's classic iOS DOOM gesture.
+    ///
+    /// Detected directly from touchesBegan/endTouches (below) rather than a
+    /// UITapGestureRecognizer. Diagnosed by instrumentation (KVO on `state`,
+    /// a UIGestureRecognizerDelegate, and a file-write inside the action) in
+    /// the simulator: a UITapGestureRecognizer attached to this same view --
+    /// even with completely default settings (single touch,
+    /// cancelsTouchesInView left true) -- reliably reaches `.recognized`,
+    /// yet its target-action is never invoked. SDL owns this UIWindow
+    /// directly (no UIViewController-hosted scene backs it -- see the class
+    /// doc comment), which is the most likely reason UIKit's gesture
+    /// environment doesn't complete the normal recognize-then-send-actions
+    /// step here, even though plain responder-chain touch delivery
+    /// (touchesBegan/Moved/Ended, which OverlayButton and this class both
+    /// rely on elsewhere) works reliably. Tracking touches directly
+    /// sidesteps the broken step entirely.
+    private func updateSummonTracking(began: Set<UITouch>) {
+        summonTouches.formUnion(began)
+        if summonArmed && summonTouches.count >= 4 {
+            summonArmed = false
+            handleSummonTap()
+        }
+    }
+
+    private func handleSummonTap() {
+        let ctx = gamepad.currentTextInputContext()
+        if keyboard.isVisible {
+            dismissKeyboard()
+        } else if KeyboardGate.shouldPresentOnTap(context: ctx) {
+            presentKeyboard()
+        }
+    }
+
+    /// Auto-present for save-name entry / auto-dismiss on leaving a text
+    /// context. Called from the same 0.25s poll as automap suppression.
+    private func updateKeyboardForContext() {
+        switch KeyboardGate.pollCommand(context: gamepad.currentTextInputContext(),
+                                        isVisible: keyboard.isVisible) {
+        case .present: presentKeyboard()
+        case .dismiss: dismissKeyboard()
+        case .none: break
+        }
+    }
+
+    private func presentKeyboard() {
+        // Only lock the gameplay controls if the keyboard actually came up;
+        // a failed becomeFirstResponder would otherwise leave controls inert
+        // with no keyboard on screen (review Minor #2).
+        guard keyboard.present() else { return }
+        // Interaction guard: stop movement and make the gameplay controls
+        // inert while typing, so touches near or under the keyboard cannot
+        // steer or fire.
+        gamepad.setMovement(x: 0, y: 0, scheme: scheme)
+        stickTouch = nil
+        turnTouch = nil
+        stickBase.isHidden = true
+        stickKnob.isHidden = true
+        turnBase.isHidden = true
+        turnKnob.isHidden = true
+        keyboardActive = true
+        for button in buttons where button.accessibilityIdentifier != "menuButton" {
+            button.isUserInteractionEnabled = false
+        }
+        keyboardActiveMarker.isHidden = false
+    }
+
+    private func dismissKeyboard() {
+        keyboard.dismiss()
+        keyboardActive = false
+        for button in buttons { button.isUserInteractionEnabled = true }
+        keyboardActiveMarker.isHidden = true
     }
 
     // MARK: Debug HUD (opt-in, "Show Debug Info" toggle on the Play tab)
@@ -241,6 +354,16 @@ final class TouchOverlayView: UIView {
     // MARK: Touches (stick + turn; buttons handle their own)
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        // Snapshot BEFORE updateSummonTracking: a four-finger dismiss tap
+        // flips keyboardActive false mid-call (updateSummonTracking ->
+        // handleSummonTap -> dismissKeyboard), and without this snapshot the
+        // guard below would then see false and let those same four dismiss
+        // touches fall through into stick/turn assignment, steering the
+        // player. The tracking call must still run first so a tap can dismiss
+        // while the keyboard is active, not only summon it.
+        let wasKeyboardActive = keyboardActive
+        updateSummonTracking(began: touches)
+        if wasKeyboardActive || keyboardActive { return }
         for touch in touches {
             let point = touch.location(in: self)
             if stickTouch == nil && point.x < bounds.width * 0.4 {
@@ -258,6 +381,7 @@ final class TouchOverlayView: UIView {
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if keyboardActive { return }
         for touch in touches {
             let point = touch.location(in: self)
             if touch == stickTouch {
@@ -281,6 +405,8 @@ final class TouchOverlayView: UIView {
     }
 
     private func endTouches(_ touches: Set<UITouch>) {
+        summonTouches.subtract(touches)
+        if summonTouches.isEmpty { summonArmed = true }
         for touch in touches {
             if touch == stickTouch {
                 stickTouch = nil

@@ -123,3 +123,22 @@ final class TouchGamepad {
         WoofIOS_InjectRelativeTurn(Float(dx) * tuning.scaledTurnSensitivity(base: turnSensitivity))
     }
 }
+
+extension TouchGamepad: TextInjecting {
+    func injectCharacter(_ scalar: UnicodeScalar) {
+        guard scalar.isASCII else { return }
+        WoofIOS_InjectChar(CChar(bitPattern: UInt8(scalar.value)))
+    }
+
+    func injectBackspace() { WoofIOS_InjectBackspace() }
+
+    func injectMenuConfirm() { WoofIOS_InjectMenuConfirm() }
+
+    /// Current engine text-input context, mirrored from the C bridge.
+    func currentTextInputContext() -> TextInputContext {
+        let ctx = WoofIOS_GetTextInputContext()
+        if ctx == WOOF_TEXT_CTX_GAMEPLAY { return .gameplay }
+        if ctx == WOOF_TEXT_CTX_SAVENAME { return .saveName }
+        return .none
+    }
+}

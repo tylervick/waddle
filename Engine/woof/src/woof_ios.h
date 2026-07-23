@@ -74,4 +74,38 @@ float WoofIOS_DebugTriggerValue(void);
 // accumulated since the last call and resets it to 0.
 float WoofIOS_ConsumeTouchTurn(void);
 
+// --- Soft-keyboard text injection (touch cheat/text entry) ---
+// The overlay summons the iOS system keyboard on a four-finger tap and
+// funnels each keystroke here. These post synthesized events directly onto
+// the engine queue via D_PostEvent, bypassing SDL text input (which is
+// stopped on iOS and flaky on the simulator). Main-thread-only, same
+// contract as the touch-control functions above.
+
+// Which text-entry context the engine is in right now, so the overlay can
+// gate the keyboard: only summon during live gameplay (cheats) or while the
+// save-name field is capturing input -- never at the title or in menus.
+typedef enum
+{
+    WOOF_TEXT_CTX_NONE = 0,   // title, menus, intermission/finale, demo, etc.
+    WOOF_TEXT_CTX_GAMEPLAY,   // in a live level, no menu, not paused (cheats)
+    WOOF_TEXT_CTX_SAVENAME,   // menu save-name entry is active
+} WoofIOS_TextInputContext;
+
+WoofIOS_TextInputContext WoofIOS_GetTextInputContext(void);
+
+// Inject one typed character. Posts BOTH an ev_keydown (data2 = lowercased
+// char) that the cheat matcher (m_cheat.c M_FindCheats) reads, AND an
+// ev_text (data1 = char) that menu save-name entry (mn_menu.c) reads -- so
+// one call serves cheats and save-name typing wherever the responder chain
+// currently is.
+void WoofIOS_InjectChar(char c);
+
+// Inject a Backspace keypress (ev_keydown, KEY_BACKSPACE) -- edits the
+// save-name field.
+void WoofIOS_InjectBackspace(void);
+
+// Inject an Enter keypress (ev_keydown, KEY_ENTER) -- commits the save-name
+// field (input_menu_enter -> MENU_ENTER). Harmless during gameplay.
+void WoofIOS_InjectMenuConfirm(void);
+
 #endif
