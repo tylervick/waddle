@@ -18,10 +18,17 @@ if [ ! -d "$FW" ]; then
   exit 1
 fi
 # Any engine source or build script newer than the built framework => stale.
-STALE=$(find "$ROOT/Engine/woof/src" \
-             "$ROOT/Scripts/build-engine.sh" \
-             "$ROOT/Scripts/build-deps.sh" \
-             -newer "$FW" -print -quit 2>/dev/null || true)
+# Fail CLOSED: if the scan itself can't run (a missing/unreadable source or
+# build script), refuse to archive rather than silently skip the check — the
+# guard exists precisely to stop stale/wrong bits from shipping.
+if ! STALE=$(find "$ROOT/Engine/woof/src" \
+                  "$ROOT/Scripts/build-engine.sh" \
+                  "$ROOT/Scripts/build-deps.sh" \
+                  -newer "$FW" -print -quit); then
+  echo "error: could not scan engine sources for freshness (a source or build" >&2
+  echo "       script is missing or unreadable) — refusing to archive." >&2
+  exit 1
+fi
 if [ -n "$STALE" ]; then
   echo "error: engine sources/scripts changed since WoofEngine.xcframework was" >&2
   echo "       built (e.g. $STALE)." >&2
