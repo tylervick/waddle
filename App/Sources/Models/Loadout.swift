@@ -11,6 +11,9 @@ final class Loadout {
     var complevel: String?
     var lastPlayed: Date?
     var createdAt: Date
+    /// Optional per-preset touch-scheme override (TouchControlScheme raw
+    /// value); nil = use the global default.
+    var schemeOverrideRaw: String?
 
     init(id: UUID = UUID(), name: String, iwadID: UUID, pwadIDs: [UUID] = [],
          dehIDs: [UUID] = [], complevel: String? = nil, createdAt: Date = .now) {
@@ -22,5 +25,6 @@ final class Loadout {
         self.complevel = complevel
         self.lastPlayed = nil
         self.createdAt = createdAt
+        self.schemeOverrideRaw = nil
     }
 }

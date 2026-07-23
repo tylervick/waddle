@@ -104,4 +104,14 @@ final class LibraryServiceTests: XCTestCase {
         try service.markPlayed(wad, at: when)
         XCTAssertEqual(try service.wad(id: wad.id)?.lastPlayed, when)
     }
+
+    func testLoadoutSchemeOverridePersists() throws {
+        let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i1",
+                                                kind: WADKind.iwad.rawValue, family: "doom2")
+        let loadout = try service.createLoadout(name: "L", iwadID: iwad.id, pwadIDs: [], dehIDs: [])
+        loadout.schemeOverrideRaw = TouchControlScheme.modern.rawValue
+        try service.saveChanges()
+        XCTAssertEqual(try service.allLoadouts().first?.schemeOverrideRaw,
+                       TouchControlScheme.modern.rawValue)
+    }
 }
