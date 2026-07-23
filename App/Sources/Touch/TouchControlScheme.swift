@@ -54,7 +54,8 @@ enum TouchControlScheme: String, CaseIterable {
     static func effective(override raw: String?,
                           defaults: UserDefaults = .standard) -> TouchControlScheme {
         #if DEBUG
-        if ProcessInfo.processInfo.environment["WADDLE_TOUCH_SCHEME"] != nil {
+        if let seamRaw = ProcessInfo.processInfo.environment["WADDLE_TOUCH_SCHEME"],
+           TouchControlScheme(rawValue: seamRaw) != nil {
             return current(defaults: defaults)
         }
         #endif

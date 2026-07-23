@@ -67,12 +67,11 @@ final class OverlayPresenter {
 
         let window = Unmanaged<UIWindow>.fromOpaque(pointer)
             .takeUnretainedValue()
-        // Read once at install time (matches the Play tab picker's
-        // UserDefaults key); the overlay doesn't observe live changes mid-
-        // session, only picks up a new scheme on the next install. Same
-        // read-once-at-install policy for the debug HUD toggle and the
-        // Control Feel tuning sliders — mid-session slider changes apply
-        // to the next session.
+        // Scheme was fixed at begin(scheme:) time -- supplied by the launch
+        // site via EngineSession.play and stored in installScheme -- not
+        // read from UserDefaults here. Same read-once-at-install policy
+        // applies to the tuning and the debug HUD toggle read below:
+        // mid-session changes apply to the next session, not this one.
         let scheme = installScheme
         let tuning = TouchTuning.current()
         gamepad.tuning = tuning
