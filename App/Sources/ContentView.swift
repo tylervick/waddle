@@ -21,7 +21,7 @@ struct ContentView: View {
             // (`app.tabBars.buttons["Play"].tap()` / `["Library"].tap()`);
             // use `app.otherElements["playTab"]` / `["libraryTab"]` to assert
             // which tab's content is now on screen.
-            LoadoutGridView(library: library, lastExitCode: $lastExitCode)
+            PlayView(library: library, lastExitCode: $lastExitCode)
                 .tabItem {
                     Label("Play", systemImage: "play.circle.fill")
                 }

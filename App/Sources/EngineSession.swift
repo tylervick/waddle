@@ -15,7 +15,7 @@ enum EngineSession {
     enum ExitCode {
         /// LoadoutArguments.build threw before the engine could even start
         /// (e.g. a loadout references a WAD that's gone missing from the
-        /// library). Reported by LoadoutGridView.play(_:) in place of a
+        /// library). Reported by PlayView.play(_:) in place of a
         /// real engine exit code.
         static let argumentFailure: Int32 = -101
 

@@ -1,9 +1,17 @@
 import SwiftUI
 
-struct LoadoutGridView: View {
+/// The Play tab: sectioned grid of everything directly launchable -- recently
+/// played, base games (one-tap, no loadout required), and saved presets.
+/// Replaces the preset-only loadout grid.
+struct PlayView: View {
     let library: LibraryService
     @Binding var lastExitCode: Int32?
-    @State private var loadouts: [Loadout] = []
+
+    @State private var recent: [PlayableItem] = []
+    @State private var baseGames: [PlayableItem] = []
+    @State private var presets: [PlayableItem] = []
+    @State private var detailItem: PlayableItem?
+
     @State private var editorLoadout: Loadout?
     @State private var showNewEditor = false
     @AppStorage(TouchControlScheme.userDefaultsKey) private var touchScheme: TouchControlScheme = .defaultScheme
@@ -17,10 +25,16 @@ struct LoadoutGridView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVGrid(columns: columns, spacing: 16) {
-                    ForEach(loadouts, id: \.id) { loadout in
-                        tile(for: loadout)
-                    }
+                VStack(alignment: .leading, spacing: 24) {
+                    // Recently Played re-lists items that also live in Base
+                    // Games/Presets below; those sections hold the
+                    // contractual identifiers ("playFreedoom1",
+                    // "loadout-<name>") that UITests look up expecting a
+                    // single match, so this section's tiles get a
+                    // non-canonical id instead of duplicating them.
+                    section(title: "Recently Played", items: recent, canonicalID: false)
+                    section(title: "Base Games", items: baseGames, canonicalID: true)
+                    section(title: "Presets", items: presets, canonicalID: true)
                 }
                 .padding()
             }
@@ -52,6 +66,11 @@ struct LoadoutGridView: View {
             }
             .sheet(item: $editorLoadout, onDismiss: refresh) { loadout in
                 LoadoutEditorView(library: library, existing: loadout)
+            }
+            .sheet(item: $detailItem) { item in
+                // Placeholder -- Task 5 replaces this with the unified
+                // PlayableDetailView.
+                Text(item.title)
             }
             .alert(errorAlert?.title ?? "", isPresented: Binding(
                 get: { errorAlert != nil }, set: { if !$0 { errorAlert = nil } }
@@ -115,66 +134,87 @@ struct LoadoutGridView: View {
         .accessibilityIdentifier("touchSchemeMenu")
     }
 
-    private func tile(for loadout: Loadout) -> some View {
-        Button {
-            play(loadout)
-        } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                Image(systemName: "flame.fill")
-                    .font(.title)
-                Text(loadout.name).font(.headline).lineLimit(2)
-                Text(subtitle(for: loadout))
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+    @ViewBuilder
+    private func section(title: String, items: [PlayableItem], canonicalID: Bool) -> some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(title).font(.headline)
+                LazyVGrid(columns: columns, spacing: 16) {
+                    ForEach(items) { item in
+                        tile(for: item, canonicalID: canonicalID)
+                    }
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
+        }
+    }
+
+    private func tile(for item: PlayableItem, canonicalID: Bool) -> some View {
+        Button {
+            play(item)
+        } label: {
+            PlayableTileView(item: item, subtitle: subtitle(for: item))
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier(loadout.name == "Freedoom Phase 1"
-                                 ? "playFreedoom1" : "loadout-\(loadout.name)")
+        .accessibilityIdentifier(canonicalID ? accessibilityID(for: item) : "recent-\(item.id)")
         .contextMenu {
-            Button("Edit") { editorLoadout = loadout }
-            Button("Delete Loadout & Saves", role: .destructive) {
-                try? library.deleteLoadout(loadout, deleteSaves: true)
-                refresh()
-            }
-            Button("Delete Loadout, Keep Saves", role: .destructive) {
-                try? library.deleteLoadout(loadout, deleteSaves: false)
-                refresh()
+            switch item {
+            case .baseGame:
+                Button("Details") { detailItem = item }
+            case .preset(let loadout):
+                Button("Details") { detailItem = item }
+                Button("Edit") { editorLoadout = loadout }
+                Button("Delete Loadout & Saves", role: .destructive) {
+                    try? library.deleteLoadout(loadout, deleteSaves: true)
+                    refresh()
+                }
+                Button("Delete Loadout, Keep Saves", role: .destructive) {
+                    try? library.deleteLoadout(loadout, deleteSaves: false)
+                    refresh()
+                }
             }
         }
     }
 
-    private func subtitle(for loadout: Loadout) -> String {
-        let pwads = loadout.pwadIDs.compactMap { try? library.wad(id: $0)?.displayName }
-        return pwads.isEmpty ? "Base game" : pwads.joined(separator: " + ")
+    private func accessibilityID(for item: PlayableItem) -> String {
+        if item.title == "Freedoom Phase 1" && item.isBaseGame {
+            return "playFreedoom1"
+        }
+        switch item {
+        case .baseGame:
+            return item.id
+        case .preset(let loadout):
+            return "loadout-\(loadout.name)"
+        }
     }
 
-    private func play(_ loadout: Loadout) {
+    private func subtitle(for item: PlayableItem) -> String {
+        switch item {
+        case .baseGame:
+            return "Base game"
+        case .preset(let loadout):
+            let pwads = loadout.pwadIDs.compactMap { try? library.wad(id: $0)?.displayName }
+            return pwads.isEmpty ? "Base game" : pwads.joined(separator: " + ")
+        }
+    }
+
+    private func play(_ item: PlayableItem) {
         lastExitCode = nil
         do {
-            let args = try LoadoutArguments.build(loadout: loadout) { id in
-                guard let wad = try library.wad(id: id) else {
-                    throw LoadoutArgumentsError.missingWAD(id)
-                }
-                return library.fileURL(for: wad)
-            }
-            loadout.lastPlayed = .now
-            try? library.saveChanges()
-            lastExitCode = EngineSession.play(arguments: args)
+            let plan = try PlayableLauncher.prepare(item, library: library)
+            lastExitCode = EngineSession.play(arguments: plan.arguments, scheme: plan.scheme)
             errorAlert = EngineErrorAlert.from(exitCode: lastExitCode ?? 0,
                                                engineMessage: EngineSession.lastErrorMessage)
         } catch {
-            lastExitCode = EngineSession.ExitCode.argumentFailure   // arg-building failure (missing WAD)
-            errorAlert = EngineErrorAlert.from(
-                exitCode: EngineSession.ExitCode.argumentFailure,
-                engineMessage: "A file in this loadout is missing from the library.")
+            lastExitCode = EngineSession.ExitCode.argumentFailure
+            errorAlert = EngineErrorAlert.from(exitCode: EngineSession.ExitCode.argumentFailure,
+                                               engineMessage: "A file in this loadout is missing from the library.")
         }
         refresh()
     }
 
     private func refresh() {
-        loadouts = (try? library.allLoadouts()) ?? []
+        recent = (try? library.recentlyPlayed(limit: 6)) ?? []
+        baseGames = (try? library.baseGames().map(PlayableItem.baseGame)) ?? []
+        presets = (try? library.allLoadouts().map(PlayableItem.preset)) ?? []
     }
 }

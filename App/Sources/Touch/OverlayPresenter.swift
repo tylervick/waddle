@@ -2,7 +2,7 @@ import UIKit
 import GameController
 import WoofEngine
 
-/// UserDefaults key for the Play tab's "Show Debug Info" toggle (LoadoutGridView's
+/// UserDefaults key for the Play tab's "Show Debug Info" toggle (PlayView's
 /// @AppStorage("debugHUD")): gates both the launcher's build-info footer and
 /// the in-session debug HUD this file reads at install time, below.
 let debugHUDUserDefaultsKey = "debugHUD"
