@@ -34,6 +34,7 @@
   - Unit: `xcodebuild -project App/WADdle.xcodeproj -scheme WADdle -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:WADdleTests/<Class>[/<method>] test`
   - Full: `mise run test`. Expect the 4 `RealWADTests` to fail unless `Scripts/provision-test-wads.sh` was run against the booted sim after install — that gap is environmental and unrelated to this plan.
 - **New source/test FILES require project regen:** after adding any file under `App/Sources` or `App/Tests` (or `App/UITests`), run `mise run generate` before building (XcodeGen globs those dirs at generate time). Modifying existing files needs no regen.
+- **NEVER commit `App/WADdle.xcodeproj`:** it is a generated artifact, gitignored via `.gitignore`'s `App/*.xcodeproj`, and deliberately untracked (commit `c82427e`). XcodeGen globs the source/test dirs, so committing only the `.swift` files is complete — any checkout runs `mise run generate` to rebuild the project. The `git add` lines in this plan list only real source/test files; do not add the `.xcodeproj`.
 
 ---
 
@@ -213,7 +214,7 @@ Expected: PASS (3/3).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add App/Sources/Models/PlayableItem.swift App/Sources/Library/LibraryService.swift App/Tests/PlayableItemTests.swift App/WADdle.xcodeproj
+git add App/Sources/Models/PlayableItem.swift App/Sources/Library/LibraryService.swift App/Tests/PlayableItemTests.swift
 git commit -m "feat(play): PlayableItem model + base-game and recently-played queries"
 ```
 
@@ -351,7 +352,7 @@ Expected: PASS (3/3).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add App/Sources/Library/PlayableLauncher.swift App/Tests/PlayableLauncherTests.swift App/WADdle.xcodeproj
+git add App/Sources/Library/PlayableLauncher.swift App/Tests/PlayableLauncherTests.swift
 git commit -m "feat(play): PlayableLauncher builds args, resolves scheme, stamps lastPlayed"
 ```
 
@@ -412,7 +413,7 @@ Rebuild the Play tab: sections of title-art tiles (Recently Played / Base Games 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add App/Sources/UI/PlayView.swift App/Sources/UI/PlayableTileView.swift App/Sources/ContentView.swift App/WADdle.xcodeproj
+git add App/Sources/UI/PlayView.swift App/Sources/UI/PlayableTileView.swift App/Sources/ContentView.swift
 git rm App/Sources/UI/LoadoutGridView.swift
 git commit -m "feat(play): grid of playable items with base-game one-tap launch"
 ```
@@ -457,7 +458,7 @@ Consolidate preset creation to one door: `newLoadoutButton` → pick a base game
 - [ ] **Step 6: Commit**
 
 ```bash
-git add App/Sources/UI/PresetCreationFlow.swift App/Sources/UI/LoadoutEditorView.swift App/Sources/UI/PlayView.swift App/Sources/UI/LibraryView.swift App/Tests/LibraryServiceTests.swift App/UITests/RealWADTests.swift App/WADdle.xcodeproj
+git add App/Sources/UI/PresetCreationFlow.swift App/Sources/UI/LoadoutEditorView.swift App/Sources/UI/PlayView.swift App/Sources/UI/LibraryView.swift App/Tests/LibraryServiceTests.swift App/UITests/RealWADTests.swift
 git commit -m "feat(play): one-door preset creation seeded from a base game"
 ```
 
@@ -544,7 +545,7 @@ final class PlayTabTests: XCTestCase {
 - [ ] **Step 7: Commit**
 
 ```bash
-git add App/Sources/UI/PlayableDetailView.swift App/Sources/UI/PlayView.swift App/Sources/Library/LibraryService.swift App/Sources/Touch/TouchControlScheme.swift App/Tests/LibraryServiceTests.swift App/UITests/PlayTabTests.swift App/WADdle.xcodeproj
+git add App/Sources/UI/PlayableDetailView.swift App/Sources/UI/PlayView.swift App/Sources/Library/LibraryService.swift App/Sources/Touch/TouchControlScheme.swift App/Tests/LibraryServiceTests.swift App/UITests/PlayTabTests.swift
 git commit -m "feat(play): playable detail page with per-item controls override and saves"
 ```
 
