@@ -11,6 +11,7 @@ final class WADFile {
     var gameFamilyRaw: String
     var isBundled: Bool
     var importDate: Date
+    var lastPlayed: Date?
 
     init(id: UUID = UUID(), filename: String, displayName: String, kindRaw: String,
          sha1: String, gameFamilyRaw: String, isBundled: Bool = false,
@@ -23,5 +24,6 @@ final class WADFile {
         self.gameFamilyRaw = gameFamilyRaw
         self.isBundled = isBundled
         self.importDate = importDate
+        self.lastPlayed = nil
     }
 }

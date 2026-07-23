@@ -84,6 +84,14 @@ final class LibraryService {
 
     // MARK: Mutations
 
+    /// Stamps a directly-played WAD's `lastPlayed` (base games launch without
+    /// a persisted Loadout, so recency is tracked on the file itself). Date is
+    /// injectable for deterministic tests.
+    func markPlayed(_ wad: WADFile, at date: Date = .now) throws {
+        wad.lastPlayed = date
+        try context.save()
+    }
+
     @discardableResult
     func registerImported(filename: String, sha1: String, kind: String,
                           family: String) throws -> WADFile {

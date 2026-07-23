@@ -95,4 +95,13 @@ final class LibraryServiceTests: XCTestCase {
         recent.lastPlayed = Date()
         XCTAssertEqual(try service.allLoadouts().map(\.name), ["Recent", "Old"])
     }
+
+    func testMarkPlayedStampsLastPlayed() throws {
+        let wad = try service.registerImported(filename: "doom2.wad", sha1: "i1",
+                                               kind: WADKind.iwad.rawValue, family: "doom2")
+        XCTAssertNil(wad.lastPlayed)
+        let when = Date(timeIntervalSince1970: 1_000_000)
+        try service.markPlayed(wad, at: when)
+        XCTAssertEqual(try service.wad(id: wad.id)?.lastPlayed, when)
+    }
 }
