@@ -37,6 +37,24 @@ final class LibraryService {
 
     // MARK: Queries
 
+    /// Base games (IWADs) for the Play grid — bundled first, then by title.
+    func baseGames() throws -> [WADFile] {
+        try allWADs()
+            .filter { $0.kindRaw == WADKind.iwad.rawValue }
+            .sorted { ($0.isBundled ? 0 : 1, $0.displayName) < ($1.isBundled ? 0 : 1, $1.displayName) }
+    }
+
+    /// Base games + presets that have been played, most-recent-first, capped.
+    func recentlyPlayed(limit: Int) throws -> [PlayableItem] {
+        let items = try baseGames().map(PlayableItem.baseGame)
+            + allLoadouts().map(PlayableItem.preset)
+        return items
+            .filter { $0.lastPlayed != nil }
+            .sorted { ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }
+            .prefix(limit)
+            .map { $0 }
+    }
+
     func allWADs() throws -> [WADFile] {
         try context.fetch(FetchDescriptor<WADFile>(
             sortBy: [SortDescriptor(\.importDate, order: .reverse)]))
