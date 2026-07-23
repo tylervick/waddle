@@ -25,9 +25,18 @@ final class OverlayPresenter {
     private var overlay: TouchOverlayView?
     private var pollTimer: Timer?
     private var observerTokens: [NSObjectProtocol] = []
+    /// The scheme to install with, supplied by `begin(scheme:)` — replaces the
+    /// old read-at-install of `TouchControlScheme.current()` so a per-item
+    /// override can flow in from the launch site.
+    private var installScheme: TouchControlScheme = TouchControlScheme.defaultScheme
 
-    func begin() {
+    #if DEBUG
+    var installSchemeForTesting: TouchControlScheme { installScheme }
+    #endif
+
+    func begin(scheme: TouchControlScheme) {
         end() // safety: never double-install
+        installScheme = scheme
         let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tryInstall() }
         }
@@ -64,7 +73,7 @@ final class OverlayPresenter {
         // read-once-at-install policy for the debug HUD toggle and the
         // Control Feel tuning sliders — mid-session slider changes apply
         // to the next session.
-        let scheme = TouchControlScheme.current()
+        let scheme = installScheme
         let tuning = TouchTuning.current()
         gamepad.tuning = tuning
         let debugHUDEnabled = UserDefaults.standard.bool(forKey: debugHUDUserDefaultsKey)

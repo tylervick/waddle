@@ -35,4 +35,15 @@ final class EngineSessionGenerationTests: XCTestCase {
         XCTAssertEqual(EngineSession.lastErrorMessage,
                        "Another session is already running.")
     }
+
+    @MainActor
+    func testOverlayBeginStoresEffectiveScheme() {
+        OverlayPresenter.shared.begin(scheme: .modern)
+        XCTAssertEqual(OverlayPresenter.shared.installSchemeForTesting, .modern)
+        OverlayPresenter.shared.end()
+
+        OverlayPresenter.shared.begin(scheme: .classic)
+        XCTAssertEqual(OverlayPresenter.shared.installSchemeForTesting, .classic)
+        OverlayPresenter.shared.end()
+    }
 }
