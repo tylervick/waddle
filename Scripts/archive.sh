@@ -4,6 +4,32 @@
 #   xcrun altool / Transporter — see docs/app-store/submission-checklist.md
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Guard against archiving a STALE engine. The heavy engine build (SDL/OpenAL +
+# Woof -> Vendor/out/WoofEngine.xcframework) is deliberately NOT part of
+# archiving, but a framework older than its sources silently ships stale bits —
+# that is how a missing SDL_CAMERA=OFF (ITMS-90683) or an unbuilt engine fix can
+# reach App Review. Fail loudly instead; rebuild is a separate, explicit step.
+FW="$ROOT/Vendor/out/WoofEngine.xcframework"
+if [ ! -d "$FW" ]; then
+  echo "error: $FW is missing." >&2
+  echo "       build the engine first: mise run bootstrap" >&2
+  echo "       (or: Scripts/build-deps.sh && Scripts/build-engine.sh)" >&2
+  exit 1
+fi
+# Any engine source or build script newer than the built framework => stale.
+STALE=$(find "$ROOT/Engine/woof/src" \
+             "$ROOT/Scripts/build-engine.sh" \
+             "$ROOT/Scripts/build-deps.sh" \
+             -newer "$FW" -print -quit 2>/dev/null || true)
+if [ -n "$STALE" ]; then
+  echo "error: engine sources/scripts changed since WoofEngine.xcframework was" >&2
+  echo "       built (e.g. $STALE)." >&2
+  echo "       rebuild before archiving: Scripts/build-deps.sh && Scripts/build-engine.sh" >&2
+  echo "       (build-deps.sh is only needed when SDL/OpenAL config changed)" >&2
+  exit 1
+fi
+
 cd "$ROOT/App" && xcodegen generate && cd "$ROOT"
 ARCHIVE="$ROOT/Vendor/archive/WADdle.xcarchive"
 xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
