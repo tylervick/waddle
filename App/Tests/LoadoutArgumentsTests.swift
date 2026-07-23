@@ -61,4 +61,22 @@ final class LoadoutArgumentsTests: XCTestCase {
         XCTAssertTrue(isDir.boolValue)
         try? FileManager.default.removeItem(at: saves)
     }
+
+    func testBuildBaseGameOnlyArgv() throws {
+        let args = try LoadoutArguments.build(
+            iwadURL: URL(fileURLWithPath: "/tmp/doom2.wad"), saveID: UUID())
+        XCTAssertEqual(Array(args.prefix(3)), ["woof", "-iwad", "/tmp/doom2.wad"])
+        XCTAssertFalse(args.contains("-file"))
+        XCTAssertFalse(args.contains("-deh"))
+        XCTAssertFalse(args.contains("-complevel"))
+        XCTAssertTrue(args.contains("-save"))
+    }
+
+    func testBuildWithPWADsAndComplevel() throws {
+        let args = try LoadoutArguments.build(
+            iwadURL: URL(fileURLWithPath: "/tmp/doom2.wad"), saveID: UUID(),
+            pwadURLs: [URL(fileURLWithPath: "/tmp/sunlust.wad")], complevel: "mbf21")
+        XCTAssertEqual(args[args.firstIndex(of: "-file")! + 1], "/tmp/sunlust.wad")
+        XCTAssertEqual(args[args.firstIndex(of: "-complevel")! + 1], "mbf21")
+    }
 }
