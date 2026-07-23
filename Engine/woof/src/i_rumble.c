@@ -288,7 +288,19 @@ static void InitFFT(int rate, int step)
 {
     static int last_rate = -1;
 
+#ifdef WOOF_IOS
+    // iOS re-runs the engine across multiple in-process sessions (see
+    // WOOF_UPSTREAM.md). At each session's exit I_ShutdownRumble -> FreeFFT
+    // frees and NULLs the fft.* buffers, but this function-local `last_rate`
+    // guard outlives the session and cannot be reached from FreeFFT. On the
+    // next session the first cached sound usually has the same sample rate, so
+    // `last_rate == rate` still holds and we would skip re-allocating and then
+    // dereference the freed (NULL) fft.in/out/window in CalcPeakFFT -> SIGSEGV.
+    // Re-initialise whenever the buffers are gone, whatever the cached rate.
+    if (last_rate == rate && fft.setup)
+#else
     if (last_rate == rate)
+#endif
     {
         return;
     }

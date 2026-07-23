@@ -260,6 +260,52 @@ only ever runs once):
   `touch_joystick_id`, and `touch_turn_accum` so the next session's
   `WoofIOS_AttachTouchGamepad` attaches fresh. This file is iOS-only, so
   no `WOOF_IOS` guard is needed here either.
+- `src/d_demoloop.c` — fifth instance, and the one behind a confirmed
+  TestFlight crash (build 2, `EXC_CRASH (SIGABRT)` /
+  `POINTER_BEING_FREED_WAS_NOT_ALLOCATED` in `D_SetupDemoLoop` → `D_DoomMain`
+  → `WoofIOS_Run`, on a user's 2nd+ play in one launch). The file-scope
+  `demoloop` (`m_array`, `m_array.h`) / `demoloop_count` globals outlive a
+  session. On the common path `D_GetDefaultDemoLoop` assigns `demoloop` to a
+  *static* C array (`demoloop_registered/retail/commercial`); that array is
+  never reset. Session 1 never runs `D_CheckPrimaryLumps` — `demoloop` is
+  still NULL when it's tested (no `DEMOLOOP` lump to parse), so the default is
+  installed *after* the lump check. Session 2 re-enters with `demoloop` still
+  pointing at that static array, so `if (demoloop)` is now true and
+  `D_CheckPrimaryLumps` runs on it; if the current IWAD is missing one of the
+  default demoloop's primary lumps it calls `array_free(demoloop)` — an
+  `m_array` free of memory located *before* the static array (the `m_array`
+  header sits ahead of the data pointer) → the abort. (An `array_push` onto
+  the stale static would corrupt the same way when a `DEMOLOOP` lump is
+  present.) Reproduced by playing a retail/commercial IWAD that *has* DEMO4
+  (e.g. bundled Freedoom, leaving `demoloop_count == 7`) then Doom II (no
+  DEMO4): `D_CheckPrimaryLumps` walks all 7 entries, finds DEMO4 missing at
+  index 6, and frees the static array. Fixed with a `WOOF_IOS`-guarded
+  per-session reset at the top of `D_SetupDemoLoop` (free `demoloop` only when
+  it's a heap array, then NULL `demoloop`/`demoloop_count`), tracked by a new
+  `demoloop_dynamic` flag set right after the parser's `array_push` and
+  cleared at every `array_free(demoloop)` — so a static default never inherits
+  it and only a heap `m_array` is ever freed. Regression:
+  `WADdleUITests/DemoLoopReplayTests` (skips when Doom II isn't provisioned;
+  copyrighted, not in CI).
+- `src/i_rumble.c` — sixth instance, uncovered while verifying the
+  `d_demoloop.c` fix above: with demoloop no longer aborting first, session 2
+  reached `I_InitSound` → `I_OAL_CacheSound` → `I_CacheRumble` and
+  segfaulted (`EXC_BAD_ACCESS`, NULL deref) inside the FFT peak analysis.
+  `InitFFT` caches its allocated `fft.*` buffers keyed by a function-local
+  `static int last_rate`. Each session's exit runs `I_ShutdownRumble` →
+  `FreeFFT`, which frees and NULLs `fft.setup/in/out/window` but cannot reach
+  that guard; on the next session the first cached sound usually has the same
+  sample rate, so `last_rate == rate` still held and `InitFFT` skipped
+  re-allocating, leaving `CalcPeakFFT` to dereference the freed (NULL)
+  `fft.in`/`fft.out`/`fft.window`. Rumble caching runs whenever
+  `I_GamepadEnabled()` (i.e. `joy_enable`, on by default) is set, so this
+  would have become real users' *new* 2nd-play crash the moment the demoloop
+  abort was removed. Fixed by `WOOF_IOS`-guarding the early-return to also
+  require `fft.setup` non-NULL (`if (last_rate == rate && fft.setup)`), so a
+  session whose buffers were freed re-initialises regardless of the cached
+  rate. Zero behaviour change off iOS: `last_rate == rate` only ever holds
+  with `fft.setup` already allocated there (FreeFFT runs only at process
+  shutdown, after which nothing calls `InitFFT` again).
 
 Related (not upstream files): `Scripts/build-engine.sh` passes
 `-DCMAKE_FIND_ROOT_PATH="$OUT/$platform"` in addition to
