@@ -13,7 +13,7 @@ struct PlayView: View {
     @State private var detailItem: PlayableItem?
 
     @State private var editorLoadout: Loadout?
-    @State private var showNewEditor = false
+    @State private var showCreationFlow = false
     @AppStorage(TouchControlScheme.userDefaultsKey) private var touchScheme: TouchControlScheme = .defaultScheme
     @AppStorage(debugHUDUserDefaultsKey) private var debugHUD: Bool = false
     @State private var showControlFeel = false
@@ -61,8 +61,8 @@ struct PlayView: View {
             .sheet(isPresented: $showAbout) {
                 NavigationStack { AboutView() }
             }
-            .sheet(isPresented: $showNewEditor, onDismiss: refresh) {
-                LoadoutEditorView(library: library, existing: nil)
+            .sheet(isPresented: $showCreationFlow, onDismiss: refresh) {
+                PresetCreationFlow(library: library)
             }
             .sheet(item: $editorLoadout, onDismiss: refresh) { loadout in
                 LoadoutEditorView(library: library, existing: loadout)
@@ -94,7 +94,7 @@ struct PlayView: View {
         }
         ToolbarItem(placement: .navigationBarTrailing) {
             Button {
-                showNewEditor = true
+                showCreationFlow = true
             } label: {
                 Label("New Loadout", systemImage: "plus")
             }

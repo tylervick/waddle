@@ -63,6 +63,16 @@ final class RealWADTests: XCTestCase {
                 file: file, line: line)
     }
 
+    /// Clears any existing text in `field` (e.g. LoadoutEditorView's
+    /// auto-generated name) before typing `text`.
+    private func clearAndType(_ field: XCUIElement, _ text: String) {
+        field.tap()
+        if let existing = field.value as? String, !existing.isEmpty {
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existing.count))
+        }
+        field.typeText(text)
+    }
+
     /// Creates (if needed) and plays a loadout; asserts session length.
     private func runLoadout(app: XCUIApplication, name: String, iwad: String,
                             pwad: String?, expectFullSession: Bool,
@@ -80,13 +90,25 @@ final class RealWADTests: XCTestCase {
                 // too, or the picker tap below can race the hash/copy.
                 waitForWADAvailable(app: app, name: iwad, file: file, line: line)
             }
+            // Plan B Task 4: creation is one door now -- newLoadoutButton
+            // opens a base-game picker (PresetCreationFlow), and picking a
+            // row pushes straight into the editor already seeded with that
+            // IWAD (iwadID prefilled, name auto-generated via
+            // PresetName.suggested). The old in-editor iwadPicker selection
+            // step is gone: the base is chosen here, before the editor ever
+            // appears, so there's nothing left to assert/select on iwadPicker
+            // for this flow.
             app.buttons["newLoadoutButton"].tap()
+            let baseRow = app.buttons["createPresetBase-\(iwad)"]
+            XCTAssertTrue(baseRow.waitForExistence(timeout: 5), file: file, line: line)
+            baseRow.tap()
             let nameField = app.textFields["loadoutNameField"]
             XCTAssertTrue(nameField.waitForExistence(timeout: 5), file: file, line: line)
-            nameField.tap()
-            nameField.typeText(name)
-            app.buttons["iwadPicker"].tap()
-            app.buttons[iwad].tap()
+            // The field arrives pre-filled with the auto-generated name
+            // (just the base's display name, since no PWADs are added yet)
+            // -- clear it before typing this test's desired preset name so
+            // the result isn't at the mercy of where the cursor lands.
+            clearAndType(nameField, name)
             if let pwad {
                 // Tab-bar buttons have no accessibility ids on iOS 26; this
                 // isn't a tab-bar button though — it's the "Add PWAD" Menu

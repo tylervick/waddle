@@ -114,4 +114,10 @@ final class LibraryServiceTests: XCTestCase {
         XCTAssertEqual(try service.allLoadouts().first?.schemeOverrideRaw,
                        TouchControlScheme.modern.rawValue)
     }
+
+    func testPresetNameSuggestion() {
+        XCTAssertEqual(PresetName.suggested(base: "Doom II", pwads: []), "Doom II")
+        XCTAssertEqual(PresetName.suggested(base: "Doom II", pwads: ["Sunlust"]), "Doom II + Sunlust")
+        XCTAssertEqual(PresetName.suggested(base: "Doom II", pwads: ["A", "B"]), "Doom II + A + B")
+    }
 }
