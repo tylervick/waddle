@@ -32,6 +32,7 @@ struct WADdleApp: App {
             library = LibraryService(context: context, store: store)
             importer = ImportService(library: library, store: store)
             try library.seedBundledContentIfNeeded()
+            try library.reconcileBundledBaseGameLoadouts()
         } catch {
             fatalError("SwiftData container failed: \(error)")
         }

@@ -18,7 +18,7 @@ final class LibraryService {
     // MARK: Seeding
 
     /// Registers the bundled Freedoom IWADs (read-only, live in the bundle's
-    /// GameData/) and creates one loadout per phase. Safe to call every launch.
+    /// GameData/) as directly-playable base games. Safe to call every launch.
     func seedBundledContentIfNeeded() throws {
         let bundled: [(file: String, title: String, family: GameFamily)] = [
             ("freedoom1.wad", "Freedoom Phase 1", .doom1),
@@ -30,9 +30,35 @@ final class LibraryService {
                               kindRaw: WADKind.iwad.rawValue, sha1: "bundled:\(entry.file)",
                               gameFamilyRaw: entry.family.rawValue, isBundled: true)
             context.insert(wad)
-            context.insert(Loadout(name: entry.title, iwadID: wad.id))
         }
         try context.save()
+    }
+
+    /// One-time migration: earlier builds auto-created a Loadout per bundled
+    /// Freedoom phase so the base game could launch. Base games are now
+    /// directly playable, so these phantom loadouts are removed; any saves they
+    /// accumulated migrate to the base game's own saves key (its WADFile.id),
+    /// so on-device progress survives. User-authored presets are never touched.
+    func reconcileBundledBaseGameLoadouts() throws {
+        let seededTitles: Set<String> = ["Freedoom Phase 1", "Freedoom Phase 2"]
+        for loadout in try context.fetch(FetchDescriptor<Loadout>())
+        where loadout.pwadIDs.isEmpty && loadout.dehIDs.isEmpty
+            && seededTitles.contains(loadout.name) {
+            guard let iwad = try wad(id: loadout.iwadID), iwad.isBundled else { continue }
+            migrateSaves(fromKey: loadout.id, toKey: iwad.id)
+            context.delete(loadout)
+        }
+        try context.save()
+    }
+
+    private func migrateSaves(fromKey old: UUID, toKey new: UUID) {
+        let src = Self.savesDirectory(forLoadoutID: old)
+        let dst = Self.savesDirectory(forLoadoutID: new)
+        guard FileManager.default.fileExists(atPath: src.path),
+              !FileManager.default.fileExists(atPath: dst.path) else { return }
+        try? FileManager.default.createDirectory(at: dst.deletingLastPathComponent(),
+                                                 withIntermediateDirectories: true)
+        try? FileManager.default.moveItem(at: src, to: dst)
     }
 
     // MARK: Queries

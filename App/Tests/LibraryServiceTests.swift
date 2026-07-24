@@ -31,15 +31,45 @@ final class LibraryServiceTests: XCTestCase {
         try? FileManager.default.removeItem(at: tmp)
     }
 
-    func testSeedCreatesFreedoomEntriesAndLoadoutsOnce() throws {
+    func testSeedCreatesFreedoomWADsButNoLoadouts() throws {
         try service.seedBundledContentIfNeeded()
         try service.seedBundledContentIfNeeded()   // idempotent
-        let wads = try service.allWADs()
-        XCTAssertEqual(wads.filter(\.isBundled).map(\.filename).sorted(),
+        XCTAssertEqual(try service.allWADs().filter(\.isBundled).map(\.filename).sorted(),
                        ["freedoom1.wad", "freedoom2.wad"])
-        let loadouts = try service.allLoadouts()
-        XCTAssertEqual(loadouts.map(\.name).sorted(),
-                       ["Freedoom Phase 1", "Freedoom Phase 2"])
+        XCTAssertTrue(try service.allLoadouts().isEmpty)
+    }
+
+    func testReconcileRemovesPhantomBaseGameLoadoutAndMigratesSaves() throws {
+        // Arrange an old-install shape: a bundled Freedoom IWAD + a phantom
+        // "Freedoom Phase 1" loadout (no PWAD/DEH) that accumulated a save.
+        // isBundled must be true for reconciliation to treat it as a phantom;
+        // registerImported creates a non-bundled row, so set the flag after.
+        let base = try service.registerImported(
+            filename: "freedoom1.wad", sha1: "bundled:freedoom1.wad",
+            kind: WADKind.iwad.rawValue, family: GameFamily.doom1.rawValue)
+        base.isBundled = true
+        try service.saveChanges()
+        let phantom = try service.createLoadout(name: "Freedoom Phase 1",
+                                                iwadID: base.id, pwadIDs: [], dehIDs: [])
+        let oldDir = LibraryService.savesDirectory(forLoadoutID: phantom.id)
+        try FileManager.default.createDirectory(at: oldDir, withIntermediateDirectories: true)
+        try Data("save".utf8).write(to: oldDir.appendingPathComponent("slot.dsg"))
+
+        try service.reconcileBundledBaseGameLoadouts()
+
+        XCTAssertTrue(try service.allLoadouts().isEmpty, "phantom loadout not removed")
+        let newDir = LibraryService.savesDirectory(forLoadoutID: base.id)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: newDir.appendingPathComponent("slot.dsg").path),
+            "saves not migrated to base-game key")
+        try? FileManager.default.removeItem(at: newDir)
+    }
+
+    func testReconcileLeavesUserPresetsUntouched() throws {
+        let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i", kind: WADKind.iwad.rawValue, family: "doom2")
+        _ = try service.createLoadout(name: "My Stack", iwadID: iwad.id, pwadIDs: [], dehIDs: [])
+        try service.reconcileBundledBaseGameLoadouts()
+        XCTAssertEqual(try service.allLoadouts().map(\.name), ["My Stack"])
     }
 
     func testRegisterAndFindBySHA1() throws {
