@@ -13,6 +13,14 @@ struct PlayView: View {
     @State private var detailItem: PlayableItem?
 
     @State private var editorLoadout: Loadout?
+    // Set by the detail page's Edit action instead of `editorLoadout`
+    // directly: presenting the editor sheet must wait until the detail
+    // sheet has fully dismissed (see `.sheet(item: $detailItem, onDismiss:)`
+    // below) -- setting `editorLoadout` and dismissing the detail sheet in
+    // the same synchronous pass is the same same-transaction dismiss/present
+    // race Task 4 hit and fixed in cfaed69, just on the Edit path instead of
+    // the create path.
+    @State private var pendingEditLoadout: Loadout?
     @State private var showCreationFlow = false
     @AppStorage(TouchControlScheme.userDefaultsKey) private var touchScheme: TouchControlScheme = .defaultScheme
     @AppStorage(debugHUDUserDefaultsKey) private var debugHUD: Bool = false
@@ -67,10 +75,19 @@ struct PlayView: View {
             .sheet(item: $editorLoadout, onDismiss: refresh) { loadout in
                 LoadoutEditorView(library: library, existing: loadout)
             }
-            .sheet(item: $detailItem) { item in
+            .sheet(item: $detailItem, onDismiss: {
+                // Promote the pending edit only after the detail sheet is
+                // fully gone -- presenting `editorLoadout` here (rather than
+                // in `onEdit` below) keeps the dismiss-then-present pair in
+                // separate transactions.
+                if let loadout = pendingEditLoadout {
+                    pendingEditLoadout = nil
+                    editorLoadout = loadout
+                }
+            }) { item in
                 PlayableDetailView(item: item, library: library,
                                    onPlay: play,
-                                   onEdit: { editorLoadout = $0 },
+                                   onEdit: { pendingEditLoadout = $0 },
                                    onChanged: refresh)
             }
             .alert(errorAlert?.title ?? "", isPresented: Binding(

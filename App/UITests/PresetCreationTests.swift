@@ -23,6 +23,7 @@ final class PresetCreationTests: XCTestCase {
     @MainActor
     func testCreatingPresetClosesSheetAndShowsTileOnPlay() {
         let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launch()
 
         app.buttons["newLoadoutButton"].tap()
