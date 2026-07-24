@@ -19,6 +19,7 @@ struct PresetCreationFlow: View {
 
     @State private var baseGames: [WADFile] = []
     @State private var path: WADFile?
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
@@ -28,7 +29,12 @@ struct PresetCreationFlow: View {
             }
             .navigationTitle("New Preset")
             .navigationDestination(item: $path) { base in
-                LoadoutEditorView(library: library, existing: nil, seedIWAD: base)
+                // `onComplete: { dismiss() }` closes the whole sheet (this
+                // view's own dismiss, since this is the sheet's root) rather
+                // than letting the editor's `dismiss()` merely pop back to
+                // this picker -- see `LoadoutEditorView.onComplete`.
+                LoadoutEditorView(library: library, existing: nil, seedIWAD: base,
+                                   onComplete: { dismiss() })
             }
             .onAppear {
                 baseGames = (try? library.baseGames()) ?? []

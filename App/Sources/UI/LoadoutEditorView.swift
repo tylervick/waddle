@@ -6,12 +6,23 @@ struct LoadoutEditorView: View {
     /// Base game to pre-seed a *new* loadout with (from `PresetCreationFlow`);
     /// ignored when editing an `existing` loadout.
     let seedIWAD: WADFile?
+    /// Called instead of `dismiss()` on Save/Cancel when set. `PresetCreationFlow`
+    /// pushes this view as a `.navigationDestination` rather than presenting it
+    /// as a sheet's direct root, so this view's own `dismiss()` only pops back
+    /// to the base-game picker -- it does not close the enclosing sheet. When
+    /// set, `onComplete` is the outer flow's `dismiss()` instead, closing the
+    /// whole sheet so `PlayView`'s `.sheet(..., onDismiss: refresh)` fires.
+    /// `nil` when editing an existing loadout, where this view IS the sheet's
+    /// direct root and its own `dismiss()` is already correct.
+    var onComplete: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
 
-    init(library: LibraryService, existing: Loadout?, seedIWAD: WADFile? = nil) {
+    init(library: LibraryService, existing: Loadout?, seedIWAD: WADFile? = nil,
+         onComplete: (() -> Void)? = nil) {
         self.library = library
         self.existing = existing
         self.seedIWAD = seedIWAD
+        self.onComplete = onComplete
     }
 
     @State private var name = ""
@@ -89,7 +100,7 @@ struct LoadoutEditorView: View {
                         .accessibilityIdentifier("saveLoadoutButton")
                 }
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") { complete() }
                 }
             }
             .environment(\.editMode, .constant(.active))
@@ -141,6 +152,17 @@ struct LoadoutEditorView: View {
             loadout?.complevel = complevel
             try? library.saveChanges()
         }
-        dismiss()
+        complete()
+    }
+
+    /// Closes this view: via `onComplete` when set (pushed-destination case,
+    /// see its doc comment), otherwise via this view's own `dismiss()` (the
+    /// direct-sheet-root case).
+    private func complete() {
+        if let onComplete {
+            onComplete()
+        } else {
+            dismiss()
+        }
     }
 }
