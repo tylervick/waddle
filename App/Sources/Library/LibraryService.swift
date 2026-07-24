@@ -36,10 +36,22 @@ final class LibraryService {
 
     /// One-time migration: earlier builds auto-created a Loadout per bundled
     /// Freedoom phase so the base game could launch. Base games are now
-    /// directly playable, so these phantom loadouts are removed; any saves they
-    /// accumulated migrate to the base game's own saves key (its WADFile.id),
-    /// so on-device progress survives. User-authored presets are never touched.
-    func reconcileBundledBaseGameLoadouts() throws {
+    /// directly playable, so these phantom loadouts were removed once; any
+    /// saves they accumulated migrated to the base game's own saves key (its
+    /// WADFile.id), so on-device progress survives. User-authored presets are
+    /// never touched.
+    ///
+    /// Guarded by a persisted flag so this runs exactly once per install: the
+    /// one-door preset flow now auto-names a modless Freedoom preset exactly
+    /// "Freedoom Phase 1"/"Freedoom Phase 2", which is indistinguishable from
+    /// the legacy phantom shape (no PWAD/DEH, bundled IWAD) this function
+    /// removes. Without the guard, a user's legitimate preset created after
+    /// this migration first ran would be silently deleted on a later launch.
+    /// The flag is set only after the migration's work is saved, so a
+    /// mid-migration crash safely re-runs it next launch.
+    func reconcileBundledBaseGameLoadouts(defaults: UserDefaults = .standard) throws {
+        let flagKey = "didReconcileBundledBaseGameLoadouts"
+        guard !defaults.bool(forKey: flagKey) else { return }
         let seededTitles: Set<String> = ["Freedoom Phase 1", "Freedoom Phase 2"]
         for loadout in try context.fetch(FetchDescriptor<Loadout>())
         where loadout.pwadIDs.isEmpty && loadout.dehIDs.isEmpty
@@ -49,6 +61,7 @@ final class LibraryService {
             context.delete(loadout)
         }
         try context.save()
+        defaults.set(true, forKey: flagKey)
     }
 
     private func migrateSaves(fromKey old: UUID, toKey new: UUID) {
@@ -102,21 +115,6 @@ final class LibraryService {
         var descriptor = FetchDescriptor<WADFile>(predicate: #Predicate { $0.sha1 == sha1 })
         descriptor.fetchLimit = 1
         return try context.fetch(descriptor).first
-    }
-
-    /// Best-guess IWAD for a PWAD (spec §4 "New loadout with [detected IWAD]"):
-    /// a user-imported IWAD of the same family wins; bundled Freedoom is the
-    /// always-available fallback (doom1 -> phase 1, everything else -> phase 2).
-    func suggestedIWAD(for pwad: WADFile) throws -> WADFile? {
-        let iwads = try allWADs().filter { $0.kindRaw == WADKind.iwad.rawValue }
-        if let match = iwads.first(where: {
-            !$0.isBundled && $0.gameFamilyRaw == pwad.gameFamilyRaw
-        }) {
-            return match
-        }
-        let fallback = pwad.gameFamilyRaw == GameFamily.doom1.rawValue
-            ? "freedoom1.wad" : "freedoom2.wad"
-        return iwads.first { $0.isBundled && $0.filename == fallback }
     }
 
     private func wadByFilename(_ filename: String, bundled: Bool) throws -> WADFile? {

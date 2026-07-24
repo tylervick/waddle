@@ -55,7 +55,9 @@ final class LibraryServiceTests: XCTestCase {
         try FileManager.default.createDirectory(at: oldDir, withIntermediateDirectories: true)
         try Data("save".utf8).write(to: oldDir.appendingPathComponent("slot.dsg"))
 
-        try service.reconcileBundledBaseGameLoadouts()
+        // Fresh, empty UserDefaults so the one-time guard's flag starts unset.
+        let d = UserDefaults(suiteName: "reconcile-\(UUID().uuidString)")!
+        try service.reconcileBundledBaseGameLoadouts(defaults: d)
 
         XCTAssertTrue(try service.allLoadouts().isEmpty, "phantom loadout not removed")
         let newDir = LibraryService.savesDirectory(forLoadoutID: base.id)
@@ -63,12 +65,23 @@ final class LibraryServiceTests: XCTestCase {
             FileManager.default.fileExists(atPath: newDir.appendingPathComponent("slot.dsg").path),
             "saves not migrated to base-game key")
         try? FileManager.default.removeItem(at: newDir)
+
+        // A second call with the same defaults is a no-op: the flag is set,
+        // and re-creating the phantom shape (name only, no isBundled tie yet)
+        // would otherwise be silently swept away by a later launch.
+        let again = try service.createLoadout(name: "Freedoom Phase 1",
+                                              iwadID: base.id, pwadIDs: [], dehIDs: [])
+        try service.reconcileBundledBaseGameLoadouts(defaults: d)
+        XCTAssertEqual(try service.allLoadouts().map(\.name), ["Freedoom Phase 1"],
+                       "second call should be a no-op once the flag is set")
+        try service.deleteLoadout(again, deleteSaves: false)
     }
 
     func testReconcileLeavesUserPresetsUntouched() throws {
         let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i", kind: WADKind.iwad.rawValue, family: "doom2")
         _ = try service.createLoadout(name: "My Stack", iwadID: iwad.id, pwadIDs: [], dehIDs: [])
-        try service.reconcileBundledBaseGameLoadouts()
+        let d = UserDefaults(suiteName: "reconcile-\(UUID().uuidString)")!
+        try service.reconcileBundledBaseGameLoadouts(defaults: d)
         XCTAssertEqual(try service.allLoadouts().map(\.name), ["My Stack"])
     }
 
