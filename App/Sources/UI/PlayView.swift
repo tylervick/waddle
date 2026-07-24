@@ -68,9 +68,10 @@ struct PlayView: View {
                 LoadoutEditorView(library: library, existing: loadout)
             }
             .sheet(item: $detailItem) { item in
-                // Placeholder -- Task 5 replaces this with the unified
-                // PlayableDetailView.
-                Text(item.title)
+                PlayableDetailView(item: item, library: library,
+                                   onPlay: play,
+                                   onEdit: { editorLoadout = $0 },
+                                   onChanged: refresh)
             }
             .alert(errorAlert?.title ?? "", isPresented: Binding(
                 get: { errorAlert != nil }, set: { if !$0 { errorAlert = nil } }

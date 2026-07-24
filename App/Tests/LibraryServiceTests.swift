@@ -115,6 +115,29 @@ final class LibraryServiceTests: XCTestCase {
                        TouchControlScheme.modern.rawValue)
     }
 
+    func testSetSchemeOverrideOnBaseGameAndPreset() throws {
+        let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i", kind: WADKind.iwad.rawValue, family: "doom2")
+        let preset = try service.createLoadout(name: "P", iwadID: iwad.id, pwadIDs: [], dehIDs: [])
+        try service.setSchemeOverride(TouchControlScheme.classic.rawValue, forBaseGame: iwad)
+        try service.setSchemeOverride(TouchControlScheme.modern.rawValue, forPreset: preset)
+        XCTAssertEqual(try service.wad(id: iwad.id)?.schemeOverrideRaw, TouchControlScheme.classic.rawValue)
+        XCTAssertEqual(try service.allLoadouts().first?.schemeOverrideRaw, TouchControlScheme.modern.rawValue)
+        try service.setSchemeOverride(nil, forBaseGame: iwad)
+        XCTAssertNil(try service.wad(id: iwad.id)?.schemeOverrideRaw)
+    }
+
+    func testSaveSlotsListsFilesNewestFirst() throws {
+        let key = UUID()
+        let dir = LibraryService.savesDirectory(forLoadoutID: key)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let a = dir.appendingPathComponent("a.dsg"); let b = dir.appendingPathComponent("b.dsg")
+        try Data().write(to: a); try Data().write(to: b)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 100)], ofItemAtPath: a.path)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 200)], ofItemAtPath: b.path)
+        XCTAssertEqual(service.saveSlots(forKey: key).map(\.id), ["b.dsg", "a.dsg"])
+        try? FileManager.default.removeItem(at: dir)
+    }
+
     func testPresetNameSuggestion() {
         XCTAssertEqual(PresetName.suggested(base: "Doom II", pwads: []), "Doom II")
         XCTAssertEqual(PresetName.suggested(base: "Doom II", pwads: ["Sunlust"]), "Doom II + Sunlust")

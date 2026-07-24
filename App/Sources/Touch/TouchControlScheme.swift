@@ -63,6 +63,15 @@ enum TouchControlScheme: String, CaseIterable {
         return current(defaults: defaults)
     }
 
+    /// Human-readable label for menus/pickers (`.classic` -> "Classic",
+    /// `.modern` -> "Modern").
+    var displayLabel: String {
+        switch self {
+        case .classic: return "Classic"
+        case .modern: return "Modern"
+        }
+    }
+
     /// Whether this scheme uses a separate right-side drag-to-turn gesture
     /// (and therefore draws turn-region stick visuals). `classic` routes
     /// turning through the movement stick instead, so the right side is

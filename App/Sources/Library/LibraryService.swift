@@ -173,6 +173,56 @@ final class LibraryService {
         try context.save()
     }
 
+    /// Sets (or clears, with `nil`) a base game's per-item touch-scheme
+    /// override. `PlayableDetailView`'s Controls picker writes through here
+    /// for a `.baseGame` item.
+    func setSchemeOverride(_ raw: String?, forBaseGame wad: WADFile) throws {
+        wad.schemeOverrideRaw = raw
+        try saveChanges()
+    }
+
+    /// Sets (or clears, with `nil`) a preset's per-item touch-scheme
+    /// override. `PlayableDetailView`'s Controls picker writes through here
+    /// for a `.preset` item.
+    func setSchemeOverride(_ raw: String?, forPreset loadout: Loadout) throws {
+        loadout.schemeOverrideRaw = raw
+        try saveChanges()
+    }
+
+    // MARK: Saves
+
+    /// A single visible save file in a playable item's saves directory (see
+    /// `savesDirectory(forLoadoutID:)`); `id` is the filename.
+    struct SaveSlot: Identifiable, Equatable {
+        let id: String
+        let modified: Date
+    }
+
+    /// Lists the save files for a playable item's saves key (base game ->
+    /// `wad.id`, preset -> `loadout.id`), newest-modified first. Empty (not
+    /// throwing) if the directory is missing or unreadable -- a brand new
+    /// item simply has no saves yet.
+    func saveSlots(forKey id: UUID) -> [SaveSlot] {
+        let dir = Self.savesDirectory(forLoadoutID: id)
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]) else { return [] }
+        return files
+            .compactMap { url -> SaveSlot? in
+                guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
+                      let modified = values.contentModificationDate else { return nil }
+                return SaveSlot(id: url.lastPathComponent, modified: modified)
+            }
+            .sorted { $0.modified > $1.modified }
+    }
+
+    /// Deletes one save file for a playable item's saves key. Best-effort --
+    /// a missing file is not an error.
+    func deleteSave(_ slot: SaveSlot, forKey id: UUID) {
+        try? FileManager.default.removeItem(
+            at: Self.savesDirectory(forLoadoutID: id).appendingPathComponent(slot.id))
+    }
+
     // MARK: Paths
 
     func fileURL(for wad: WADFile) -> URL {
