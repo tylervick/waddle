@@ -13,11 +13,14 @@ paste; `docs/app-store/screenshots/` holds the images;
       (Tyler Vick). App Store distribution requires the paid program — a
       free "personal team" can device-sign but cannot create App Store
       provisioning or upload builds.
-- [ ] **Xcode signed in** with the developer Apple ID (Xcode → Settings →
-      Accounts). As of 2026-07-18 the export step failed with
-      `DVTDeveloperAccountManager: Failed to load credentials for
-      kagi@tylervick.com ... missing Xcode-Token` — re-authenticate that
-      account (or remove/re-add it) before exporting.
+- [ ] **Xcode signed in** with the developer Apple ID **tylerjvick@gmail.com**
+      (Xcode → Settings → Accounts) — this is the Apple ID that holds the
+      Developer Program membership for team `352UZEKYPP`. An earlier attempt
+      signed in as the wrong account (`kagi@tylervick.com`) and the export
+      failed with `DVTDeveloperAccountManager: Failed to load credentials …
+      missing Xcode-Token`. Make sure tylerjvick@gmail.com is added and
+      shows team 352UZEKYPP with an Apple Distribution capability; remove
+      the stale kagi@tylervick.com account if it lingers.
 - [ ] **Repo public** (GPL compliance + the support/privacy URLs below
       must resolve): `gh repo edit tylervick/waddle --visibility public
       --accept-visibility-change-consequences`. Do this BEFORE submitting

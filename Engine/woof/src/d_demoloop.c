@@ -72,6 +72,20 @@ static demoloop_entry_t demoloop_commercial[] = {
 demoloop_t demoloop = NULL;
 int        demoloop_count = 0;
 
+#ifdef WOOF_IOS
+// iOS carries D_DoomMain (and thus D_SetupDemoLoop) across multiple in-process
+// play sessions -- WoofIOS_Run re-runs it once per session (see woof_ios.c /
+// WOOF_UPSTREAM.md), whereas upstream Woof runs it once per process. The two
+// globals above therefore outlive a session and are re-read by the next one.
+// `demoloop` is a static default array on the common path (D_GetDefaultDemoLoop)
+// and a heap m_array only when a DEMOLOOP lump was parsed; this flag tracks
+// which, so the per-session reset in D_SetupDemoLoop only array_free()s a heap
+// array and never a static default (whose m_array header would land before the
+// static array -- an instant SIGABRT / "pointer being freed was not allocated"
+// on session 2, which is exactly the crash this guards against).
+static boolean demoloop_dynamic = false;
+#endif
+
 static void D_ParseOutroWipe(json_t *json, demoloop_entry_t *entry)
 {
     entry->outro_wipe = JS_GetIntegerValue(json, "outrowipe");
@@ -162,6 +176,12 @@ static boolean D_ParseDemoLoopEntry(json_t *json)
     }
 
     array_push(demoloop, entry);
+#ifdef WOOF_IOS
+    // demoloop is now a heap m_array; mark it so D_SetupDemoLoop's per-session
+    // reset frees it (and only it) next time. Cleared again at every
+    // array_free(demoloop) below so a static default never inherits this flag.
+    demoloop_dynamic = true;
+#endif
     return true;
 }
 
@@ -199,6 +219,9 @@ static void D_ParseDemoLoop(void)
         if (!D_ParseDemoLoopEntry(entry))
         {
             array_free(demoloop);
+#ifdef WOOF_IOS
+            demoloop_dynamic = false;
+#endif
             JS_Close("DEMOLOOP");
             return;
         }
@@ -280,6 +303,9 @@ static void D_CheckPrimaryLumps(void)
         {
             I_Printf(VB_WARNING, "DEMOLOOP: invalid primarylump");
             array_free(demoloop);
+#ifdef WOOF_IOS
+            demoloop_dynamic = false;
+#endif
             break;
         }
     }
@@ -287,6 +313,21 @@ static void D_CheckPrimaryLumps(void)
 
 void D_SetupDemoLoop(void)
 {
+#ifdef WOOF_IOS
+    // Reset the file-scope demoloop state before each in-process session (see
+    // the demoloop_dynamic comment above). Only free it when it is a heap
+    // m_array; a static default array from a prior session must never be
+    // array_free()d. array_free() already NULLs demoloop when it fires; the
+    // unconditional assignments below cover the static-default case too.
+    if (demoloop_dynamic)
+    {
+        array_free(demoloop);
+    }
+    demoloop = NULL;
+    demoloop_count = 0;
+    demoloop_dynamic = false;
+#endif
+
     D_ParseDemoLoop();
 
     if (demoloop)
