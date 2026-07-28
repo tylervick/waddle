@@ -30,7 +30,7 @@ final class RealWADTests: XCTestCase {
         return app
     }
 
-    /// Waits for `name` to show up in the Library tab's WAD list.
+    /// Waits for `filename` to show up as a row in the Library tab.
     ///
     /// Async adoption (Plan 3 Task 7) means a provisioned loose WAD may not
     /// be registered into the library for a few seconds after launch (the
@@ -45,7 +45,15 @@ final class RealWADTests: XCTestCase {
     /// poll there instead — then open a *fresh* "New Loadout" sheet only
     /// once the target WAD is confirmed present, so its first render
     /// already reflects it.
-    private func waitForWADAvailable(app: XCUIApplication, name: String,
+    ///
+    /// Post grouped-Library rework, each row is a single combined
+    /// accessibility element identified by `libraryRow-<on-disk filename>`
+    /// (not a standalone staticText keyed by display name), and its
+    /// underlying XCUIElementType varies (cell vs. other) depending on how
+    /// the List renders sectioned rows — so this matches by identifier
+    /// across `.any` element type rather than assuming a specific type or
+    /// querying `staticTexts`.
+    private func waitForWADAvailable(app: XCUIApplication, filename: String,
                                      timeout: TimeInterval = 90,
                                      file: StaticString = #filePath, line: UInt = #line) {
         let libraryTab = app.tabBars.buttons["Library"]
@@ -53,26 +61,37 @@ final class RealWADTests: XCTestCase {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
             libraryTab.tap()
-            if app.staticTexts[name].waitForExistence(timeout: 2) {
+            let row = app.descendants(matching: .any)
+                .matching(identifier: "libraryRow-\(filename)").firstMatch
+            if row.waitForExistence(timeout: 2) {
                 playTab.tap()
                 return
             }
             playTab.tap()
         } while Date() < deadline
-        XCTFail("WAD '\(name)' never appeared in the Library tab (async adoption stalled?)",
+        XCTFail("WAD '\(filename)' never appeared in the Library tab (async adoption stalled?)",
                 file: file, line: line)
     }
 
     /// Clears any existing text in `field` (e.g. LoadoutEditorView's
     /// auto-generated name) before typing `text`.
     /// Creates (if needed) and plays a loadout; asserts session length.
+    ///
+    /// `iwad`/`pwad` are WAD *display names* (they address
+    /// `createPresetBase-<displayName>`/`addPWADButton-<displayName>`
+    /// below); `iwadFilename`/`pwadFilename` are the corresponding on-disk
+    /// filenames the fixtures are provisioned under (see
+    /// Scripts/provision-test-wads.sh) and are what the Library tab's rows
+    /// are keyed by post grouped-Library rework — pass them whenever the
+    /// two differ (i.e. whenever a `waitForWADAvailable` wait is needed).
     private func runLoadout(app: XCUIApplication, name: String, iwad: String,
-                            pwad: String?, expectFullSession: Bool,
+                            pwad: String?, pwadFilename: String? = nil,
+                            iwadFilename: String? = nil, expectFullSession: Bool,
                             file: StaticString = #filePath, line: UInt = #line) {
         let tile = app.buttons["loadout-\(name)"]
         if !tile.exists {
             if let pwad {
-                waitForWADAvailable(app: app, name: pwad, file: file, line: line)
+                waitForWADAvailable(app: app, filename: pwadFilename ?? pwad, file: file, line: line)
             }
             if !iwad.hasPrefix("Freedoom") {
                 // Bundled Freedoom IWADs are registered synchronously at
@@ -80,7 +99,7 @@ final class RealWADTests: XCTestCase {
                 // provisioned "badiwad" fixture) is a loose file subject to
                 // the same async adoption race as PWADs above — wait for it
                 // too, or the picker tap below can race the hash/copy.
-                waitForWADAvailable(app: app, name: iwad, file: file, line: line)
+                waitForWADAvailable(app: app, filename: iwadFilename ?? iwad, file: file, line: line)
             }
             // Plan B Task 4: creation is one door now -- newLoadoutButton
             // opens a base-game picker (PresetCreationFlow), and picking a
@@ -161,21 +180,21 @@ final class RealWADTests: XCTestCase {
     func testVanillaScytheOnFreedoom2() {
         let app = launchApp()
         runLoadout(app: app, name: "Scythe", iwad: "Freedoom Phase 2",
-                   pwad: "SCYTHE", expectFullSession: true)
+                   pwad: "SCYTHE", pwadFilename: "SCYTHE.WAD", expectFullSession: true)
     }
 
     @MainActor
     func testBoomSunlustOnFreedoom2() {
         let app = launchApp()
         runLoadout(app: app, name: "Sunlust", iwad: "Freedoom Phase 2",
-                   pwad: "sunlust", expectFullSession: true)
+                   pwad: "sunlust", pwadFilename: "sunlust.wad", expectFullSession: true)
     }
 
     @MainActor
     func testMBF21EviternityIIOnFreedoom2() {
         let app = launchApp()
         runLoadout(app: app, name: "Eviternity II", iwad: "Freedoom Phase 2",
-                   pwad: "Eviternity II", expectFullSession: true)
+                   pwad: "Eviternity II", pwadFilename: "Eviternity II.wad", expectFullSession: true)
     }
 
     /// Negative: an unrecognized/invalid IWAD (zero Doom-recognizable
@@ -205,7 +224,7 @@ final class RealWADTests: XCTestCase {
     @MainActor
     func testUnrecognizedIWADFailsSoft() {
         let app = launchApp()
-        runLoadout(app: app, name: "BadIWAD", iwad: "badiwad",
-                   pwad: nil, expectFullSession: false)
+        runLoadout(app: app, name: "BadIWAD", iwad: "badiwad", pwad: nil,
+                   iwadFilename: "badiwad.wad", expectFullSession: false)
     }
 }
