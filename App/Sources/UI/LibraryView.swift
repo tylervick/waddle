@@ -5,25 +5,48 @@ struct LibraryView: View {
     let library: LibraryService
     let importer: ImportService
 
-    @State private var wads: [WADFile] = []
+    @Environment(\.openURL) private var openURL
+    @State private var groups: [LibraryGroup] = []
     @State private var showImporter = false
     @State private var lastOutcome: ImportOutcome?
     @State private var deleteBlocked: [String] = []
 
+    /// The Files app opens container paths handed to it under its own URL
+    /// scheme; only file URLs have a Files-app location.
+    static func filesAppURL(for fileURL: URL) -> URL? {
+        guard fileURL.isFileURL,
+              var components = URLComponents(url: fileURL, resolvingAgainstBaseURL: false)
+        else { return nil }
+        components.scheme = "shareddocuments"
+        return components.url
+    }
+
     var body: some View {
         NavigationStack {
             List {
-                ForEach(wads, id: \.id) { wad in
-                    row(for: wad)
+                ForEach(groups) { group in
+                    Section {
+                        ForEach(group.wads, id: \.id) { wad in
+                            row(for: wad)
+                        }
+                        .onDelete { offsets in
+                            for index in offsets { delete(group.wads[index]) }
+                        }
+                    } header: {
+                        Text(group.title)
+                    } footer: {
+                        if group.kind == .deh {
+                            Text("Patches modify a base game and aren't playable on their own — add them to a preset's Contents.")
+                        }
+                    }
                 }
-                .onDelete(perform: delete)
             }
             .navigationTitle("Library")
             .toolbar {
                 Button {
                     showImporter = true
                 } label: {
-                    Label("Import", systemImage: "square.and.arrow.down")
+                    Label("Import", systemImage: "plus")
                 }
                 .accessibilityIdentifier("importButton")
             }
@@ -42,10 +65,10 @@ struct LibraryView: View {
             } message: { outcome in
                 Text(summary(of: outcome))
             }
-            .alert("WAD in use", isPresented: deleteBlockedBinding) {
+            .alert("File in use", isPresented: deleteBlockedBinding) {
                 Button("OK") { deleteBlocked = [] }
             } message: {
-                Text("Used by: \(deleteBlocked.joined(separator: ", ")). Remove it from those loadouts first.")
+                Text("Used by: \(deleteBlocked.joined(separator: ", ")). Remove it from those presets first.")
             }
             .onAppear(perform: refresh)
             .onReceive(NotificationCenter.default.publisher(for: .libraryDidChange)) { _ in refresh() }
@@ -53,19 +76,50 @@ struct LibraryView: View {
     }
 
     private func row(for wad: WADFile) -> some View {
-        HStack {
-            VStack(alignment: .leading) {
-                Text(wad.displayName)
-                Text(wad.isBundled ? "Bundled" : wad.filename)
-                    .font(.caption).foregroundStyle(.secondary)
+        let status = library.fileStatus(for: wad)
+        let size = library.fileSize(for: wad)
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(wad.filename)
+            HStack(spacing: 4) {
+                if let size {
+                    Text(size, format: .byteCount(style: .file))
+                    Text("·")
+                }
+                Text(statusLabel(status))
+                    .foregroundStyle(status == .missing ? AnyShapeStyle(.red)
+                                                        : AnyShapeStyle(.secondary))
             }
-            Spacer()
-            Text(wad.kindRaw)
-                .font(.caption.bold())
-                .padding(4)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("libraryRow-\(wad.filename)")
         .deleteDisabled(wad.isBundled)
+        .contextMenu {
+            if status == .imported,
+               let url = Self.filesAppURL(for: library.fileURL(for: wad)) {
+                Button {
+                    openURL(url)
+                } label: {
+                    Label("Show in Files", systemImage: "folder")
+                }
+            }
+            if !wad.isBundled {
+                Button(role: .destructive) {
+                    delete(wad)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        }
+    }
+
+    private func statusLabel(_ status: LibraryFileStatus) -> String {
+        switch status {
+        case .bundled: return "Bundled"
+        case .imported: return "Imported"
+        case .missing: return "Missing"
+        }
     }
 
     private var importTypes: [UTType] {
@@ -92,12 +146,6 @@ struct LibraryView: View {
         return lines.isEmpty ? "Nothing imported." : lines.joined(separator: "\n")
     }
 
-    private func delete(at offsets: IndexSet) {
-        for index in offsets {
-            delete(wads[index])
-        }
-    }
-
     private func delete(_ wad: WADFile) {
         do {
             try library.deleteWAD(wad, force: false)
@@ -108,6 +156,6 @@ struct LibraryView: View {
     }
 
     private func refresh() {
-        wads = (try? library.allWADs()) ?? []
+        groups = (try? library.libraryGroups()) ?? []
     }
 }
