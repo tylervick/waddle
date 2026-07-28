@@ -34,6 +34,10 @@ enum DoomGraphics {
 
         for x in 0..<width {
             var o = u32(8 + x * 4)                                    // column data offset
+            // A column must begin after the header + column-offset table;
+            // anything earlier is malformed (would decode header/table bytes as
+            // posts) -- reject so the caller falls back to generated art.
+            guard o >= 8 + width * 4 else { return nil }
             while true {
                 guard let topdelta = u8(o) else { return nil }
                 if topdelta == 0xFF { break }

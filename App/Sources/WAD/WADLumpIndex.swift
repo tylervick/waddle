@@ -24,6 +24,10 @@ struct WADLumpIndex {
             let e = base + dirOffset + i * 16
             let offset = Int(Self.i32(data, at: e))
             let size = Int(Self.i32(data, at: e + 4))
+            // A corrupt WAD can store negative filepos/size; skip them so they
+            // never reach `UInt64(offset)` (which traps) or a negative read
+            // count in `lumpData`.
+            guard offset >= 0, size >= 0 else { continue }
             let nameBytes = data[(e + 8)..<(e + 16)].prefix { $0 != 0 }
             entries.append(Entry(name: String(decoding: nameBytes, as: UTF8.self).uppercased(),
                                  offset: offset, size: size))

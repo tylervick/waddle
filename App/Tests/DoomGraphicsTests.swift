@@ -39,4 +39,13 @@ final class DoomGraphicsTests: XCTestCase {
     func testRejectsBogusPicture() {
         XCTAssertNil(DoomGraphics.decodePicture(Data([0xFF, 0xFF]), palette: [UInt8](repeating: 0, count: 1024)))
     }
+
+    func testRejectsColumnOffsetInsideHeaderTable() {
+        // width=1,height=1; the single column offset points at 0 (into the
+        // header), which is malformed -> nil, so the caller uses generated art.
+        var lump = Data([0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00])
+        lump.append(Data([0x00, 0x00, 0x00, 0x00]))   // columnofs[0] = 0 (< 8 + 1*4)
+        lump.append(Data([0x00, 0x01, 0x00, 0x05, 0x00, 0xFF]))
+        XCTAssertNil(DoomGraphics.decodePicture(lump, palette: [UInt8](repeating: 0, count: 1024)))
+    }
 }

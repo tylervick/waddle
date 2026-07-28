@@ -70,6 +70,11 @@ struct TitleArtView: View {
             }
         }
         .task(id: item.id) {
+            // Recycled tiles reuse this view for a new item; drop the previous
+            // item's art immediately so it never lingers (or stays forever when
+            // the new item has no candidates) -- fall back to generated art
+            // until the new load resolves.
+            image = nil
             guard let (urls, cacheKey) = WADArtwork.candidates(for: item, library: library) else { return }
             let loaded = await WADArtwork.titleImage(candidates: urls, cacheKey: cacheKey)
             // `.task(id:)` cancels the previous task when `item.id` changes,

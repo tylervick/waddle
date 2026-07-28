@@ -47,4 +47,16 @@ final class WADLumpIndexTests: XCTestCase {
         var d = Data("XXXX".utf8); d.append(Data(repeating: 0, count: 8))
         XCTAssertThrowsError(try WADLumpIndex(wad: d))
     }
+
+    func testSkipsEntriesWithNegativeOffsetOrSize() throws {
+        // A corrupt WAD stores filepos = -1 for its one entry. Parsing must not
+        // trap, and the malformed entry must be skipped (never surfaced).
+        func i32(_ v: Int32) -> [UInt8] { withUnsafeBytes(of: v.littleEndian) { Array($0) } }
+        var d: [UInt8] = Array("IWAD".utf8) + i32(1) + i32(12)   // numLumps=1, dirOffset=12
+        d += i32(-1) + i32(3)                                    // filepos=-1, size=3
+        var name = Array("BAD".utf8); name += Array(repeating: 0, count: 8 - name.count)
+        d += name
+        let index = try WADLumpIndex(wad: Data(d))               // must not crash
+        XCTAssertNil(index.offsetSize(of: "BAD"), "negative-offset entry must be skipped")
+    }
 }

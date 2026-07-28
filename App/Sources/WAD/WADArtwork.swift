@@ -96,13 +96,15 @@ enum WADArtwork {
             // looking at a half-written file.
             try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
             let tmpURL = cacheDirectory.appendingPathComponent("\(cacheKey).\(UUID().uuidString).tmp")
+            // Remove the temp on every exit: a lost move-into-place race (or a
+            // finalize failure) must not orphan a `.tmp` in the cache dir. A
+            // no-op after a successful move (the file is already gone).
+            defer { try? FileManager.default.removeItem(at: tmpURL) }
             if let destination = CGImageDestinationCreateWithURL(tmpURL as CFURL, UTType.png.identifier as CFString, 1, nil) {
                 CGImageDestinationAddImage(destination, image, nil)
                 if CGImageDestinationFinalize(destination) {
                     try? FileManager.default.removeItem(at: cacheURL)
                     try? FileManager.default.moveItem(at: tmpURL, to: cacheURL)
-                } else {
-                    try? FileManager.default.removeItem(at: tmpURL)
                 }
             }
 
