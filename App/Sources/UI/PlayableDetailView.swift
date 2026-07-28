@@ -71,14 +71,7 @@ struct PlayableDetailView: View {
 
     private var headerSection: some View {
         Section {
-            RoundedRectangle(cornerRadius: 12)
-                .fill(.quaternary)
-                .aspectRatio(1.6, contentMode: .fit)
-                .overlay(
-                    Image(systemName: "flame.fill")
-                        .font(.largeTitle)
-                        .foregroundStyle(.secondary)
-                )
+            TitleArtView(item: item, library: library)
             Text(item.title).font(.title2.bold())
             Button {
                 onPlay(item)

@@ -1,0 +1,155 @@
+import CoreGraphics
+import Foundation
+import ImageIO
+import UniformTypeIdentifiers
+
+/// Orchestrates TITLEPIC (+ PLAYPAL) lookup across candidate WADs into a
+/// `CGImage`, disk-caching the PNG-encoded result by a caller-supplied key so
+/// repeat lookups (e.g. library thumbnails) skip the decode entirely.
+enum WADArtwork {
+    private static let pngSignature: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
+
+    private static var cacheDirectory: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("TitleArt", isDirectory: true)
+    }
+
+    private static func cacheURL(forKey key: String) -> URL {
+        cacheDirectory.appendingPathComponent("\(key).png")
+    }
+
+    /// Removes the cached PNG for `key`, if any. Used by tests for hygiene
+    /// and available for callers that need to invalidate a stale entry.
+    static func clearCache(key: String) {
+        try? FileManager.default.removeItem(at: cacheURL(forKey: key))
+    }
+
+    /// Finds TITLEPIC in the first candidate that has it (and PLAYPAL in the
+    /// first that has it, which may be a different candidate), decodes it —
+    /// PNG lump via ImageIO, else the DOOM picture format via `DoomGraphics`
+    /// — and returns a `CGImage`, disk-caching the PNG encoding by
+    /// `cacheKey`. Never runs decode work on the caller's actor. Returns
+    /// `nil` if no candidate has TITLEPIC or it can't be decoded.
+    static func titleImage(candidates: [URL], cacheKey: String) async -> CGImage? {
+        await Task.detached(priority: .utility) {
+            let cacheURL = cacheURL(forKey: cacheKey)
+
+            // 1. Cache hit.
+            if FileManager.default.fileExists(atPath: cacheURL.path),
+               let source = CGImageSourceCreateWithURL(cacheURL as CFURL, nil),
+               let cached = CGImageSourceCreateImageAtIndex(source, 0, nil) {
+                return cached
+            }
+
+            // 2. Find lumps: first candidate with TITLEPIC, first with PLAYPAL.
+            var titlepicURL: URL?
+            var titlepicIndex: WADLumpIndex?
+            var palettepicURL: URL?
+            var paletteIndex: WADLumpIndex?
+            for url in candidates {
+                guard let index = try? WADLumpIndex.read(from: url) else { continue }
+                if titlepicIndex == nil, index.offsetSize(of: "TITLEPIC") != nil {
+                    titlepicURL = url
+                    titlepicIndex = index
+                }
+                if paletteIndex == nil, index.offsetSize(of: "PLAYPAL") != nil {
+                    palettepicURL = url
+                    paletteIndex = index
+                }
+            }
+            guard let titlepicURL, let titlepicIndex else { return nil }
+
+            // 3. Read TITLEPIC bytes.
+            guard let bytes = try? WADLumpIndex.lumpData("TITLEPIC", at: titlepicURL, index: titlepicIndex) else {
+                return nil
+            }
+
+            let image: CGImage?
+            if bytes.count >= pngSignature.count, Array(bytes.prefix(pngSignature.count)) == pngSignature {
+                // 4. PNG branch.
+                image = (CGImageSourceCreateWithData(bytes as CFData, nil)).flatMap {
+                    CGImageSourceCreateImageAtIndex($0, 0, nil)
+                }
+            } else {
+                // 5. Picture branch.
+                var palette: [UInt8]?
+                if let palettepicURL, let paletteIndex,
+                   let playpal = try? WADLumpIndex.lumpData("PLAYPAL", at: palettepicURL, index: paletteIndex) {
+                    palette = DoomGraphics.palette(from: playpal)
+                }
+                let resolvedPalette = palette ?? [UInt8](repeating: 0, count: 256 * 4)
+                guard let bitmap = DoomGraphics.decodePicture(bytes, palette: resolvedPalette) else {
+                    return nil
+                }
+                image = Self.cgImage(from: bitmap)
+            }
+            guard let image else { return nil }
+
+            // 6. Write cache (non-fatal on failure). A played base game can
+            // render simultaneously in "Recently Played" and its home
+            // section (two `TitleArtView`s, same `cacheKey`), so two
+            // detached decodes could otherwise finalize a
+            // `CGImageDestination` at the SAME path concurrently, risking a
+            // truncated PNG for whichever reader wins the race. Instead,
+            // encode to a per-call unique temp file and atomically rename it
+            // into place -- a same-directory move never leaves a reader
+            // looking at a half-written file.
+            try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+            let tmpURL = cacheDirectory.appendingPathComponent("\(cacheKey).\(UUID().uuidString).tmp")
+            // Remove the temp on every exit: a lost move-into-place race (or a
+            // finalize failure) must not orphan a `.tmp` in the cache dir. A
+            // no-op after a successful move (the file is already gone).
+            defer { try? FileManager.default.removeItem(at: tmpURL) }
+            if let destination = CGImageDestinationCreateWithURL(tmpURL as CFURL, UTType.png.identifier as CFString, 1, nil) {
+                CGImageDestinationAddImage(destination, image, nil)
+                if CGImageDestinationFinalize(destination) {
+                    try? FileManager.default.removeItem(at: cacheURL)
+                    try? FileManager.default.moveItem(at: tmpURL, to: cacheURL)
+                }
+            }
+
+            return image
+        }.value
+    }
+
+    /// Maps a `PlayableItem` to the candidate URLs (+ cache key) `titleImage`
+    /// should search: a base game is its own IWAD; a preset searches its
+    /// primary PWAD first (where TITLEPIC usually lives), falling back to the
+    /// IWAD. `nil` if the item's IWAD can't be resolved in `library` (e.g. a
+    /// preset referencing a deleted WAD).
+    @MainActor
+    static func candidates(for item: PlayableItem, library: LibraryService) -> (urls: [URL], cacheKey: String)? {
+        switch item {
+        case .baseGame(let iwad):
+            return ([library.fileURL(for: iwad)], iwad.sha1)
+        case .preset(let loadout):
+            guard let iwad = try? library.wad(id: loadout.iwadID) else { return nil }
+            guard let pwadID = loadout.pwadIDs.first,
+                  let pwad = try? library.wad(id: pwadID) else {
+                return ([library.fileURL(for: iwad)], iwad.sha1)
+            }
+            // Keyed on both SHA1s: two presets can share a first PWAD that
+            // has no TITLEPIC of its own (so art resolves from the IWAD
+            // fallback) -- if those presets differ in IWAD, keying by
+            // `pwad.sha1` alone would collide them onto one cache entry.
+            return ([library.fileURL(for: pwad), library.fileURL(for: iwad)], "\(pwad.sha1)-\(iwad.sha1)")
+        }
+    }
+
+    private static func cgImage(from bitmap: DoomGraphics.Bitmap) -> CGImage? {
+        guard let provider = CGDataProvider(data: Data(bitmap.rgba) as CFData) else { return nil }
+        return CGImage(
+            width: bitmap.width,
+            height: bitmap.height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: bitmap.width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        )
+    }
+}

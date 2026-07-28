@@ -170,7 +170,7 @@ struct PlayView: View {
         Button {
             play(item)
         } label: {
-            PlayableTileView(item: item, subtitle: subtitle(for: item))
+            PlayableTileView(item: item, subtitle: subtitle(for: item), library: library)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(canonicalID ? accessibilityID(for: item) : "recent-\(item.id)")
