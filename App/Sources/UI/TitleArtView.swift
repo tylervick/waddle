@@ -34,6 +34,7 @@ struct GeneratedArtView: View {
                 Text(monogram)
                     .font(.title.weight(.bold))
                     .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
             )
     }
 }
@@ -70,7 +71,13 @@ struct TitleArtView: View {
         }
         .task(id: item.id) {
             guard let (urls, cacheKey) = WADArtwork.candidates(for: item, library: library) else { return }
-            image = await WADArtwork.titleImage(candidates: urls, cacheKey: cacheKey)
+            let loaded = await WADArtwork.titleImage(candidates: urls, cacheKey: cacheKey)
+            // `.task(id:)` cancels the previous task when `item.id` changes,
+            // but the detached decode inside `titleImage` isn't itself
+            // cancelled -- without this guard a slow, now-stale load could
+            // still win the race and briefly flash the previous item's art.
+            guard !Task.isCancelled else { return }
+            image = loaded
         }
     }
 }

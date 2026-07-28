@@ -85,11 +85,25 @@ enum WADArtwork {
             }
             guard let image else { return nil }
 
-            // 6. Write cache (non-fatal on failure).
+            // 6. Write cache (non-fatal on failure). A played base game can
+            // render simultaneously in "Recently Played" and its home
+            // section (two `TitleArtView`s, same `cacheKey`), so two
+            // detached decodes could otherwise finalize a
+            // `CGImageDestination` at the SAME path concurrently, risking a
+            // truncated PNG for whichever reader wins the race. Instead,
+            // encode to a per-call unique temp file and atomically rename it
+            // into place -- a same-directory move never leaves a reader
+            // looking at a half-written file.
             try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
-            if let destination = CGImageDestinationCreateWithURL(cacheURL as CFURL, UTType.png.identifier as CFString, 1, nil) {
+            let tmpURL = cacheDirectory.appendingPathComponent("\(cacheKey).\(UUID().uuidString).tmp")
+            if let destination = CGImageDestinationCreateWithURL(tmpURL as CFURL, UTType.png.identifier as CFString, 1, nil) {
                 CGImageDestinationAddImage(destination, image, nil)
-                CGImageDestinationFinalize(destination)
+                if CGImageDestinationFinalize(destination) {
+                    try? FileManager.default.removeItem(at: cacheURL)
+                    try? FileManager.default.moveItem(at: tmpURL, to: cacheURL)
+                } else {
+                    try? FileManager.default.removeItem(at: tmpURL)
+                }
             }
 
             return image
@@ -112,7 +126,11 @@ enum WADArtwork {
                   let pwad = try? library.wad(id: pwadID) else {
                 return ([library.fileURL(for: iwad)], iwad.sha1)
             }
-            return ([library.fileURL(for: pwad), library.fileURL(for: iwad)], pwad.sha1)
+            // Keyed on both SHA1s: two presets can share a first PWAD that
+            // has no TITLEPIC of its own (so art resolves from the IWAD
+            // fallback) -- if those presets differ in IWAD, keying by
+            // `pwad.sha1` alone would collide them onto one cache entry.
+            return ([library.fileURL(for: pwad), library.fileURL(for: iwad)], "\(pwad.sha1)-\(iwad.sha1)")
         }
     }
 

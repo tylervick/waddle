@@ -1,4 +1,7 @@
+import CoreGraphics
+import ImageIO
 import SwiftData
+import UniformTypeIdentifiers
 import XCTest
 @testable import WADdle
 
@@ -73,5 +76,57 @@ final class WADArtworkTests: XCTestCase {
         let c = WADArtwork.candidates(for: .baseGame(iwad), library: service)
         XCTAssertEqual(c?.urls, [service.fileURL(for: iwad)])
         XCTAssertEqual(c?.cacheKey, "iwadsha")
+    }
+
+    // Two presets sharing a first PWAD with no TITLEPIC of its own (so art
+    // falls back to the IWAD) must not collide on one cache entry when their
+    // IWADs differ -- the cache key needs both SHA1s, not just the PWAD's.
+    @MainActor
+    func testCandidatesForPresetUsesCompositeCacheKey() throws {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: WADFile.self, Loadout.self, configurations: config)
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let service = LibraryService(context: ModelContext(container), store: WADStore(directory: tmp))
+        let iwad = try service.registerImported(filename: "doom2.wad", sha1: "iw",
+                                                kind: WADKind.iwad.rawValue, family: "doom2")
+        let pwad = try service.registerImported(filename: "sunlust.wad", sha1: "pw",
+                                                kind: WADKind.pwad.rawValue, family: "doom2")
+        let loadout = try service.createLoadout(name: "Sunlust", iwadID: iwad.id,
+                                                pwadIDs: [pwad.id], dehIDs: [])
+        let c = WADArtwork.candidates(for: .preset(loadout), library: service)
+        XCTAssertEqual(c?.urls, [service.fileURL(for: pwad), service.fileURL(for: iwad)])
+        XCTAssertEqual(c?.cacheKey, "pw-iw")
+    }
+
+    func testDecodesSyntheticPNGTitlepic() async throws {
+        // 1x1 CGImage, encoded to PNG bytes, used as a synthetic TITLEPIC
+        // lump -- exercises the PNG-signature decode branch (as opposed to
+        // the DOOM picture-format branch covered above).
+        let context = CGContext(
+            data: nil,
+            width: 1, height: 1,
+            bitsPerComponent: 8, bytesPerRow: 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+        let cgImage = context.makeImage()!
+
+        let pngData = NSMutableData()
+        let destination = CGImageDestinationCreateWithData(pngData, UTType.png.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(destination, cgImage, nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+
+        let wad = makeWAD([("TITLEPIC", Array(pngData as Data))])
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID()).wad")
+        try wad.write(to: url); defer { try? FileManager.default.removeItem(at: url) }
+
+        let key = "titleart-png-test-\(UUID().uuidString)"
+        let img = await WADArtwork.titleImage(candidates: [url], cacheKey: key)
+        XCTAssertNotNil(img)
+        XCTAssertEqual(img?.width, 1)
+        WADArtwork.clearCache(key: key)
     }
 }
