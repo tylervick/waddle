@@ -2,7 +2,7 @@ import UIKit
 import GameController
 import WoofEngine
 
-/// UserDefaults key for the Play tab's "Show Debug Info" toggle (LoadoutGridView's
+/// UserDefaults key for the Play tab's "Show Debug Info" toggle (PlayView's
 /// @AppStorage("debugHUD")): gates both the launcher's build-info footer and
 /// the in-session debug HUD this file reads at install time, below.
 let debugHUDUserDefaultsKey = "debugHUD"
@@ -25,9 +25,18 @@ final class OverlayPresenter {
     private var overlay: TouchOverlayView?
     private var pollTimer: Timer?
     private var observerTokens: [NSObjectProtocol] = []
+    /// The scheme to install with, supplied by `begin(scheme:)` — replaces the
+    /// old read-at-install of `TouchControlScheme.current()` so a per-item
+    /// override can flow in from the launch site.
+    private var installScheme: TouchControlScheme = TouchControlScheme.defaultScheme
 
-    func begin() {
+    #if DEBUG
+    var installSchemeForTesting: TouchControlScheme { installScheme }
+    #endif
+
+    func begin(scheme: TouchControlScheme) {
         end() // safety: never double-install
+        installScheme = scheme
         let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tryInstall() }
         }
@@ -58,13 +67,12 @@ final class OverlayPresenter {
 
         let window = Unmanaged<UIWindow>.fromOpaque(pointer)
             .takeUnretainedValue()
-        // Read once at install time (matches the Play tab picker's
-        // UserDefaults key); the overlay doesn't observe live changes mid-
-        // session, only picks up a new scheme on the next install. Same
-        // read-once-at-install policy for the debug HUD toggle and the
-        // Control Feel tuning sliders — mid-session slider changes apply
-        // to the next session.
-        let scheme = TouchControlScheme.current()
+        // Scheme was fixed at begin(scheme:) time -- supplied by the launch
+        // site via EngineSession.play and stored in installScheme -- not
+        // read from UserDefaults here. Same read-once-at-install policy
+        // applies to the tuning and the debug HUD toggle read below:
+        // mid-session changes apply to the next session, not this one.
+        let scheme = installScheme
         let tuning = TouchTuning.current()
         gamepad.tuning = tuning
         let debugHUDEnabled = UserDefaults.standard.bool(forKey: debugHUDUserDefaultsKey)

@@ -82,6 +82,31 @@ final class TouchControlSchemeTests: XCTestCase {
         XCTAssertEqual(mapping, TouchAxisMapping(leftX: 0, leftY: 0, rightX: 0))
     }
 
+    // MARK: Per-item effective override
+
+    func testEffectiveOverrideWinsOverGlobalDefault() {
+        withEmptyDefaults { defaults in
+            defaults.set(TouchControlScheme.classic.rawValue, forKey: TouchControlScheme.userDefaultsKey)
+            XCTAssertEqual(
+                TouchControlScheme.effective(override: TouchControlScheme.modern.rawValue, defaults: defaults),
+                .modern)
+        }
+    }
+
+    func testEffectiveNilOverrideFallsToGlobal() {
+        withEmptyDefaults { defaults in
+            defaults.set(TouchControlScheme.modern.rawValue, forKey: TouchControlScheme.userDefaultsKey)
+            XCTAssertEqual(TouchControlScheme.effective(override: nil, defaults: defaults), .modern)
+        }
+    }
+
+    func testEffectiveInvalidOverrideFallsToGlobal() {
+        withEmptyDefaults { defaults in
+            defaults.set(TouchControlScheme.classic.rawValue, forKey: TouchControlScheme.userDefaultsKey)
+            XCTAssertEqual(TouchControlScheme.effective(override: "bogus", defaults: defaults), .classic)
+        }
+    }
+
     // MARK: Helpers
 
     /// Runs `body` against a throwaway, uniquely-named UserDefaults suite,

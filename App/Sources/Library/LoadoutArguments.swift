@@ -5,29 +5,33 @@ enum LoadoutArgumentsError: Error, Equatable {
 }
 
 enum LoadoutArguments {
-    static func build(loadout: Loadout, resolve: (UUID) throws -> URL) throws -> [String] {
-        var args = ["woof", "-iwad", try resolve(loadout.iwadID).path]
-
-        if !loadout.pwadIDs.isEmpty {
+    /// Builds argv from already-resolved file URLs and an explicit saves key.
+    /// Used by the `Loadout` overload (saveID = loadout.id) and by ephemeral
+    /// base-game launches (saveID = the IWAD's WADFile.id), so each base game
+    /// keeps its own stable saves directory without a persisted Loadout.
+    static func build(iwadURL: URL, saveID: UUID, pwadURLs: [URL] = [],
+                      dehURLs: [URL] = [], complevel: String? = nil) throws -> [String] {
+        var args = ["woof", "-iwad", iwadURL.path]
+        if !pwadURLs.isEmpty {
             args.append("-file")
-            for id in loadout.pwadIDs {
-                args.append(try resolve(id).path)
-            }
+            for url in pwadURLs { args.append(url.path) }
         }
-        if !loadout.dehIDs.isEmpty {
+        if !dehURLs.isEmpty {
             args.append("-deh")
-            for id in loadout.dehIDs {
-                args.append(try resolve(id).path)
-            }
+            for url in dehURLs { args.append(url.path) }
         }
-
-        let saves = LibraryService.savesDirectory(forLoadoutID: loadout.id)
+        let saves = LibraryService.savesDirectory(forLoadoutID: saveID)
         try FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
         args += ["-save", saves.path]
-
-        if let complevel = loadout.complevel {
-            args += ["-complevel", complevel]   // vanilla|boom|mbf|mbf21 (Woof-validated)
-        }
+        if let complevel { args += ["-complevel", complevel] }   // vanilla|boom|mbf|mbf21
         return args
+    }
+
+    static func build(loadout: Loadout, resolve: (UUID) throws -> URL) throws -> [String] {
+        let iwadURL = try resolve(loadout.iwadID)
+        let pwadURLs = try loadout.pwadIDs.map { try resolve($0) }
+        let dehURLs = try loadout.dehIDs.map { try resolve($0) }
+        return try build(iwadURL: iwadURL, saveID: loadout.id,
+                         pwadURLs: pwadURLs, dehURLs: dehURLs, complevel: loadout.complevel)
     }
 }

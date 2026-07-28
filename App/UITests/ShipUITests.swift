@@ -9,7 +9,7 @@ final class ShipUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        // The gear menu trigger in LoadoutGridView's toolbar.
+        // The gear menu trigger in PlayView's toolbar.
         let menu = app.buttons["touchSchemeMenu"]
         XCTAssertTrue(menu.waitForExistence(timeout: 10))
         menu.tap()

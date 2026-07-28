@@ -46,6 +46,32 @@ enum TouchControlScheme: String, CaseIterable {
         return TouchControlScheme(rawValue: raw) ?? defaultScheme
     }
 
+    /// Resolves a playable item's optional per-item override against the
+    /// global default: a non-nil, valid override wins over the global default.
+    /// The DEBUG `WADDLE_TOUCH_SCHEME` test-seam still wins over everything
+    /// (delegating to `current`) so UITests stay deterministic regardless of
+    /// any item override.
+    static func effective(override raw: String?,
+                          defaults: UserDefaults = .standard) -> TouchControlScheme {
+        #if DEBUG
+        if let seamRaw = ProcessInfo.processInfo.environment["WADDLE_TOUCH_SCHEME"],
+           TouchControlScheme(rawValue: seamRaw) != nil {
+            return current(defaults: defaults)
+        }
+        #endif
+        if let raw, let scheme = TouchControlScheme(rawValue: raw) { return scheme }
+        return current(defaults: defaults)
+    }
+
+    /// Human-readable label for menus/pickers (`.classic` -> "Classic",
+    /// `.modern` -> "Modern").
+    var displayLabel: String {
+        switch self {
+        case .classic: return "Classic"
+        case .modern: return "Modern"
+        }
+    }
+
     /// Whether this scheme uses a separate right-side drag-to-turn gesture
     /// (and therefore draws turn-region stick visuals). `classic` routes
     /// turning through the movement stick instead, so the right side is

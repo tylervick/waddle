@@ -11,6 +11,10 @@ final class WADFile {
     var gameFamilyRaw: String
     var isBundled: Bool
     var importDate: Date
+    var lastPlayed: Date?
+    /// Optional per-item touch-scheme override (TouchControlScheme raw value);
+    /// nil = use the global default. Only meaningful for playable IWADs.
+    var schemeOverrideRaw: String?
 
     init(id: UUID = UUID(), filename: String, displayName: String, kindRaw: String,
          sha1: String, gameFamilyRaw: String, isBundled: Bool = false,
@@ -23,5 +27,7 @@ final class WADFile {
         self.gameFamilyRaw = gameFamilyRaw
         self.isBundled = isBundled
         self.importDate = importDate
+        self.lastPlayed = nil
+        self.schemeOverrideRaw = nil
     }
 }

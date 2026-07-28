@@ -15,7 +15,7 @@ enum EngineSession {
     enum ExitCode {
         /// LoadoutArguments.build threw before the engine could even start
         /// (e.g. a loadout references a WAD that's gone missing from the
-        /// library). Reported by LoadoutGridView.play(_:) in place of a
+        /// library). Reported by PlayView.play(_:) in place of a
         /// real engine exit code.
         static let argumentFailure: Int32 = -101
 
@@ -53,7 +53,8 @@ enum EngineSession {
     /// Boots the engine with a full argv (starting with "woof") and returns
     /// the engine exit code. Build argv with LoadoutArguments.
     @discardableResult
-    static func play(arguments: [String]) -> Int32 {
+    static func play(arguments: [String],
+                     scheme: TouchControlScheme = TouchControlScheme.current()) -> Int32 {
         // Defense-in-depth: never crash (ledger item). Overwrite
         // lastErrorMessage too — leaving it untouched here would pair the
         // reentrant alert with a previous session's stale error text.
@@ -88,7 +89,7 @@ enum EngineSession {
         #endif
 
         isRunning = true
-        OverlayPresenter.shared.begin()
+        OverlayPresenter.shared.begin(scheme: scheme)
         defer {
             OverlayPresenter.shared.end()
             isRunning = false
