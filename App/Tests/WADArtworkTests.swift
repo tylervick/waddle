@@ -1,3 +1,4 @@
+import SwiftData
 import XCTest
 @testable import WADdle
 
@@ -57,5 +58,20 @@ final class WADArtworkTests: XCTestCase {
         XCTAssertNotNil(img)
         XCTAssertEqual(img?.width, 320)
         WADArtwork.clearCache(key: key)
+    }
+
+    @MainActor
+    func testCandidatesForBaseGameUseIWADItself() throws {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: WADFile.self, Loadout.self, configurations: config)
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let service = LibraryService(context: ModelContext(container), store: WADStore(directory: tmp))
+        let iwad = try service.registerImported(filename: "doom2.wad", sha1: "iwadsha",
+                                                kind: WADKind.iwad.rawValue, family: "doom2")
+        let c = WADArtwork.candidates(for: .baseGame(iwad), library: service)
+        XCTAssertEqual(c?.urls, [service.fileURL(for: iwad)])
+        XCTAssertEqual(c?.cacheKey, "iwadsha")
     }
 }

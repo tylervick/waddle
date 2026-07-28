@@ -30,4 +30,6 @@ final class WADFile {
         self.lastPlayed = nil
         self.schemeOverrideRaw = nil
     }
+
+    var gameFamily: GameFamily { GameFamily(rawValue: gameFamilyRaw) ?? .unknown }
 }
