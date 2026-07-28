@@ -85,6 +85,55 @@ final class LibraryServiceTests: XCTestCase {
         XCTAssertEqual(try service.allLoadouts().map(\.name), ["My Stack"])
     }
 
+    func testReconcilePreservesAmbiguousDuplicateSeededTitles() throws {
+        // Two modless loadouts share the seeded phantom shape on the bundled
+        // IWAD. A legacy install made exactly one phantom per phase, so this is
+        // ambiguous (the user likely made one) — neither may be deleted.
+        let base = try service.registerImported(
+            filename: "freedoom1.wad", sha1: "bundled:freedoom1.wad",
+            kind: WADKind.iwad.rawValue, family: GameFamily.doom1.rawValue)
+        base.isBundled = true
+        try service.saveChanges()
+        _ = try service.createLoadout(name: "Freedoom Phase 1", iwadID: base.id, pwadIDs: [], dehIDs: [])
+        _ = try service.createLoadout(name: "Freedoom Phase 1", iwadID: base.id, pwadIDs: [], dehIDs: [])
+
+        let d = UserDefaults(suiteName: "reconcile-\(UUID().uuidString)")!
+        try service.reconcileBundledBaseGameLoadouts(defaults: d)
+
+        XCTAssertEqual(try service.allLoadouts().filter { $0.name == "Freedoom Phase 1" }.count, 2,
+                       "ambiguous duplicate titles must be preserved, not deleted")
+    }
+
+    func testReconcileMergesSavesWithoutClobberingExistingBaseGameSaves() throws {
+        let base = try service.registerImported(
+            filename: "freedoom1.wad", sha1: "bundled:freedoom1.wad",
+            kind: WADKind.iwad.rawValue, family: GameFamily.doom1.rawValue)
+        base.isBundled = true
+        try service.saveChanges()
+        let phantom = try service.createLoadout(name: "Freedoom Phase 1",
+                                                iwadID: base.id, pwadIDs: [], dehIDs: [])
+        // Legacy saves under the loadout key: a.dsg (collides) + b.dsg (new).
+        let oldDir = LibraryService.savesDirectory(forLoadoutID: phantom.id)
+        try FileManager.default.createDirectory(at: oldDir, withIntermediateDirectories: true)
+        try Data("old-a".utf8).write(to: oldDir.appendingPathComponent("a.dsg"))
+        try Data("old-b".utf8).write(to: oldDir.appendingPathComponent("b.dsg"))
+        // Base game already played: its saves dir exists with a colliding a.dsg.
+        let newDir = LibraryService.savesDirectory(forLoadoutID: base.id)
+        try FileManager.default.createDirectory(at: newDir, withIntermediateDirectories: true)
+        try Data("base-a".utf8).write(to: newDir.appendingPathComponent("a.dsg"))
+
+        let d = UserDefaults(suiteName: "reconcile-\(UUID().uuidString)")!
+        try service.reconcileBundledBaseGameLoadouts(defaults: d)
+
+        XCTAssertTrue(try service.allLoadouts().isEmpty, "lone phantom should be removed after successful migration")
+        XCTAssertEqual(try String(contentsOf: newDir.appendingPathComponent("a.dsg"), encoding: .utf8),
+                       "base-a", "existing base-game save must not be clobbered")
+        XCTAssertEqual(try String(contentsOf: newDir.appendingPathComponent("b.dsg"), encoding: .utf8),
+                       "old-b", "non-colliding legacy save must migrate in")
+        try? FileManager.default.removeItem(at: newDir)
+        try? FileManager.default.removeItem(at: oldDir)
+    }
+
     func testRegisterAndFindBySHA1() throws {
         let wad = try service.registerImported(filename: "sunlust.wad", sha1: "abc123",
                                                kind: WADKind.pwad.rawValue, family: "doom2")

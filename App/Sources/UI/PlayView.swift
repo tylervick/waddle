@@ -114,7 +114,7 @@ struct PlayView: View {
             Button {
                 showCreationFlow = true
             } label: {
-                Label("New Loadout", systemImage: "plus")
+                Label("New Preset", systemImage: "plus")
             }
             .accessibilityIdentifier("newLoadoutButton")
         }
@@ -181,11 +181,11 @@ struct PlayView: View {
             case .preset(let loadout):
                 Button("Details") { detailItem = item }
                 Button("Edit") { editorLoadout = loadout }
-                Button("Delete Loadout & Saves", role: .destructive) {
+                Button("Delete Preset & Saves", role: .destructive) {
                     try? library.deleteLoadout(loadout, deleteSaves: true)
                     refresh()
                 }
-                Button("Delete Loadout, Keep Saves", role: .destructive) {
+                Button("Delete Preset, Keep Saves", role: .destructive) {
                     try? library.deleteLoadout(loadout, deleteSaves: false)
                     refresh()
                 }

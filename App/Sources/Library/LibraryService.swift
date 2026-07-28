@@ -36,42 +36,83 @@ final class LibraryService {
 
     /// One-time migration: earlier builds auto-created a Loadout per bundled
     /// Freedoom phase so the base game could launch. Base games are now
-    /// directly playable, so these phantom loadouts were removed once; any
-    /// saves they accumulated migrated to the base game's own saves key (its
+    /// directly playable, so these phantom loadouts are removed once; any saves
+    /// they accumulated migrate to the base game's own saves key (its
     /// WADFile.id), so on-device progress survives. User-authored presets are
     /// never touched.
     ///
-    /// Guarded by a persisted flag so this runs exactly once per install: the
+    /// Guarded by a persisted flag so this runs at most once per install: the
     /// one-door preset flow now auto-names a modless Freedoom preset exactly
     /// "Freedoom Phase 1"/"Freedoom Phase 2", which is indistinguishable from
-    /// the legacy phantom shape (no PWAD/DEH, bundled IWAD) this function
-    /// removes. Without the guard, a user's legitimate preset created after
-    /// this migration first ran would be silently deleted on a later launch.
-    /// The flag is set only after the migration's work is saved, so a
-    /// mid-migration crash safely re-runs it next launch.
+    /// the legacy phantom shape (no PWAD/DEH, bundled IWAD) this removes.
+    ///
+    /// Two safeguards against destroying real user data:
+    /// - **Ambiguity:** a legacy install created *exactly one* phantom per
+    ///   phase, so only a lone match for a seeded title is treated as a
+    ///   phantom. If two+ loadouts share the shape (e.g. the user also made
+    ///   their own "Freedoom Phase 1"), none are touched.
+    /// - **Atomicity:** a loadout is deleted only after its saves migrate
+    ///   successfully; `migrateSaves` merges into an existing base-game saves
+    ///   dir without clobbering, and throws on any failure so the caller keeps
+    ///   the loadout (and retries next launch) rather than orphaning saves.
+    /// The flag is set only when every migration succeeded.
     func reconcileBundledBaseGameLoadouts(defaults: UserDefaults = .standard) throws {
         let flagKey = "didReconcileBundledBaseGameLoadouts"
         guard !defaults.bool(forKey: flagKey) else { return }
         let seededTitles: Set<String> = ["Freedoom Phase 1", "Freedoom Phase 2"]
+
+        // Candidates: modless loadouts with a seeded title on a *bundled* IWAD.
+        var phantoms: [Loadout] = []
         for loadout in try context.fetch(FetchDescriptor<Loadout>())
         where loadout.pwadIDs.isEmpty && loadout.dehIDs.isEmpty
             && seededTitles.contains(loadout.name) {
-            guard let iwad = try wad(id: loadout.iwadID), iwad.isBundled else { continue }
-            migrateSaves(fromKey: loadout.id, toKey: iwad.id)
-            context.delete(loadout)
+            if let iwad = try wad(id: loadout.iwadID), iwad.isBundled {
+                phantoms.append(loadout)
+            }
+        }
+        // Ambiguity guard: only delete a title with a single matching loadout.
+        var countByName: [String: Int] = [:]
+        for p in phantoms { countByName[p.name, default: 0] += 1 }
+
+        var allMigrationsSucceeded = true
+        for loadout in phantoms where countByName[loadout.name] == 1 {
+            do {
+                try migrateSaves(fromKey: loadout.id, toKey: loadout.iwadID)
+                context.delete(loadout)
+            } catch {
+                // Keep the loadout so its saves aren't orphaned; leaving the
+                // flag unset makes reconciliation retry on the next launch.
+                allMigrationsSucceeded = false
+            }
         }
         try context.save()
-        defaults.set(true, forKey: flagKey)
+        if allMigrationsSucceeded { defaults.set(true, forKey: flagKey) }
     }
 
-    private func migrateSaves(fromKey old: UUID, toKey new: UUID) {
+    /// Moves the legacy per-loadout saves dir onto the base game's saves key.
+    /// If the destination already exists, merges file-by-file and never
+    /// overwrites an existing base-game save (its version wins; the stale
+    /// duplicate is left in place, not deleted). Throws on any filesystem
+    /// failure so the caller can keep the loadout instead of orphaning saves.
+    private func migrateSaves(fromKey old: UUID, toKey new: UUID) throws {
+        let fm = FileManager.default
         let src = Self.savesDirectory(forLoadoutID: old)
         let dst = Self.savesDirectory(forLoadoutID: new)
-        guard FileManager.default.fileExists(atPath: src.path),
-              !FileManager.default.fileExists(atPath: dst.path) else { return }
-        try? FileManager.default.createDirectory(at: dst.deletingLastPathComponent(),
-                                                 withIntermediateDirectories: true)
-        try? FileManager.default.moveItem(at: src, to: dst)
+        guard fm.fileExists(atPath: src.path) else { return }   // nothing to migrate
+
+        if !fm.fileExists(atPath: dst.path) {
+            try fm.createDirectory(at: dst.deletingLastPathComponent(),
+                                   withIntermediateDirectories: true)
+            try fm.moveItem(at: src, to: dst)
+            return
+        }
+        // Destination exists (e.g. the base game was played before migration):
+        // merge non-colliding entries; keep the base game's existing saves.
+        for entry in try fm.contentsOfDirectory(atPath: src.path) {
+            let to = dst.appendingPathComponent(entry)
+            guard !fm.fileExists(atPath: to.path) else { continue }
+            try fm.moveItem(at: src.appendingPathComponent(entry), to: to)
+        }
     }
 
     // MARK: Queries

@@ -65,14 +65,6 @@ final class RealWADTests: XCTestCase {
 
     /// Clears any existing text in `field` (e.g. LoadoutEditorView's
     /// auto-generated name) before typing `text`.
-    private func clearAndType(_ field: XCUIElement, _ text: String) {
-        field.tap()
-        if let existing = field.value as? String, !existing.isEmpty {
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existing.count))
-        }
-        field.typeText(text)
-    }
-
     /// Creates (if needed) and plays a loadout; asserts session length.
     private func runLoadout(app: XCUIApplication, name: String, iwad: String,
                             pwad: String?, expectFullSession: Bool,

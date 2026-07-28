@@ -85,7 +85,7 @@ there is no more cross-tab indirection to explain.
 The single Read/Update/Delete surface for any playable item — base game *or*
 preset. Same layout for both; editability differs.
 
-```
+```text
 ┌─────────────────────────────┐
 │   [ title art ]             │
 │   <name>            ▶ Play   │

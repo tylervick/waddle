@@ -13,14 +13,6 @@ final class PresetEditTests: XCTestCase {
 
     /// Clears any existing text in `field` (e.g. LoadoutEditorView's
     /// auto-generated name) before typing `text`.
-    private func clearAndType(_ field: XCUIElement, _ text: String) {
-        field.tap()
-        if let existing = field.value as? String, !existing.isEmpty {
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existing.count))
-        }
-        field.typeText(text)
-    }
-
     @MainActor
     func testEditFromDetailPageOpensEditor() {
         let app = XCUIApplication()
