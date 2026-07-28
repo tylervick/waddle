@@ -8,6 +8,7 @@ struct WADdleApp: App {
     let importer: ImportService
     @Environment(\.scenePhase) private var scenePhase
     @State private var isAdopting = false
+    @State private var adoptionQueued = false
 
     init() {
         do {
@@ -63,13 +64,20 @@ struct WADdleApp: App {
     /// store, surface the outcome, and nudge LibraryView to refresh (adoption
     /// can finish after the Library list first rendered). Guarded so a launch
     /// pass and a foreground pass can't interleave store writes.
+    // An overlapping trigger queues a trailing pass instead of being
+    // dropped: a file dropped into Documents after the in-flight pass
+    // listed the directory is caught by the re-run, so every trigger is
+    // still followed by a scan + refresh.
     @MainActor
     private func runAdoption() async {
-        guard !isAdopting else { return }
+        guard !isAdopting else { adoptionQueued = true; return }
         isAdopting = true
         defer { isAdopting = false }
-        ImportNotices.shared.post(outcome: await importer.adoptLooseFiles(),
-                                  quarantines: true)
-        NotificationCenter.default.post(name: .libraryDidChange, object: nil)
+        repeat {
+            adoptionQueued = false
+            ImportNotices.shared.post(outcome: await importer.adoptLooseFiles(),
+                                      quarantines: true)
+            NotificationCenter.default.post(name: .libraryDidChange, object: nil)
+        } while adoptionQueued
     }
 }
