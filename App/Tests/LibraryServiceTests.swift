@@ -235,4 +235,70 @@ final class LibraryServiceTests: XCTestCase {
         XCTAssertEqual(PresetName.suggested(base: "Doom II", pwads: ["Sunlust"]), "Doom II + Sunlust")
         XCTAssertEqual(PresetName.suggested(base: "Doom II", pwads: ["A", "B"]), "Doom II + A + B")
     }
+
+    // MARK: - File inventory (Plan D)
+
+    /// Writes real bytes into the service's store directory so status/size
+    /// checks see an actual on-disk file, then registers a matching row.
+    @discardableResult
+    private func registerWithBacking(_ filename: String, kind: WADKind,
+                                     bytes: Int = 16) throws -> WADFile {
+        let url = tmp.appendingPathComponent(filename)
+        try Data(repeating: 0xAB, count: bytes).write(to: url)
+        return try service.registerImported(filename: filename, sha1: "sha-\(filename)",
+                                            kind: kind.rawValue,
+                                            family: GameFamily.unknown.rawValue)
+    }
+
+    func testLibraryGroupsOrderedByKindWithTitles() throws {
+        try service.seedBundledContentIfNeeded()   // 2 bundled IWADs
+        try registerWithBacking("sunlust.wad", kind: .pwad)
+        try registerWithBacking("tweak.deh", kind: .deh)
+        let groups = try service.libraryGroups()
+        XCTAssertEqual(groups.map(\.title), ["Base Games", "Mods", "Patches"])
+        XCTAssertEqual(groups[0].wads.map(\.filename), ["freedoom1.wad", "freedoom2.wad"])
+        XCTAssertEqual(groups[1].wads.map(\.filename), ["sunlust.wad"])
+        XCTAssertEqual(groups[2].wads.map(\.filename), ["tweak.deh"])
+    }
+
+    func testLibraryGroupsOmitsEmptyKinds() throws {
+        try registerWithBacking("sunlust.wad", kind: .pwad)
+        let groups = try service.libraryGroups()
+        XCTAssertEqual(groups.map(\.title), ["Mods"])
+    }
+
+    func testLibraryGroupsSortsBundledFirstThenFilename() throws {
+        // A user-imported IWAD named to sort before "freedoom1.wad"
+        // alphabetically must still list after the bundled entries.
+        try registerWithBacking("DOOM2.WAD", kind: .iwad)
+        try service.seedBundledContentIfNeeded()
+        let groups = try service.libraryGroups()
+        XCTAssertEqual(groups[0].wads.map(\.filename),
+                       ["freedoom1.wad", "freedoom2.wad", "DOOM2.WAD"])
+    }
+
+    func testFileStatusBundledImportedAndMissing() throws {
+        try service.seedBundledContentIfNeeded()
+        let bundled = try XCTUnwrap(service.baseGames().first)
+        XCTAssertEqual(service.fileStatus(for: bundled), .bundled)
+
+        let imported = try registerWithBacking("sunlust.wad", kind: .pwad)
+        XCTAssertEqual(service.fileStatus(for: imported), .imported)
+
+        // Row exists but the backing file vanished (deleted out-of-band in Files).
+        let ghost = try service.registerImported(filename: "gone.wad", sha1: "sha-gone",
+                                                 kind: WADKind.pwad.rawValue,
+                                                 family: GameFamily.unknown.rawValue)
+        XCTAssertEqual(service.fileStatus(for: ghost), .missing)
+    }
+
+    func testFileSizeReportsOnDiskBytesAndNilWhenMissing() throws {
+        let imported = try registerWithBacking("sunlust.wad", kind: .pwad, bytes: 1234)
+        XCTAssertEqual(service.fileSize(for: imported), 1234)
+
+        let ghost = try service.registerImported(filename: "gone.wad", sha1: "sha-gone2",
+                                                 kind: WADKind.pwad.rawValue,
+                                                 family: GameFamily.unknown.rawValue)
+        XCTAssertNil(service.fileSize(for: ghost))
+    }
 }

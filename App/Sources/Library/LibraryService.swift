@@ -5,6 +5,23 @@ enum LibraryError: Error, Equatable {
     case wadReferencedByLoadouts([String])
 }
 
+/// Where a library file's bytes live, from the Library tab's point of view:
+/// shipped read-only in the app bundle, imported into Documents/WADs/, or a
+/// DB row whose backing file has vanished from disk (deleted out-of-band).
+enum LibraryFileStatus: Equatable {
+    case bundled
+    case imported
+    case missing
+}
+
+/// One Library-tab section: all files of a single kind, display-ordered.
+struct LibraryGroup: Identifiable {
+    let kind: WADKind
+    let title: String
+    let wads: [WADFile]
+    var id: String { kind.rawValue }
+}
+
 @MainActor
 final class LibraryService {
     private let context: ModelContext
@@ -163,6 +180,33 @@ final class LibraryService {
             predicate: #Predicate { $0.filename == filename && $0.isBundled == bundled })
         descriptor.fetchLimit = 1
         return try context.fetch(descriptor).first
+    }
+
+    /// The Library tab's file inventory: every registered file grouped by kind
+    /// in fixed display order (Base Games / Mods / Patches), empty kinds
+    /// omitted, each group sorted bundled-first then by filename.
+    func libraryGroups() throws -> [LibraryGroup] {
+        let all = try allWADs()
+        let sections: [(WADKind, String)] = [(.iwad, "Base Games"), (.pwad, "Mods"), (.deh, "Patches")]
+        return sections.compactMap { kind, title in
+            let members = all
+                .filter { $0.kindRaw == kind.rawValue }
+                .sorted { ($0.isBundled ? 0 : 1, $0.filename.lowercased())
+                        < ($1.isBundled ? 0 : 1, $1.filename.lowercased()) }
+            return members.isEmpty ? nil : LibraryGroup(kind: kind, title: title, wads: members)
+        }
+    }
+
+    func fileStatus(for wad: WADFile) -> LibraryFileStatus {
+        if wad.isBundled { return .bundled }
+        return FileManager.default.fileExists(atPath: fileURL(for: wad).path)
+            ? .imported : .missing
+    }
+
+    /// On-disk size of the file backing `wad`; nil when the file is missing.
+    func fileSize(for wad: WADFile) -> Int64? {
+        let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL(for: wad).path)
+        return (attrs?[.size] as? NSNumber)?.int64Value
     }
 
     // MARK: Mutations
