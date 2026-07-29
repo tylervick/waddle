@@ -1,0 +1,77 @@
+name: UI Tests
+
+# Manual dispatch only, by choice. These tests boot a real Metal/OpenGL
+# engine session in the simulator, so they are the slow, flake-prone half of
+# the suite and are kept off the PR path. The trade-off is that nothing runs
+# them automatically -- add a `schedule:` block here if they start to rot.
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: Simulator device name
+        required: false
+        default: "iPhone 17 Pro"
+      only_testing:
+        description: >-
+          Optional -only-testing filter, e.g. WADdleUITests/EngineSmokeTests.
+          Leave blank to run the whole suite except RealWADTests.
+        required: false
+        default: ""
+
+# This workflow only ever reads the repo; it never needs to write anything.
+permissions:
+  contents: read
+
+env:
+  XCODE_VERSION: "26.2"
+  SIMULATOR_OS: "26.2"
+
+jobs:
+  ui-tests:
+    name: UI tests
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-waddle-build
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
+      # Inputs go through env rather than direct ${{ }} interpolation into
+      # the script body, so a value containing shell metacharacters cannot
+      # break out of the command.
+      - name: Run UI tests
+        env:
+          DESTINATION: platform=iOS Simulator,name=${{ inputs.device }},OS=${{ env.SIMULATOR_OS }}
+          ONLY_TESTING: ${{ inputs.only_testing }}
+        run: |
+          ARGS=(
+            -project App/WADdle.xcodeproj
+            -scheme WADdle
+            -destination "$DESTINATION"
+            -resultBundlePath UITestResults.xcresult
+          )
+          # RealWADTests needs Scythe / Sunlust / Eviternity II from
+          # ~/Downloads/doom-test-wads -- non-redistributable and ~300 MB, so it
+          # can NEVER run here, whatever filter was requested. Applied
+          # unconditionally rather than only on the default path: a dispatch of
+          # only_testing=WADdleUITests would otherwise pull it back in. Skipping
+          # a test that the filter never selected is a harmless no-op.
+          ARGS+=(-skip-testing:WADdleUITests/RealWADTests)
+          if [ -n "$ONLY_TESTING" ]; then
+            ARGS+=(-only-testing:"$ONLY_TESTING")
+          else
+            ARGS+=(-only-testing:WADdleUITests)
+          fi
+          xcodebuild "${ARGS[@]}" test
+
+      # Always, not just on failure: a passing UI run is also the artifact
+      # you want when checking whether a flake reproduced.
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-test-results
+          path: UITestResults.xcresult
+          retention-days: 7

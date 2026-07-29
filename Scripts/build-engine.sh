@@ -6,6 +6,20 @@ IOS_DEPLOYMENT_TARGET="26.0"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/Vendor/out"
 
+# Capture the source fingerprint BEFORE building. It is compared against a
+# fresh one after assembly, so that sources changing mid-build (an edit, a
+# branch switch, a rebase landing during a multi-minute build) cannot produce
+# a stamp certifying a framework that was built from different bytes.
+#
+# Note the limit: this compares NET source state across the build, not
+# transient state. A source edited during the build and reverted before the
+# post-build fingerprint runs would still match. Closing that would mean
+# building from an isolated immutable snapshot (a throwaway worktree per
+# build); the residual risk -- an edit reverted inside the same build window
+# -- is far narrower than the case this does catch, which is an edit that
+# simply stays.
+FP_BEFORE="$("$ROOT/Scripts/engine-fingerprint.sh")"
+
 # pkg-config is not restricted by CMAKE_FIND_ROOT_PATH the way
 # find_package/find_library are (that's a CMake-level mechanism;
 # FindPkgConfig.cmake shells out to the system pkg-config with its own
@@ -59,7 +73,12 @@ cp "$PK3_FILE" "$ROOT/App/Resources/woof.pk3"
 
 # --- Stage 3: merge static libs and create the xcframework ---
 STAGE="$ROOT/Vendor/stage"
-rm -rf "$STAGE" "$OUT/WoofEngine.xcframework"
+# The stamp is removed together with the framework it describes -- they must
+# live and die as a unit. Otherwise any failure below (a cmake/libtool error,
+# an interrupt, or the FP_BEFORE/FP_AFTER mismatch check) would leave the
+# PREVIOUS build's stamp sitting beside a newly assembled framework, and
+# check-engine-fresh.sh would validate bytes that stamp never described.
+rm -rf "$STAGE" "$OUT/WoofEngine.xcframework" "$OUT/WoofEngine.xcframework.fingerprint"
 mkdir -p "$STAGE/include"
 
 # Public header + module map so Swift can `import WoofEngine`.
@@ -85,4 +104,17 @@ xcodebuild -create-xcframework \
     -library "$STAGE/iphoneos/libWoofEngine.a" -headers "$STAGE/include" \
     -library "$STAGE/iphonesimulator/libWoofEngine.a" -headers "$STAGE/include" \
     -output "$OUT/WoofEngine.xcframework"
+# Stamp the framework with a fingerprint of the sources that produced it.
+# Scripts/check-engine-fresh.sh compares against this to refuse shipping a
+# stale engine, and CI uses the same value as its cache key. Written LAST,
+# only after -create-xcframework succeeded, so a failed build never leaves a
+# stamp claiming the framework is current.
+FP_AFTER="$("$ROOT/Scripts/engine-fingerprint.sh")"
+if [ "$FP_BEFORE" != "$FP_AFTER" ]; then
+    echo "error: engine sources changed while the build was running." >&2
+    echo "       refusing to stamp -- the framework may mix old and new bytes." >&2
+    echo "       re-run: Scripts/build-engine.sh" >&2
+    exit 1
+fi
+printf '%s\n' "$FP_AFTER" > "$OUT/WoofEngine.xcframework.fingerprint"
 echo "Built $OUT/WoofEngine.xcframework and staged App/Resources/woof.pk3"

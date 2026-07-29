@@ -1,0 +1,103 @@
+name: Set up WADdle build
+description: >-
+  Pins the toolchain, restores or builds the Woof! engine framework and its
+  SDL3/OpenAL dependencies, stages game data, and generates the Xcode project.
+
+inputs:
+  xcode-version:
+    description: Xcode version to select; must match a version on the runner image.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Select Xcode ${{ inputs.xcode-version }}
+      shell: bash
+      run: |
+        APP="/Applications/Xcode_${{ inputs.xcode-version }}.app"
+        if [ ! -d "$APP" ]; then
+          echo "::error::$APP not found on this runner image."
+          echo "Installed Xcode versions:"
+          ls -d /Applications/Xcode*.app
+          exit 1
+        fi
+        sudo xcode-select -s "$APP"
+        xcodebuild -version
+
+    # cmake / ninja / xcodegen at the versions mise.toml pins. The image
+    # ships cmake and ninja at other versions and no xcodegen at all, so
+    # this is what keeps CI's toolchain identical to a developer's.
+    - name: Install pinned CLI tools
+      uses: jdx/mise-action@v2
+
+    # Assign to a variable on its own line, rather than interpolating the
+    # command substitution directly into the echo. engine-fingerprint.sh
+    # writes a syntactically valid 64-hex string (the SHA-256 of empty input)
+    # to stdout even on its failure paths -- only its EXIT STATUS is
+    # trustworthy. `echo "value=$(...)"` would not trip errexit on that
+    # failure, silently producing a garbage-but-stable cache key that poisons
+    # every subsequent run. A bare assignment does propagate the failure.
+    - name: Compute engine fingerprint
+      id: fingerprint
+      shell: bash
+      run: |
+        FINGERPRINT="$(Scripts/engine-fingerprint.sh)"
+        echo "value=$FINGERPRINT" >> "$GITHUB_OUTPUT"
+
+    # The engine cache is restored FIRST and the deps cache is nested under
+    # a miss, because build-engine.sh merges libSDL3.a and libopenal.a INTO
+    # libWoofEngine.a and project.yml depends only on the xcframework. Once
+    # the framework exists, Vendor/out/{iphoneos,iphonesimulator} is dead
+    # weight -- so an engine hit skips the deps restore entirely.
+    #
+    # No restore-keys on either cache, deliberately: a near-miss would hand
+    # back a framework that does not match its inputs, which is the exact
+    # failure this design exists to prevent. A miss must mean a rebuild.
+    - name: Restore engine framework
+      id: engine-cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          Vendor/out/WoofEngine.xcframework
+          Vendor/out/WoofEngine.xcframework.fingerprint
+          App/Resources/woof.pk3
+        key: engine-xcode${{ inputs.xcode-version }}-${{ steps.fingerprint.outputs.value }}-${{ hashFiles('mise.toml') }}
+
+    - name: Restore SDL3 + OpenAL Soft
+      id: deps-cache
+      if: steps.engine-cache.outputs.cache-hit != 'true'
+      uses: actions/cache@v4
+      with:
+        path: |
+          Vendor/out/iphoneos
+          Vendor/out/iphonesimulator
+        key: deps-xcode${{ inputs.xcode-version }}-${{ hashFiles('Scripts/build-deps.sh') }}-${{ hashFiles('mise.toml') }}
+
+    - name: Build SDL3 + OpenAL Soft
+      if: steps.engine-cache.outputs.cache-hit != 'true' && steps.deps-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: Scripts/build-deps.sh
+
+    - name: Build engine framework
+      if: steps.engine-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: Scripts/build-engine.sh
+
+    # 24 MB, checksum-verified. Left uncached so every run re-exercises the
+    # checksum against the pinned upstream release.
+    - name: Fetch Freedoom
+      shell: bash
+      run: Scripts/fetch-freedoom.sh
+
+    # Must run BEFORE xcodegen: App/Sources/Generated/ is gitignored, and
+    # xcodegen's source scan is a static snapshot taken at generate time --
+    # if the file is absent then, it never enters Compile Sources at all and
+    # every BuildInfo reference fails to compile. See the script's header.
+    - name: Seed build info
+      shell: bash
+      run: Scripts/generate-build-info.sh
+
+    - name: Generate Xcode project
+      shell: bash
+      working-directory: App
+      run: xcodegen generate
