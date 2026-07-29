@@ -5,10 +5,6 @@ name: UI Tests
 # the suite and are kept off the PR path. The trade-off is that nothing runs
 # them automatically -- add a `schedule:` block here if they start to rot.
 on:
-  # TEMPORARY — remove before merging PR #11. workflow_dispatch workflows are
-  # not registered until they exist on the default branch, so this is the only
-  # way to prove the suite works while the PR is still open.
-  pull_request:
   workflow_dispatch:
     inputs:
       device:
@@ -43,7 +39,7 @@ jobs:
       # break out of the command.
       - name: Run UI tests
         env:
-          DESTINATION: platform=iOS Simulator,name=${{ inputs.device || 'iPhone 17 Pro' }},OS=${{ env.SIMULATOR_OS }}
+          DESTINATION: platform=iOS Simulator,name=${{ inputs.device }},OS=${{ env.SIMULATOR_OS }}
           ONLY_TESTING: ${{ inputs.only_testing }}
         run: |
           ARGS=(
