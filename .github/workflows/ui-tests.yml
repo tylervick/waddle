@@ -18,6 +18,10 @@ on:
         required: false
         default: ""
 
+# This workflow only ever reads the repo; it never needs to write anything.
+permissions:
+  contents: read
+
 env:
   XCODE_VERSION: "26.2"
   SIMULATOR_OS: "26.2"

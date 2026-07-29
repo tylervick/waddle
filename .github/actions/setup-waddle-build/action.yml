@@ -61,7 +61,7 @@ runs:
           Vendor/out/WoofEngine.xcframework
           Vendor/out/WoofEngine.xcframework.fingerprint
           App/Resources/woof.pk3
-        key: engine-xcode${{ inputs.xcode-version }}-${{ steps.fingerprint.outputs.value }}
+        key: engine-xcode${{ inputs.xcode-version }}-${{ steps.fingerprint.outputs.value }}-${{ hashFiles('mise.toml') }}
 
     - name: Restore SDL3 + OpenAL Soft
       id: deps-cache
@@ -71,7 +71,7 @@ runs:
         path: |
           Vendor/out/iphoneos
           Vendor/out/iphonesimulator
-        key: deps-xcode${{ inputs.xcode-version }}-${{ hashFiles('Scripts/build-deps.sh') }}
+        key: deps-xcode${{ inputs.xcode-version }}-${{ hashFiles('Scripts/build-deps.sh') }}-${{ hashFiles('mise.toml') }}
 
     - name: Build SDL3 + OpenAL Soft
       if: steps.engine-cache.outputs.cache-hit != 'true' && steps.deps-cache.outputs.cache-hit != 'true'

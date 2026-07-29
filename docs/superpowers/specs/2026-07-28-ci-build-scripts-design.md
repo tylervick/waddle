@@ -137,7 +137,7 @@ Two caches. Both are small — 20 MB and 19 MB against a 10 GB per-repo budget.
 | Cache | Contents | Key |
 |---|---|---|
 | deps | `Vendor/out/iphoneos`, `Vendor/out/iphonesimulator` | `deps-<xcode>-<hash of build-deps.sh>` |
-| engine | `Vendor/out/WoofEngine.xcframework`, `App/Resources/woof.pk3` | `engine-<xcode>-<engine-fingerprint>` |
+| engine | `Vendor/out/WoofEngine.xcframework`, `App/Resources/woof.pk3`, `Vendor/out/WoofEngine.xcframework.fingerprint` | `engine-<xcode>-<engine-fingerprint>` |
 
 `<xcode>` is the pinned Xcode version string (`26.2`), sourced from the same
 `env:` block the workflows use for the toolchain pin, so a version bump moves

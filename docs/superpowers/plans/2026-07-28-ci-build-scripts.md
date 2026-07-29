@@ -781,6 +781,18 @@ git reset --hard HEAD~1 && git push --force-with-lease
 
 ### Task 4: `ui-tests.yml`
 
+> **Correction (applied during execution):** Steps 4 and 5 below, as written,
+> cannot work. `gh workflow run ui-tests.yml --ref tylervick/CI-build-scripts`
+> 404s, because GitHub does not register a `workflow_dispatch` workflow until
+> it exists on the default branch -- it cannot be dispatched from a feature
+> branch on any ref. Verification was instead done by temporarily adding a
+> `pull_request:` trigger to `ui-tests.yml` (commit `876109e`), which proved
+> all 8 UI suites pass on a hosted runner, including real engine boot cycles,
+> and the trigger was then removed (commit `03a3694`). Separately, the
+> cold-build estimate referenced elsewhere in this plan (~40-60 min) measured
+> 8m37s in practice. This note is a correction, not a rewrite -- the steps
+> below are left as originally written for the historical record.
+
 **Files:**
 - Create: `.github/workflows/ui-tests.yml`
 

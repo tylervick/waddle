@@ -80,6 +80,14 @@ make_fixture "$TMP/g"; rm -rf "$TMP/g/Engine/woof"
 if fp "$TMP/g" >/dev/null 2>&1; then fail "succeeded with Engine/woof missing"; fi
 pass "fails closed when Engine/woof is missing"
 
+# 8b. Fails CLOSED when Engine/woof exists but is EMPTY, too -- `find`
+#     exits 0 over an empty directory and BSD xargs never invokes shasum,
+#     so without an explicit count check this would silently emit a clean
+#     hash over just the two build scripts instead of aborting.
+make_fixture "$TMP/i"; rm -rf "$TMP/i/Engine/woof"/*; mkdir -p "$TMP/i/Engine/woof"
+if fp "$TMP/i" >/dev/null 2>&1; then fail "succeeded with Engine/woof empty"; fi
+pass "fails closed when Engine/woof is empty"
+
 make_fixture "$TMP/h"; rm -f "$TMP/h/Scripts/build-deps.sh"
 if fp "$TMP/h" >/dev/null 2>&1; then fail "succeeded with build-deps.sh missing"; fi
 pass "fails closed when a build script is missing"

@@ -30,6 +30,17 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+# Fail closed if Engine/woof exists but is empty. `find` exits 0 over an
+# empty directory and BSD xargs never invokes shasum at all in that case, so
+# without this check the pipeline below would quietly emit a clean hash over
+# just the two build scripts -- indistinguishable from a real fingerprint,
+# and one that would silently validate any stamp.
+COUNT="$(find Engine/woof -type f | wc -l)"
+if [ "$COUNT" -eq 0 ]; then
+    echo "error: no files found under Engine/woof — refusing to emit a fingerprint over an empty set" >&2
+    exit 1
+fi
 {
     find Engine/woof -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256
     shasum -a 256 Scripts/build-engine.sh Scripts/build-deps.sh

@@ -5,10 +5,18 @@ on:
   push:
     branches: [main]
 
-# Supersede in-flight runs when a PR is pushed again.
+# This workflow only ever reads the repo; it never needs to write anything.
+permissions:
+  contents: read
+
+# Supersede in-flight runs when a PR is pushed again. main is exempted: a
+# cancelled run never reaches the post-job step that saves actions/cache@v4
+# entries, and every PR's cache inherits only from main's, so a cancelled
+# main run leaves PRs with nothing to restore and forces a cold build
+# indefinitely. main must always run to completion.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   # Toolchain pins live here so a bump is a one-line edit. XCODE_VERSION also
@@ -21,8 +29,9 @@ jobs:
   build-and-test:
     name: Build + unit tests
     runs-on: macos-26
-    # Generous: a cold run builds SDL3, OpenAL Soft and Woof for two
-    # platforms (~40-60 min). Warm runs land in 5-10.
+    # Measured on a hosted runner: cold (no cache) 8m37s, warm (cache hit)
+    # 4m14s -- setup alone drops from 3m59s to 12s. 90 minutes is deliberate
+    # headroom well beyond either figure, not a number derived from them.
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
