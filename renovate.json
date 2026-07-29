@@ -1,0 +1,55 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Three built-in managers do the work here, no custom regex needed:",
+    "  github-actions -- the four action refs across .github/workflows/*.yml",
+    "                    and .github/actions/setup-waddle-build/action.yml",
+    "  mise           -- cmake, ninja and xcodegen in mise.toml",
+    "  xcodegen       -- ZIPFoundation, pinned in App/project.yml",
+    "",
+    "SDL_TAG / OPENAL_TAG / FREEDOOM_VERSION in Scripts/*.sh are NOT covered;",
+    "picking them up needs custom regex managers and is a deliberate later",
+    "step, not an oversight. WOOF_COMMIT in Scripts/vendor-woof.sh must stay",
+    "manual regardless: Engine/woof is a committed tree, so bumping the SHA",
+    "without re-running the script leaves the two silently disagreeing.",
+    "",
+    "config:best-practices enables digest pinning, so the first run opens a",
+    "'Pin dependencies' PR that SHA-pins every action with a trailing",
+    "# vX.Y.Z comment -- that PR is what closes issue #16."
+  ],
+  "extends": [
+    "config:best-practices",
+    ":semanticCommits"
+  ],
+  "labels": ["dependencies"],
+  "schedule": ["before 9am on monday"],
+  "ignorePaths": [
+    "Engine/woof/**"
+  ],
+  "packageRules": [
+    {
+      "description": [
+        "Group all mise-pinned tool updates into one PR. cmake, ninja and",
+        "xcodegen are only ever consumed together by a build, and each one",
+        "invalidates the same CI caches, so separate PRs would each pay for",
+        "a cold build to prove the same thing."
+      ],
+      "matchManagers": ["mise"],
+      "groupName": "mise tools"
+    },
+    {
+      "description": [
+        "Leave `runs-on: macos-26` alone. Renovate reads it as a",
+        "github-runners dep and would offer macos-27 on its own, but the",
+        "runner image is pinned in lockstep with XCODE_VERSION /",
+        "SIMULATOR_OS, which Renovate cannot see. A runner-only bump lands",
+        "on an image that may not ship Xcode 26.2, and setup-waddle-build",
+        "hard-fails when the requested Xcode is absent -- so the PR could",
+        "never go green on its own. Moving runner images is a coupled,",
+        "human decision; drop this rule if that stops being true."
+      ],
+      "matchDepTypes": ["github-runner"],
+      "enabled": false
+    }
+  ]
+}
