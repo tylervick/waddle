@@ -78,6 +78,7 @@ pass "ignores mtimes when content is unchanged (fresh-worktree regression)"
 # 7. Unreadable sources -> refuse, rather than passing on a failed compare.
 make_fixture "$TMP/g"; stamp "$TMP/g"; rm -rf "$TMP/g/Engine/woof"
 if check "$TMP/g" >"$TMP/out" 2>&1; then fail "passed when sources could not be read"; fi
+grep -q "could not fingerprint" "$TMP/out" || fail "refused via the wrong branch; expected the fingerprint-failure path"
 pass "fails closed when the fingerprint cannot be computed"
 
 echo "All check-engine-fresh tests passed."

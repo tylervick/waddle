@@ -222,7 +222,7 @@ chmod +x Scripts/engine-fingerprint.sh
 
 Run: `Scripts/test-engine-fingerprint.sh`
 
-Expected: PASS — eleven `ok - ...` lines, then `All engine-fingerprint tests passed.`
+Expected: PASS — thirteen `ok - ...` lines, then `All engine-fingerprint tests passed.`
 
 - [ ] **Step 5: Confirm it is fast enough to call inline**
 

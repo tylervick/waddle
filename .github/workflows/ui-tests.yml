@@ -52,14 +52,17 @@ jobs:
             -destination "$DESTINATION"
             -resultBundlePath UITestResults.xcresult
           )
+          # RealWADTests needs Scythe / Sunlust / Eviternity II from
+          # ~/Downloads/doom-test-wads -- non-redistributable and ~300 MB, so it
+          # can NEVER run here, whatever filter was requested. Applied
+          # unconditionally rather than only on the default path: a dispatch of
+          # only_testing=WADdleUITests would otherwise pull it back in. Skipping
+          # a test that the filter never selected is a harmless no-op.
+          ARGS+=(-skip-testing:WADdleUITests/RealWADTests)
           if [ -n "$ONLY_TESTING" ]; then
             ARGS+=(-only-testing:"$ONLY_TESTING")
           else
-            # RealWADTests needs Scythe / Sunlust / Eviternity II from
-            # ~/Downloads/doom-test-wads -- non-redistributable and ~300 MB,
-            # so it can never run here. Excluding it is a hard requirement.
             ARGS+=(-only-testing:WADdleUITests)
-            ARGS+=(-skip-testing:WADdleUITests/RealWADTests)
           fi
           xcodebuild "${ARGS[@]}" test
 

@@ -1,7 +1,7 @@
 # CI Build & Test Workflows — Design Spec
 
 **Date:** 2026-07-28
-**Status:** Approved (brainstorm), pending implementation plan
+**Status:** Implemented in PR #11 (2026-07-28)
 **Branch:** `tylervick/CI-build-scripts`
 
 ## Problem
@@ -79,9 +79,12 @@ Scripts/engine-fingerprint.sh             # NEW — content hash
 ```
 
 Both workflows need the same preamble: pin Xcode, install mise tools, restore
-the deps cache, build deps on a miss, restore the engine cache, build the
-engine on a miss, fetch Freedoom, seed build info, run `xcodegen`. That is
-roughly fifty lines.
+the engine cache, and only on a MISS restore the deps cache and build deps and
+the engine — an engine-cache hit skips the deps cache and build-deps.sh
+entirely, since build-engine.sh is what merges libSDL3.a and libopenal.a into
+libWoofEngine.a and the Xcode project links only the xcframework, never
+`Vendor/out/iphoneos`/`iphonesimulator` directly. Then fetch Freedoom, seed
+build info, run `xcodegen`. That is roughly fifty lines.
 
 A **composite action** shares it. Composite actions run inside the caller's
 job, so caching and the filesystem behave normally. The alternatives were

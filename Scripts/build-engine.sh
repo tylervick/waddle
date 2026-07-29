@@ -6,6 +6,12 @@ IOS_DEPLOYMENT_TARGET="26.0"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/Vendor/out"
 
+# Capture the source fingerprint BEFORE building. It is compared against a
+# fresh one after assembly, so that sources changing mid-build (an edit, a
+# branch switch, a rebase landing during a multi-minute build) cannot produce
+# a stamp certifying a framework that was built from different bytes.
+FP_BEFORE="$("$ROOT/Scripts/engine-fingerprint.sh")"
+
 # pkg-config is not restricted by CMAKE_FIND_ROOT_PATH the way
 # find_package/find_library are (that's a CMake-level mechanism;
 # FindPkgConfig.cmake shells out to the system pkg-config with its own
@@ -86,9 +92,16 @@ xcodebuild -create-xcframework \
     -library "$STAGE/iphonesimulator/libWoofEngine.a" -headers "$STAGE/include" \
     -output "$OUT/WoofEngine.xcframework"
 # Stamp the framework with a fingerprint of the sources that produced it.
-# Scripts/archive.sh compares against this to refuse shipping a stale
-# engine, and CI uses the same value as its cache key. Written LAST, only
-# after -create-xcframework succeeded, so a failed build never leaves a
+# Scripts/check-engine-fresh.sh compares against this to refuse shipping a
+# stale engine, and CI uses the same value as its cache key. Written LAST,
+# only after -create-xcframework succeeded, so a failed build never leaves a
 # stamp claiming the framework is current.
-"$ROOT/Scripts/engine-fingerprint.sh" > "$OUT/WoofEngine.xcframework.fingerprint"
+FP_AFTER="$("$ROOT/Scripts/engine-fingerprint.sh")"
+if [ "$FP_BEFORE" != "$FP_AFTER" ]; then
+    echo "error: engine sources changed while the build was running." >&2
+    echo "       refusing to stamp -- the framework may mix old and new bytes." >&2
+    echo "       re-run: Scripts/build-engine.sh" >&2
+    exit 1
+fi
+printf '%s\n' "$FP_AFTER" > "$OUT/WoofEngine.xcframework.fingerprint"
 echo "Built $OUT/WoofEngine.xcframework and staged App/Resources/woof.pk3"
