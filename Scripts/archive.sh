@@ -5,37 +5,10 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Guard against archiving a STALE engine. The heavy engine build (SDL/OpenAL +
-# Woof -> Vendor/out/WoofEngine.xcframework) is deliberately NOT part of
-# archiving, but a framework older than its sources silently ships stale bits —
-# that is how a missing SDL_CAMERA=OFF (ITMS-90683) or an unbuilt engine fix can
-# reach App Review. Fail loudly instead; rebuild is a separate, explicit step.
-FW="$ROOT/Vendor/out/WoofEngine.xcframework"
-if [ ! -d "$FW" ]; then
-  echo "error: $FW is missing." >&2
-  echo "       build the engine first: mise run bootstrap" >&2
-  echo "       (or: Scripts/build-deps.sh && Scripts/build-engine.sh)" >&2
-  exit 1
-fi
-# Any engine source or build script newer than the built framework => stale.
-# Fail CLOSED: if the scan itself can't run (a missing/unreadable source or
-# build script), refuse to archive rather than silently skip the check — the
-# guard exists precisely to stop stale/wrong bits from shipping.
-if ! STALE=$(find "$ROOT/Engine/woof/src" \
-                  "$ROOT/Scripts/build-engine.sh" \
-                  "$ROOT/Scripts/build-deps.sh" \
-                  -newer "$FW" -print -quit); then
-  echo "error: could not scan engine sources for freshness (a source or build" >&2
-  echo "       script is missing or unreadable) — refusing to archive." >&2
-  exit 1
-fi
-if [ -n "$STALE" ]; then
-  echo "error: engine sources/scripts changed since WoofEngine.xcframework was" >&2
-  echo "       built (e.g. $STALE)." >&2
-  echo "       rebuild before archiving: Scripts/build-deps.sh && Scripts/build-engine.sh" >&2
-  echo "       (build-deps.sh is only needed when SDL/OpenAL config changed)" >&2
-  exit 1
-fi
+# Refuse to archive a framework that does not match its sources. Extracted
+# into its own script so it is testable without running a build, and so the
+# TestFlight workflow can call it as a standalone step.
+"$ROOT/Scripts/check-engine-fresh.sh"
 
 cd "$ROOT/App" && xcodegen generate && cd "$ROOT"
 ARCHIVE="$ROOT/Vendor/archive/WADdle.xcarchive"

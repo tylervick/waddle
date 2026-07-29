@@ -85,4 +85,10 @@ xcodebuild -create-xcframework \
     -library "$STAGE/iphoneos/libWoofEngine.a" -headers "$STAGE/include" \
     -library "$STAGE/iphonesimulator/libWoofEngine.a" -headers "$STAGE/include" \
     -output "$OUT/WoofEngine.xcframework"
+# Stamp the framework with a fingerprint of the sources that produced it.
+# Scripts/archive.sh compares against this to refuse shipping a stale
+# engine, and CI uses the same value as its cache key. Written LAST, only
+# after -create-xcframework succeeded, so a failed build never leaves a
+# stamp claiming the framework is current.
+"$ROOT/Scripts/engine-fingerprint.sh" > "$OUT/WoofEngine.xcframework.fingerprint"
 echo "Built $OUT/WoofEngine.xcframework and staged App/Resources/woof.pk3"
