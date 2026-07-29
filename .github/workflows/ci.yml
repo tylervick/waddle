@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Supersede in-flight runs when a PR is pushed again.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Toolchain pins live here so a bump is a one-line edit. XCODE_VERSION also
+  # feeds both cache keys inside the setup action.
+  XCODE_VERSION: "26.2"
+  SIMULATOR_OS: "26.2"
+  SIMULATOR_DEVICE: "iPhone 17 Pro"
+
+jobs:
+  build-and-test:
+    name: Build + unit tests
+    runs-on: macos-26
+    # Generous: a cold run builds SDL3, OpenAL Soft and Woof for two
+    # platforms (~40-60 min). Warm runs land in 5-10.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      # Cheap (~0.1s each) and they guard the value both cache keys depend
+      # on, plus the check that stops a stale engine from being shipped.
+      - name: Verify the build-script helpers
+        run: |
+          Scripts/test-engine-fingerprint.sh
+          Scripts/test-check-engine-fresh.sh
+
+      - uses: ./.github/actions/setup-waddle-build
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
+      # -only-testing:WADdleTests is REQUIRED, not a tuning choice: the
+      # WADdle scheme's test action also includes WADdleUITests, which boot
+      # the real engine and belong to the manually-dispatched ui-tests
+      # workflow.
+      - name: Run unit tests
+        env:
+          DESTINATION: platform=iOS Simulator,name=${{ env.SIMULATOR_DEVICE }},OS=${{ env.SIMULATOR_OS }}
+        run: |
+          xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
+            -destination "$DESTINATION" \
+            -only-testing:WADdleTests \
+            -resultBundlePath TestResults.xcresult \
+            test
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-test-results
+          path: TestResults.xcresult
+          retention-days: 7
