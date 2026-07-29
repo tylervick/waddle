@@ -28,7 +28,9 @@
 | `Scripts/engine-fingerprint.sh` | Create | Print one content hash of `Engine/woof/` + the two build scripts. Single definition, three consumers. |
 | `Scripts/test-engine-fingerprint.sh` | Create | Hermetic bash tests for the fingerprint's four load-bearing properties. |
 | `Scripts/build-engine.sh` | Modify | Write the fingerprint stamp after a successful framework build. |
-| `Scripts/archive.sh` | Modify | Replace the `find -newer` mtime guard with a stamp comparison. |
+| `Scripts/check-engine-fresh.sh` | Create | Verify the built framework matches its sources. The stale guard, extracted from `archive.sh` so it is testable without running a build. |
+| `Scripts/test-check-engine-fresh.sh` | Create | Hermetic tests for the guard, including the fresh-worktree mtime regression. |
+| `Scripts/archive.sh` | Modify | Replace the inline `find -newer` mtime guard with a call to `check-engine-fresh.sh`. |
 | `.github/actions/setup-waddle-build/action.yml` | Create | Shared preamble: pin Xcode, mise, caches, build engine, stage data, xcodegen. |
 | `.github/workflows/ci.yml` | Create | PR + push-to-main: build and run unit tests. |
 | `.github/workflows/ui-tests.yml` | Create | `workflow_dispatch` only: run the UI suite minus `RealWADTests`. |
@@ -248,26 +250,37 @@ Makes the fingerprint load-bearing. Splitting this in two would leave a stamp no
 
 **Files:**
 - Modify: `Scripts/build-engine.sh` (append after the `xcodebuild -create-xcframework` step)
-- Modify: `Scripts/archive.sh:20-38` (replace the mtime guard)
-- Test: `Scripts/test-archive-guard.sh` (create)
+- Create: `Scripts/check-engine-fresh.sh`
+- Modify: `Scripts/archive.sh:13-38` (replace both the missing-framework check and the mtime guard with one call)
+- Test: `Scripts/test-check-engine-fresh.sh` (create)
 
 **Interfaces:**
 - Consumes: `Scripts/engine-fingerprint.sh` from Task 1 — no arguments, prints one 64-char hex hash, non-zero exit on failure.
-- Produces: the stamp file `Vendor/out/WoofEngine.xcframework.fingerprint`, containing exactly that hash. Task 3 caches this path alongside the framework so a restored CI cache carries a valid stamp.
+- Produces:
+  - The stamp file `Vendor/out/WoofEngine.xcframework.fingerprint`, containing exactly that hash. Task 3 caches this path alongside the framework so a restored CI cache carries a valid stamp.
+  - `Scripts/check-engine-fresh.sh` — takes no arguments, exits 0 when the built framework matches current sources, exits 1 with guidance on stderr otherwise. Silent on success.
+
+**Why the guard is extracted into its own script rather than left inline in `archive.sh`:** it makes the guard testable. `archive.sh` continues past the guard into `xcodegen`, a full Release build, `rm -rf Vendor/archive/export`, and a signed export — so exercising the guard's *success* path in place would either run a multi-minute signed build or require stubbing `xcodebuild`, which cannot work because `archive.sh` deliberately re-invokes it as `PATH="/usr/bin:$PATH" xcodebuild` and would find the real binary ahead of any stub. A standalone script is testable against a fake tree in milliseconds, and gives the follow-up TestFlight PR a freshness check it can call as its own CI step.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `Scripts/test-archive-guard.sh`. It tests the guard in isolation by extracting it, rather than running the real `archive.sh` (which would kick off a multi-minute Xcode build on the success path).
+Create `Scripts/test-check-engine-fresh.sh`. Every assertion runs against a fake repo tree in a temp dir — no real build, and nothing under `Vendor/` is touched.
 
 ```bash
 #!/bin/bash
-# Tests for archive.sh's stale-engine guard.
+# Tests for Scripts/check-engine-fresh.sh.
 #
-# Runs the guard in ISOLATION: the real archive.sh continues into xcodegen +
-# a full Release build, which takes minutes and needs signing credentials.
-# We want the guard's decision, not its aftermath -- so we run archive.sh
-# with a stubbed PATH that makes the first post-guard command (xcodegen)
-# exit 0 immediately, and assert on the exit status and stderr.
+# Fully HERMETIC: builds a fake repo in a temp dir and runs the guard there.
+# Nothing here touches the real Vendor/ tree.
+#
+# The guard deliberately lives in its own script rather than inline in
+# archive.sh precisely so this test can exist: archive.sh continues past the
+# guard into xcodegen, a full Release build, `rm -rf Vendor/archive/export`,
+# and a signed export. Exercising the guard's SUCCESS path through archive.sh
+# would either run that whole build or require stubbing xcodebuild -- which
+# cannot work, because archive.sh re-invokes it as `PATH="/usr/bin:$PATH"
+# xcodebuild` and would find the real binary ahead of any stub, and because
+# the `rm -rf` would destroy real local artifacts on the way past.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
@@ -276,67 +289,80 @@ trap 'rm -rf "$TMP"' EXIT
 fail() { echo "FAIL: $1" >&2; exit 1; }
 pass() { echo "ok - $1"; }
 
-FW="$ROOT/Vendor/out/WoofEngine.xcframework"
-STAMP="$FW.fingerprint"
-[ -d "$FW" ] || { echo "SKIP: $FW not built; run Scripts/build-engine.sh first" >&2; exit 0; }
+# Fake repo mirroring the real layout the guard and fingerprint walk.
+make_fixture() { # dest
+    mkdir -p "$1/Scripts" "$1/Engine/woof/src" "$1/Vendor/out"
+    cp "$ROOT/Scripts/engine-fingerprint.sh"  "$1/Scripts/"
+    cp "$ROOT/Scripts/check-engine-fresh.sh"  "$1/Scripts/"
+    echo 'stub build-engine' > "$1/Scripts/build-engine.sh"
+    echo 'stub build-deps'   > "$1/Scripts/build-deps.sh"
+    echo 'int main(void){}'  > "$1/Engine/woof/src/d_main.c"
+    # A directory is all the guard checks for -- it never opens the framework.
+    mkdir -p "$1/Vendor/out/WoofEngine.xcframework"
+}
+stamp()  { "$1/Scripts/engine-fingerprint.sh" > "$1/Vendor/out/WoofEngine.xcframework.fingerprint"; }
+check()  { "$1/Scripts/check-engine-fresh.sh"; }
 
-# Stub out everything archive.sh runs AFTER the guard, so a guard that
-# passes exits 0 straight away instead of building.
-mkdir -p "$TMP/bin"
-for tool in xcodegen xcodebuild; do
-    printf '#!/bin/sh\nexit 0\n' > "$TMP/bin/$tool"
-    chmod +x "$TMP/bin/$tool"
-done
+# 1. Framework missing entirely -> refuse, and say how to build it.
+make_fixture "$TMP/a"; stamp "$TMP/a"; rm -rf "$TMP/a/Vendor/out/WoofEngine.xcframework"
+if check "$TMP/a" >"$TMP/out" 2>&1; then fail "passed with no framework"; fi
+grep -q "build the engine first" "$TMP/out" || fail "missing-framework error lacks build guidance"
+pass "fails closed when the framework is missing"
 
-# Save and restore the real stamp -- these tests mutate it.
-BACKUP="$TMP/stamp.bak"
-[ -f "$STAMP" ] && cp "$STAMP" "$BACKUP"
-restore() { if [ -f "$BACKUP" ]; then cp "$BACKUP" "$STAMP"; else rm -f "$STAMP"; fi; }
-trap 'restore; rm -rf "$TMP"' EXIT
-
-run_guard() { PATH="$TMP/bin:$PATH" "$ROOT/Scripts/archive.sh" 2>&1; }
-
-# 1. Missing stamp -> refuse.
-rm -f "$STAMP"
-if run_guard >"$TMP/out" ; then fail "archived with no stamp file"; fi
+# 2. Framework present but never stamped -> refuse.
+make_fixture "$TMP/b"
+if check "$TMP/b" >"$TMP/out" 2>&1; then fail "passed with no stamp file"; fi
 grep -q "rebuild before archiving" "$TMP/out" || fail "missing-stamp error lacks rebuild guidance"
 pass "fails closed when the stamp is missing"
 
-# 2. Stamp that does not match current content -> refuse.
-echo "0000000000000000000000000000000000000000000000000000000000000000" > "$STAMP"
-if run_guard >"$TMP/out"; then fail "archived with a mismatched stamp"; fi
+# 3. Stamp that does not match current content -> refuse.
+make_fixture "$TMP/c"; stamp "$TMP/c"
+echo 'edited after the build' >> "$TMP/c/Engine/woof/src/d_main.c"
+if check "$TMP/c" >"$TMP/out" 2>&1; then fail "passed with a stale stamp"; fi
 grep -q "rebuild before archiving" "$TMP/out" || fail "mismatch error lacks rebuild guidance"
-pass "fails closed when the stamp does not match"
+pass "fails closed when sources changed since the build"
 
-# 3. Matching stamp -> proceed past the guard.
-"$ROOT/Scripts/engine-fingerprint.sh" > "$STAMP"
-run_guard >"$TMP/out" || fail "refused to archive with a valid stamp: $(cat "$TMP/out")"
-pass "proceeds when the stamp matches"
+# 4. A build-script edit also invalidates, not just engine sources.
+make_fixture "$TMP/d"; stamp "$TMP/d"
+echo 'x' >> "$TMP/d/Scripts/build-deps.sh"
+if check "$TMP/d" >"$TMP/out" 2>&1; then fail "passed after build-deps.sh changed"; fi
+pass "fails closed when a build script changed"
 
-# 4. THE REGRESSION THIS REPLACES: content unchanged, but every engine
-#    source has an mtime NEWER than the framework -- exactly what a fresh
-#    worktree checkout or a restored CI cache produces. The old `find -newer`
-#    guard fired here and demanded a ~25-minute rebuild that changed nothing.
-find "$ROOT/Engine/woof" -type f -exec touch {} +
-run_guard >"$TMP/out" || fail "tripped on newer mtimes despite identical content: $(cat "$TMP/out")"
+# 5. Matching stamp -> pass, silently.
+make_fixture "$TMP/e"; stamp "$TMP/e"
+check "$TMP/e" >"$TMP/out" 2>&1 || fail "refused a valid stamp: $(cat "$TMP/out")"
+[ ! -s "$TMP/out" ] || fail "should be silent on success, printed: $(cat "$TMP/out")"
+pass "passes silently when the stamp matches"
+
+# 6. THE REGRESSION THIS REPLACES. Content is byte-identical, but every
+#    engine source now has an mtime NEWER than the framework -- exactly what
+#    a fresh worktree checkout or a restored CI cache produces. The old
+#    `find -newer` guard fired here and demanded a ~25-minute rebuild that
+#    would have changed nothing.
+make_fixture "$TMP/f"; stamp "$TMP/f"
+touch "$TMP/f/Engine/woof/src/d_main.c" "$TMP/f/Scripts/build-deps.sh"
+check "$TMP/f" >"$TMP/out" 2>&1 || fail "tripped on newer mtimes despite identical content"
 pass "ignores mtimes when content is unchanged (fresh-worktree regression)"
 
-echo "All archive-guard tests passed."
+# 7. Unreadable sources -> refuse, rather than passing on a failed compare.
+make_fixture "$TMP/g"; stamp "$TMP/g"; rm -rf "$TMP/g/Engine/woof"
+if check "$TMP/g" >"$TMP/out" 2>&1; then fail "passed when sources could not be read"; fi
+pass "fails closed when the fingerprint cannot be computed"
+
+echo "All check-engine-fresh tests passed."
 ```
 
 Make it executable:
 
 ```bash
-chmod +x Scripts/test-archive-guard.sh
+chmod +x Scripts/test-check-engine-fresh.sh
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `Scripts/test-archive-guard.sh`
+Run: `Scripts/test-check-engine-fresh.sh`
 
-Expected: FAIL at the first assertion — today's `archive.sh` has no stamp logic, so with the stamp removed it still passes the mtime guard and the test reports `archived with no stamp file`.
-
-If it prints `SKIP: ... not built`, run `Scripts/build-engine.sh` first (or `mise run bootstrap` on a clean checkout).
+Expected: FAIL. `Scripts/check-engine-fresh.sh` does not exist yet, so the `cp` in `make_fixture` fails and the script aborts non-zero.
 
 - [ ] **Step 3: Write the stamp in `build-engine.sh`**
 
@@ -358,29 +384,47 @@ with:
 echo "Built $OUT/WoofEngine.xcframework and staged App/Resources/woof.pk3"
 ```
 
-- [ ] **Step 4: Replace the guard in `archive.sh`**
+- [ ] **Step 4: Write `Scripts/check-engine-fresh.sh`**
 
-In `Scripts/archive.sh`, replace lines 20-38 — the block starting `# Any engine source or build script newer than the built framework => stale.` and ending with the `fi` that closes `if [ -n "$STALE" ]` — with:
+Create `Scripts/check-engine-fresh.sh`:
 
 ```bash
-# Compare a content fingerprint of everything that determines the framework
-# (Engine/woof + both build scripts) against the stamp build-engine.sh wrote.
+#!/bin/bash
+# Refuses to proceed when Vendor/out/WoofEngine.xcframework does not match
+# the sources that should have produced it. Exits 0 and prints nothing when
+# the framework is current; exits 1 with rebuild guidance otherwise.
 #
-# Content, not mtimes: a fresh worktree checkout or a restored CI cache lands
-# sources with mtimes NEWER than the framework even when the bytes are
-# identical, which made the previous `find -newer` guard fire spuriously and
-# demand a ~25-minute rebuild that changed nothing. Content also widens
-# coverage from Engine/woof/src to all of Engine/woof, so edits to the
-# vendored CMakeLists.txt or third-party/ now count -- they were invisible
-# before.
+# The heavy engine build (SDL/OpenAL + Woof) is deliberately NOT part of
+# archiving, but a framework that does not match its sources silently ships
+# stale bits -- that is how a missing SDL_CAMERA=OFF (ITMS-90683) or an
+# unbuilt engine fix reaches App Review. Fail loudly instead; rebuilding is a
+# separate, explicit step.
 #
-# Fail CLOSED, as the mtime guard did: an unreadable source tree, a failure
-# to compute the fingerprint, or a missing stamp all refuse the archive
-# rather than shipping bits of unknown provenance.
+# Compares CONTENT, not mtimes. The previous `find -newer` guard fired
+# whenever sources merely had newer timestamps than the framework -- which is
+# what a fresh worktree checkout or a restored CI cache always produces, even
+# when the bytes are identical -- and demanded a ~25-minute rebuild that
+# changed nothing. Content comparison also widens coverage from
+# Engine/woof/src to all of Engine/woof, so edits to the vendored
+# CMakeLists.txt or third-party/ now count; they were invisible before.
+#
+# Fails CLOSED: an unreadable source tree, a failure to compute the
+# fingerprint, or a missing stamp all refuse, rather than letting bits of
+# unknown provenance through.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+FW="$ROOT/Vendor/out/WoofEngine.xcframework"
 STAMP="$FW.fingerprint"
+
+if [ ! -d "$FW" ]; then
+  echo "error: $FW is missing." >&2
+  echo "       build the engine first: mise run bootstrap" >&2
+  echo "       (or: Scripts/build-deps.sh && Scripts/build-engine.sh)" >&2
+  exit 1
+fi
 if ! CURRENT_FP="$("$ROOT/Scripts/engine-fingerprint.sh")"; then
   echo "error: could not fingerprint the engine sources (a source or build" >&2
-  echo "       script is missing or unreadable) — refusing to archive." >&2
+  echo "       script is missing or unreadable) — refusing to continue." >&2
   exit 1
 fi
 if [ ! -f "$STAMP" ]; then
@@ -397,39 +441,69 @@ if [ "$CURRENT_FP" != "$(cat "$STAMP")" ]; then
 fi
 ```
 
-Leave lines 13-19 (the `[ ! -d "$FW" ]` missing-framework check) exactly as they are.
+Make it executable:
 
-- [ ] **Step 5: Run the test to verify it passes**
+```bash
+chmod +x Scripts/check-engine-fresh.sh
+```
 
-Run: `Scripts/test-archive-guard.sh`
+- [ ] **Step 5: Call the guard from `archive.sh`**
 
-Expected: PASS — four `ok - ...` lines, then `All archive-guard tests passed.`
+In `Scripts/archive.sh`, replace lines 8-38 — the whole guard block, from the comment beginning `# Guard against archiving a STALE engine.` through the `fi` that closes `if [ -n "$STALE" ]` — with:
 
-Note assertion 4 `touch`es every file under `Engine/woof`. That is intentional and harmless: it changes mtimes only, and the whole point is that the new guard no longer cares.
+```bash
+# Refuse to archive a framework that does not match its sources. Extracted
+# into its own script so it is testable without running a build, and so the
+# TestFlight workflow can call it as a standalone step.
+"$ROOT/Scripts/check-engine-fresh.sh"
+```
 
-- [ ] **Step 6: Verify the fingerprint tests still pass**
+`set -euo pipefail` at the top of `archive.sh` already aborts on a non-zero exit, so no explicit `||` handling is needed. The `FW=` assignment on line 13 goes away with the block; confirm nothing later in `archive.sh` still references `$FW` (as of this plan, nothing does — `ARCHIVE=` is a separate path built further down).
+
+- [ ] **Step 6: Run the test to verify it passes**
+
+Run: `Scripts/test-check-engine-fresh.sh`
+
+Expected: PASS — seven `ok - ...` lines, then `All check-engine-fresh tests passed.`
+
+- [ ] **Step 7: Verify the fingerprint tests still pass**
 
 Run: `Scripts/test-engine-fingerprint.sh`
 
 Expected: PASS. Step 3 edited `build-engine.sh`, which the fingerprint covers — confirm the helper is unaffected by its own inputs changing.
 
-- [ ] **Step 7: Regenerate the stamp for the local build**
+- [ ] **Step 8: Verify `archive.sh` still parses, without running a build**
 
-Run: `Scripts/engine-fingerprint.sh > Vendor/out/WoofEngine.xcframework.fingerprint`
+Run: `bash -n Scripts/archive.sh`
 
-The existing local framework was built before the stamp existed. Without this, the next `Scripts/archive.sh` correctly refuses with "stamp is missing". Editing `build-engine.sh` in Step 3 also changed the fingerprint, so re-stamp after that edit, not before.
+Expected: no output, exit 0. This is a syntax check only. Do **not** run `Scripts/archive.sh` itself to test the edit — it continues into a full signed Release build and deletes `Vendor/archive/export/`.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Stamp the existing local framework**
 
 ```bash
-git add Scripts/build-engine.sh Scripts/archive.sh Scripts/test-archive-guard.sh
+Scripts/engine-fingerprint.sh > Vendor/out/WoofEngine.xcframework.fingerprint
+Scripts/check-engine-fresh.sh && echo "guard passes against the local build"
+```
+
+The local framework was built before the stamp existed, so without this the next `Scripts/archive.sh` correctly refuses with "stamp is missing". Editing `build-engine.sh` in Step 3 also changed the fingerprint, so stamp after that edit, not before.
+
+Expected: `guard passes against the local build`. If the guard still refuses, the fingerprint is not stable — stop and report rather than re-stamping in a loop.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add Scripts/build-engine.sh Scripts/check-engine-fresh.sh \
+        Scripts/test-check-engine-fresh.sh Scripts/archive.sh
 git commit -m "fix(build): guard archives on engine content, not mtimes
 
-build-engine.sh now stamps the framework with its source fingerprint and
-archive.sh compares against it. Fixes the false positive where a fresh
-worktree or restored cache checks out byte-identical sources with newer
-mtimes and demands a ~25-minute rebuild that changes nothing. Also widens
-coverage from Engine/woof/src to all of Engine/woof."
+build-engine.sh now stamps the framework with its source fingerprint, and
+the freshness check compares against that stamp. Fixes the false positive
+where a fresh worktree or a restored cache checks out byte-identical sources
+with newer mtimes and demands a ~25-minute rebuild that changes nothing.
+Also widens coverage from Engine/woof/src to all of Engine/woof.
+
+The check lives in its own script so it is testable without running a build
+and so CI can call it standalone."
 ```
 
 ---
@@ -581,9 +655,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Cheap (~0.1s) and guards the value both cache keys depend on.
-      - name: Verify the engine fingerprint helper
-        run: Scripts/test-engine-fingerprint.sh
+      # Cheap (~0.1s each) and they guard the value both cache keys depend
+      # on, plus the check that stops a stale engine from being shipped.
+      - name: Verify the build-script helpers
+        run: |
+          Scripts/test-engine-fingerprint.sh
+          Scripts/test-check-engine-fresh.sh
 
       - uses: ./.github/actions/setup-waddle-build
         with:
@@ -854,6 +931,8 @@ Fill in the real numbers. The engine-boot line is the one that was unknowable be
 
 **Placeholder scan:** No TBD/TODO. Every code step carries complete content. The only intentional blanks are the `<N>` placeholders in Task 4 Step 6, which are runtime measurements that cannot exist before the run.
 
-**Type consistency:** `Scripts/engine-fingerprint.sh` takes no arguments and prints one hash on stdout in Tasks 1, 2, and 3. The stamp path is `Vendor/out/WoofEngine.xcframework.fingerprint` in Task 2 (written), Task 2 (read by the guard), and Task 3 (cached) — identical in all three. The composite action's single input is `xcode-version` where it is defined (Task 3) and where it is called (Tasks 3 and 4).
+**Type consistency:** `Scripts/engine-fingerprint.sh` takes no arguments and prints one hash on stdout in Tasks 1, 2, and 3. The stamp path is `Vendor/out/WoofEngine.xcframework.fingerprint` in Task 2 (written by `build-engine.sh`), Task 2 (read by `check-engine-fresh.sh`), and Task 3 (cached) — identical in all three. The composite action's single input is `xcode-version` where it is defined (Task 3) and where it is called (Tasks 3 and 4).
 
-**One gap found and closed during review:** the spec's verification list is written as manual checks. Tasks 1 and 2 automate all of them into `Scripts/test-engine-fingerprint.sh` and `Scripts/test-archive-guard.sh`, and `ci.yml` runs the first of those on every PR. The fingerprint is load-bearing for both the ship guard and the cache, so it should not rest on remembering to check it by hand.
+**One gap found and closed during review:** the spec's verification list is written as manual checks. Tasks 1 and 2 automate all of them into `Scripts/test-engine-fingerprint.sh` and `Scripts/test-check-engine-fresh.sh`, and `ci.yml` runs both on every PR. The fingerprint is load-bearing for both the ship guard and the cache, so it should not rest on remembering to check it by hand.
+
+**Defect found in this plan during pre-flight and corrected:** Task 2 originally tested the guard by running the real `archive.sh` under stubbed `xcodegen`/`xcodebuild`. That could not have worked and would have caused damage: `archive.sh` runs `rm -rf "$ROOT/Vendor/archive/export"` (destroying real local artifacts) and then re-invokes `PATH="/usr/bin:$PATH" xcodebuild`, which places the real binary ahead of any stub. Extracting the guard into `Scripts/check-engine-fresh.sh` makes it hermetically testable and gives the follow-up TestFlight PR a standalone check to call.
