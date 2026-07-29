@@ -6,6 +6,9 @@ struct WADdleApp: App {
     let container: ModelContainer
     let library: LibraryService
     let importer: ImportService
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var isAdopting = false
+    @State private var adoptionQueued = false
 
     init() {
         do {
@@ -41,9 +44,12 @@ struct WADdleApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(library: library, importer: importer)
-                .task {
-                    ImportNotices.shared.post(outcome: await importer.adoptLooseFiles(),
-                                              quarantines: true)
+                .task { await runAdoption() }
+                .onChange(of: scenePhase) { oldPhase, newPhase in
+                    // Launch is covered by .task above; this catches files dropped
+                    // into Documents via the Files app while we were backgrounded.
+                    guard oldPhase == .background, newPhase == .active else { return }
+                    Task { await runAdoption() }
                 }
                 .onOpenURL { url in
                     let outcome = importer.importFiles(at: [url])
@@ -52,5 +58,26 @@ struct WADdleApp: App {
                 }
         }
         .modelContainer(container)
+    }
+
+    /// One adoption pass: sweep loose files from Documents/Inbox into the
+    /// store, surface the outcome, and nudge LibraryView to refresh (adoption
+    /// can finish after the Library list first rendered). Guarded so a launch
+    /// pass and a foreground pass can't interleave store writes.
+    // An overlapping trigger queues a trailing pass instead of being
+    // dropped: a file dropped into Documents after the in-flight pass
+    // listed the directory is caught by the re-run, so every trigger is
+    // still followed by a scan + refresh.
+    @MainActor
+    private func runAdoption() async {
+        guard !isAdopting else { adoptionQueued = true; return }
+        isAdopting = true
+        defer { isAdopting = false }
+        repeat {
+            adoptionQueued = false
+            ImportNotices.shared.post(outcome: await importer.adoptLooseFiles(),
+                                      quarantines: true)
+            NotificationCenter.default.post(name: .libraryDidChange, object: nil)
+        } while adoptionQueued
     }
 }

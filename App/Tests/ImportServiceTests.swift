@@ -275,6 +275,25 @@ final class ImportServiceTests: XCTestCase {
                       "second zip should be quarantined even though ok.wad imported, not deleted")
     }
 
+    /// Spec: "files dropped directly into the container via the iOS Files app
+    /// are adopted and simply appear" — an adopted loose PWAD must show up in
+    /// the Library tab's grouped inventory.
+    func testAdoptedLooseFileAppearsInLibraryGroups() async throws {
+        let docs = URL.documentsDirectory
+        let loose = docs.appendingPathComponent("dropped.wad")
+        try makeWAD(magic: "PWAD", lumps: ["MAP01"]).write(to: loose)
+        defer { try? FileManager.default.removeItem(at: loose) }
+
+        let outcome = await importer.adoptLooseFiles()
+        XCTAssertEqual(outcome.imported, ["dropped"])
+
+        let groups = try library.libraryGroups()
+        let mods = try XCTUnwrap(groups.first { $0.kind == .pwad })
+        XCTAssertTrue(mods.wads.contains { $0.filename == "dropped.wad" })
+        XCTAssertEqual(mods.wads.first { $0.filename == "dropped.wad" }
+                           .map { library.fileStatus(for: $0) }, .imported)
+    }
+
     // MARK: dedupe ordering
 
     func testDuplicateImportDoesNotWriteNewStoreFile() throws {
