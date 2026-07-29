@@ -557,10 +557,19 @@ runs:
     - name: Install pinned CLI tools
       uses: jdx/mise-action@v2
 
+    # Assign to a variable on its own line, rather than interpolating the
+    # command substitution directly into the echo. engine-fingerprint.sh
+    # writes a syntactically valid 64-hex string (the SHA-256 of empty input)
+    # to stdout even on its failure paths -- only its EXIT STATUS is
+    # trustworthy. `echo "value=$(...)"` would not trip errexit on that
+    # failure, silently producing a garbage-but-stable cache key that poisons
+    # every subsequent run. A bare assignment does propagate the failure.
     - name: Compute engine fingerprint
       id: fingerprint
       shell: bash
-      run: echo "value=$(Scripts/engine-fingerprint.sh)" >> "$GITHUB_OUTPUT"
+      run: |
+        FINGERPRINT="$(Scripts/engine-fingerprint.sh)"
+        echo "value=$FINGERPRINT" >> "$GITHUB_OUTPUT"
 
     # The engine cache is restored FIRST and the deps cache is nested under
     # a miss, because build-engine.sh merges libSDL3.a and libopenal.a INTO
