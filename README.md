@@ -68,9 +68,13 @@ xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
 the simulator — the fastest way to confirm a from-scratch build actually
 works end to end, not just compiles.
 
-For App Store builds, `Scripts/archive.sh` produces the Release archive
-and .ipa (requires a signed-in developer account for the configured team);
-the submission steps live in
+TestFlight builds run from CI — dispatch the **TestFlight** workflow
+(`gh workflow run testflight.yml --ref main`), or add
+`-f validate_only=true` to build, sign and validate without consuming a
+build number. The build number is derived automatically; there is nothing to
+bump by hand. `Scripts/archive.sh` still produces a Release archive and .ipa
+locally as a fallback and is unchanged, but it needs signing credentials for
+the configured team and does not manage the build number. Full procedure:
 [`docs/app-store/submission-checklist.md`](docs/app-store/submission-checklist.md).
 
 ### Deviations worth knowing about

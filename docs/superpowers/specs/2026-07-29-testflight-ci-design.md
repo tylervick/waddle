@@ -1,7 +1,7 @@
 # TestFlight CI Workflow — Design Spec
 
 **Date:** 2026-07-29
-**Status:** Approved (brainstorm), pending implementation plan
+**Status:** Implemented in PRs #20–#24 (2026-07-30). First CI release: build 205.
 **Branch:** `tylervick/testflight-ci`
 **Predecessor:** PR #11 (`docs/superpowers/specs/2026-07-28-ci-build-scripts-design.md`)
 
