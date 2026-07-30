@@ -229,7 +229,7 @@ only on developer machines, in the release script.
 
 Every conditional array must use the guarded expansion
 `"${ARGS[@]+"${ARGS[@]}"}"`, and this must be **tested**, not asserted.
-`Scripts/test-archive-args.sh` will run the argument assembly under
+`Scripts/test-release-args.sh` will run the argument assembly under
 `/bin/bash` with no environment set, following the hermetic-test pattern
 already established by `test-engine-fingerprint.sh` and
 `test-check-engine-fresh.sh`.
@@ -407,7 +407,7 @@ dispatch inputs.
 
 Locally testable, and required before the PR opens:
 
-- `Scripts/test-archive-args.sh` — argument assembly under `/bin/bash` with
+- `Scripts/test-release-args.sh` — argument assembly under `/bin/bash` with
   no environment set produces a command line byte-identical to today's, and
   does not abort on the empty array.
 - The same test with ASC and `BUILD_NUMBER` set produces exactly the expected

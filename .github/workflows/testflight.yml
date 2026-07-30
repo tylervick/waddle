@@ -80,9 +80,13 @@ jobs:
           CERT="$RUNNER_TEMP/cert.p12"
           PROFILE="$RUNNER_TEMP/profile.mobileprovision"
 
-          printf '%s' "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERT"
-          printf '%s' "$PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE"
-          printf '%s' "$ASC_PRIVATE_KEY" | base64 --decode > "$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
+          # Explicit /usr/bin/base64: bare `base64` is PATH-shadowable, and
+          # this repo has already been burned by exactly that failure mode --
+          # a Homebrew rsync shadowing /usr/bin/rsync broke
+          # `xcodebuild -exportArchive` (see archive.sh's PATH handling).
+          printf '%s' "$BUILD_CERTIFICATE_BASE64" | /usr/bin/base64 --decode > "$CERT"
+          printf '%s' "$PROVISIONING_PROFILE_BASE64" | /usr/bin/base64 --decode > "$PROFILE"
+          printf '%s' "$ASC_PRIVATE_KEY" | /usr/bin/base64 --decode > "$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
 
           security create-keychain -p "$KC_PW" "$KC"
           security set-keychain-settings -lut 21600 "$KC"
@@ -107,12 +111,23 @@ jobs:
             mkdir -p "$d"
             cp "$PROFILE" "$d/$UUID.mobileprovision"
           done
+          echo "PROFILE_UUID=$UUID" >> "$GITHUB_ENV"
 
-          if ! security find-identity -v -p codesigning | grep -q 'Apple Distribution'; then
+          # Scoped to $KC deliberately: the search-list-wide form would pass on
+          # ANY Apple Distribution identity, masking a broken or key-less .p12.
+          # Search-list membership is asserted separately just below, since that
+          # is what codesign actually consults.
+          if ! security find-identity -v -p codesigning "$KC" | grep -q 'Apple Distribution'; then
             echo "::error::No Apple Distribution identity in the ephemeral keychain."
             echo "  The .p12 may be missing its private key, or the certificate may have expired."
-            echo "  The distribution certificate expires 2027-05-02."
-            security find-identity -v -p codesigning || true
+            echo "  If the certificate was renewed, regenerate the BUILD_CERTIFICATE_BASE64"
+            echo "  and P12_PASSWORD secrets. See docs/app-store/submission-checklist.md."
+            security find-identity -v -p codesigning "$KC" || true
+            exit 1
+          fi
+          if ! security list-keychains -d user | grep -qF "$KC"; then
+            echo "::error::$KC is not in the user keychain search list; codesign will not find the identity."
+            security list-keychains -d user || true
             exit 1
           fi
 
@@ -151,9 +166,18 @@ jobs:
       # upload-artifact cannot glob a path outside the workspace reliably.
       - name: Collect distribution logs
         if: failure()
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
         run: |
           mkdir -p "$RUNNER_TEMP/distlogs"
           cp -R "$TMPDIR"/*.xcdistributionlogs "$RUNNER_TEMP/distlogs/" 2>/dev/null || true
+          # Artifact contents are NOT covered by GitHub's secret masking, and
+          # this is a public repo. The logs embed the ASC key id via the
+          # -authenticationKeyPath argument, so scrub it before publishing.
+          if [ -n "${ASC_KEY_ID:-}" ]; then
+            find "$RUNNER_TEMP/distlogs" -type f -print0 2>/dev/null \
+              | xargs -0 -r sed -i '' "s/${ASC_KEY_ID}/ASC_KEY_ID_REDACTED/g" 2>/dev/null || true
+          fi
           ls -la "$RUNNER_TEMP/distlogs" || true
 
       # Failure only, short retention: these logs can contain the ASC key id
@@ -195,5 +219,7 @@ jobs:
         run: |
           security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true
           rm -f "$RUNNER_TEMP"/AuthKey_*.p8 "$RUNNER_TEMP"/cert.p12 "$RUNNER_TEMP"/profile.mobileprovision
-          rm -f "$HOME/Library/MobileDevice/Provisioning Profiles"/*.mobileprovision \
-                "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"/*.mobileprovision 2>/dev/null || true
+          if [ -n "${PROFILE_UUID:-}" ]; then
+            rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" \
+                  "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          fi

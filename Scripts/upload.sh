@@ -47,7 +47,13 @@ if [ "$RC" -ne 0 ]; then
     echo "error: altool exited $RC" >&2
     exit "$RC"
 fi
-if printf '%s' "$OUT" | grep -qE 'ERROR ITMS-|error:'; then
+# Herestring rather than a pipe: `grep -q` can exit before its producer
+# finishes, and under `pipefail` a SIGPIPEd producer could in principle make
+# the pipeline report non-zero and so MISS an error it actually matched. Not
+# reproducible on macOS/bash 3.2 (448KB payloads detect correctly), but the
+# herestring costs nothing and removes the question entirely -- and this check
+# is the thing standing between a silently-failed upload and a green run.
+if grep -qE 'ERROR ITMS-|error:' <<<"$OUT"; then
     echo "error: altool reported an error but exited 0 (known Xcode 26 behaviour)." >&2
     echo "       treating this as a FAILED upload. Verify in App Store Connect." >&2
     exit 1
