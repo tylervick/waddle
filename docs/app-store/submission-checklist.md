@@ -40,7 +40,7 @@ paste; `docs/app-store/screenshots/` holds the images;
 - [ ] Note: creating this record (plus program membership) is what
       unblocks `xcodebuild -exportArchive` / upload. Until it exists,
       export fails with `error: exportArchive No profiles for
-      'com.tylervick.waddle' were found` — this is the current state.
+      'com.tylervick.waddle' were found`.
 
 ## 2. Build and upload
 

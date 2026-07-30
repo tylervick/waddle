@@ -7,14 +7,32 @@ inputs:
   xcode-version:
     description: Xcode version to select; must match a version on the runner image.
     required: true
+  skip-cache:
+    description: >-
+      When 'true', ignore both caches and build SDL/OpenAL and the engine from
+      source. Used by the release workflow so a shipped binary is reproducible
+      from the tree rather than being whatever blob sat under a cache key.
+      check-engine-fresh.sh cannot vouch for a restored framework: its
+      fingerprint stamp lives inside the same cache entry, so any entry with a
+      matching stamp passes trivially. It is a staleness guard, not an
+      integrity guard.
+    required: false
+    default: 'false'
 
 runs:
   using: composite
   steps:
-    - name: Select Xcode ${{ inputs.xcode-version }}
+    # XCODE_VERSION is passed via env rather than interpolated into the script
+    # body. It only ever receives a literal today, but this action is about to
+    # be called from a workflow that has dispatch inputs, and ${{ }} expansion
+    # inside a run: block is a shell-injection vector the moment untrusted
+    # input can reach it.
+    - name: Select Xcode
       shell: bash
+      env:
+        XCODE_VERSION: ${{ inputs.xcode-version }}
       run: |
-        APP="/Applications/Xcode_${{ inputs.xcode-version }}.app"
+        APP="/Applications/Xcode_${XCODE_VERSION}.app"
         if [ ! -d "$APP" ]; then
           echo "::error::$APP not found on this runner image."
           echo "Installed Xcode versions:"
@@ -28,7 +46,7 @@ runs:
     # ships cmake and ninja at other versions and no xcodegen at all, so
     # this is what keeps CI's toolchain identical to a developer's.
     - name: Install pinned CLI tools
-      uses: jdx/mise-action@v2
+      uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
 
     # Assign to a variable on its own line, rather than interpolating the
     # command substitution directly into the echo. engine-fingerprint.sh
@@ -55,7 +73,8 @@ runs:
     # failure this design exists to prevent. A miss must mean a rebuild.
     - name: Restore engine framework
       id: engine-cache
-      uses: actions/cache@v4
+      if: inputs.skip-cache != 'true'
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: |
           Vendor/out/WoofEngine.xcframework
@@ -65,21 +84,23 @@ runs:
 
     - name: Restore SDL3 + OpenAL Soft
       id: deps-cache
-      if: steps.engine-cache.outputs.cache-hit != 'true'
-      uses: actions/cache@v4
+      if: inputs.skip-cache != 'true' && steps.engine-cache.outputs.cache-hit != 'true'
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: |
           Vendor/out/iphoneos
           Vendor/out/iphonesimulator
         key: deps-xcode${{ inputs.xcode-version }}-${{ hashFiles('Scripts/build-deps.sh') }}-${{ hashFiles('mise.toml') }}
 
+    # With skip-cache the restore steps do not run, so cache-hit is empty and
+    # these conditions hold. Stated explicitly rather than relying on that.
     - name: Build SDL3 + OpenAL Soft
-      if: steps.engine-cache.outputs.cache-hit != 'true' && steps.deps-cache.outputs.cache-hit != 'true'
+      if: inputs.skip-cache == 'true' || (steps.engine-cache.outputs.cache-hit != 'true' && steps.deps-cache.outputs.cache-hit != 'true')
       shell: bash
       run: Scripts/build-deps.sh
 
     - name: Build engine framework
-      if: steps.engine-cache.outputs.cache-hit != 'true'
+      if: inputs.skip-cache == 'true' || steps.engine-cache.outputs.cache-hit != 'true'
       shell: bash
       run: Scripts/build-engine.sh
 

@@ -22,6 +22,39 @@ IPA="${1:-$ROOT/Vendor/archive/export/WADdle.ipa}"
 : "${ASC_ISSUER_ID:?set ASC_ISSUER_ID in Scripts/.appstore.env}"
 [ -f "$IPA" ] || { echo "IPA not found: $IPA (run Scripts/archive.sh first)"; exit 1; }
 
+# ASC_KEY_PATH (optional): pass the .p8 explicitly rather than relying on
+# altool's implicit search of ./private_keys, ~/private_keys,
+# ~/.private_keys and ~/.appstoreconnect/private_keys. The first of those is
+# relative to the current directory, which is ambiguous in CI.
+KEY_ARGS=()
+if [ -n "${ASC_KEY_PATH:-}" ]; then
+    KEY_ARGS=(--p8-file-path "$ASC_KEY_PATH")
+fi
+
 echo "${ACTION#--} $IPA"
-xcrun altool "$ACTION" -f "$IPA" -t ios \
-  --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+# Capture rather than stream: Xcode 26's altool has been observed printing an
+# ITMS error and STILL exiting 0, reporting "Successfully uploaded" for an
+# upload that did not happen. Trusting the exit code alone would make a
+# failed release look green. See the design spec's upload section.
+set +e
+OUT="$(xcrun altool "$ACTION" -f "$IPA" -t ios \
+        --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID" \
+        "${KEY_ARGS[@]+"${KEY_ARGS[@]}"}" 2>&1)"
+RC=$?
+set -e
+printf '%s\n' "$OUT"
+if [ "$RC" -ne 0 ]; then
+    echo "error: altool exited $RC" >&2
+    exit "$RC"
+fi
+# Herestring rather than a pipe: `grep -q` can exit before its producer
+# finishes, and under `pipefail` a SIGPIPEd producer could in principle make
+# the pipeline report non-zero and so MISS an error it actually matched. Not
+# reproducible on macOS/bash 3.2 (448KB payloads detect correctly), but the
+# herestring costs nothing and removes the question entirely -- and this check
+# is the thing standing between a silently-failed upload and a green run.
+if grep -qE 'ERROR ITMS-|error:' <<<"$OUT"; then
+    echo "error: altool reported an error but exited 0 (known Xcode 26 behaviour)." >&2
+    echo "       treating this as a FAILED upload. Verify in App Store Connect." >&2
+    exit 1
+fi
