@@ -46,8 +46,13 @@ to the decision it justifies.
 ## Signing: manual, with a pre-installed profile
 
 **Decision:** install a provisioning profile from a secret, sign with
-`signingStyle: manual`, and never give `xcodebuild` write authority over the
-developer portal.
+`signingStyle: manual`, and never let `xcodebuild` invoke the
+provisioning-update path that can mint a certificate. `xcodebuild` *is*
+authenticated against the developer portal via the API key -- that
+authentication is not what's withheld. Manual signing is what limits it: with
+a pre-installed profile there is nothing to update, so `xcodebuild` has no
+occasion to reach for portal write operations, only (at most) a profile
+download.
 
 The rejected alternative was `signingStyle: automatic` plus
 `-allowProvisioningUpdates`, which is what `archive.sh` uses locally today.
@@ -360,8 +365,12 @@ Steps:
 8. Write the build number to `$GITHUB_STEP_SUMMARY` unconditionally
 9. Delete the keychain — `if: always()`
 
-Artifacts use `retention-days: 7`, matching `ci.yml`. A signed App Store
-build should not sit publicly downloadable for the 90-day default.
+The `.ipa` artifact uses `retention-days: 7`, matching `ci.yml`; a signed App
+Store build should not sit publicly downloadable for the 90-day default. The
+distribution-logs artifact uses `retention-days: 3` instead -- shorter
+because, unlike the `.ipa`, its contents can include the ASC key id and
+account emails, and artifact contents are not covered by GitHub's secret
+masking on a public repo.
 
 ## Supply chain
 
@@ -388,7 +397,7 @@ dispatch inputs.
 | Situation | Behaviour |
 |---|---|
 | Bad `build_number` input | Rejected in seconds, before the build |
-| Archive fails | `.xcdistributionlogs` are the only diagnostic; captured `if: failure()` with 7-day retention. They can contain the ASC key id and account emails, so they are **not** uploaded on success |
+| Archive fails | `.xcdistributionlogs` are the only diagnostic; captured `if: failure()` with 3-day retention. They can contain the ASC key id and account emails, so they are **not** uploaded on success |
 | Archive succeeds, upload fails | `.ipa` already uploaded as an artifact; re-dispatch with `build_number` override |
 | Upload succeeds, job cancelled | Build number is burned server-side. The step summary records the number even on failure, so it is recoverable from the run |
 | Two dispatches race | Serialized by the ref-independent concurrency group |

@@ -45,6 +45,18 @@ if [ "${ARCHIVE_PRINT_ONLY:-}" = "1" ]; then
     exit 0
 fi
 
+# Defense in depth against the one irreversible failure mode. With API-key
+# auth available, automatic signing + the export step's -allowProvisioningUpdates
+# is the full "create certificates" configuration (man xcodebuild): xcodebuild
+# would MINT a new Apple Distribution certificate whose key dies with the
+# runner. Apple caps those at 2-3 per account and cleanup is manual revocation
+# in the portal. Refuse rather than trust a caller to have set the plist.
+if [ -n "${ASC_KEY_PATH:-}" ] && [ -z "${EXPORT_OPTIONS_PLIST:-}" ]; then
+    echo "error: ASC key auth requires an explicit manual-signing export plist." >&2
+    echo "       set EXPORT_OPTIONS_PLIST (e.g. App/ExportOptions-ci.plist)." >&2
+    exit 1
+fi
+
 "$ROOT/Scripts/check-engine-fresh.sh"
 
 cd "$ROOT/App" && xcodegen generate && cd "$ROOT"
@@ -65,6 +77,9 @@ rm -rf "$ROOT/Vendor/archive/export"
 # so prepend /usr/bin. -allowProvisioningUpdates lets a first-time bundle id
 # mint its distribution profile on the LOCAL path, which uses automatic
 # signing; CI passes a manual-signing plist where it is a no-op.
+# (The DVTDeveloperAccountManager warning about a stale "kagi@tylervick.com"
+# account is non-fatal -- the correct account is tylerjvick@gmail.com; see
+# docs/app-store/submission-checklist.md §0.)
 PATH="/usr/bin:$PATH" xcodebuild -exportArchive -archivePath "$ARCHIVE" \
   -exportOptionsPlist "$EXPORT_PLIST" \
   -exportPath "$ROOT/Vendor/archive/export" \

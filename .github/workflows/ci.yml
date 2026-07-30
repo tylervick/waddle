@@ -42,6 +42,7 @@ jobs:
         run: |
           Scripts/test-engine-fingerprint.sh
           Scripts/test-check-engine-fresh.sh
+          Scripts/test-release-args.sh
 
       - uses: ./.github/actions/setup-waddle-build
         with:

@@ -98,16 +98,21 @@ jobs:
           # found in older guides is insufficient.
           security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$KC_PW" "$KC" >/dev/null
 
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           UUID="$(security cms -D -i "$PROFILE" | plutil -extract UUID raw -)"
-          cp "$PROFILE" ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID".mobileprovision
+          # Both locations: Xcode 16+ reads the Developer/Xcode path, older
+          # tooling still reads the MobileDevice one. Installing to only the
+          # legacy path is why this failed with "No profiles ... were found".
+          for d in "$HOME/Library/MobileDevice/Provisioning Profiles" \
+                   "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+            mkdir -p "$d"
+            cp "$PROFILE" "$d/$UUID.mobileprovision"
+          done
 
-          rm -f "$CERT" "$PROFILE"
-          if ! security find-identity -v -p codesigning "$KC" | grep -q 'Apple Distribution'; then
+          if ! security find-identity -v -p codesigning | grep -q 'Apple Distribution'; then
             echo "::error::No Apple Distribution identity in the ephemeral keychain."
             echo "  The .p12 may be missing its private key, or the certificate may have expired."
             echo "  The distribution certificate expires 2027-05-02."
-            security find-identity -v -p codesigning "$KC" || true
+            security find-identity -v -p codesigning || true
             exit 1
           fi
 
@@ -167,21 +172,28 @@ jobs:
       # even on failure. App Store Connect is the only other record.
       - name: Summary
         if: always()
+        env:
+          REF: ${{ github.ref_name }}
+          BUILD_NUM: ${{ steps.buildnum.outputs.value }}
+          VALIDATE_ONLY: ${{ inputs.validate_only }}
         run: |
+          if [ "$VALIDATE_ONLY" = "true" ]; then MODE="validate only"; else MODE="upload"; fi
           {
             echo "### TestFlight run"
             echo ""
-            echo "- Build number: **${{ steps.buildnum.outputs.value }}**"
-            echo "- Mode: ${{ inputs.validate_only == true && 'validate only' || 'upload' }}"
-            echo "- Ref: \`${{ github.ref_name }}\`"
+            echo "- Build number: **$BUILD_NUM**"
+            echo "- Mode: $MODE"
+            echo "- Ref: \`$REF\`"
             echo ""
             echo "Confirm the build appears in App Store Connect. Xcode 26's altool"
             echo "can report success for an upload that did not happen, so a green"
             echo "run is not by itself proof of delivery."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Delete keychain
+      - name: Delete keychain and signing material
         if: always()
         run: |
           security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true
-          rm -f "$RUNNER_TEMP"/AuthKey_*.p8
+          rm -f "$RUNNER_TEMP"/AuthKey_*.p8 "$RUNNER_TEMP"/cert.p12 "$RUNNER_TEMP"/profile.mobileprovision
+          rm -f "$HOME/Library/MobileDevice/Provisioning Profiles"/*.mobileprovision \
+                "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"/*.mobileprovision 2>/dev/null || true
