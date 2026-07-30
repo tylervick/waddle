@@ -3,10 +3,10 @@
 #
 # Drives the app with a TEMPORARY XCUITest (ScreenshotCaptureTests.swift,
 # written by this script into App/UITests, removed again by `cleanup`) —
-# not manual pauses. The test navigates the launcher/library/editor and an
-# in-game Freedoom session, attaching full-resolution XCUIScreen shots;
-# the script then exports them from the .xcresult bundle into
-# docs/app-store/screenshots/<device>/.
+# not manual pauses. The test plays an in-game Freedoom session first, then
+# navigates the Play tab / Library / preset editor, attaching
+# full-resolution XCUIScreen shots; the script then exports them from the
+# .xcresult bundle into docs/app-store/screenshots/<device>/.
 #
 # Devices:
 #   iphone -> "iPhone 17 Pro Max"      (6.9" class, REQUIRED size; 2868x1320)
@@ -65,16 +65,32 @@ import XCTest
 /// TEMPORARY — written by Scripts/capture-screenshots.sh, removed by its
 /// `cleanup` step. Not part of the committed test suite. Attaches
 /// full-resolution screenshots for the script to export from the xcresult.
+///
+/// The two tests are ordered deliberately (XCTest runs methods in selector
+/// order): the in-game one runs FIRST because playing a base game stamps
+/// `lastPlayed` (LibraryService.markPlayed saves synchronously, before the
+/// blocking engine session starts), and that is what gives the menu test's
+/// Play-tab shot a populated "Recently Played" section.
 final class ScreenshotCaptureTests: XCTestCase {
+
+    /// The preset built for the marketing shots. SCYTHE is a Doom-2-format
+    /// megawad, so it belongs on Freedoom Phase 2; the name is the one
+    /// `PresetName.suggested` auto-generates from that pairing, which is in
+    /// turn what the Play tile's "loadout-<name>" identifier is built from.
+    private let presetBase = "Freedoom Phase 2"
+    private let presetPWAD = "SCYTHE"
+    private var presetName: String { "\(presetBase) + \(presetPWAD)" }
 
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
 
-    /// The app is landscape-only but the simulator boots (and stays) in
-    /// portrait, where the app draws sideways — letterboxed on iPad. The
-    /// orientation set only sticks once the app is frontmost, so call this
-    /// right after every launch().
+    /// The simulator boots (and stays) in portrait. Since the orientation fix
+    /// (a9acd51) the app supports portrait too, so a portrait device now
+    /// yields a genuinely portrait screenshot — still the wrong aspect for
+    /// the App Store's landscape slots, just no longer a sideways one. The
+    /// orientation only sticks once the app is frontmost, so call this right
+    /// after every launch().
     private func forceLandscape() {
         XCUIDevice.shared.orientation = .landscapeLeft
         Thread.sleep(forTimeInterval: 1.0)  // rotation animation
@@ -88,20 +104,42 @@ final class ScreenshotCaptureTests: XCTestCase {
         add(attachment)
     }
 
-    /// iPhone renders a bottom UITabBar; iPad (iOS 26) may expose the
-    /// floating top bar differently — fall back to a plain button query.
+    /// iOS 26's TabView reconstructs the tab-bar button from the tabItem, so
+    /// it carries no accessibility identifier — switch by label text (see the
+    /// note in ContentView). Falls back to a plain button query in case iPad
+    /// surfaces them outside a tabBars container.
     private func tapTab(_ app: XCUIApplication, _ label: String) {
         let tab = app.tabBars.buttons[label]
         if tab.waitForExistence(timeout: 5) { tab.tap() }
         else { app.buttons[label].firstMatch.tap() }
     }
 
-    /// iPadOS 26 defaults to the "Windowed Apps" multitasking style, which
-    /// puts this landscape-only, fullscreen-only app sideways in a
-    /// letterboxed portrait window. No public simctl/defaults switch
-    /// exists, so flip Settings to "Full Screen Apps" the way a user
-    /// would. Runs first (digits sort before letters in XCTest ordering);
-    /// skipped on iPhone.
+    /// PlayView's sections are LazyVGrids inside a ScrollView, so a tile below
+    /// the fold is absent from the accessibility hierarchy entirely rather
+    /// than merely non-hittable — `exists` is false and no wait will change
+    /// that. Three sections do not fit a landscape iPhone, so scroll it in.
+    /// The section *headers* are plain Text in a non-lazy VStack and are
+    /// always present; that is what the assertions below key on.
+    @discardableResult
+    private func scrollIntoView(_ app: XCUIApplication, _ element: XCUIElement) -> Bool {
+        for _ in 0..<5 {
+            if element.exists { return true }
+            app.swipeUp()
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        return element.exists
+    }
+
+    /// iPadOS 26 defaults to the "Windowed Apps" multitasking style. Since
+    /// the orientation fix (a9acd51) the app no longer lands sideways in a
+    /// letterboxed portrait window there — it opens upright and fills the
+    /// screen — but the system still draws a window-resize grabber over the
+    /// app's bottom-right corner, and it does not fade (still in frame
+    /// minutes after launch). That belongs in no marketing shot, so this
+    /// step survives the fix. No public simctl/defaults switch exists for
+    /// the multitasking style, so flip Settings to "Full Screen Apps" the
+    /// way a user would. Runs first (digits sort before letters in XCTest
+    /// ordering); skipped on iPhone.
     @MainActor
     func test0_ConfigureIPadFullScreenMode() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad)
@@ -132,64 +170,10 @@ final class ScreenshotCaptureTests: XCTestCase {
         settings.terminate()
     }
 
+    /// 05-ingame, 06-automap. Runs first of the two capture tests — see the
+    /// class note on ordering.
     @MainActor
-    func testA_MenuScreens() throws {
-        let app = XCUIApplication()
-        app.launch()  // no env vars: no debug HUD, no test seams
-        forceLandscape()
-
-        XCTAssertTrue(app.buttons["playFreedoom1"].waitForExistence(timeout: 20))
-        // Checked here, on the Play tab: elements on a background tab don't
-        // exist in the hierarchy, so checking after switching to Library
-        // would always create a duplicate loadout on a re-run.
-        let scytheLoadoutExists = app.buttons["loadout-SCYTHE"].exists
-
-        // Library (before creating the loadout, so no notice banner in shot).
-        tapTab(app, "Library")
-        XCTAssertTrue(app.staticTexts["SCYTHE"].waitForExistence(timeout: 30),
-                      "provisioned WADs not adopted — run the warm-up launch first")
-        shoot("02-library")
-
-        // One-tap loadout from the SCYTHE PWAD row (context menu), so the
-        // Play grid has a third tile.
-        if !scytheLoadoutExists {
-            app.staticTexts["SCYTHE"].press(forDuration: 1.2)
-            let create = app.buttons["newLoadoutFromPWAD-SCYTHE"]
-            XCTAssertTrue(create.waitForExistence(timeout: 5))
-            create.tap()
-            Thread.sleep(forTimeInterval: 6.5)  // notice banner auto-dismiss
-        }
-
-        // Loadout grid.
-        tapTab(app, "Play")
-        let scytheTile = app.buttons["loadout-SCYTHE"]
-        XCTAssertTrue(scytheTile.waitForExistence(timeout: 10))
-        shoot("01-loadout-grid")
-
-        // Loadout editor (Edit on the SCYTHE tile: shows suggested IWAD +
-        // PWAD list + complevel, richer than an empty New Loadout form).
-        scytheTile.press(forDuration: 1.2)
-        let edit = app.buttons["Edit"]
-        XCTAssertTrue(edit.waitForExistence(timeout: 5))
-        edit.tap()
-        XCTAssertTrue(app.textFields["loadoutNameField"].waitForExistence(timeout: 5))
-        shoot("03-loadout-editor")
-        app.buttons["Cancel"].tap()
-
-        // Control Feel sheet (gear menu).
-        let menu = app.buttons["touchSchemeMenu"]
-        XCTAssertTrue(menu.waitForExistence(timeout: 5))
-        menu.tap()
-        let controlFeel = app.buttons["controlFeelButton"]
-        XCTAssertTrue(controlFeel.waitForExistence(timeout: 5))
-        controlFeel.tap()
-        XCTAssertTrue(app.buttons["controlFeelDoneButton"].waitForExistence(timeout: 5))
-        shoot("04-control-feel")
-        app.buttons["controlFeelDoneButton"].tap()
-    }
-
-    @MainActor
-    func testB_InGameScreens() throws {
+    func testA_InGameScreens() throws {
         let app = XCUIApplication()
         // Menu-free path in-game + overlay visible under XCUITest's phantom
         // controller; neither adds any on-screen debug chrome.
@@ -207,10 +191,96 @@ final class ScreenshotCaptureTests: XCTestCase {
         Thread.sleep(forTimeInterval: 5)  // level load + screen wipe
         shoot("05-ingame")
 
-        app.buttons["automapButton"].tap()
+        let automap = app.buttons["automapButton"]
+        XCTAssertTrue(automap.waitForExistence(timeout: 5),
+                      "automap button missing from the overlay")
+        automap.tap()
         shoot("06-automap")
 
         app.terminate()  // don't leave the engine session running
+    }
+
+    /// 02-library, 03-preset-editor, 01-play-tab, 04-control-feel.
+    @MainActor
+    func testB_MenuScreens() throws {
+        let app = XCUIApplication()
+        app.launch()  // no env vars: no debug HUD, no test seams
+        forceLandscape()
+
+        XCTAssertTrue(app.buttons["playFreedoom1"].waitForExistence(timeout: 20))
+        // Checked here, on the Play tab: elements on a background tab don't
+        // exist in the hierarchy, so checking after switching to Library
+        // would always create a duplicate preset on a re-run. The section
+        // header, not the tile, is the probe — see `scrollIntoView`.
+        let presetTile = app.buttons["loadout-\(presetName)"]
+        let presetsSection = app.staticTexts["Presets"]
+        let presetExists = presetsSection.exists
+
+        // Library: the reworked grouped file manager (Base Games / Mods /
+        // Patches), shot before the preset exists so no notice banner or
+        // in-use warning is on screen.
+        tapTab(app, "Library")
+        let scytheRow = app.descendants(matching: .any)
+            .matching(identifier: "libraryRow-SCYTHE.WAD").firstMatch
+        XCTAssertTrue(scytheRow.waitForExistence(timeout: 30),
+                      "provisioned WADs not adopted — run the warm-up launch first")
+        shoot("02-library")
+
+        tapTab(app, "Play")
+        if presetExists {
+            // Re-run against a container that already has the preset: edit it
+            // instead of creating a second one.
+            XCTAssertTrue(scrollIntoView(app, presetTile), "preset tile not reachable")
+            presetTile.press(forDuration: 1.2)
+            let edit = app.buttons["Edit"]
+            XCTAssertTrue(edit.waitForExistence(timeout: 5))
+            edit.tap()
+            XCTAssertTrue(app.textFields["loadoutNameField"].waitForExistence(timeout: 5))
+            shoot("03-preset-editor")
+            app.buttons["Cancel"].tap()
+        } else {
+            // Preset creation has exactly one door since the rework: the +
+            // button opens PresetCreationFlow's base-game picker, and picking
+            // a row pushes into the editor already seeded with that base.
+            let newPreset = app.buttons["newLoadoutButton"]
+            XCTAssertTrue(newPreset.waitForExistence(timeout: 5),
+                          "New Preset toolbar button missing")
+            newPreset.tap()
+            let baseRow = app.buttons["createPresetBase-\(presetBase)"]
+            XCTAssertTrue(baseRow.waitForExistence(timeout: 10))
+            baseRow.tap()
+            XCTAssertTrue(app.textFields["loadoutNameField"].waitForExistence(timeout: 10))
+            // Add the mod before shooting: a seeded-but-empty editor has no
+            // load-order list, which is the part worth photographing.
+            let addPWADMenu = app.buttons["addPWADMenu"]
+            XCTAssertTrue(addPWADMenu.waitForExistence(timeout: 5),
+                          "Add PWAD menu missing from the editor")
+            addPWADMenu.tap()
+            let addPWAD = app.buttons["addPWADButton-\(presetPWAD)"]
+            XCTAssertTrue(addPWAD.waitForExistence(timeout: 5))
+            addPWAD.tap()
+            shoot("03-preset-editor")
+            app.buttons["saveLoadoutButton"].tap()
+        }
+
+        // Play tab: Recently Played (from testA's session) + Base Games +
+        // Presets, tiles carrying extracted TITLEPIC art. Shot from the top
+        // of the list, which is what a user sees on launch; all three
+        // sections fit on iPad, an iPhone in landscape shows the first.
+        XCTAssertTrue(presetsSection.waitForExistence(timeout: 10),
+                      "Presets section never appeared — preset creation did not land")
+        shoot("01-play-tab")
+
+        // Control Feel sheet (gear menu).
+        let menu = app.buttons["touchSchemeMenu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        menu.tap()
+        let controlFeel = app.buttons["controlFeelButton"]
+        XCTAssertTrue(controlFeel.waitForExistence(timeout: 5))
+        controlFeel.tap()
+        XCTAssertTrue(app.buttons["controlFeelDoneButton"].waitForExistence(timeout: 5))
+        shoot("04-control-feel")
+        app.buttons["controlFeelDoneButton"].tap()
     }
 }
 EOF
