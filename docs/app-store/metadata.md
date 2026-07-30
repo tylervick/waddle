@@ -134,16 +134,19 @@ chars).
 
 These are the answers for the **current (2025) questionnaire**, which the
 App Store Connect API exposes as the 29-field `ageRatingDeclaration` on
-the app's `appInfo`. Every field below has an answer, so the form can be
-filled straight from this table without re-deriving anything at the form.
-Rows are grouped in the order the ASC questionnaire presents them.
+the app's `appInfo`. Every field below has either a documented answer or
+an explicit "leave unset" decision, so the form can be filled straight
+from this table without re-deriving anything at the form. Rows are
+grouped in the order the ASC questionnaire presents them.
 
 Reading the **Answer** column:
 
-- Frequency fields are three-state. The ASC form labels them None /
-  Infrequent or Mild / Frequent or Intense; the API enum accepts `NONE`,
-  `INFREQUENT_OR_MILD` (newer alias `INFREQUENT`), and
-  `FREQUENT_OR_INTENSE` (newer alias `FREQUENT`).
+- Frequency fields are three-state: **`NONE`, `INFREQUENT`,
+  `FREQUENT`**. Use those if writing via the API — `INFREQUENT_OR_MILD`
+  and `FREQUENT_OR_INTENSE` are still accepted but are **deprecated**
+  (App Store Connect API 4.1 release notes). The Answer column below
+  spells them the long way (Infrequent/Mild, Frequent/Intense) to match
+  the questionnaire's own prose; they mean `INFREQUENT` and `FREQUENT`.
 - Yes/No fields are booleans in the API (`true`/`false`).
 
 ### In-app controls
@@ -215,16 +218,27 @@ Reading the **Answer** column:
 | Age rating override (V2) | `ageRatingOverrideV2` | **NONE** | Same — no manual override; 18+ / Unrated overrides do not apply |
 | Korea age rating override | `koreaAgeRatingOverride` | **NONE** | Already `NONE`; no Korea-specific override needed |
 
-**Expected resulting rating: 13+**, unchanged by the newly answered
-fields. Under the 2025 tiers (4+/9+/13+/16+/18+) each of the app's three
-non-`None` answers maps to 13+ on its own: frequent cartoon or fantasy
-violence, frequent guns or other weapons, and infrequent realistic
-violence are all 13+ descriptors. So answering `gunsOrOtherWeapons` at
-Frequent/Intense — the honest answer for a shooter — does **not** push
-the app above 13+, and the earlier "accept a higher tier if it resolves
-there" hedge is no longer expected to be needed (17+, which that note
-named, is not even a tier any more). If the form still computes higher,
-accept it.
+**Expected resulting rating: 13+ on iOS/iPadOS 26 and later**, unchanged
+by the newly answered fields. Under the 2025 tiers (4+/9+/13+/16+/18+)
+each of the app's three non-`None` answers maps to 13+ on its own:
+frequent cartoon or fantasy violence, frequent guns or other weapons, and
+infrequent realistic violence are all 13+ descriptors. So answering
+`gunsOrOtherWeapons` at Frequent/Intense — the honest answer for a
+shooter — does **not** push the app above 13+, and the earlier "accept a
+higher tier if it resolves there" hedge is no longer expected to be
+needed (17+, which that note named, is not even a tier any more). If the
+form still computes higher, accept it.
+
+**13+ is not what every device shows.** Apple states that "age ratings
+for an app may vary based on the OS version": the 4+/9+/13+/16+/18+
+tiers apply on iOS/iPadOS 26 and later, while devices on earlier OS
+versions are shown a *legacy* rating, listed in App Store Connect under
+"Operating Systems Earlier than Version 26". Expect the legacy value to
+be **12+** — that is what GenZD shows in the storefront today on the same
+Frequent/Intense fantasy-violence profile (see the table below) — but
+read the actual pair off ASC after submitting the questionnaire rather
+than trusting that inference. Both values are ours; don't be surprised by
+the 12+ when it appears.
 
 The one answer that *would* move the result is `violenceRealistic`:
 frequent realistic violence is an 18+ descriptor. Keep it at
