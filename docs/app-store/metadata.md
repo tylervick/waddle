@@ -132,32 +132,107 @@ chars).
 
 ## 8. Age-rating questionnaire
 
-Answers to document into App Store Connect (each row is the questionnaire
-prompt → answer):
+These are the answers for the **current (2025) questionnaire**, which the
+App Store Connect API exposes as the 29-field `ageRatingDeclaration` on
+the app's `appInfo`. Every field below has an answer, so the form can be
+filled straight from this table without re-deriving anything at the form.
+Rows are grouped in the order the ASC questionnaire presents them.
 
-| Questionnaire item | Answer | Rationale |
-|---|---|---|
-| Cartoon or Fantasy Violence | **Frequent/Intense** | Core gameplay: shooting fantasy monsters (Freedoom's demons-replacement bestiary), pixelated gibs |
-| Realistic Violence | **Infrequent/Mild** | Low-res 1993-era sprites; combat is against fantasy creatures, but weapons are gun-shaped |
-| Prolonged Graphic or Sadistic Realistic Violence | None | — |
-| Profanity or Crude Humor | None | Freedoom content contains none |
-| Mature/Suggestive Themes | None | — |
-| Horror/Fear Themes | None | Monster combat is covered by fantasy violence; no horror framing in Freedoom |
-| Medical/Treatment Information | None | — |
-| Alcohol, Tobacco, or Drug Use or References | None | — |
-| Simulated Gambling | None | — |
-| Sexual Content or Nudity | None | — |
-| Unrestricted Web Access | No | App makes no network requests at all |
-| Gambling and Contests | No | — |
-| User-Generated Content | No | Imported WADs are local files chosen by the user; nothing is shared or hosted |
+Reading the **Answer** column:
 
-**Expected resulting rating:** 12+ under the classic questionnaire;
-under the revised (2025) age-rating tiers (4+/9+/13+/16+/18+),
-Frequent/Intense Cartoon or Fantasy Violence is expected to land at
-**13+**. If the questionnaire resolves higher (16+/17+), accept it —
-comparable ports (GenZD) ship at 17+ without issue. Note: users importing
-their own commercial WADs does not change the rating (same policy position
-as GenZD/RetroArch: rate the shipped content).
+- Frequency fields are three-state. The ASC form labels them None /
+  Infrequent or Mild / Frequent or Intense; the API enum accepts `NONE`,
+  `INFREQUENT_OR_MILD` (newer alias `INFREQUENT`), and
+  `FREQUENT_OR_INTENSE` (newer alias `FREQUENT`).
+- Yes/No fields are booleans in the API (`true`/`false`).
+
+### In-app controls
+
+| Questionnaire item | API field | Answer | Rationale |
+|---|---|---|---|
+| Parental Controls | `parentalControls` | **No** | The app ships no parental-control feature of its own, and there is nothing to gate: no purchases, no accounts, no network. OS-level Screen Time still applies, but that is not the app offering controls |
+| Age Assurance | `ageAssurance` | **No** | No age gate, age estimation, or ID check anywhere in the app |
+
+### Capabilities
+
+| Questionnaire item | API field | Answer | Rationale |
+|---|---|---|---|
+| Unrestricted Web Access | `unrestrictedWebAccess` | **No** | The app makes no network requests at all and embeds no browser or web view |
+| User-Generated Content | `userGeneratedContent` | **No** | Imported WADs are local files the user chooses; they stay on device and are never uploaded, shared, or hosted, so no user's content can reach another user |
+| Social Media | `socialMedia` | **No** | No feeds, profiles, follows, or sharing |
+| Age-Restricted Social Media | `socialMediaAgeRestricted` | **No** | N/A — follows from Social Media = No |
+| Messaging and Chat | `messagingAndChat` | **No** | No chat, no comments, no networked or local multiplayer (the port exposes no netgame surface) |
+| Advertising | `advertising` | **No** | No ads and no ad SDKs; `App/PrivacyInfo.xcprivacy` declares no tracking and no collected data types |
+
+### Mature themes
+
+| Questionnaire item | API field | Answer | Rationale |
+|---|---|---|---|
+| Profanity or Crude Humor | `profanityOrCrudeHumor` | **None** | Freedoom's text, level names, and art contain none |
+| Horror or Fear Themes | `horrorOrFearThemes` | **None** | Monster combat is declared under fantasy violence; Freedoom adds no horror framing, jump scares, or dread-building presentation of its own |
+| Alcohol, Tobacco, or Drug Use or References | `alcoholTobaccoOrDrugUseOrReferences` | **None** | No such content or references |
+
+### Medical or wellness
+
+| Questionnaire item | API field | Answer | Rationale |
+|---|---|---|---|
+| Medical or Treatment Information | `medicalOrTreatmentInformation` | **None** | Medkit and stimpack pickups are an abstract score mechanic, not medical or treatment information |
+| Health or Wellness Topics | `healthOrWellnessTopics` | **No** | The app presents no health, fitness, nutrition, or wellness content |
+
+### Sexuality or nudity
+
+| Questionnaire item | API field | Answer | Rationale |
+|---|---|---|---|
+| Mature or Suggestive Themes | `matureOrSuggestiveThemes` | **None** | — |
+| Sexual Content or Nudity | `sexualContentOrNudity` | **None** | Freedoom's sprites and art contain none |
+| Graphic Sexual Content and Nudity | `sexualContentGraphicAndNudity` | **None** | Distinct API field from the row above (the form asks the graphic variant separately); same answer for the same reason |
+
+### Violence
+
+| Questionnaire item | API field | Answer | Rationale |
+|---|---|---|---|
+| Cartoon or Fantasy Violence | `violenceCartoonOrFantasy` | **Frequent/Intense** | Core gameplay: shooting fantasy monsters (Freedoom's demons-replacement bestiary), pixelated gibs |
+| Realistic Violence | `violenceRealistic` | **Infrequent/Mild** | Conservative. Combat is against fantasy creatures in low-res 1993-era sprites, but a few enemies read as humanoid and blood is depicted. Infrequent/Mild and None both land the app at 13+, so the cautious answer costs nothing — see the outcome note below before ever raising this one |
+| Prolonged Graphic or Sadistic Realistic Violence | `violenceRealisticProlongedGraphicOrSadistic` | **None** | Combat is instantaneous hitscan/projectile fire against monsters; nothing is prolonged, torture-themed, or sadistic |
+| Guns or Other Weapons | `gunsOrOtherWeapons` | **Frequent/Intense** | New field, and the only new one that is a real judgement call. This is a first-person shooter: a gun-shaped weapon (pistol, shotgun, chaingun, rocket launcher) is drawn on screen for essentially all of playtime and firing it is the primary verb. "Infrequent" would be indefensible regardless of how stylised the 1993-era sprites are, and under-declaring it would contradict the Frequent/Intense fantasy-violence answer directly above it |
+
+### Chance-based activities
+
+| Questionnaire item | API field | Answer | Rationale |
+|---|---|---|---|
+| Gambling | `gambling` | **No** | No real-money gambling, wagering, or casino content. (Split from Contests in the current questionnaire — both are answered) |
+| Simulated Gambling | `gamblingSimulated` | **None** | No slot, card, or casino minigames; nothing simulates wagering |
+| Contests | `contests` | **None** | No contests, sweepstakes, tournaments, or leaderboards; there is no Game Center integration |
+| Loot Boxes | `lootBox` | **No** | No purchases of any kind and no randomized-reward mechanic — item pickups sit at fixed, level-designer-placed positions |
+
+### Situational and administrative fields
+
+| Questionnaire item | API field | Answer | Rationale |
+|---|---|---|---|
+| Kids Age Band | `kidsAgeBand` | **Leave unset** (`null`) | N/A — the app is not and never was Made for Kids (`isOrEverWasMadeForKids` = `false`) |
+| Developer age-rating info URL | `developerAgeRatingInfoUrl` | **Leave unset** | Optional. Nothing here needs an explanation beyond the App Review notes in §11 |
+| Age rating override | `ageRatingOverride` (deprecated) | **NONE** | Already `NONE` on the record. Take the computed rating rather than forcing one |
+| Age rating override (V2) | `ageRatingOverrideV2` | **NONE** | Same — no manual override; 18+ / Unrated overrides do not apply |
+| Korea age rating override | `koreaAgeRatingOverride` | **NONE** | Already `NONE`; no Korea-specific override needed |
+
+**Expected resulting rating: 13+**, unchanged by the newly answered
+fields. Under the 2025 tiers (4+/9+/13+/16+/18+) each of the app's three
+non-`None` answers maps to 13+ on its own: frequent cartoon or fantasy
+violence, frequent guns or other weapons, and infrequent realistic
+violence are all 13+ descriptors. So answering `gunsOrOtherWeapons` at
+Frequent/Intense — the honest answer for a shooter — does **not** push
+the app above 13+, and the earlier "accept 16+/17+ if it resolves there"
+hedge is no longer expected to be needed. If the form still computes
+higher, accept it; comparable ports (GenZD) shipped at 17+ without issue.
+
+The one answer that *would* move the result is `violenceRealistic`:
+frequent realistic violence is an 18+ descriptor. Keep it at
+Infrequent/Mild — the gun-shaped-weapons concern that originally
+motivated that answer now has its own dedicated field.
+
+Note: users importing their own commercial WADs does not change the
+rating (same policy position as GenZD/RetroArch: rate the shipped
+content).
 
 ## 9. Export compliance
 
