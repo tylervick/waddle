@@ -134,11 +134,14 @@ and pick a value above the highest already in App Store Connect.
 - [ ] **App Privacy:** "Data Not Collected" across the board — the app
       makes no network requests and collects nothing (matches
       `App/PrivacyInfo.xcprivacy`: UserDefaults reason CA92.1 only).
-- [ ] **Age rating:** answer the questionnaire exactly per the §8 table
-      (Cartoon/Fantasy Violence: Frequent/Intense; Realistic Violence:
-      Infrequent/Mild; everything else None/No). Expected result ~13+
-      under the 2025 tiers; if it resolves higher, accept it (GenZD ships
-      at 17+).
+- [ ] **Age rating:** answer the questionnaire exactly per the §8 table,
+      which covers all 29 `ageRatingDeclaration` fields. Three answers are
+      non-None — Cartoon/Fantasy Violence: Frequent/Intense; **Guns or
+      Other Weapons: Frequent/Intense**; Realistic Violence:
+      Infrequent/Mild — and everything else is None/No. Expected result
+      **13+** under the 2025 tiers (each of those three is independently a
+      13+ descriptor). Leave all override fields at `NONE`; if the form
+      resolves higher anyway, accept it rather than walking an answer back.
 
 ## 5. Review notes + submit
 

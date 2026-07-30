@@ -373,7 +373,8 @@ Windowed Apps mode.
 | Final app name | ~~BoomBox: WAD Player~~ → **WADdle** (superseded) | 2026-07-18 → 2026-07-20 |
 | Subtitle wording | Approved as drafted ("Play classic Doom WADs") | 2026-07-18 |
 | Description tone | Approved as drafted (incl. promotional text and keywords) | 2026-07-18 |
-| Age-rating answers confirmed | Approved as drafted (§8 table) | 2026-07-18 |
+| Age-rating answers confirmed | Approved as drafted (§8 table, 13 items, older questionnaire) | 2026-07-18 |
+| Age-rating answers re-confirmed for the 2025 questionnaire | Approved as drafted — full 29-field `ageRatingDeclaration` (§8), incl. `gunsOrOtherWeapons` = Frequent/Intense; target 13+, no override | 2026-07-30 |
 | Export compliance answers | Approved as drafted (§9) | 2026-07-18 |
 | Privacy policy URL approach | `PRIVACY.md` in repo root (GitHub URL once public) | 2026-07-18 |
 | iPadOS windowing | Fix before shipping (support all orientations/windowed mode), not ship-as-limitation | 2026-07-18 |
