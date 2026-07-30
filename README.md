@@ -9,8 +9,8 @@ DeHackEd patches — for everything else.
 <p>
   <img src="docs/app-store/screenshots/iphone-6.9/05-ingame.png"
        alt="In-game: Freedoom Phase 1 with the touch control overlay" width="49%">
-  <img src="docs/app-store/screenshots/iphone-6.9/01-loadout-grid.png"
-       alt="Play tab: loadout grid" width="49%">
+  <img src="docs/app-store/screenshots/iphone-6.9/01-play-tab.png"
+       alt="Play tab: recently played, base games and presets" width="49%">
 </p>
 
 ## Licensing

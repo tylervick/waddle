@@ -91,9 +91,9 @@ chars).
 > any of thousands of community-made maps and megawads. Zip archives and
 > DeHackEd patches are supported.
 >
-> **Loadouts.** Combine a base game with mods and patches, set the load
+> **Presets.** Combine a base game with mods and patches, set the load
 > order and compatibility level (vanilla, Boom, MBF, MBF21 — or auto), and
-> save the combination as a one-tap loadout. Saves are kept per loadout.
+> save the combination as a one-tap preset. Saves are kept per preset.
 >
 > **Play your way.** Touch controls with two schemes (classic twin-stick
 > and modern drag-to-turn) and adjustable feel — plus full support for
@@ -115,15 +115,13 @@ chars).
 
 ## 6. URLs
 
-- **Support URL:** https://github.com/tylervick/waddle
-  ⚠️ Repo is currently **private** — must flip public before submission
-  (also a GPL-compliance requirement; already a Plan 4 ledger item).
+- **Support URL:** https://github.com/tylervick/waddle — the repo is
+  **public**, which also settles the GPL source-availability requirement.
 - **Marketing URL (optional):** same repo, or none.
-- **Privacy Policy URL:** `PRIVACY.md` at the repo root (decided
-  2026-07-18). Once the repo is public the URL is
-  https://github.com/tylervick/waddle/blob/main/PRIVACY.md. The app
-  collects nothing (see `App/PrivacyInfo.xcprivacy`); the policy says so
-  in plain language.
+- **Privacy Policy URL:**
+  https://github.com/tylervick/waddle/blob/main/PRIVACY.md — `PRIVACY.md`
+  at the repo root (decided 2026-07-18). The app collects nothing (see
+  `App/PrivacyInfo.xcprivacy`); the policy says so in plain language.
 
 ## 7. Category
 
@@ -199,14 +197,25 @@ and the repo's COPYING.)
 Captured by `Scripts/capture-screenshots.sh` into
 `docs/app-store/screenshots/<device>/` (see the script header for how).
 
+**Re-captured 2026-07-30** against the reworked UI (#8/#9/#10). The
+original 2026-07-18 set photographed the retired loadout grid and the
+pre-rework library and has been replaced wholesale; two files were renamed
+to match what they now show (`01-loadout-grid.png` → `01-play-tab.png`,
+`03-loadout-editor.png` → `03-preset-editor.png`).
+
 | Slot | Shot | File |
 |------|------|------|
-| 1 | In-game (Freedoom, touch overlay) | `05-ingame.png` |
-| 2 | Loadout grid (Play tab) | `01-loadout-grid.png` |
-| 3 | WAD library | `02-library.png` |
-| 4 | Loadout editor | `03-loadout-editor.png` |
+| 1 | In-game (Freedoom Phase 1, touch overlay) | `05-ingame.png` |
+| 2 | Play tab — Recently Played / Base Games / Presets, TITLEPIC tile art | `01-play-tab.png` |
+| 3 | Library — grouped into Base Games / Mods / Patches | `02-library.png` |
+| 4 | Preset editor — base game, mod load order, compatibility level | `03-preset-editor.png` |
 | 5 | Automap | `06-automap.png` |
 | 6 | Control Feel sheet | `04-control-feel.png` |
+
+Slot 2 is shot at the top of the Play list — what a user sees on launch.
+All three sections fit on iPad; a landscape iPhone shows Recently Played
+and the head of Base Games, because a tile is ~207 pt tall in a 440 pt
+viewport and three sections cannot fit however the shot is framed.
 
 Device classes:
 
@@ -217,30 +226,32 @@ Device classes:
   11-inch class and cannot produce 13-inch-class images, so the script
   creates the 13-inch device on demand.)
 
-**iPadOS 26 windowing (resolved — fix landed, Plan 4 Task 7b):** the
-owner decided at the gate to fix windowed-mode support rather than ship it
-as a limitation. The app now supports portrait + both landscapes on
-iPhone and all four orientations on iPad (`UIRequiresFullScreen`
-removed), and in iPadOS 26's default Windowed Apps mode it opens upright
-and playable in a resizable window; mid-session rotation and live window
-resizing re-letterbox the game without crashing (verified on iPhone and
-iPad simulators — the engine-side half of the fix is an
-`SDL_HINT_ORIENTATIONS` hint in `woof_ios.c`, without which SDL locked
-sessions to landscape). The App Review notes state this support.
-Screenshots were captured in Full Screen Apps mode and remain valid.
+**iPadOS 26 windowing (fix landed in Plan 4 Task 7b; re-verified
+2026-07-30):** the owner decided at the gate to fix windowed-mode support
+rather than ship it as a limitation. The app now supports portrait + both
+landscapes on iPhone and all four orientations on iPad
+(`UIRequiresFullScreen` removed), and in iPadOS 26's default Windowed Apps
+mode it opens upright and playable in a resizable window; mid-session
+rotation and live window resizing re-letterbox the game without crashing
+(the engine-side half of the fix is an `SDL_HINT_ORIENTATIONS` hint in
+`woof_ios.c`, without which SDL locked sessions to landscape). The App
+Review notes state this support, and that statement still holds.
 
-Technical background (kept for the record): at capture time, iPadOS 26's
-default "Windowed Apps" multitasking style rendered the then
-landscape-only + `UIRequiresFullScreen` app sideways in a letterboxed
-portrait window; the capture script switched the simulator to Settings →
-"Full Screen Apps" to photograph it. Xcode also emitted the runtime
-warning "`UIRequiresFullScreen` will soon be ignored; support for all
-orientations will soon be required," which motivated fixing this
-properly. With the fix landed, re-running
-`Scripts/capture-screenshots.sh` should work without the Settings
-workaround (its temp test tolerates either mode). Note the Task 7b
-verification left the iPad Pro 13-inch simulator back in the default
-Windowed Apps mode.
+**The Settings workaround survives the fix, for a different reason.** The
+2026-07-18 notes predicted that re-running the capture script would no
+longer need the switch to Settings → "Full Screen Apps". That prediction
+was tested on 2026-07-30 and is wrong. The fix does remove the old
+failure — the app no longer lands sideways in a letterboxed portrait
+window — but in Windowed Apps mode iPadOS draws a window-resize grabber
+over the app's bottom-right corner, and it does not fade (still in frame
+minutes after launch, on an otherwise clean full-screen Play tab). It has
+no place in a marketing shot, so the script's
+`test0_ConfigureIPadFullScreenMode` step still flips the simulator to
+Full Screen Apps before capturing. Historical note, since it no longer
+applies: at the original capture the app was landscape-only and
+`UIRequiresFullScreen`, and Xcode warned that the latter "will soon be
+ignored; support for all orientations will soon be required" — which is
+what motivated fixing this properly.
 
 ## 13. Decisions log (filled at the user gate)
 
