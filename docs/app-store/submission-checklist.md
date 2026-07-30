@@ -38,22 +38,74 @@ paste; `docs/app-store/screenshots/` holds the images;
     dropdown; no special capabilities needed)
   - SKU: anything stable, e.g. `waddle-ios`
 - [ ] Note: creating this record (plus program membership) is what
-      unblocks `xcodebuild -exportArchive` / upload. Until it exists,
-      export fails with `error: exportArchive No profiles for
-      'com.tylervick.waddle' were found`.
+      unblocks `xcodebuild -exportArchive` / upload. This is done — builds
+      have shipped since.
 
 ## 2. Build and upload
 
-- [ ] `Scripts/archive.sh` — regenerates the project, builds the Release
-      archive to `Vendor/archive/WADdle.xcarchive`, and exports a signed
-      .ipa to `Vendor/archive/export/`.
-- [ ] Upload, either way:
-  - **Xcode Organizer:** Window → Organizer → Archives → Distribute App →
-    App Store Connect → Upload (skips the manual .ipa entirely), or
-  - **Transporter / CLI:** upload `Vendor/archive/export/WADdle.ipa`
-    with the Transporter app, or
-    `xcrun altool --upload-app -f Vendor/archive/export/WADdle.ipa -t ios
-    --apiKey <key> --apiIssuer <issuer>`.
+**Releases run from CI.** Dispatch the `TestFlight` workflow — do not archive
+by hand unless CI is unavailable.
+
+- [ ] **Preflight** (do this first whenever signing, certificates or profiles
+      have changed). Builds, signs, exports and validates against App Store
+      Connect **without consuming a build number**:
+
+      ```sh
+      gh workflow run testflight.yml --ref main -f validate_only=true
+      ```
+
+      It catches a signing failure for free — it caught three distinct ones
+      before the first real upload ever worked.
+
+- [ ] **Release.** This uploads for real and consumes a build number. Note
+      `validate_only` defaults to `false`, so the bare command *is* the real
+      upload — there is no safety net here beyond having run the preflight:
+
+      ```sh
+      gh workflow run testflight.yml --ref main
+      ```
+
+      Or from the UI: Actions → **TestFlight** → Run workflow, ticking
+      **validate_only** for a preflight.
+
+- [ ] `build_number` (either mode) overrides the derived number. Only needed
+      when retrying a release whose upload already landed server-side.
+- [ ] The build number is derived automatically as `200 + run_number`; there
+      is nothing to bump in `App/project.yml` any more. It is validated
+      (numeric, above the consumed 1–6) *before* the build starts, and the
+      number used is written to the run summary.
+- [ ] **Confirm the build appears in App Store Connect.** A green run is not
+      proof of delivery: Xcode 26's `altool` has been observed reporting
+      "Successfully uploaded" for an upload that did not happen.
+      `Scripts/upload.sh` greps the output for `ERROR ITMS-` markers rather
+      than trusting the exit code, which narrows that window but does not
+      close it. The run also records a Delivery UUID — check for that.
+- [ ] The signed `.ipa` is attached to the run as an artifact (7-day
+      retention) if you need to inspect exactly what shipped.
+
+**Signing assets and their expiry.** Both lapse on **2027-05-02** — the
+provisioning profile is bound to the certificate and cannot outlive it.
+Neither failure announces itself as an expiry; both surface as opaque signing
+errors.
+
+| Asset | Secret | Note |
+|---|---|---|
+| Apple Distribution certificate | `BUILD_CERTIFICATE_BASE64` + `P12_PASSWORD` | |
+| `WADdle App Store CI` profile | `PROVISIONING_PROFILE_BASE64` | **Manually managed.** Xcode refuses an Xcode-managed profile under manual signing, so this cannot be the "iOS Team Store Provisioning Profile" Xcode maintains. |
+| App Store Connect API key | `ASC_PRIVATE_KEY` + `ASC_KEY_ID` + `ASC_ISSUER_ID` | |
+
+The profile name appears in **two** places that must agree —
+`App/project.yml`'s Release `PROVISIONING_PROFILE_SPECIFIER` and
+`App/ExportOptions-ci.plist` — because the archive and the export resolve it
+independently. Drift between them fails at *export*, after a full archive has
+already been paid for.
+
+**Falling back to a manual release** (CI unavailable): `Scripts/archive.sh`
+still works locally and is unchanged by CI — with no environment set it
+produces exactly the command lines it always did, using the automatic-signing
+`App/ExportOptions.plist`. Then `Scripts/upload.sh`. Note `App/project.yml`
+no longer tracks the build number, so set `CURRENT_PROJECT_VERSION` yourself
+and pick a value above the highest already in App Store Connect.
 - [ ] Export compliance never prompts at upload:
       `ITSAppUsesNonExemptEncryption = NO` is baked into the Info.plist
       via `App/project.yml`. (Rationale in §9 of metadata.md: no network
