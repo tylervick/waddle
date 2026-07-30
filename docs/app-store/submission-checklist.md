@@ -46,15 +46,30 @@ paste; `docs/app-store/screenshots/` holds the images;
 **Releases run from CI.** Dispatch the `TestFlight` workflow — do not archive
 by hand unless CI is unavailable.
 
-- [ ] Dispatch it: Actions → **TestFlight** → Run workflow, or
-      `gh workflow run testflight.yml --ref main`.
-  - **`validate_only: true`** builds, signs, exports and validates against
-    App Store Connect **without consuming a build number**. Run this first
-    whenever signing, certificates or profiles have changed — it catches a
-    signing failure for free, and it caught three distinct ones before the
-    first real upload worked.
-  - **`build_number`** overrides the derived number. Only needed when
-    retrying a release whose upload already landed server-side.
+- [ ] **Preflight** (do this first whenever signing, certificates or profiles
+      have changed). Builds, signs, exports and validates against App Store
+      Connect **without consuming a build number**:
+
+      ```sh
+      gh workflow run testflight.yml --ref main -f validate_only=true
+      ```
+
+      It catches a signing failure for free — it caught three distinct ones
+      before the first real upload ever worked.
+
+- [ ] **Release.** This uploads for real and consumes a build number. Note
+      `validate_only` defaults to `false`, so the bare command *is* the real
+      upload — there is no safety net here beyond having run the preflight:
+
+      ```sh
+      gh workflow run testflight.yml --ref main
+      ```
+
+      Or from the UI: Actions → **TestFlight** → Run workflow, ticking
+      **validate_only** for a preflight.
+
+- [ ] `build_number` (either mode) overrides the derived number. Only needed
+      when retrying a release whose upload already landed server-side.
 - [ ] The build number is derived automatically as `200 + run_number`; there
       is nothing to bump in `App/project.yml` any more. It is validated
       (numeric, above the consumed 1–6) *before* the build starts, and the
