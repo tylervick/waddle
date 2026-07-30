@@ -103,7 +103,13 @@ jobs:
           cp "$PROFILE" ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID".mobileprovision
 
           rm -f "$CERT" "$PROFILE"
-          security find-identity -v -p codesigning "$KC"
+          if ! security find-identity -v -p codesigning "$KC" | grep -q 'Apple Distribution'; then
+            echo "::error::No Apple Distribution identity in the ephemeral keychain."
+            echo "  The .p12 may be missing its private key, or the certificate may have expired."
+            echo "  The distribution certificate expires 2027-05-02."
+            security find-identity -v -p codesigning "$KC" || true
+            exit 1
+          fi
 
       - name: Archive and export
         env:
@@ -135,15 +141,25 @@ jobs:
             Scripts/upload.sh
           fi
 
-      # xcdistributionlogs are the only diagnostic for a signing failure, but
-      # they can contain the ASC key id and account emails -- and artifacts on
-      # a public repo are publicly downloadable. Failure only, short retention.
-      - name: Capture distribution logs
+      # Raw xcodebuild (no fastlane) writes these into TMPDIR, NOT
+      # ~/Library/Logs/gym. Copied into RUNNER_TEMP first because
+      # upload-artifact cannot glob a path outside the workspace reliably.
+      - name: Collect distribution logs
+        if: failure()
+        run: |
+          mkdir -p "$RUNNER_TEMP/distlogs"
+          cp -R "$TMPDIR"/*.xcdistributionlogs "$RUNNER_TEMP/distlogs/" 2>/dev/null || true
+          ls -la "$RUNNER_TEMP/distlogs" || true
+
+      # Failure only, short retention: these logs can contain the ASC key id
+      # and account emails, and artifact CONTENTS are not covered by GitHub's
+      # secret masking -- on a public repo they are publicly downloadable.
+      - name: Upload distribution logs
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: xcdistributionlogs
-          path: ~/Library/Logs/gym/**/*.xcdistributionlogs
+          path: ${{ runner.temp }}/distlogs
           retention-days: 3
           if-no-files-found: ignore
 
