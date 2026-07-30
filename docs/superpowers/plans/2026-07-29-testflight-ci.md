@@ -179,7 +179,11 @@ run_upload() { env PATH="$TMP/bin:$PATH" ASC_KEY_ID=KEYID ASC_ISSUER_ID=ISSUER \
                    "$@" "$BASH32" "$ROOT/Scripts/upload.sh" "$TMP/fake.ipa"; }
 
 # 8. No ASC_KEY_PATH -> no --p8-file-path (today's behaviour preserved).
-U8="$(env -u ASC_KEY_PATH run_upload 2>&1)" || fail "upload.sh failed without ASC_KEY_PATH"
+#    `unset` inside the $( ) subshell, NOT `env -u`: run_upload is a shell
+#    function, and env is an external binary that cannot see shell functions.
+#    (`run_upload -u ASC_KEY_PATH` fails too -- run_upload forwards "$@" AFTER
+#    its NAME=VALUE assignments, and BSD env requires options before them.)
+U8="$(unset ASC_KEY_PATH; run_upload 2>&1)" || fail "upload.sh failed without ASC_KEY_PATH"
 case "$U8" in *--p8-file-path*) fail "--p8-file-path present without ASC_KEY_PATH" ;; esac
 pass "upload.sh unchanged when ASC_KEY_PATH unset"
 
