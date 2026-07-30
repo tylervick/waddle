@@ -221,18 +221,67 @@ non-`None` answers maps to 13+ on its own: frequent cartoon or fantasy
 violence, frequent guns or other weapons, and infrequent realistic
 violence are all 13+ descriptors. So answering `gunsOrOtherWeapons` at
 Frequent/Intense — the honest answer for a shooter — does **not** push
-the app above 13+, and the earlier "accept 16+/17+ if it resolves there"
-hedge is no longer expected to be needed. If the form still computes
-higher, accept it; comparable ports (GenZD) shipped at 17+ without issue.
+the app above 13+, and the earlier "accept a higher tier if it resolves
+there" hedge is no longer expected to be needed (17+, which that note
+named, is not even a tier any more). If the form still computes higher,
+accept it.
 
 The one answer that *would* move the result is `violenceRealistic`:
 frequent realistic violence is an 18+ descriptor. Keep it at
 Infrequent/Mild — the gun-shaped-weapons concern that originally
 motivated that answer now has its own dedicated field.
 
-Note: users importing their own commercial WADs does not change the
-rating (same policy position as GenZD/RetroArch: rate the shipped
-content).
+### Shipped content vs. imported content
+
+Users importing their own WADs does not raise the rating: rate the
+content the app ships. Verified against comparable apps on 2026-07-30
+via the iTunes lookup API (tier labels are the legacy ones the storefront
+API still reports; 12+ maps to 13+ under the 2025 tiers):
+
+| App | Ships game content? | Rating | Declared descriptors |
+|---|---|---|---|
+| Delta | No — user supplies all ROMs | **4+** | none |
+| PPSSPP | No | **4+** | none |
+| Provenance | No | **9+** | Infrequent/Mild Cartoon or Fantasy Violence |
+| RetroArch | Some free/homebrew | **9+** | Infrequent/Mild Cartoon or Fantasy Violence, Infrequent/Mild Profanity |
+| GenZD | No — "does not include content" | **12+** | **Frequent/Intense Cartoon or Fantasy Violence**, Infrequent/Mild Horror, Profanity, Mature/Suggestive |
+
+Two things follow, and they matter more than the raw numbers:
+
+- **The precedent is inconsistent, so don't lean on it.** Delta and GenZD
+  are structurally identical — neither ships a single byte of game
+  content, both run whatever the user side-loads — yet Delta is 4+ with
+  no descriptors and GenZD declares Frequent/Intense fantasy violence.
+  Both are approved and shipping. Apple is clearly not enforcing one line
+  here, so "app X got away with Y" is not a defence for anything.
+- **WADdle can't take Delta's route regardless.** Delta's 4+ is only
+  available to an app that ships nothing. WADdle bundles Freedoom, so
+  there *is* shipped content, and it has frequent fantasy violence and
+  guns in it. 13+ is the floor for us on the shipped content alone,
+  independent of what anyone imports.
+
+GenZD is the closest comparable — same idTech 1 engine family, same
+"import WADs via the Files app" model — and it lands at 12+ (≙ 13+)
+while declaring Frequent/Intense fantasy violence. That is our exact
+profile, which corroborates the 13+ expectation above.
+
+Note that GenZD also declares infrequent horror, profanity, and
+mature/suggestive themes despite shipping no content — i.e. it rates for
+*anticipated* user content rather than shipped content. §8 does not
+follow that posture, and it costs nothing either way: all three of those
+descriptors top out at 13+, so adopting GenZD's answers wholesale would
+not change our result. Only `violenceRealistic` at Frequent would.
+
+**The one thing that would genuinely change this analysis** is adding an
+in-app WAD browser or downloader. Guideline 4.7 covers emulator apps that
+"offer to download games", and 4.7.5 then requires the app to flag
+software exceeding its age rating *and* to gate it behind a verified or
+declared-age mechanism — which would flip `ageAssurance` and
+`parentalControls` from No to a feature we'd have to build. Import via
+the system Files app is the user bringing their own file to the app, not
+the app offering software, so 4.7 does not attach today. Keep it that
+way, or re-open this section if an in-app content browser is ever
+proposed.
 
 ## 9. Export compliance
 
