@@ -191,7 +191,10 @@ final class ScreenshotCaptureTests: XCTestCase {
         Thread.sleep(forTimeInterval: 5)  // level load + screen wipe
         shoot("05-ingame")
 
-        app.buttons["automapButton"].tap()
+        let automap = app.buttons["automapButton"]
+        XCTAssertTrue(automap.waitForExistence(timeout: 5),
+                      "automap button missing from the overlay")
+        automap.tap()
         shoot("06-automap")
 
         app.terminate()  // don't leave the engine session running
@@ -239,14 +242,20 @@ final class ScreenshotCaptureTests: XCTestCase {
             // Preset creation has exactly one door since the rework: the +
             // button opens PresetCreationFlow's base-game picker, and picking
             // a row pushes into the editor already seeded with that base.
-            app.buttons["newLoadoutButton"].tap()
+            let newPreset = app.buttons["newLoadoutButton"]
+            XCTAssertTrue(newPreset.waitForExistence(timeout: 5),
+                          "New Preset toolbar button missing")
+            newPreset.tap()
             let baseRow = app.buttons["createPresetBase-\(presetBase)"]
             XCTAssertTrue(baseRow.waitForExistence(timeout: 10))
             baseRow.tap()
             XCTAssertTrue(app.textFields["loadoutNameField"].waitForExistence(timeout: 10))
             // Add the mod before shooting: a seeded-but-empty editor has no
             // load-order list, which is the part worth photographing.
-            app.buttons["addPWADMenu"].tap()
+            let addPWADMenu = app.buttons["addPWADMenu"]
+            XCTAssertTrue(addPWADMenu.waitForExistence(timeout: 5),
+                          "Add PWAD menu missing from the editor")
+            addPWADMenu.tap()
             let addPWAD = app.buttons["addPWADButton-\(presetPWAD)"]
             XCTAssertTrue(addPWAD.waitForExistence(timeout: 5))
             addPWAD.tap()
