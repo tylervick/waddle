@@ -1,0 +1,171 @@
+name: TestFlight
+
+# Manual dispatch only. Shipping to TestFlight is a deliberate act and must
+# never be a side effect of a push or a tag.
+on:
+  workflow_dispatch:
+    inputs:
+      validate_only:
+        description: Validate the build without uploading (does not consume a build number)
+        type: boolean
+        required: false
+        default: false
+      build_number:
+        description: Override the derived build number (use when retrying a release)
+        type: string
+        required: false
+        default: ''
+
+# Ref-INDEPENDENT on purpose: a ref-keyed group (as ci.yml uses) would not
+# serialize two dispatches on different refs, which is the exact race this
+# prevents. cancel-in-progress is false because cancelling mid-upload burns a
+# build number server-side while reporting nothing.
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  XCODE_VERSION: "26.2"
+  # Builds 1-6 are consumed. run_number starts at 1 for a new workflow, so
+  # this floor clears them with room for out-of-band manual uploads. First CI
+  # release is 201. Documented in the design spec.
+  BUILD_NUMBER_OFFSET: 200
+
+jobs:
+  testflight:
+    name: Archive and upload
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # Fails in seconds. Without it a bad value costs a ~25 minute build
+      # before App Store Connect rejects it.
+      - name: Resolve and validate the build number
+        id: buildnum
+        env:
+          OVERRIDE: ${{ inputs.build_number }}
+          OFFSET: ${{ env.BUILD_NUMBER_OFFSET }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          if [ -n "$OVERRIDE" ]; then N="$OVERRIDE"; else N=$(( OFFSET + RUN_NUMBER )); fi
+          [[ "$N" =~ ^[0-9]+$ ]] || { echo "::error::build number '$N' is not numeric"; exit 1; }
+          [ "$N" -gt 6 ] || { echo "::error::build number $N is at or below the consumed 1-6"; exit 1; }
+          echo "value=$N" >> "$GITHUB_OUTPUT"
+          echo "Build number: $N"
+
+      - uses: ./.github/actions/setup-waddle-build
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+          # Rebuild from source: a cached framework cannot be vouched for.
+          skip-cache: 'true'
+
+      # No set -x anywhere in this step. A decoded .p8 is multi-line PEM and
+      # GitHub's masking needs a single-line exact match, so it would NOT be
+      # redacted if it reached the log.
+      - name: Install signing assets
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          umask 077
+          KC="$RUNNER_TEMP/build.keychain-db"
+          KC_PW="$(uuidgen)"
+          CERT="$RUNNER_TEMP/cert.p12"
+          PROFILE="$RUNNER_TEMP/profile.mobileprovision"
+
+          printf '%s' "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERT"
+          printf '%s' "$PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE"
+          printf '%s' "$ASC_PRIVATE_KEY" | base64 --decode > "$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
+
+          security create-keychain -p "$KC_PW" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KC_PW" "$KC"
+          security import "$CERT" -k "$KC" -P "$P12_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          # Append rather than replace -- `-s` alone drops login.keychain.
+          # shellcheck disable=SC2046 # word splitting is intentional: -s takes one path per word
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          # codesign: is REQUIRED. Without it macOS queues a GUI authorization
+          # prompt that never arrives headless, and the job HANGS until the
+          # timeout rather than failing. The shorter apple-tool:,apple: form
+          # found in older guides is insufficient.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$KC_PW" "$KC" >/dev/null
+
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          UUID="$(security cms -D -i "$PROFILE" | plutil -extract UUID raw -)"
+          cp "$PROFILE" ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID".mobileprovision
+
+          rm -f "$CERT" "$PROFILE"
+          security find-identity -v -p codesigning "$KC"
+
+      - name: Archive and export
+        env:
+          ASC_KEY_PATH: ${{ runner.temp }}/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          BUILD_NUMBER: ${{ steps.buildnum.outputs.value }}
+          EXPORT_OPTIONS_PLIST: App/ExportOptions-ci.plist
+        run: Scripts/archive.sh
+
+      # BEFORE the upload, so a failed upload does not discard the build.
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: WADdle-${{ steps.buildnum.outputs.value }}-ipa
+          path: Vendor/archive/export/*.ipa
+          retention-days: 7
+
+      - name: Upload to TestFlight
+        env:
+          ASC_KEY_PATH: ${{ runner.temp }}/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          VALIDATE_ONLY: ${{ inputs.validate_only }}
+        run: |
+          if [ "$VALIDATE_ONLY" = "true" ]; then
+            Scripts/upload.sh --validate
+          else
+            Scripts/upload.sh
+          fi
+
+      # xcdistributionlogs are the only diagnostic for a signing failure, but
+      # they can contain the ASC key id and account emails -- and artifacts on
+      # a public repo are publicly downloadable. Failure only, short retention.
+      - name: Capture distribution logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: xcdistributionlogs
+          path: ~/Library/Logs/gym/**/*.xcdistributionlogs
+          retention-days: 3
+          if-no-files-found: ignore
+
+      # Unconditional: if a build number was consumed, the run must say so
+      # even on failure. App Store Connect is the only other record.
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### TestFlight run"
+            echo ""
+            echo "- Build number: **${{ steps.buildnum.outputs.value }}**"
+            echo "- Mode: ${{ inputs.validate_only == true && 'validate only' || 'upload' }}"
+            echo "- Ref: \`${{ github.ref_name }}\`"
+            echo ""
+            echo "Confirm the build appears in App Store Connect. Xcode 26's altool"
+            echo "can report success for an upload that did not happen, so a green"
+            echo "run is not by itself proof of delivery."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Delete keychain
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP"/AuthKey_*.p8

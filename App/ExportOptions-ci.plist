@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- CI-only. App/ExportOptions.plist stays automatic for local use.
+         Manual signing here is a safety property, not a preference: with
+         automatic signing plus -allowProvisioningUpdates, a failure to find
+         the identity makes xcodebuild MINT a new Apple Distribution
+         certificate whose key dies with the runner. Apple caps those at 2-3
+         and the only cleanup is manual revocation in the portal. -->
+    <key>method</key><string>app-store-connect</string>
+    <key>teamID</key><string>352UZEKYPP</string>
+    <key>signingStyle</key><string>manual</string>
+    <key>signingCertificate</key><string>Apple Distribution</string>
+    <key>provisioningProfiles</key>
+    <dict>
+        <!-- Installed from the PROVISIONING_PROFILE_BASE64 secret.
+             Expires 2027-07-20; regenerate the secret before then. The
+             failure mode on expiry is an opaque signing error. -->
+        <key>com.tylervick.waddle</key>
+        <string>iOS Team Store Provisioning Profile: com.tylervick.waddle</string>
+    </dict>
+    <key>uploadSymbols</key><true/>
+</dict>
+</plist>
