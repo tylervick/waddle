@@ -16,25 +16,35 @@ settings:
     # xcodegen regenerates the project, which would wipe a team set by hand
     # in Xcode's Signing pane.
     DEVELOPMENT_TEAM: 352UZEKYPP
-    # Manual, not Automatic: CI archives with no App Store Connect portal
-    # access, deliberately — Automatic signing plus -allowProvisioningUpdates
-    # would let xcodebuild mint a new Apple Distribution certificate on every
-    # profile-resolution miss, and Apple caps those at 2-3 per account with
-    # only manual portal revocation to claw them back. Manual signing means
-    # each configuration below must name its provisioning profile explicitly
-    # instead of letting Xcode resolve one.
-    #
-    # Trade-off: Xcode no longer auto-adds a newly connected device to the
-    # development profile under Manual signing. Adding a new test device
-    # means regenerating "iOS Team Provisioning Profile: *" in the portal
-    # (or Xcode's Signing pane) so it includes the device's UDID.
-    CODE_SIGN_STYLE: Manual
+  # Signing style is per-configuration, and the split is deliberate.
+  #
+  # Debug stays Automatic so device runs keep signing themselves — Xcode
+  # resolves (and silently re-issues) its own managed development profile,
+  # including adding a newly connected device's UDID. Nothing about local
+  # development changes.
+  #
+  # Release is Manual because CI archives with no signed-in Xcode account.
+  # It cannot be Automatic there: automatic signing resolves profiles by
+  # talking to the developer portal, and the only way to let it do that is
+  # -allowProvisioningUpdates, which also permits xcodebuild to MINT a new
+  # Apple Distribution certificate on a resolution miss. Apple caps those at
+  # 2–3 per account and the only cleanup is manual revocation in the portal —
+  # the one irreversible failure mode in this pipeline.
+  #
+  # The Release profile must therefore be MANUALLY managed: Xcode refuses an
+  # Xcode-managed profile under Manual signing ("is Xcode managed, but signing
+  # settings require a manually managed profile"). "WADdle App Store CI" was
+  # created by hand at developer.apple.com for exactly this reason; the
+  # Xcode-managed "iOS Team Store Provisioning Profile" cannot be used here.
+  # It is installed on the runner from the PROVISIONING_PROFILE_BASE64 secret
+  # and expires 2027-05-02, the same day as the certificate it is bound to
+  # (a profile cannot outlive its certificate).
   configs:
     Debug:
-      PROVISIONING_PROFILE_SPECIFIER: "iOS Team Provisioning Profile: *"
-      CODE_SIGN_IDENTITY: "Apple Development"
+      CODE_SIGN_STYLE: Automatic
     Release:
-      PROVISIONING_PROFILE_SPECIFIER: "iOS Team Store Provisioning Profile: com.tylervick.waddle"
+      CODE_SIGN_STYLE: Manual
+      PROVISIONING_PROFILE_SPECIFIER: "WADdle App Store CI"
       CODE_SIGN_IDENTITY: "Apple Distribution"
 targets:
   WADdle:
@@ -47,16 +57,13 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: com.tylervick.waddle
       # XcodeGen's built-in application_iOS setting preset injects
-      # CODE_SIGN_IDENTITY=iPhone Developer at this same (target) scope --
-      # invisible under the project-level Automatic style this used to be,
-      # but a target-level setting beats a project-level one once Manual
-      # signing is in play, so the project settings.configs identities above
-      # would otherwise get silently shadowed right back to a decade-retired
-      # identity name that matches no cert on this account. Re-assert the
-      # real identities here so they win.
+      # CODE_SIGN_IDENTITY=iPhone Developer at this same (target) scope, and a
+      # target-level setting beats the project-level one. Under Automatic that
+      # is inert (Xcode resolves the identity itself), which is why Debug needs
+      # no override here — but under Release's Manual signing it would silently
+      # shadow "Apple Distribution" with a decade-retired identity name that
+      # matches no certificate on this account. Re-assert Release only.
       configs:
-        Debug:
-          CODE_SIGN_IDENTITY: "Apple Development"
         Release:
           CODE_SIGN_IDENTITY: "Apple Distribution"
     # Document-type registration (CFBundleDocumentTypes +
