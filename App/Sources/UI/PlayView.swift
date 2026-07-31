@@ -225,7 +225,7 @@ struct PlayView: View {
         } catch {
             lastExitCode = EngineSession.ExitCode.argumentFailure
             errorAlert = EngineErrorAlert.from(exitCode: EngineSession.ExitCode.argumentFailure,
-                                               engineMessage: "A file in this loadout is missing from the library.")
+                                               engineMessage: "A file in this preset is missing from the library.")
         }
         refresh()
     }

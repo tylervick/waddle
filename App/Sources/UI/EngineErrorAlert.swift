@@ -13,7 +13,7 @@ struct EngineErrorAlert: Equatable {
         let message = (engineMessage?.isEmpty == false)
             ? engineMessage!
             : "The engine reported no details (exit code \(exitCode))."
-        return EngineErrorAlert(title: "Couldn't run this loadout",
+        return EngineErrorAlert(title: "Couldn't run this preset",
                                 engineMessage: message,
                                 hint: hint(for: message))
     }
@@ -22,7 +22,7 @@ struct EngineErrorAlert: Equatable {
         let wrongIWADMarkers = ["W_GetNumForName", "Unknown or invalid IWAD", "Failed to load"]
         if wrongIWADMarkers.contains(where: message.contains) {
             if message.contains("IWAD") {
-                return "The base game file wasn't recognized. Pick a supported IWAD (Doom, Doom II, Freedoom…) for this loadout."
+                return "The base game file wasn't recognized. Pick a supported IWAD (Doom, Doom II, Freedoom…) for this preset."
             }
             return "This usually means the WAD needs a different base game (IWAD). Try pairing it with Doom II / Freedoom Phase 2."
         }

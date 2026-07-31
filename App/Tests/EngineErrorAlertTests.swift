@@ -23,7 +23,7 @@ final class EngineErrorAlertTests: XCTestCase {
     func testUnknownErrorHasNoHintButStillAlerts() {
         let alert = EngineErrorAlert.from(exitCode: -1, engineMessage: "Z_Malloc: failure")
         XCTAssertNil(alert?.hint)
-        XCTAssertEqual(alert?.title, "Couldn't run this loadout")
+        XCTAssertEqual(alert?.title, "Couldn't run this preset")
     }
 
     func testMissingMessageGetsGenericText() {
@@ -52,6 +52,6 @@ final class EngineErrorAlertTests: XCTestCase {
                                           engineMessage: "Another session is already running.")
         XCTAssertEqual(alert?.engineMessage, "Another session is already running.")
         XCTAssertNil(alert?.hint)   // not a WAD-pairing problem
-        XCTAssertEqual(alert?.title, "Couldn't run this loadout")
+        XCTAssertEqual(alert?.title, "Couldn't run this preset")
     }
 }

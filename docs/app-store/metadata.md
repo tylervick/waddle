@@ -374,6 +374,24 @@ pre-rework library and has been replaced wholesale; two files were renamed
 to match what they now show (`01-loadout-grid.png` → `01-play-tab.png`,
 `03-loadout-editor.png` → `03-preset-editor.png`).
 
+**Re-captured 2026-07-31** for #31, which renamed the preset editor's
+navigation title from "New Loadout" to "New Preset". Slot 4 photographs
+that title, so both device sets were re-shot. Slot 4 is the only shot that
+changed by design; the remaining deltas are the status-bar date (iPad, all
+shots) and a ~130 px in-game HUD counter caught on a different frame
+(slots 1 and 5).
+
+One exception is worth an eye before the next App Store Connect upload:
+iPhone slot 2 now renders the below-the-fold Base Games tiles washed out,
+where the 2026-07-30 shot had them fully saturated (~16% of the frame, all
+of it below y=986; the iPad slot 2 is unaffected because all three
+sections fit above the fold there). It reproduced pixel-identically across
+two independent capture runs, so it is deterministic under the current
+build rather than a settle-time flake, and #31's diff is five string
+literals with nothing in a rendering path — it does not originate there.
+Cause not yet identified; most likely an OS/runtime difference against the
+scroll edge effect under the floating tab bar.
+
 | Slot | Shot | File |
 |------|------|------|
 | 1 | In-game (Freedoom Phase 1, touch overlay) | `05-ingame.png` |
