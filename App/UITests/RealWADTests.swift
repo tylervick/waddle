@@ -39,10 +39,10 @@ final class RealWADTests: XCTestCase {
     /// to poll directly: its `pwads` list is a plain computed property, not
     /// a reactive SwiftData query, so it only reflects the library's
     /// current contents at the moment that view's body is (re-)evaluated —
-    /// simply leaving the "New Loadout" sheet open longer never picks up a
+    /// simply leaving the "New Preset" sheet open longer never picks up a
     /// WAD that gets registered after the sheet was presented. LibraryView
     /// re-fetches on every `onAppear`, and switching tabs re-fires it, so
-    /// poll there instead — then open a *fresh* "New Loadout" sheet only
+    /// poll there instead — then open a *fresh* "New Preset" sheet only
     /// once the target WAD is confirmed present, so its first render
     /// already reflects it.
     ///
@@ -150,7 +150,7 @@ final class RealWADTests: XCTestCase {
             // The engine's own error text must surface as a launcher alert
             // (Plan 4 Task 1). Dismiss it before the interactivity check
             // below — a presented alert intercepts hits on everything else.
-            let alert = app.alerts["Couldn't run this loadout"]
+            let alert = app.alerts["Couldn't run this preset"]
             XCTAssertTrue(alert.waitForExistence(timeout: 5),
                           "engine error alert not shown", file: file, line: line)
             // Not just the (hardcoded) title: the body must carry the

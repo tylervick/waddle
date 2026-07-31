@@ -42,7 +42,7 @@ struct LoadoutEditorView: View {
         NavigationStack {
             Form {
                 Section("Name") {
-                    TextField("Loadout name", text: nameBinding)
+                    TextField("Preset name", text: nameBinding)
                         .accessibilityIdentifier("loadoutNameField")
                 }
                 Section("Base game (IWAD)") {
@@ -92,7 +92,7 @@ struct LoadoutEditorView: View {
                     }
                 }
             }
-            .navigationTitle(existing == nil ? "New Loadout" : "Edit Loadout")
+            .navigationTitle(existing == nil ? "New Preset" : "Edit Preset")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
