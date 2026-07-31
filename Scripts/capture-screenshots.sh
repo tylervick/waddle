@@ -401,19 +401,53 @@ for test in manifest:
         count += 1
         rotated.append(os.path.join(dst, m.group(1) + ".png"))
 # If the simulated device was still portrait when a shot was taken,
-# XCUIScreen returns a portrait pixel buffer with the landscape-only app's
-# content rotated 90° CW; 270° puts it upright at the App Store's expected
-# landscape dimensions. Shots taken while the device was already landscape
-# (the test rotates it in setUp) come out upright and are left alone.
+# XCUIScreen returns a portrait pixel buffer with the app's content rotated
+# 90° CW; 270° puts it upright at the App Store's expected landscape
+# dimensions. Shots taken while the device was already landscape (the test
+# rotates it after launch) come out upright and are left alone.
 def png_size(path):
     with open(path, "rb") as f:
         header = f.read(24)
     return int.from_bytes(header[16:20], "big"), int.from_bytes(header[20:24], "big")
+
+
+def png_chunks(data):
+    i = 8
+    while i < len(data):
+        length = int.from_bytes(data[i:i + 4], "big")
+        kind = data[i + 4:i + 8]
+        yield kind, data[i:i + 12 + length]
+        i += 12 + length
+        if kind == b"IEND":
+            break
+
+
+def strip_exif(path):
+    """Drop any eXIf chunk. `sips --rotate` rewrites the raster AND leaves an
+    EXIF Orientation tag (8, "rotate 90° CCW") behind, so the pixels are
+    upright but the metadata still asks for a rotation. Consumers that honour
+    EXIF apply it a second time -- App Store Connect does exactly that and
+    stores the shot sideways, while git, GitHub and Preview ignore the chunk
+    and look correct, which is how this survived the first capture in July.
+    Removing a chunk is lossless: IDAT and IHDR are untouched."""
+    with open(path, "rb") as f:
+        data = f.read()
+    if not any(kind == b"eXIf" for kind, _ in png_chunks(data)):
+        return
+    out = bytearray(data[:8])
+    for kind, blob in png_chunks(data):
+        if kind != b"eXIf":
+            out += blob
+    with open(path, "wb") as f:
+        f.write(bytes(out))
+
+
 for path in rotated:
     w, h = png_size(path)
     if h > w:
         subprocess.run(["sips", "--rotate", "270", path],
                        check=True, capture_output=True)
+    strip_exif(path)
 print(f"exported {count} screenshots -> {dst}")
 if count < 6:
     sys.exit(f"expected 6 screenshots, got {count}")

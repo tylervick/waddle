@@ -355,6 +355,20 @@ All three sections fit on iPad; a landscape iPhone shows Recently Played
 and the head of Base Games, because a tile is ~207 pt tall in a 440 pt
 viewport and three sections cannot fit however the shot is framed.
 
+**EXIF orientation (fixed 2026-07-30 — do not reintroduce).** `sips
+--rotate 270`, which the export step uses to right the portrait pixel
+buffer XCUIScreen hands back, rewrites the raster *and* leaves an EXIF
+Orientation tag of 8 ("rotate 90° CCW") behind. The pixels are already
+upright, so anything that honours EXIF rotates them a second time. Git,
+GitHub and Preview all ignore the chunk, so the files look correct
+everywhere you would normally check — but **App Store Connect honours it**
+and stored the first upload sideways, reporting the dimensions transposed
+(1320×2868 for a 2868×1320 file) while still returning
+`assetDeliveryState: COMPLETE` with no errors. The export step now strips
+the chunk (lossless — IHDR and IDAT are untouched). When uploading, verify
+by rendering the asset back from its `imageAsset.templateUrl`: `COMPLETE`
+is not evidence the image is the right way up.
+
 Device classes:
 
 - **iPhone 6.9" (required):** iPhone 17 Pro Max simulator — 2868×1320
