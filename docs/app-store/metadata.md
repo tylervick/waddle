@@ -13,15 +13,18 @@ ID, target, repo) stays plain `WADdle`; only the App Store *display name*
 carries the suffix.
 
 **Availability (tested 2026-07-30, against the live ASC record).** Renaming
-the App Store Connect record to plain "WADdle" was attempted via the API and
-**rejected**:
+the App Store Connect record to plain "WADdle" was attempted via the API —
+`PATCH /v1/appInfoLocalizations/{id}` on the **en-US** localization, which is
+the only one the record has — and **rejected**:
 
 > `409 ENTITY_ERROR.ATTRIBUTE.INVALID.DUPLICATE.DIFFERENT_ACCOUNT` — "The app
 > name you entered is already being used. If you have trademark rights to this
 > name and would like it released for your use, submit a claim."
 
 App Store display names are globally unique and matched case-insensitively, so
-one of the unrelated *Waddle* apps catalogued below already holds it. The
+one of the unrelated *Waddle* apps catalogued below already holds it. Name
+availability is per-locale, so if further localizations are ever added the
+same check has to be repeated for each. The
 claim route is not open to us: the knock-out research found the registered
 WADDLE mark belongs to Waddle IP Pty Ltd, so there are no trademark rights
 here to assert. The suffix is therefore forced, not chosen — but *which*
@@ -140,8 +143,13 @@ chars).
 - **Support URL:** https://github.com/tylervick/waddle/issues — the issue
   tracker, not the repo root: it is where a user with a problem should
   actually land, and it is what the live ASC record has been set to
-  (reconciled 2026-07-30). The repo is **public**, which also settles the
-  GPL source-availability requirement.
+  (reconciled 2026-07-30). The repo is **public**, which is what the GPL
+  source-availability requirement needs — though "public repo" alone is not
+  the whole of it: compliance is about the *corresponding* source for the
+  binary actually shipped, so the release process still has to put the
+  submitted build's commit, its build materials and the licence notices
+  within reach. That is gated by the "GPL posture check" in
+  `docs/app-store/submission-checklist.md`, not by this line.
 - **Marketing URL (optional):** same repo, or none.
 - **Privacy Policy URL:**
   https://github.com/tylervick/waddle/blob/main/PRIVACY.md — `PRIVACY.md`
