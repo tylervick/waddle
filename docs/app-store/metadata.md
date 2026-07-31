@@ -7,12 +7,37 @@ Decisions recorded in the log at the bottom.
 
 ## 1. App name (30 chars max) — DECIDED
 
-**Final name: "WADdle"** (chosen 2026-07-20, superseding the earlier
-"BoomBox: WAD Player" pick). "WADdle" hides **WAD** — the Doom file format
-the app plays — inside *waddle*, in the whimsical spirit of the source-port
-lineage it belongs to (its engine is **Woof!**, alongside *Crispy Doom* and
-*Chocolate Doom*). No descriptor is needed in the name; the subtitle carries
-the plain description.
+**Store name: "WADdle: WAD Player"** (18 chars). **The bare "WADdle" is not
+available** — see the availability finding below. Everything internal (bundle
+ID, target, repo) stays plain `WADdle`; only the App Store *display name*
+carries the suffix.
+
+**Availability (tested 2026-07-30, against the live ASC record).** Renaming
+the App Store Connect record to plain "WADdle" was attempted via the API —
+`PATCH /v1/appInfoLocalizations/{id}` on the **en-US** localization, which is
+the only one the record has — and **rejected**:
+
+> `409 ENTITY_ERROR.ATTRIBUTE.INVALID.DUPLICATE.DIFFERENT_ACCOUNT` — "The app
+> name you entered is already being used. If you have trademark rights to this
+> name and would like it released for your use, submit a claim."
+
+App Store display names are globally unique and matched case-insensitively, so
+one of the unrelated *Waddle* apps catalogued below already holds it. Name
+availability is per-locale, so if further localizations are ever added the
+same check has to be repeated for each. The
+claim route is not open to us: the knock-out research found the registered
+WADDLE mark belongs to Waddle IP Pty Ltd, so there are no trademark rights
+here to assert. The suffix is therefore forced, not chosen — but *which*
+suffix is still open, and any 30-char-max variant that avoids "Doom" would
+work equally well if the owner prefers a different one.
+
+The original naming rationale stands otherwise: "WADdle" hides **WAD** — the
+Doom file format the app plays — inside *waddle*, in the whimsical spirit of
+the source-port lineage it belongs to (its engine is **Woof!**, alongside
+*Crispy Doom* and *Chocolate Doom*). The suffix does double duty against the
+crowding risk noted below: it separates us from the *Waddle* cluster and makes
+the listing searchable on "wad player", while the subtitle still carries the
+plain description.
 
 **Scope note:** this was a full rename, done pre-submission while it was
 still free to change. Everything moved to the new name — the bundle ID
@@ -115,8 +140,16 @@ chars).
 
 ## 6. URLs
 
-- **Support URL:** https://github.com/tylervick/waddle — the repo is
-  **public**, which also settles the GPL source-availability requirement.
+- **Support URL:** https://github.com/tylervick/waddle/issues — the issue
+  tracker, not the repo root: it is where a user with a problem should
+  actually land, and it is what the live ASC record has been set to
+  (reconciled 2026-07-30). The repo is **public**, which is what the GPL
+  source-availability requirement needs — though "public repo" alone is not
+  the whole of it: compliance is about the *corresponding* source for the
+  binary actually shipped, so the release process still has to put the
+  submitted build's commit, its build materials and the licence notices
+  within reach. That is gated by the "GPL posture check" in
+  `docs/app-store/submission-checklist.md`, not by this line.
 - **Marketing URL (optional):** same repo, or none.
 - **Privacy Policy URL:**
   https://github.com/tylervick/waddle/blob/main/PRIVACY.md — `PRIVACY.md`
@@ -409,7 +442,7 @@ what motivated fixing this properly.
 
 | Decision | Choice | Date |
 |----------|--------|------|
-| Final app name | ~~BoomBox: WAD Player~~ → **WADdle** (superseded) | 2026-07-18 → 2026-07-20 |
+| Final app name | ~~BoomBox: WAD Player~~ → ~~WADdle~~ → **WADdle: WAD Player** — plain "WADdle" is taken on the App Store by another account (§1) | 2026-07-18 → 2026-07-20 → 2026-07-30 |
 | Subtitle wording | Approved as drafted ("Play classic Doom WADs") | 2026-07-18 |
 | Description tone | Approved as drafted (incl. promotional text and keywords) | 2026-07-18 |
 | Age-rating answers confirmed | Approved as drafted (§8 table, 13 items, older questionnaire) | 2026-07-18 |
