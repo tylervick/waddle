@@ -1,0 +1,78 @@
+# Orca (onorca.dev) worktree hooks. `scripts.setup` runs in the fresh
+# worktree via bash with a 120s timeout; ORCA_ROOT_PATH is the main checkout.
+#
+# THIS FILE MUST STAY TRACKED IN GIT. `git worktree add` only materializes
+# tracked files, so while this was untracked it was absent from every new
+# worktree and the setup hook never ran once -- which is why fresh worktrees
+# had no GameData, no woof.pk3 and no xcodeproj.
+#
+# On Vendor/: Orca's per-repo `symlinkPaths` setting lists `Vendor`, but new
+# worktrees receive a real directory holding a full copy of it. The copy is
+# APFS-clone-backed, so it costs almost no disk despite `du` reporting ~391MB
+# per worktree -- the cost that matters is correctness, not space:
+#
+#   - Vendor/build (~97MB) CMake caches hardcode the main checkout's absolute
+#     paths (CMAKE_CACHEFILE_DIR, *_SOURCE_DIR), so an inherited copy makes
+#     Scripts/build-engine.sh fail here. Setup deletes it; it regenerates.
+#   - Vendor/archive + Vendor/stage (~178MB) are per-build output. Inherited
+#     copies are pure noise, but they are harmless, so setup leaves them.
+#   - Vendor/out holds the engine framework. Setup re-clones it from
+#     ORCA_ROOT_PATH together with its .fingerprint stamp, so a worktree
+#     starts current whenever the root checkout is current. Without the stamp
+#     Scripts/check-engine-fresh.sh fails closed and demands a rebuild that
+#     would produce identical bits.
+#
+# Do NOT symlink Vendor/out or Vendor/build. Scripts/build-engine.sh writes
+# into both, so sharing them lets two worktrees building at once corrupt each
+# other. Vendor/src is read-only during builds and would be safe to share.
+scripts:
+  setup: |
+    set -euo pipefail
+    export PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH"
+    mise trust && mise install
+
+    # Freedoom WADs + the engine resource bundle (both gitignored).
+    if [ -d "$ORCA_ROOT_PATH/App/Resources/GameData" ]; then
+      mkdir -p App/Resources/GameData
+      cp -Rc "$ORCA_ROOT_PATH/App/Resources/GameData/." App/Resources/GameData/ 2>/dev/null \
+        || cp -R "$ORCA_ROOT_PATH/App/Resources/GameData/." App/Resources/GameData/
+    else
+      mise run fetch-freedoom
+    fi
+    cp "$ORCA_ROOT_PATH/App/Resources/woof.pk3" App/Resources/woof.pk3
+
+    # Everything below writes inside Vendor/. If Vendor is ever a symlink to
+    # the root checkout, these would mutate the ROOT's build state instead of
+    # this worktree's -- skip rather than corrupt it.
+    if [ -L Vendor ]; then
+      echo "orca-setup: Vendor is a symlink to the root checkout; skipping" >&2
+      echo "orca-setup: build-cache cleanup and engine copy (they are shared)" >&2
+    else
+      # Inherited CMake caches hardcode the root checkout's paths.
+      rm -rf Vendor/build
+
+      # Prefer the root's engine framework + stamp over whatever was seeded.
+      SRC="$ORCA_ROOT_PATH/Vendor/out"
+      if [ -d "$SRC/WoofEngine.xcframework" ]; then
+        mkdir -p Vendor/out
+        rm -rf Vendor/out/WoofEngine.xcframework Vendor/out/WoofEngine.xcframework.fingerprint
+        cp -Rc "$SRC/WoofEngine.xcframework" Vendor/out/ 2>/dev/null \
+          || cp -R "$SRC/WoofEngine.xcframework" Vendor/out/
+        if [ -f "$SRC/WoofEngine.xcframework.fingerprint" ]; then
+          cp "$SRC/WoofEngine.xcframework.fingerprint" Vendor/out/
+        else
+          echo "orca-setup: root checkout has no engine fingerprint stamp; this" >&2
+          echo "orca-setup: worktree will need 'mise run build-engine'." >&2
+        fi
+      fi
+    fi
+
+    mise run generate
+
+    # Report engine state up front rather than letting the stale-engine guard
+    # surface twenty minutes into a task.
+    if Scripts/check-engine-fresh.sh; then
+      echo "orca-setup: engine framework matches sources - no rebuild needed"
+    else
+      echo "orca-setup: engine is STALE - run 'mise run build-engine'" >&2
+    fi
