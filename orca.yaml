@@ -39,7 +39,19 @@ scripts:
     else
       mise run fetch-freedoom
     fi
-    cp "$ORCA_ROOT_PATH/App/Resources/woof.pk3" App/Resources/woof.pk3
+    # woof.pk3 is staged by Scripts/build-engine.sh, so its absence means the
+    # root checkout has never completed an engine build. Report it and keep
+    # going rather than exiting: aborting here would skip `mise run generate`
+    # and leave a worktree with no xcodeproj, which is the exact breakage this
+    # hook exists to prevent.
+    PK3_MISSING=""
+    if [ -f "$ORCA_ROOT_PATH/App/Resources/woof.pk3" ]; then
+      cp "$ORCA_ROOT_PATH/App/Resources/woof.pk3" App/Resources/woof.pk3
+    else
+      PK3_MISSING=1
+      echo "orca-setup: $ORCA_ROOT_PATH/App/Resources/woof.pk3 is missing --" >&2
+      echo "orca-setup: the engine has never been built in the root checkout." >&2
+    fi
 
     # Everything below writes inside Vendor/. If Vendor is ever a symlink to
     # the root checkout, these would mutate the ROOT's build state instead of
@@ -71,6 +83,11 @@ scripts:
 
     # Report engine state up front rather than letting the stale-engine guard
     # surface twenty minutes into a task.
+    if [ -n "$PK3_MISSING" ]; then
+      echo "orca-setup: woof.pk3 is absent, so the engine cannot boot: Woof!" >&2
+      echo "orca-setup: locates it via SDL_GetBasePath() at the bundle root and" >&2
+      echo "orca-setup: has no override. Run 'mise run build-engine' here." >&2
+    fi
     if Scripts/check-engine-fresh.sh; then
       echo "orca-setup: engine framework matches sources - no rebuild needed"
     else
