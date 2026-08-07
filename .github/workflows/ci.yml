@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
 
-# This workflow only ever reads the repo; it never needs to write anything.
+# The build needs only the repo.
 permissions:
   contents: read
 
@@ -43,6 +43,8 @@ jobs:
           Scripts/test-engine-fingerprint.sh
           Scripts/test-check-engine-fresh.sh
           Scripts/test-release-args.sh
+          Scripts/test-check-substrate.sh
+          Scripts/check-substrate.sh
 
       - uses: ./.github/actions/setup-waddle-build
         with:

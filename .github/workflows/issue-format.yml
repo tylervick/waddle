@@ -1,0 +1,56 @@
+name: Issue Format
+
+# Separate from ci.yml on purpose. Scripts/check-issue-format.sh depends on
+# repo-wide mutable state -- the set of currently open agent:eligible issues
+# -- not on the contents of any one diff. When this check lived in ci.yml,
+# one under-specified agent:eligible issue, filed by anyone through the
+# public issue template, turned main and every open PR red, with an error
+# naming an issue the PR author has no permission to edit and no way to
+# bypass. Running it here instead means a malformed issue red-lights that
+# issue, not unrelated pull requests.
+on:
+  issues:
+    types: [opened, edited, labeled, reopened]
+  schedule:
+    # Backstop: catches drift not covered by the events above (a label
+    # removed and re-added by automation, a body edited via the API without
+    # firing `edited`, etc.) within a week rather than never.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+# Read-only: this only inspects issues, it never needs to write anything.
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  check-issue-format:
+    name: Check agent:eligible issue format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify agent:eligible issue format
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -o pipefail
+          Scripts/test-check-issue-format.sh
+
+          # check-issue-format.sh prints a "skip - " line and exits 0 when
+          # `gh` is missing or unauthenticated -- correct for local runs and
+          # CI without a token. But this workflow always injects GH_TOKEN
+          # above, so a skip here can only mean the `gh auth status` probe
+          # itself failed (e.g. a GitHub API blip), not a legitimate absence
+          # of credentials. Left alone, that would make the job go green
+          # having checked zero issues. Capture the script's stdout with
+          # `tee` (so the log still shows it) and fail if any line starts
+          # with "skip - ". `set -o pipefail` above stops the `tee` on the
+          # right of the pipe from masking a non-zero exit from
+          # check-issue-format.sh on the left; the enclosing `-e` (bash's
+          # default for `run:` steps) then fails the step on either that or
+          # the grep below finding a skip line.
+          out="$RUNNER_TEMP/check-issue-format.out"
+          Scripts/check-issue-format.sh | tee "$out"
+          ! grep -q '^skip - ' "$out"
