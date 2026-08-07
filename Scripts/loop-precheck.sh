@@ -65,6 +65,16 @@ fi
 #
 # Removing a swept worktree cannot strand a pull request: the loop pushes its
 # branch to origin long before any worktree is old enough to qualify.
+#
+# The trailing `|| true` is load-bearing, not decoration. `grep` exits 1 when
+# nothing matches, and under this script's `set -euo pipefail` that failure
+# (or a `while` loop whose body never runs, which itself exits non-zero at
+# EOF) would otherwise abort the whole precheck before it ever reaches `gh
+# issue list` -- silently, with no `skip:` reason, on the ordinary day when
+# there is nothing to sweep. A failed `orca worktree list` collapses to the
+# same "no matches" shape and must not abort the run either: the sweep is
+# hygiene, and hygiene failing must never stop the run from doing its actual
+# job.
 if command -v orca >/dev/null 2>&1; then
     orca worktree list 2>/dev/null | awk '{print $3}' | grep '/auto-waddle-loop-' \
     | while read -r wt_path; do
@@ -86,7 +96,7 @@ if command -v orca >/dev/null 2>&1; then
                 echo "worktree sweep: could not remove '$base'" >&2
             fi
         fi
-    done
+    done || true
 fi
 
 # 3. Fetch the world in two calls, then decide locally.

@@ -221,4 +221,36 @@ grep -q "cannot parse a timestamp" "$TMP/err" || fail "unparseable name was skip
 grep -q "worktree rm" "$TMP/k/orca-calls.log" && fail "removed a worktree it could not date"
 pass "reports an unparseable worktree name instead of silently skipping it"
 
+# 13. `orca worktree list` returns worktrees, but none of them are loop
+#     worktrees -- the sweep's own pipeline (list | awk | grep | while) must
+#     never abort the precheck just because grep found nothing to sweep.
+#     Regression test for a `pipefail` bug: grep exits 1 on no-match, and
+#     under this script's `set -euo pipefail` that (or a `while` loop whose
+#     body never ran, which itself exits non-zero at EOF) used to kill the
+#     whole run before it ever reached `gh issue list` -- silently, with no
+#     `skip:` reason on stderr. This is the everyday case, not a corner case:
+#     it is what happens on every run once there is nothing left to sweep.
+make_fixture "$TMP/l"
+cat > "$TMP/l/issues.json" <<'J'
+[{"number":42,"labels":[{"name":"agent:eligible"},{"name":"size:xs"}]}]
+J
+cat > "$TMP/l/bin/orca" <<'STUB'
+#!/bin/bash
+FIX="$(dirname "$(dirname "$0")")"
+echo "$*" >> "$FIX/orca-calls.log"
+case "$1 $2" in
+  "worktree list")
+    echo "id::/w/CRUD-games  refs/heads/c  /w/CRUD-games" ;;
+  "worktree rm") exit 0 ;;
+  *) exit 0 ;;
+esac
+STUB
+chmod +x "$TMP/l/bin/orca"
+: > "$TMP/l/orca-calls.log"
+out=$(run_precheck "$TMP/l" 2>"$TMP/err") \
+    || fail "the sweep's no-match pipeline aborted the precheck (exit=$?, stderr: $(cat "$TMP/err"))"
+[ "$out" = "42" ] || fail "picked $out; expected 42"
+grep -q "worktree rm" "$TMP/l/orca-calls.log" && fail "removed a worktree when nothing matched"
+pass "proceeds when orca worktree list has no loop worktrees to sweep"
+
 echo "All loop-precheck tests passed."
