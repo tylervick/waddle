@@ -10,10 +10,30 @@ SRC="$ROOT/Vendor/src"
 OUT="$ROOT/Vendor/out"
 mkdir -p "$SRC"
 
+# A directory that already exists proves nothing about WHICH pin is inside it:
+# the tags above may have moved since it was cloned. Guarding on existence
+# alone meant a bumped pin silently rebuilt the old source -- no error, no
+# warning, and a framework that did not match the pin. CI never caught it
+# because runners start clean, so it only ever bit local checkouts.
+#
+# Compare the requested tag against what is actually checked out, by commit
+# rather than by `git describe`: several tags can point at one commit, and
+# describe would then report a name other than the one asked for. An unknown
+# tag, a detached-but-different HEAD, and a directory that is not a git
+# checkout at all each resolve to a mismatch and re-clone, so this also
+# self-heals a half-written clone left by an interrupted run.
 fetch() { # dir url tag
-    if [ ! -d "$SRC/$1" ]; then
-        git clone --depth 1 --branch "$3" "$2" "$SRC/$1"
+    local dir="$SRC/$1" want have
+    if [ -d "$dir" ]; then
+        want="$(git -C "$dir" rev-parse -q --verify "refs/tags/$3^{commit}" 2>/dev/null || true)"
+        have="$(git -C "$dir" rev-parse -q --verify HEAD 2>/dev/null || true)"
+        if [ -n "$want" ] && [ "$want" = "$have" ]; then
+            return 0
+        fi
+        echo "$1: checkout does not match $3 -- re-cloning" >&2
+        rm -rf "$dir"
     fi
+    git clone --depth 1 --branch "$3" "$2" "$dir"
 }
 fetch SDL https://github.com/libsdl-org/SDL.git "$SDL_TAG"
 fetch openal-soft https://github.com/kcat/openal-soft.git "$OPENAL_TAG"

@@ -14,4 +14,5 @@ One file per hard-won fact. Add an entry here in the same PR that adds the file 
 - [SwiftUI `Menu` cannot render `Slider` rows](swiftui-menu-cannot-host-sliders.md) — why tuning lives in the Control Feel sheet
 - [Gesture recognizers do not fire inside SDL's own UIWindow](sdl-window-gesture-recognizers.md) — use responder-chain touches instead
 - [Setting up a second worktree has two traps](worktree-setup-traps.md) — the Vendor symlink and the stale CMakeCache
+- [A hermetic test that builds a git repo must opt out of signing — twice](git-fixtures-inherit-signing-config.md) — `commit.gpgsign`, and `tag.gpgSign` hiding behind "fatal: no tag message?"
 - [Simulator hazards that produce misleading test results](simulator-test-hazards.md) — rotation, screenshot orientation, and RealWADTests fixtures
