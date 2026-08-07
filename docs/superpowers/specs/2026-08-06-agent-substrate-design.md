@@ -226,25 +226,44 @@ outright abandonment cheap.
 The substrate is issues and documentation, so its checks are structural. Per the
 promotion rule they are executable rather than a convention.
 
-`Scripts/check-substrate.sh` asserts:
+These checks originally lived in one script, `check-substrate.sh`, wired into
+`ci.yml` on every PR and every push to main. That coupling was a defect: the
+issue-format check below depends on repo-wide mutable state — the set of
+currently open `agent:eligible` issues — not on the contents of any one diff.
+Once such issues existed, anyone could file an under-specified one through the
+public issue template and turn main plus every open PR red, with an error
+naming an issue the PR author has no permission to edit and no way to bypass.
+The checks are now split by what they depend on, one script and one CI job
+per check, matching the repo's existing `check-engine-fresh.sh` pattern.
 
-1. Every open `agent:eligible` issue body contains all three required headings,
+`Scripts/check-substrate.sh` asserts, offline and requiring no `gh`:
+
+1. `CLAUDE.md` is within the 50-line cap.
+2. `docs/learnings/INDEX.md` has exactly one entry per file in
+   `docs/learnings/`, and no entry pointing at a missing file.
+
+Its self-test, `Scripts/test-check-substrate.sh`, follows the pattern of
+`test-check-engine-fresh.sh` and `test-engine-fingerprint.sh`. Both run in
+`ci.yml`'s existing "Verify the build-script helpers" step, alongside the
+other build-script self-tests, on every PR and push to main.
+
+`Scripts/check-issue-format.sh` asserts:
+
+3. Every open `agent:eligible` issue body contains all three required headings,
    `## Definition of done`, `## Verification`, and `## Provenance`, each with a
    non-empty section beneath it. This requires network and an authenticated
    `gh`, so it skips cleanly — reporting the skip, exiting zero — when no token
-   is available. CI must not fail for a missing token.
-2. `docs/learnings/INDEX.md` has exactly one entry per file in
-   `docs/learnings/`, and no entry pointing at a missing file.
-3. `CLAUDE.md` is within the 50-line cap.
+   is available. A query that fails outright (bad token scope, network error,
+   rate limit) is not a skip and fails closed instead.
 
-`Scripts/test-check-substrate.sh` is its self-test, following the pattern of
-`test-check-engine-fresh.sh` and `test-engine-fingerprint.sh`. Both run in
-`ci.yml`'s existing "Verify the build-script helpers" step, which already
-executes the other three script self-tests before the build.
+Its self-test, `Scripts/test-check-issue-format.sh`, runs alongside it in the
+dedicated `.github/workflows/issue-format.yml`, triggered by issue events plus
+a weekly schedule as a backstop — not by `ci.yml` — so a malformed issue
+red-lights that issue rather than an unrelated pull request.
 
 **Done means:** a fresh clone plus `gh issue list --label agent:eligible` yields
 a non-empty list of items each independently actionable by someone with no prior
-context, and `check-substrate.sh` passes in CI.
+context, and both `check-substrate.sh` and `check-issue-format.sh` pass in CI.
 
 ## Risks
 

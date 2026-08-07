@@ -1,0 +1,39 @@
+name: Issue Format
+
+# Separate from ci.yml on purpose. Scripts/check-issue-format.sh depends on
+# repo-wide mutable state -- the set of currently open agent:eligible issues
+# -- not on the contents of any one diff. When this check lived in ci.yml,
+# one under-specified agent:eligible issue, filed by anyone through the
+# public issue template, turned main and every open PR red, with an error
+# naming an issue the PR author has no permission to edit and no way to
+# bypass. Running it here instead means a malformed issue red-lights that
+# issue, not unrelated pull requests.
+on:
+  issues:
+    types: [opened, edited, labeled, reopened]
+  schedule:
+    # Backstop: catches drift not covered by the events above (a label
+    # removed and re-added by automation, a body edited via the API without
+    # firing `edited`, etc.) within a week rather than never.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+# Read-only: this only inspects issues, it never needs to write anything.
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  check-issue-format:
+    name: Check agent:eligible issue format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify agent:eligible issue format
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          Scripts/test-check-issue-format.sh
+          Scripts/check-issue-format.sh

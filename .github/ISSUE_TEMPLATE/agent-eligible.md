@@ -1,12 +1,12 @@
 ---
 name: Agent-eligible task
 about: A self-contained task an unattended run may claim
-labels: ["agent:eligible"]
+labels: agent:eligible
 ---
 
 <!--
 All three sections below are required and must be non-empty --
-Scripts/check-substrate.sh fails CI otherwise. Add a kind label (bug,
+Scripts/check-issue-format.sh fails CI otherwise. Add a kind label (bug,
 enhancement, documentation, test, chore, deps) and a size label
 (size:xs, size:s, size:m).
 
