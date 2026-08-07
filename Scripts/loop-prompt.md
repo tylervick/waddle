@@ -49,7 +49,10 @@ makes a lost trial visible instead of silent.
    That is a valuable, correct result; the backlog was built expecting some.
 3. Make the change. Only what the definition of done names.
 4. Run the issue's verification command **unmodified**. If it fails, fix your
-   change — never the test.
+   change — never the test. If the verification command fails repeatedly and you
+   conclude your approach was fundamentally wrong (rather than incomplete),
+   record `outcome: failed-verification` and stop — the issue needs rethinking.
+   This is "tried and was wrong", distinct from `stuck` (ran out of time).
 5. If you hit a trap worth remembering, add one file to `docs/learnings/` and its
    line to `docs/learnings/INDEX.md`, then run `Scripts/check-substrate.sh`.
 6. Commit, push your branch, and open a pull request whose body contains
@@ -70,7 +73,9 @@ gh issue edit "$ISSUE" --remove-label agent:in-progress
 On any outcome other than `pr-opened`, also `gh issue edit "$ISSUE" --add-label
 agent:stuck` and comment on the issue stating what you attempted and exactly
 where it stopped. Be specific — a vague comment wastes the next person who reads
-it.
+it. For `no-repro` outcomes, the `agent:stuck` label is deliberate and routes
+the issue to human triage — plainly state in your comment that the condition
+could not be reproduced, so the owner can close or correct it.
 
 ## 5. The trial record
 
@@ -93,7 +98,7 @@ run_id: <timestamp>-issue-<N>
 timestamp: <ISO8601>
 prompt_sha: <PROMPT_SHA>
 issue: <N>
-kind: <the issue's kind label>
+kind: <non-size, non-agent: label; one of: bug, enhancement, documentation, test, chore, deps, or none>
 size: <the issue's size label>
 outcome: started|pr-opened|failed-verification|no-repro|stuck
 wall_clock_seconds: <now - START>
