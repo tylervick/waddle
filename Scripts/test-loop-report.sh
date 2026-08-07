@@ -119,4 +119,43 @@ out="$(report "$TMP/h" 2>&1)" || fail "non-zero exit when every record is malfor
 echo "$out" | grep -qi "unparseable\|malformed" || fail "malformed-only dir did not warn; got: $out"
 pass "exits 0 and warns when every record is malformed"
 
+# 9. The leading signal comes from the RECORD, not a live query. The agent now
+#    fixes findings before the run ends, so a live query returns post-fix
+#    counts -- a report that kept querying would print zero for every trial and
+#    look perfectly healthy doing it.
+make_fixture "$TMP/i"
+cat > "$TMP/i/trials/2026-08-07T120000Z-issue-41.md" <<'EOF'
+---
+run_id: r-41
+timestamp: 2026-08-07T12:00:00Z
+prompt_sha: abc123
+issue: 41
+kind: bug
+size: size:xs
+outcome: pr-opened
+wall_clock_seconds: 600
+verification_result: pass
+ci_result: pass
+coderabbit_findings_first: 3
+coderabbit_findings_after: 0
+fix_rounds: 1
+pr: 57
+learning_added: none
+---
+prose
+EOF
+out="$(report "$TMP/i")" || fail "report failed"
+echo "$out" | grep -q "3 CodeRabbit" \
+    || fail "did not use the recorded snapshot of 3; got: $out"
+pass "reads the CodeRabbit count from the record, not from a live query"
+
+# 10. A record predating the snapshot field falls back to a live query, and says
+#    so. Silently scoring it zero would understate every pre-existing trial.
+make_fixture "$TMP/j"
+record "$TMP/j" 41 pr-opened abc123 57
+out="$(report "$TMP/j" 2>&1)" || fail "report failed"
+echo "$out" | grep -qi "legacy\|no recorded snapshot" \
+    || fail "legacy record was scored without any warning; got: $out"
+pass "flags records that predate the snapshot field"
+
 echo "All loop-report tests passed."
