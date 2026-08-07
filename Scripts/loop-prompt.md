@@ -246,7 +246,9 @@ CodeRabbit review count is at least 1.
 If the elapsed time exceeds **900 seconds** before both finish: record
 `ci_result: timeout`, `coderabbit_findings_first: none`, **skip 4.2 and 4.3
 entirely**, and go to section 5. A timeout is a legitimate trial result, not a
-failure to work around.
+failure to work around. This overwrite instruction applies only to *this*
+first wait, the one that happens before 4.2 has run — once 4.2 has written
+real values, a later timeout is handled differently; see 4.3.
 
 ### 4.2 Snapshot the review BEFORE fixing anything
 
@@ -278,12 +280,22 @@ If you disagree with a finding, say so in a reply on the pull request and leave
 the code alone. Do not silently skip it, and do not change code you believe is
 correct just to clear a comment.
 
-After pushing a round's fixes, re-run 4.1's bounded wait for the new CI run
-and CodeRabbit's re-review: capture a fresh `<WAIT_START>` literal and poll
-the same way, up to the same 900-second cap — that cap applies **per round**,
-not once for the whole fix phase. The fix phase as a whole is still bounded by
-whichever limit is hit first: the remaining 45-minute work budget (measured
-against section 3's `<START>`, as always), or the round ceiling below.
+After pushing a round's fixes, re-run 4.1's polling mechanic — the interval of
+`gh pr checks <PR>` and `gh pr view <PR>` checks against a freshly captured
+`<WAIT_START>` literal, up to the same 900-second cap — but not 4.1's timeout
+instruction. That instruction was written for the first wait, before 4.2 has
+run: `ci_result` and `coderabbit_findings_first`, once written in 4.2, are
+**never overwritten** — they are the measurement this whole section exists to
+protect, and a later-round timeout is a fact about the fix phase, not about
+the original work. If a round's recheck exceeds 900 seconds: stop fixing,
+leave the 4.2 values exactly as they are, record the `fix_rounds` you
+completed and `coderabbit_findings_after: none` (you never got a clean
+re-count), and go to section 5.
+
+The 900-second cap applies **per round**, not once for the whole fix phase.
+The fix phase as a whole is still bounded by whichever limit is hit first:
+the remaining 45-minute work budget (measured against section 3's `<START>`,
+as always), or the round ceiling below.
 
 Count each pass over CI-plus-review as one `fix_rounds`. Stop at **3 rounds**
 even if findings remain: a fourth round means the disagreement is not one you
