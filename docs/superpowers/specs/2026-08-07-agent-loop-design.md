@@ -115,7 +115,13 @@ Four tracked artifacts and one Orca object.
    2. Fix a red CI. A failing build is not a matter of opinion; the work is
       objectively incomplete.
    3. Address the Major/Critical CodeRabbit findings, within whatever remains of
-      the 45-minute work budget.
+      the 45-minute work budget and **at most three fix rounds**. A fourth round
+      means the disagreement is not one the agent is going to resolve
+      unattended, and grinding at it converts a useful trial into a timeout.
+      Minor and Nitpick findings are recorded, never acted on. A finding the
+      agent believes is wrong gets a reply on the pull request and no code
+      change — changing correct code to clear a comment is the failure this
+      rule exists to prevent.
 8. **The agent rewrites its trial record** with the real outcome and pushes again.
 9. **Cleanup.** The claim label is removed. On failure, `agent:stuck` is applied
    and a comment left on the issue stating what was tried and where it stopped.
