@@ -35,5 +35,22 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -o pipefail
           Scripts/test-check-issue-format.sh
-          Scripts/check-issue-format.sh
+
+          # check-issue-format.sh prints a "skip - " line and exits 0 when
+          # `gh` is missing or unauthenticated -- correct for local runs and
+          # CI without a token. But this workflow always injects GH_TOKEN
+          # above, so a skip here can only mean the `gh auth status` probe
+          # itself failed (e.g. a GitHub API blip), not a legitimate absence
+          # of credentials. Left alone, that would make the job go green
+          # having checked zero issues. Capture the script's stdout with
+          # `tee` (so the log still shows it) and fail if any line starts
+          # with "skip - ". `set -o pipefail` above stops the `tee` on the
+          # right of the pipe from masking a non-zero exit from
+          # check-issue-format.sh on the left; the enclosing `-e` (bash's
+          # default for `run:` steps) then fails the step on either that or
+          # the grep below finding a skip line.
+          out="$RUNNER_TEMP/check-issue-format.out"
+          Scripts/check-issue-format.sh | tee "$out"
+          ! grep -q '^skip - ' "$out"

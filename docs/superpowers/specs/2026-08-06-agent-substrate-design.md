@@ -1,7 +1,7 @@
 # Agent Substrate: Durable Backlog & Compounding Learnings — Design Spec
 
 **Date:** 2026-08-06
-**Status:** Designed, not implemented.
+**Status:** Implemented in PR #36 (2026-08-06).
 **Successor:** Spec 2 (unattended single-item loop) — to be written after this
 ships and has been used.
 
@@ -10,10 +10,16 @@ ships and has been used.
 WADdle's backlog and its hard-won technical knowledge are invisible to anyone
 starting from a fresh clone.
 
-The backlog lives in `.superpowers/sdd/progress.md` — 98 lines carrying roughly
-25 deferred items accumulated across Plans 1–4, everything from `sigemptyset`
+The backlog lives in `.superpowers/sdd/progress.md` — 98 lines carrying
+deferred items accumulated across Plans 1–4, everything from `sigemptyset`
 pedantry and the missing `ZipExtractor` per-entry size cap through to absent
-`sha1(of:)` and `allLoadouts` sort tests. That file is gitignored by
+`sha1(of:)` and `allLoadouts` sort tests. An eyeball count of the file's
+inline "deferred"/"minor" annotations puts this at roughly 25; the finished
+triage record (`docs/superpowers/plans/2026-08-06-agent-substrate-triage.md`)
+counted 47 candidates, because a line-by-line pass split compound bullets
+that named several distinct items under one annotation and also picked up
+the same condition re-mentioned across multiple plans' final-review carry
+lists. That file is gitignored by
 `.superpowers/sdd/.gitignore`, which contains only `*`. It exists on exactly one
 machine.
 
@@ -33,8 +39,9 @@ issues, and every session rediscovers the same traps.
 **In:** extraction of the deferred-item ledger into labelled GitHub issues; a
 required issue format and the GitHub issue template that enforces it; a label
 taxonomy extending the existing labels; a tracked `CLAUDE.md`; `docs/learnings/`
-with an index; `Scripts/check-substrate.sh` and its self-test; wiring that check
-into `ci.yml`.
+with an index; `Scripts/check-substrate.sh` and `Scripts/check-issue-format.sh`
+and their self-tests; wiring those checks into `ci.yml` and the dedicated
+`issue-format.yml`.
 
 **Out, deferred to Spec 2:** the runner script, launchd scheduling, the
 dedicated agent signing key, prompt versioning, and trial records. This spec

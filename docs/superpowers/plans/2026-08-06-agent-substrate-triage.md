@@ -58,3 +58,22 @@ spec prefers recording that over filing on suspicion.
 | Preset-editor `try?` swallow | P4 final review | duplicate of issue #41 | Same code, same condition: `LoadoutEditorView.save()` (`App/Sources/UI/LoadoutEditorView.swift:140-156`) still does `let loadout = try? library.createLoadout(...)` and unconditionally calls `complete()` regardless of whether `loadout` came back `nil`. Issue #41 (filed in Task 6, sourced from Plan 2 Task 8) already documents this exact lineage in its own Provenance section: "carried unresolved through Plan 4's final review ('loadout-editor try? swallow')." No second issue filed. |
 | Container-init recovery | P4 final review | won't fix | Same condition as this table's own "`fatalError` on container init" row (P2 T8, above): `WADdleApp.swift:40` still `fatalError`s on `ModelContainer` init failure. `docs/app-store/submission-checklist.md`'s "Known limitations (for the record, no action needed)" section still explicitly lists it ("container-init recovery needs design; risk is cold-start-only") — a standing, human-reviewed, documented accepted trade-off, not an oversight, and the checklist entry itself cross-references "the Plan 4 review notes." |
 | Case-sensitive IWAD hint branch, cosmetic | P4 final review | issue #53 | Still present: `EngineErrorAlert.hint(for:)`'s inner branch (`App/Sources/UI/EngineErrorAlert.swift:24`, `if message.contains("IWAD")`) is a case-sensitive substring check, unchanged since it was introduced in commit `706201f` and untouched by commit `8c569ea`'s later, unrelated edit to the same function. For the `"Failed to load %s"` marker (`D_AddFile`, `Engine/woof/src/d_main.c:536,1248`), which of the two hint strings gets shown ends up depending only on incidental capitalization of the user's own filename rather than on the failure itself. |
+
+**Totals (47 rows):** 26 already fixed, 17 filed as new issues (#37–#53), 2
+won't fix, 1 unreproducible, 1 duplicate (of issue #41).
+
+## Pre-existing issues brought into the taxonomy
+
+Four issues predate this triage effort and were not part of the ledger
+extraction above, but were folded into the same `agent:eligible`/
+`agent:blocked` taxonomy so the label set means the same thing everywhere:
+
+- **#13** (`build-deps.sh` tag-bump re-fetch bug), **#14** (scheduled
+  cold-cache CI build), and **#15** (README CI documentation) all gained the
+  `agent:eligible` label plus the three required headings — `## Definition of
+  done`, `## Verification`, `## Provenance` — added to their bodies to match
+  the format every newly-filed issue above already follows.
+- **#28** (App Store Connect submission tracker) gained the `agent:blocked`
+  label instead, per the Global Constraints list: it is owner-side App Store
+  Connect data entry, one of the categories never eligible for unattended
+  agent work.
