@@ -5,9 +5,12 @@ on:
   push:
     branches: [main]
 
-# This workflow only ever reads the repo; it never needs to write anything.
+# The build needs only the repo. check-substrate.sh additionally reads open
+# issues to verify their format; without issues:read it degrades to a skip
+# rather than a failure, but then the format goes unenforced.
 permissions:
   contents: read
+  issues: read
 
 # Supersede in-flight runs when a PR is pushed again. main is exempted: a
 # cancelled run never reaches the post-job step that saves actions/cache@v4
@@ -39,10 +42,14 @@ jobs:
       # Cheap (~0.1s each) and they guard the value both cache keys depend
       # on, plus the check that stops a stale engine from being shipped.
       - name: Verify the build-script helpers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           Scripts/test-engine-fingerprint.sh
           Scripts/test-check-engine-fresh.sh
           Scripts/test-release-args.sh
+          Scripts/test-check-substrate.sh
+          Scripts/check-substrate.sh
 
       - uses: ./.github/actions/setup-waddle-build
         with:
