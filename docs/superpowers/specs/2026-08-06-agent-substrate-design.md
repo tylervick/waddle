@@ -1,7 +1,7 @@
 # Agent Substrate: Durable Backlog & Compounding Learnings — Design Spec
 
 **Date:** 2026-08-06
-**Status:** Implemented in PR #36 (2026-08-06).
+**Status:** Implemented on this branch; PR #36 open, not yet merged (2026-08-06).
 **Successor:** Spec 2 (unattended single-item loop) — to be written after this
 ships and has been used.
 

@@ -21,7 +21,8 @@ and runs in CI alongside the three script self-tests already there.
 **Branch:** `tylervick/agent-substrate-spec` (already created; the spec is
 committed there at `b288ae1`).
 
-> **Status note (post-implementation):** Implemented in PR #36. The
+> **Status note (post-implementation):** Implemented on this branch; PR #36
+> open, not yet merged, as of 2026-08-06. The
 > single-guard design below was split: file-shape checks stayed in
 > `Scripts/check-substrate.sh` (offline), issue-format checks moved to
 > `Scripts/check-issue-format.sh` (run from `issue-format.yml`). The embedded
