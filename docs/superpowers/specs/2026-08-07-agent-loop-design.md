@@ -76,7 +76,7 @@ Four tracked artifacts and one Orca object.
 | `Scripts/loop-precheck.sh` | Decides whether a run happens, and which issue it takes |
 | `Scripts/loop-prompt.md` | The protocol. The experiment's independent variable |
 | `Scripts/loop-report.sh` | Aggregates trial records into a success rate |
-| `docs/loop-trials/<date>-issue-<N>.md` | One record per trial, on the `loop-trials` branch |
+| `docs/loop-trials/<run-timestamp>-issue-<N>.md` | One record per trial, on the `loop-trials` branch — the filename carries a full UTC timestamp, not just a date, so two runs on the same issue on the same day can't collide |
 | `orca automations` entry `waddle-loop` | Schedule, provider, fresh worktree per run |
 
 ### One run
@@ -129,9 +129,18 @@ a run that died — which is exactly the signal the split existed to preserve, a
 no structural cost. The reconciliation happens in `Scripts/loop-report.sh`, which
 reports any `started` record as a lost trial rather than omitting it.
 
-This preserves the intent of the generator-never-judges rule where it matters —
-no outcome can be silently dropped — while accepting that a single agent reports
-on itself for outcomes it survives to report.
+This preserves the intent of the generator-never-judges rule where it
+matters — for every run that survives long enough to push its `started`
+record — while accepting that a single agent reports on itself for outcomes it
+survives to report. One gap remains regardless: a run that dies between
+claiming the issue and that first push landing leaves no record at all, not
+even a `started` one, so it is not visible as a lost trial either — it is
+simply absent. `Scripts/loop-prompt.md`'s ordering (claim only after the record
+is prepared and committed locally, so a single push is the only thing left
+after claiming) makes that window as small as it can be, and its "Known gaps"
+section states plainly what it looks like from the report's side. The claim
+that "no outcome can be silently dropped" is therefore true only outside this
+one window, not unconditionally.
 
 ### Why trial records live on their own branch
 
@@ -164,8 +173,13 @@ recreating it would scatter records across divergent histories.
   pull request.
 - **Tests, to make them pass.** Already in `CLAUDE.md`; restated in the prompt
   because it is the highest-value rule and the easiest to rationalise away.
-- **`main`.** Its own branch only. Branch protection should enforce this rather
-  than leaving it instructed.
+- **`main`.** Its own branch only. This is currently instruction-only, not
+  structural: there is no branch protection on `main` today (the API returns
+  404 for a branch protection rule, and the repository's one ruleset has
+  `enforcement: disabled`). Enabling branch protection so this is enforced
+  rather than merely instructed is a recommended action for the repository
+  owner to take separately — it is a repository settings change, outside what
+  this design or its implementation should do on its own.
 - **Signing, the release path, `Engine/woof`'s vendor pin, and App Store
   metadata** — the never-agent-eligible list from spec 1.
 
@@ -267,9 +281,19 @@ signal alone caught that.
 ### The report
 
 `Scripts/loop-report.sh` walks the trial records, queries each pull request's
-current state via `gh`, and prints success rate segmented by prompt version, by
-`size`, and by `kind`, plus median wall clock and the current stuck pile. It is
-the artifact the experiment exists to produce.
+current state via `gh`, and prints exactly this: total trial count and an
+outcome breakdown; per prompt version, the trial count, PRs merged without
+requiring changes, and CodeRabbit Major/Critical findings across those PRs;
+the lost-trial list (records still reading `started`); and the stuck pile. It
+is the artifact the experiment exists to produce.
+
+Every trial record also carries `verification_result`, `size`, `kind`, and
+`wall_clock_seconds` (see the instrumentation table above). Those fields are
+captured for later analysis; the report does not currently segment by `size`
+or `kind`, nor does it compute a median wall clock or read
+`verification_result` at all. That is a known gap between the ambition of this
+section and what is implemented, called out here rather than left for the
+report and this document to quietly disagree.
 
 ## Risks
 

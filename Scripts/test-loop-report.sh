@@ -108,4 +108,15 @@ out="$(report "$TMP/g" 2>&1)" || fail "report failed"
 echo "$out" | grep -qi "unparseable\|malformed" || fail "malformed record swallowed; got: $out"
 pass "reports malformed records instead of dropping them"
 
+# 8. EVERY record malformed, none valid -- rows stays a truly empty array.
+#    "${rows[@]}" on a truly empty array is an unbound-variable error under
+#    `set -u` on macOS's bash 3.2, which would exit 1 before ever reaching the
+#    malformed-record warning. Case 7 pairs a malformed record with a valid
+#    one, so it never exercises the empty-array path; this case does.
+make_fixture "$TMP/h"
+printf 'no frontmatter here\n' > "$TMP/h/trials/2026-08-07-issue-77.md"
+out="$(report "$TMP/h" 2>&1)" || fail "non-zero exit when every record is malformed"
+echo "$out" | grep -qi "unparseable\|malformed" || fail "malformed-only dir did not warn; got: $out"
+pass "exits 0 and warns when every record is malformed"
+
 echo "All loop-report tests passed."

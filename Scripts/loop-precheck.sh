@@ -61,14 +61,41 @@ for i in json.load(sys.stdin):
 
 swept=""
 for n in $claimed; do
-    applied="$(gh api "repos/{owner}/{repo}/issues/$n/timeline" 2>/dev/null \
-                 | python3 -c 'import json,sys
-events = json.load(sys.stdin)
+    # --paginate is required: the timeline endpoint pages at 30 events, and an
+    # issue that has been claimed/swept/re-claimed repeatedly accumulates more
+    # than that, pushing the very labeling event we need off page 1.
+    #
+    # Absence of a matching event is treated as LIVE, never as stale. An
+    # unpaginated call that missed the event on page 2+ used to fall back to
+    # the 1970 epoch, which scored a live claim as ~56 years old and swept it
+    # -- handing the same issue to a second concurrent run. "I found no event"
+    # is not evidence of age; it is evidence of nothing, and the fail-closed
+    # reading of nothing is to refuse, not to sweep.
+    applied="$(gh api --paginate "repos/{owner}/{repo}/issues/$n/timeline" 2>/dev/null \
+                 | python3 -c 'import json, sys
+# --paginate prints one JSON array per page, concatenated back to back with no
+# separator or wrapping -- NOT a single JSON document -- so a plain
+# json.load() would raise on any issue with more than one page. Decode
+# documents off the stream one at a time instead; this also still handles the
+# single-page case the hermetic tests fixture.
+decoder = json.JSONDecoder()
+data = sys.stdin.read().strip()
+events = []
+idx = 0
+while idx < len(data):
+    obj, end = decoder.raw_decode(data, idx)
+    events.extend(obj)
+    idx = end
+    while idx < len(data) and data[idx] in " \t\r\n":
+        idx += 1
 hits = [e["created_at"] for e in events
         if e.get("event") == "labeled"
         and (e.get("label") or {}).get("name") == "agent:in-progress"]
 print(hits[-1] if hits else "")')" || skip "gh api timeline failed for #$n"
-    age=$(( NOW_EPOCH - $(to_epoch "${applied:-1970-01-01T00:00:00Z}") ))
+    if [ -z "$applied" ]; then
+        skip "run already live on #$n (no agent:in-progress labeling event found anywhere in its timeline; cannot prove the claim is stale)"
+    fi
+    age=$(( NOW_EPOCH - $(to_epoch "$applied") ))
     if [ "$age" -lt "$STALE_CLAIM_SECONDS" ]; then
         skip "run already live on #$n (claimed ${age}s ago)"
     fi

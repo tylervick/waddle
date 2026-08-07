@@ -147,4 +147,21 @@ out=$(run_precheck "$TMP/i") || fail "refused an unsized eligible issue"
 [ "$out" = "30" ] || fail "picked $out; expected 30"
 pass "picks an unsized eligible issue rather than skipping it"
 
+# 10. No matching agent:in-progress labeling event anywhere in the timeline --
+#     e.g. paginated past it, or some other reason it's simply not there --
+#     must refuse as LIVE, never fall back to the 1970 epoch and sweep a claim
+#     that might still be running. Absence of proof is not proof of staleness.
+make_fixture "$TMP/j"
+cat > "$TMP/j/issues.json" <<'J'
+[{"number":90,"labels":[{"name":"agent:eligible"},{"name":"agent:in-progress"}]}]
+J
+printf '[{"event":"commented","created_at":"2026-08-07T09:00:00Z"}]\n' \
+    > "$TMP/j/timeline.json"
+if out=$(run_precheck "$TMP/j" 2>"$TMP/err"); then
+    fail "proceeded despite no labeling event anywhere in the timeline"
+fi
+[ -z "$out" ] || fail "printed '$out' to stdout on refusal; must be silent"
+grep -q "run already live" "$TMP/err" || fail "wrong refusal reason: $(cat "$TMP/err")"
+pass "refuses (as live, not stale) when no agent:in-progress labeling event is found"
+
 echo "All loop-precheck tests passed."

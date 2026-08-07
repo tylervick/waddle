@@ -61,31 +61,103 @@ signs with keys held in the 1Password agent and will reject this key.
 `user.signingkey` must point at the `.pub` file, not the private key — that
 is the conventional value `ssh-keygen` expects.
 
+The same lesson applies below to more than git config: `$ISSUE`, `$START`,
+and similar shell variables do not survive between invocations either. See
+section 1.
+
 ## 1. Decide whether to run at all
 
 ```bash
-ISSUE=$(Scripts/loop-precheck.sh) || { echo "precheck refused; stopping"; exit 0; }
-START=$(date -u +%s)
-PROMPT_SHA=$(git log -1 --format=%h -- Scripts/loop-prompt.md)
+Scripts/loop-precheck.sh
 ```
 
-A refusal is a normal, correct outcome. Stop immediately — do not investigate,
-do not pick an issue yourself, do not retry.
+A refusal — non-zero exit, `skip: ...` on stderr, stdout silent — is a normal,
+correct outcome. Stop immediately — do not investigate, do not pick an issue
+yourself, do not retry.
+
+On success it prints exactly one issue number on stdout, and nothing else.
+Section 0 already proved that shell state — exported variables included —
+does not survive between this unattended run's separate tool invocations. Do
+not write `ISSUE=$(Scripts/loop-precheck.sh)` and expect `$ISSUE` to still be
+set when section 2 runs: it will not be, because section 2 is a different
+invocation. The same is true of a start time and the prompt SHA.
+
+Instead, run these now and **record all four results as literals** — plainly,
+in your own working notes and in the trial record itself, the same way
+section 5's template already treats `<ISSUE>` and `<PROMPT_SHA>` as text to
+fill in rather than variables to expand:
+
+- **`<ISSUE>`** — the issue number `Scripts/loop-precheck.sh` printed.
+- **`<START>`** — `date -u +%s`, captured now. Section 3's 45-minute budget is
+  measured against this: to check it later, run `date -u +%s` again in
+  whichever invocation you're in and subtract the literal `<START>` value —
+  not a `$START` variable, which will not exist there.
+- **`<PROMPT_SHA>`** — `git log -1 --format=%h -- Scripts/loop-prompt.md`,
+  captured now. Goes in the trial record's `prompt_sha` field.
+- **`<RUN_TS>`** — `date -u +%Y-%m-%dT%H%M%SZ`, captured now. This is the time
+  component of the trial-record filename (section 5). It must be the exact
+  same literal on both writes of that record — section 2's `started` write
+  and section 4's rewrite — or the rewrite creates a second, orphaned file
+  instead of overwriting the first, and the two-phase record this design
+  depends on breaks silently.
+
+From here on, `<ISSUE>`, `<START>`, `<PROMPT_SHA>`, and `<RUN_TS>` each mean
+"the literal value you recorded in this section" — substitute the actual
+value directly into every command below that names it.
 
 ## 2. Claim, and write the failure marker
 
-```bash
-gh issue edit "$ISSUE" --add-label agent:in-progress
-```
+The gap between claiming the issue and the `started` record landing upstream
+is a real blind spot — see "Known gaps" below, which this ordering shrinks but
+cannot close. Do everything that doesn't need the claim to exist *first*, so
+the only thing left after claiming is a single push:
 
-Then immediately write and push a trial record with `outcome: started`, using
-the format in section 5. **Do this before doing any work.** If you die, hang, or
-are killed, that record is the only evidence the run ever happened — it is what
-makes a lost trial visible instead of silent.
+1. Prepare and commit the `started` record, but do not push it yet:
+
+   ```bash
+   git fetch origin loop-trials
+   git worktree add /tmp/loop-trials-<ISSUE> origin/loop-trials
+   cd /tmp/loop-trials-<ISSUE>
+   # write docs/loop-trials/<RUN_TS>-issue-<ISSUE>.md with outcome: started,
+   # using the format in section 5 and the literals from section 1, then:
+   git add docs/loop-trials/<RUN_TS>-issue-<ISSUE>.md
+   git -c user.name="WADdle Agent Loop" \
+       -c user.email="agent-loop@tylervick.com" \
+       -c gpg.format=ssh \
+       -c user.signingkey=~/.ssh/waddle-agent-signing.pub \
+       -c gpg.ssh.program=ssh-keygen \
+       -c commit.gpgsign=true \
+       commit -m "docs(loop-trials): start record for issue <ISSUE>"
+   cd -
+   ```
+
+   (Use `/tmp/loop-trials-<ISSUE>`, the literal issue number — not `$$` — as
+   the worktree path: the claim step below is a separate tool invocation, and
+   a shell PID captured in one invocation is gone in the next, same as any
+   other shell variable. The issue number is stable and, by construction of
+   the precheck's liveness guard, unique to the one run alive at a time.)
+
+2. Only once that commit exists locally, claim the issue:
+
+   ```bash
+   gh issue edit <ISSUE> --add-label agent:in-progress
+   ```
+
+3. Push immediately — re-stating the path explicitly rather than relying on
+   this being the same shell as step 1:
+
+   ```bash
+   git -C /tmp/loop-trials-<ISSUE> push origin HEAD:loop-trials
+   git worktree remove /tmp/loop-trials-<ISSUE>
+   ```
+
+**Do this before doing any work on the issue itself.** If you die, hang, or
+are killed after step 2, that record is the only evidence the run ever
+happened — it is what makes a lost trial visible instead of silent.
 
 ## 3. Do the work
 
-1. `gh issue view $ISSUE` — it states a definition of done, a verification
+1. `gh issue view <ISSUE>` — it states a definition of done, a verification
    command, and its provenance.
 2. **Reproduce before fixing.** Confirm the described condition actually exists
    at HEAD. If it does not, finish with `outcome: no-repro` and your evidence.
@@ -114,19 +186,25 @@ makes a lost trial visible instead of silent.
    Then push your branch and open a pull request whose body contains
    `Closes #<ISSUE>`.
 
-**Watch your own clock.** Nothing will stop you. If more than 45 minutes have
-elapsed since `START`, stop where you are and finish with `outcome: stuck`,
-recording how far you got. An honest partial record beats an unbounded run.
+**Watch your own clock.** Nothing will stop you. Run `date -u +%s` and
+subtract the literal `<START>` value you recorded in section 1; if the result
+is more than 2700 (45 minutes), stop where you are and finish with `outcome:
+stuck`, recording how far you got. An honest partial record beats an
+unbounded run.
 
 ## 4. Finish
 
-Rewrite your trial record with the real outcome and push it again. Then:
+Rewrite your trial record with the real outcome and push it again — the exact
+same file as section 2's write, same `<RUN_TS>`-based path (section 5 has the
+git mechanics; if the exact filename slipped your notes, it is the only file
+matching `docs/loop-trials/*-issue-<ISSUE>.md` on `origin/loop-trials` whose
+frontmatter still reads `outcome: started`). Then:
 
 ```bash
-gh issue edit "$ISSUE" --remove-label agent:in-progress
+gh issue edit <ISSUE> --remove-label agent:in-progress
 ```
 
-On any outcome other than `pr-opened`, also `gh issue edit "$ISSUE" --add-label
+On any outcome other than `pr-opened`, also `gh issue edit <ISSUE> --add-label
 agent:stuck` and comment on the issue stating what you attempted and exactly
 where it stopped. Be specific — a vague comment wastes the next person who reads
 it. For `no-repro` outcomes, the `agent:stuck` label is deliberate and routes
@@ -135,30 +213,34 @@ could not be reproduced, so the owner can close or correct it.
 
 ## 5. The trial record
 
-Path: `docs/loop-trials/<YYYY-MM-DD>-issue-<N>.md` on the `loop-trials` branch.
-This procedure runs twice — once from section 2 (`outcome: started`) and once
-from section 4 (the real outcome) — each time in its own tool invocation, in
-its own temporary worktree. The commit must therefore carry the full identity
-form both times; neither run can rely on anything from section 0 or from the
-other run.
+Path: `docs/loop-trials/<RUN_TS>-issue-<ISSUE>.md` on the `loop-trials`
+branch, where `<RUN_TS>` is the literal captured once in section 1 — **the
+same literal on both writes.** This procedure runs twice — once from section 2
+(`outcome: started`) and once from section 4 (the real outcome) — each time in
+its own tool invocation, in its own temporary worktree, and neither run can
+rely on anything from section 0 or from the other run *except* `<ISSUE>`,
+`<PROMPT_SHA>`, and `<RUN_TS>`, carried forward only because you wrote them
+down. (Section 2 interleaves the `agent:in-progress` claim between this
+commit and its push, for the first write only, to shrink the window in
+"Known gaps" below; section 4's rewrite runs this block straight through.)
 
 ```bash
 git fetch origin loop-trials
-git worktree add /tmp/loop-trials-$$ origin/loop-trials
-cd /tmp/loop-trials-$$
-# write docs/loop-trials/<YYYY-MM-DD>-issue-<N>.md, then:
-git add docs/loop-trials/<YYYY-MM-DD>-issue-<N>.md
+git worktree add /tmp/loop-trials-<ISSUE> origin/loop-trials
+cd /tmp/loop-trials-<ISSUE>
+# write docs/loop-trials/<RUN_TS>-issue-<ISSUE>.md, then:
+git add docs/loop-trials/<RUN_TS>-issue-<ISSUE>.md
 git -c user.name="WADdle Agent Loop" \
     -c user.email="agent-loop@tylervick.com" \
     -c gpg.format=ssh \
     -c user.signingkey=~/.ssh/waddle-agent-signing.pub \
     -c gpg.ssh.program=ssh-keygen \
     -c commit.gpgsign=true \
-    commit -m "docs(loop-trials): start record for issue <N>"
-    # or: -m "docs(loop-trials): record <outcome> outcome for issue <N>"
+    commit -m "docs(loop-trials): start record for issue <ISSUE>"
+    # or: -m "docs(loop-trials): record <outcome> outcome for issue <ISSUE>"
 git push origin HEAD:loop-trials
 cd -
-git worktree remove /tmp/loop-trials-$$
+git worktree remove /tmp/loop-trials-<ISSUE>
 ```
 
 If the `loop-trials` branch does not exist, stop and report. **Do not create
@@ -167,10 +249,10 @@ scatter records across divergent histories.
 
 ```markdown
 ---
-run_id: <timestamp>-issue-<N>
+run_id: <RUN_TS>-issue-<ISSUE>
 timestamp: <ISO8601>
 prompt_sha: <PROMPT_SHA>
-issue: <N>
+issue: <ISSUE>
 kind: <non-size, non-agent: label; one of: bug, enhancement, documentation, test, chore, deps, or none>
 size: <the issue's size label>
 outcome: started|pr-opened|failed-verification|no-repro|stuck
@@ -184,6 +266,36 @@ What happened, what surprised you, what a human reading this in six weeks
 would want to know.
 ```
 
+## Known gaps
+
+Two containment holes exist. Neither is closed by this document; both are
+acknowledged here so a report that looks strange in exactly these ways is
+read correctly rather than treated as a mystery.
+
+**A run that dies between claiming and the `started` record's push landing
+leaves no record at all.** Section 2's ordering makes this window as small as
+it can be — everything is prepared and committed locally before the claim, so
+only a single `git push` remains after it — but it cannot close the window
+completely. If the process dies after `gh issue edit --add-label` and before
+that push lands, nothing under `docs/loop-trials/` ever mentions this attempt.
+`Scripts/loop-report.sh` cannot report a lost trial for a record that was
+never written. The only visible trace is the `agent:in-progress` label sitting
+on the issue until a later precheck run's stale-claim sweep clears it — logged
+to stderr at that point, with no corresponding entry in any report. If the
+report and the sweep log ever disagree about how many runs happened, this is
+why.
+
+**A work pull request the owner closes without merging makes its issue
+claimable again, forever.** The precheck excludes an issue only while a linked
+pull request is open. Once it's closed unmerged, the exclusion lifts, and
+because selection is deterministic (`size:xs`, then `size:s`, then `size:m`,
+tie-broken by ascending issue number) that same issue is re-picked on every
+subsequent run that reaches it — not occasionally, every time, since nothing
+about a closed-unmerged PR changes the selection inputs. **If you are the
+owner and you close a work pull request without merging it, label its issue
+`agent:stuck`** so the precheck skips it instead of retrying the same rejected
+approach indefinitely.
+
 ## Rules that are absolute
 
 - **Never edit, weaken, delete, or skip a test to make something pass.** If the
@@ -191,10 +303,24 @@ would want to know.
   This is the most important rule here.
 - **Never modify** `Scripts/loop-precheck.sh`, `Scripts/loop-report.sh`,
   `Scripts/loop-prompt.md`, `orca.yaml`, `CLAUDE.md`,
-  `Scripts/check-substrate.sh`, `Scripts/check-issue-format.sh`, or
-  `.github/workflows/issue-format.yml`. Those are the rules you are judged by.
-  You may **add** a `docs/learnings/` file; you may never rewrite or delete one.
-- **Never push to `main`.** Your own branch only.
+  `Scripts/check-substrate.sh`, `Scripts/check-issue-format.sh`,
+  `Scripts/test-loop-precheck.sh`, or `Scripts/test-loop-report.sh` — the last
+  two are the tests of your own guardrails. Those are the rules you are judged
+  by. You may **add** a `docs/learnings/` file; you may never rewrite or
+  delete one.
+- **Never create or modify any file under `.github/workflows/`.** Not just
+  `issue-format.yml` — a workflow you added would execute on your own pull
+  request.
+- **Never push to `main`, and never merge a pull request** — not with `gh pr
+  merge`, not through any other tool. The owner is the merge gate; opening the
+  pull request is the last step you take on it.
+- **Never force-push anything, to any branch.** `loop-trials` above all: it
+  holds the experiment's only data, and a force-push there can destroy it.
+- **Never close or reopen an issue** other than through the documented labels
+  (`agent:in-progress`, `agent:stuck`) and comments described above. Closing
+  an issue outright is not part of this protocol.
+- **Never publish a release.**
+- **Never edit `mise.toml` or add a dependency.**
 - **Never touch** signing configuration beyond section 0, the release path,
   `Engine/woof`'s vendor pin, or App Store metadata.
 - No Claude/AI attribution in commit messages, PR bodies, or issue comments.
@@ -219,7 +345,20 @@ until it is satisfied.
   it does not clean them up.
 - Run once, now: `orca automations run 8a0d5727-9d5c-46a6-b0ef-92d5accf3859`
   (note: this skips `--precheck`, which is why the agent gates itself)
-- Read results: `Scripts/loop-report.sh`
+- Read results:
+
+  ```bash
+  git fetch origin loop-trials
+  rm -rf /tmp/loop-trials && mkdir -p /tmp/loop-trials
+  git archive origin/loop-trials docs/loop-trials | tar -x -C /tmp/loop-trials
+  Scripts/loop-report.sh /tmp/loop-trials/docs/loop-trials
+  ```
+
+  (`Scripts/loop-report.sh` with no argument defaults to a local
+  `docs/loop-trials/`, which exists only on the orphan `loop-trials` branch —
+  never in a checkout of `main` or of this branch — so running it bare here
+  always prints "no trials recorded". The commands above fetch that branch and
+  point the script at the extracted copy.)
 
 The automation stays **disabled** until three manual runs have landed clean.
 
