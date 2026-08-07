@@ -13,6 +13,13 @@ DeHackEd patches — for everything else.
        alt="Play tab: recently played, base games and presets" width="49%">
 </p>
 
+## Working in this repository
+
+`CLAUDE.md` carries the rules that apply to every change. `docs/learnings/`
+records the traps this project has already paid for — read
+[its index](docs/learnings/INDEX.md) before debugging anything that feels like
+it should already work.
+
 ## Licensing
 
 WADdle is free software under the **GNU GPL v2** (see [COPYING](COPYING)),
