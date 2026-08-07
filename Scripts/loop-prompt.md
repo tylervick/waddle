@@ -100,10 +100,17 @@ fill in rather than variables to expand:
   and section 5's rewrite — or the rewrite creates a second, orphaned file
   instead of overwriting the first, and the two-phase record this design
   depends on breaks silently.
+- **`<PR>`** — not available yet: nothing has been opened at this point, so
+  there is nothing to capture. Section 3 captures it the moment `gh pr
+  create` prints the pull request number. It is listed here because it
+  follows the exact same rule as the other four the instant it exists: a
+  literal you record and then substitute directly into every command that
+  names it — most heavily in section 4, which uses it three times.
 
 From here on, `<ISSUE>`, `<START>`, `<PROMPT_SHA>`, and `<RUN_TS>` each mean
 "the literal value you recorded in this section" — substitute the actual
-value directly into every command below that names it.
+value directly into every command below that names it. `<PR>` means the same
+thing from the moment section 3 records it onward.
 
 ## 2. Claim, and write the failure marker
 
@@ -189,7 +196,11 @@ happened — it is what makes a lost trial visible instead of silent.
    ```
 
    Then push your branch and open a pull request whose body contains
-   `Closes #<ISSUE>`.
+   `Closes #<ISSUE>`, and record the pull request number `gh pr create`
+   prints as the literal `<PR>` — the same way section 1 recorded `<ISSUE>`,
+   `<START>`, `<PROMPT_SHA>`, and `<RUN_TS>`. Section 4 runs in later,
+   separate tool invocations and needs this literal three times; a `$PR`
+   shell variable will not survive to get there.
 
 **Watch your own clock.** Nothing will stop you. Run `date -u +%s` and
 subtract the literal `<START>` value you recorded in section 1; if the result
@@ -205,19 +216,37 @@ negotiable**, and step 1 must complete before you change a single line.
 
 ### 4.1 Wait, with a hard cap
 
-Poll until both CI and the CodeRabbit review have finished, up to **15 minutes**.
-This cap is separate from the 45-minute work budget: a slow service must not eat
-the time you need to work, and an unresponsive one must never park the run
-forever.
+Poll until both CI and the CodeRabbit review have finished, up to **15 minutes
+(900 seconds)**. This cap is separate from the 45-minute work budget: a slow
+service must not eat the time you need to work, and an unresponsive one must
+never park the run forever.
+
+`gh pr checks <PR> --watch` blocks indefinitely and has no way to stop itself
+at 900 seconds, so do not use `--watch`. Time this the same way section 1
+times the 45-minute budget — with a literal you capture and compare, not a
+blocking call:
+
+- **`<WAIT_START>`** — `date -u +%s`, captured now, the moment you begin
+  waiting.
+
+Then, on an interval of your choosing (30 seconds is reasonable), repeat this
+pair of non-blocking checks:
 
 ```bash
-gh pr checks <PR> --watch --interval 30
+gh pr checks <PR>
 gh pr view <PR> --json reviews --jq '[.reviews[] | select(.author.login=="coderabbitai")] | length'
 ```
 
-If 15 minutes elapse with either unfinished: record `ci_result: timeout`,
-`coderabbit_findings_first: none`, **skip 4.2 and 4.3 entirely**, and go to
-section 5. A timeout is a legitimate trial result, not a failure to work around.
+Before each poll, run `date -u +%s` and subtract the literal `<WAIT_START>`
+value — not a `$WAIT_START` variable, which will not survive between
+invocations, exactly as section 1 warns about `$START`. Treat CI and the
+review as finished once `gh pr checks` reports a conclusion and the
+CodeRabbit review count is at least 1.
+
+If the elapsed time exceeds **900 seconds** before both finish: record
+`ci_result: timeout`, `coderabbit_findings_first: none`, **skip 4.2 and 4.3
+entirely**, and go to section 5. A timeout is a legitimate trial result, not a
+failure to work around.
 
 ### 4.2 Snapshot the review BEFORE fixing anything
 
@@ -249,6 +278,13 @@ If you disagree with a finding, say so in a reply on the pull request and leave
 the code alone. Do not silently skip it, and do not change code you believe is
 correct just to clear a comment.
 
+After pushing a round's fixes, re-run 4.1's bounded wait for the new CI run
+and CodeRabbit's re-review: capture a fresh `<WAIT_START>` literal and poll
+the same way, up to the same 900-second cap — that cap applies **per round**,
+not once for the whole fix phase. The fix phase as a whole is still bounded by
+whichever limit is hit first: the remaining 45-minute work budget (measured
+against section 3's `<START>`, as always), or the round ceiling below.
+
 Count each pass over CI-plus-review as one `fix_rounds`. Stop at **3 rounds**
 even if findings remain: a fourth round means the disagreement is not one you
 are going to resolve unattended. Then re-read the finding count into
@@ -277,14 +313,20 @@ could not be reproduced, so the owner can close or correct it.
 
 Path: `docs/loop-trials/<RUN_TS>-issue-<ISSUE>.md` on the `loop-trials`
 branch, where `<RUN_TS>` is the literal captured once in section 1 — **the
-same literal on both writes.** This procedure runs twice — once from section 2
-(`outcome: started`) and once from section 5 (the real outcome) — each time in
-its own tool invocation, in its own temporary worktree, and neither run can
-rely on anything from section 0 or from the other run *except* `<ISSUE>`,
+same literal on every write.** This procedure runs two or three times per
+trial, not twice: once from section 2 (`outcome: started`); once more from
+section 4.2, the pre-fix snapshot push, but only when CI and the review
+finish inside the 15-minute cap — a 4.1 timeout skips it; and once from
+section 5 (the real outcome). Section 4.2's push is not a lighter shortcut —
+it is this exact git fetch/worktree add/commit/push block below, invoked a
+second time, before the final rewrite. Each write happens in its own tool
+invocation, in its own temporary worktree, and none of them can rely on
+anything from section 0 or from any other write *except* `<ISSUE>`,
 `<PROMPT_SHA>`, and `<RUN_TS>`, carried forward only because you wrote them
 down. (Section 2 interleaves the `agent:in-progress` claim between this
 commit and its push, for the first write only, to shrink the window in
-"Known gaps" below; section 5's rewrite runs this block straight through.)
+"Known gaps" below; section 4.2's and section 5's writes run this block
+straight through.)
 
 ```bash
 git fetch origin loop-trials
@@ -339,7 +381,7 @@ silently report zero findings for every run.
 
 ## Known gaps
 
-Two containment holes exist. Neither is closed by this document; both are
+Three containment holes exist. None is closed by this document; each is
 acknowledged here so a report that looks strange in exactly these ways is
 read correctly rather than treated as a mystery.
 
