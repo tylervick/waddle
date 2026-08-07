@@ -7,7 +7,9 @@
 # Every case runs with PATH stripped to /usr/bin:/bin so `gh` is invisible.
 # That is deliberate: it pins the issue-format check's skip path, which is the
 # behaviour CI depends on when no token is present, and it keeps the whole
-# suite offline and deterministic.
+# suite offline and deterministic. The one exception is case 9, which needs
+# `gh` to appear installed and authenticated so it can reach the query-failure
+# path; it prepends a fixture bin/ directory containing a stub `gh` instead.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
@@ -80,5 +82,31 @@ if check "$TMP/h" >"$TMP/out" 2>&1; then fail "passed a doubly-broken substrate"
 grep -q "CLAUDE.md is missing" "$TMP/out" || fail "did not report the CLAUDE.md problem"
 grep -q "orphan.md has 0 index entries" "$TMP/out" || fail "did not report the index problem"
 pass "reports every problem in a single run"
+
+# 9. gh installed and authenticated, but the issue query itself fails (bad
+#    token scope, network error, rate limit, wrong cwd) -> refuse, rather than
+#    the `for n in $(gh issue list ...)` construct swallowing the
+#    substitution's exit status under set -e and passing silently.
+make_fixture "$TMP/i"
+mkdir -p "$TMP/i/bin"
+cat > "$TMP/i/bin/gh" <<'STUB'
+#!/bin/bash
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+    exit 0
+fi
+if [ "$1" = "issue" ] && [ "$2" = "list" ]; then
+    echo "gh: rate limited" >&2
+    exit 1
+fi
+echo "unexpected stub gh invocation: $*" >&2
+exit 1
+STUB
+chmod +x "$TMP/i/bin/gh"
+if env PATH="$TMP/i/bin:/usr/bin:/bin" "$TMP/i/Scripts/check-substrate.sh" >"$TMP/out" 2>&1
+then
+    fail "passed when gh issue list itself failed"
+fi
+grep -q "gh issue list failed" "$TMP/out" || fail "issue-list-failure error unclear"
+pass "fails when gh issue list itself fails, rather than passing silently"
 
 echo "All check-substrate tests passed."

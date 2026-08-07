@@ -13,7 +13,11 @@
 # fix-up is one round trip.
 #
 # The issue-format check needs network and an authenticated `gh`. It skips
-# cleanly when either is absent -- CI without a token must not fail here.
+# cleanly when either is absent -- CI without a token must not fail here. But
+# once `gh` is installed and authenticated, a failure of the query itself
+# (expired/under-scoped token, network error, rate limit, or a cwd outside
+# the repo) is NOT a skip -- it fails closed like the checks above it, same
+# discipline Scripts/check-engine-fresh.sh documents in its own header.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CLAUDE_MD="$ROOT/CLAUDE.md"
@@ -53,16 +57,29 @@ else
 fi
 
 # 3. Every open agent:eligible issue carries the three required sections.
+#
+# `gh` resolves the target repo from the current working directory, not from
+# any argument -- every call below runs in a `cd "$ROOT"` subshell so the
+# query targets this repo even when the guard itself is invoked from
+# elsewhere. `--limit 1000` overrides gh's default page size of 30, which
+# this plan's own issue count is on track to exceed.
 if ! command -v gh >/dev/null 2>&1; then
     echo "skip - gh not installed; agent:eligible issue format not checked"
 elif ! gh auth status >/dev/null 2>&1; then
     echo "skip - gh not authenticated; agent:eligible issue format not checked"
+elif ! issue_numbers="$(cd "$ROOT" && gh issue list --label agent:eligible \
+        --state open --limit 1000 --json number --jq '.[].number')"; then
+    err "gh issue list failed -- could not verify agent:eligible issue format (bad token scope, network error, rate limit, or wrong repo)."
 else
-    for n in $(gh issue list --label agent:eligible --state open \
-                   --json number --jq '.[].number'); do
-        body="$(gh issue view "$n" --json body --jq .body)"
+    for n in $issue_numbers; do
+        body="$(cd "$ROOT" && gh issue view "$n" --json body --jq .body)"
         for heading in 'Definition of done' 'Verification' 'Provenance'; do
+            # The first rule strips a trailing \r so issues filed through the
+            # GitHub web form (CRLF bodies) match the same as API-created
+            # ones (LF only) -- otherwise every heading here silently
+            # mismatches and every section reads as empty.
             section="$(printf '%s\n' "$body" | awk -v h="## $heading" '
+                { sub(/\r$/, "") }
                 $0 == h { inside = 1; next }
                 inside && /^## / { exit }
                 inside { print }
