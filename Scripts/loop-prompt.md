@@ -23,7 +23,7 @@ this section were each tried and each failed:
    sequence of separate tool invocations, and shell state — including
    exported environment variables — does not survive between them. Verified
    directly: a variable exported in one invocation was already gone in the
-   next. Section 3's work commit and section 5's `loop-trials` commits happen
+   next. Section 3's work commit and section 6's `loop-trials` commits happen
    in later invocations, in a different worktree — by the time they run, the
    export from this section is gone, `commit.gpgsign true` falls back to the
    owner's global `gpg.ssh.program` (1Password's `op-ssh-sign`, which cannot
@@ -42,7 +42,7 @@ earlier. If you are ever tempted to hoist this into a one-time `export` or
 earlier attempts failed, and doing it a third way will not change the result
 — shell state still won't survive the next tool call. The verbosity is not
 an oversight; every commit in this protocol (section 3's work commit, and
-both trial-record commits in section 5) must carry this exact form written
+both trial-record commits in section 6) must carry this exact form written
 out in place, not a reference back to this section:
 
 ```bash
@@ -84,7 +84,7 @@ invocation. The same is true of a start time and the prompt SHA.
 
 Instead, run these now and **record all four results as literals** — plainly,
 in your own working notes and in the trial record itself, the same way
-section 5's template already treats `<ISSUE>` and `<PROMPT_SHA>` as text to
+section 6's template already treats `<ISSUE>` and `<PROMPT_SHA>` as text to
 fill in rather than variables to expand:
 
 - **`<ISSUE>`** — the issue number `Scripts/loop-precheck.sh` printed.
@@ -95,9 +95,9 @@ fill in rather than variables to expand:
 - **`<PROMPT_SHA>`** — `git log -1 --format=%h -- Scripts/loop-prompt.md`,
   captured now. Goes in the trial record's `prompt_sha` field.
 - **`<RUN_TS>`** — `date -u +%Y-%m-%dT%H%M%SZ`, captured now. This is the time
-  component of the trial-record filename (section 5). It must be the exact
+  component of the trial-record filename (section 6). It must be the exact
   same literal on both writes of that record — section 2's `started` write
-  and section 4's rewrite — or the rewrite creates a second, orphaned file
+  and section 5's rewrite — or the rewrite creates a second, orphaned file
   instead of overwriting the first, and the two-phase record this design
   depends on breaks silently.
 
@@ -119,7 +119,7 @@ the only thing left after claiming is a single push:
    git worktree add /tmp/loop-trials-<RUN_TS> origin/loop-trials
    cd /tmp/loop-trials-<RUN_TS>
    # write docs/loop-trials/<RUN_TS>-issue-<ISSUE>.md with outcome: started,
-   # using the format in section 5 and the literals from section 1, then:
+   # using the format in section 6 and the literals from section 1, then:
    git add docs/loop-trials/<RUN_TS>-issue-<ISSUE>.md
    git -c user.name="WADdle Agent Loop" \
        -c user.email="agent-loop@tylervick.com" \
@@ -197,10 +197,67 @@ is more than 2700 (45 minutes), stop where you are and finish with `outcome:
 stuck`, recording how far you got. An honest partial record beats an
 unbounded run.
 
-## 4. Finish
+## 4. Wait for CI and review, snapshot, then respond
+
+Your pull request is open but the run is not over. Two things now judge it: CI,
+and CodeRabbit's review. You will respond to both — but the **order below is not
+negotiable**, and step 1 must complete before you change a single line.
+
+### 4.1 Wait, with a hard cap
+
+Poll until both CI and the CodeRabbit review have finished, up to **15 minutes**.
+This cap is separate from the 45-minute work budget: a slow service must not eat
+the time you need to work, and an unresponsive one must never park the run
+forever.
+
+```bash
+gh pr checks <PR> --watch --interval 30
+gh pr view <PR> --json reviews --jq '[.reviews[] | select(.author.login=="coderabbitai")] | length'
+```
+
+If 15 minutes elapse with either unfinished: record `ci_result: timeout`,
+`coderabbit_findings_first: none`, **skip 4.2 and 4.3 entirely**, and go to
+section 5. A timeout is a legitimate trial result, not a failure to work around.
+
+### 4.2 Snapshot the review BEFORE fixing anything
+
+```bash
+gh api repos/{owner}/{repo}/pulls/<PR>/comments --paginate --jq '.[].body' \
+  | grep -c -E '🟠 Major|🔴 Critical'
+```
+
+Write that number into your trial record as `coderabbit_findings_first`, set
+`ci_result` to `pass` or `fail`, and **push the record now** — before any fix.
+
+This is the experiment's leading signal. Once you start fixing, the count on
+GitHub measures your ability to satisfy CodeRabbit rather than the quality of
+what you originally produced, and the number is gone for good. Pushing it as its
+own write also means a run that dies mid-fix still leaves the measurement
+behind, exactly as the `started` marker does.
+
+### 4.3 Respond
+
+Within whatever remains of the 45-minute budget, in this order:
+
+1. **Fix a red CI.** A failing build is not an opinion — the work is
+   objectively incomplete. Never make a test pass by weakening it; that rule
+   applies here exactly as it does in section 3.
+2. **Address the Major/Critical CodeRabbit findings.** Ignore Minor and Nitpick
+   — they are recorded, not acted on.
+
+If you disagree with a finding, say so in a reply on the pull request and leave
+the code alone. Do not silently skip it, and do not change code you believe is
+correct just to clear a comment.
+
+Count each pass over CI-plus-review as one `fix_rounds`. Stop at **3 rounds**
+even if findings remain: a fourth round means the disagreement is not one you
+are going to resolve unattended. Then re-read the finding count into
+`coderabbit_findings_after` and go to section 5.
+
+## 5. Finish
 
 Rewrite your trial record with the real outcome and push it again — the exact
-same file as section 2's write, same `<RUN_TS>`-based path (section 5 has the
+same file as section 2's write, same `<RUN_TS>`-based path (section 6 has the
 git mechanics; if the exact filename slipped your notes, it is the only file
 matching `docs/loop-trials/*-issue-<ISSUE>.md` on `origin/loop-trials` whose
 frontmatter still reads `outcome: started`). Then:
@@ -216,18 +273,18 @@ it. For `no-repro` outcomes, the `agent:stuck` label is deliberate and routes
 the issue to human triage — plainly state in your comment that the condition
 could not be reproduced, so the owner can close or correct it.
 
-## 5. The trial record
+## 6. The trial record
 
 Path: `docs/loop-trials/<RUN_TS>-issue-<ISSUE>.md` on the `loop-trials`
 branch, where `<RUN_TS>` is the literal captured once in section 1 — **the
 same literal on both writes.** This procedure runs twice — once from section 2
-(`outcome: started`) and once from section 4 (the real outcome) — each time in
+(`outcome: started`) and once from section 5 (the real outcome) — each time in
 its own tool invocation, in its own temporary worktree, and neither run can
 rely on anything from section 0 or from the other run *except* `<ISSUE>`,
 `<PROMPT_SHA>`, and `<RUN_TS>`, carried forward only because you wrote them
 down. (Section 2 interleaves the `agent:in-progress` claim between this
 commit and its push, for the first write only, to shrink the window in
-"Known gaps" below; section 4's rewrite runs this block straight through.)
+"Known gaps" below; section 5's rewrite runs this block straight through.)
 
 ```bash
 git fetch origin loop-trials
@@ -263,6 +320,10 @@ size: <the issue's size label>
 outcome: started|pr-opened|failed-verification|no-repro|stuck
 wall_clock_seconds: <now - START>
 verification_result: pass|fail|not-run
+ci_result: pass|fail|timeout|not-run
+coderabbit_findings_first: <integer, or none if CI/review timed out>
+coderabbit_findings_after: <integer, or none if no fixes were attempted>
+fix_rounds: <integer, 0 if none>
 pr: <number or none>
 learning_added: <path or none>
 ---
@@ -270,6 +331,11 @@ learning_added: <path or none>
 What happened, what surprised you, what a human reading this in six weeks
 would want to know.
 ```
+
+`coderabbit_findings_first` is the experiment's leading signal and is written in
+section 4.2 *before* any fix. `Scripts/loop-report.sh` reads it from this record
+and never queries GitHub for it — a live query would return post-fix counts and
+silently report zero findings for every run.
 
 ## Known gaps
 
@@ -300,6 +366,12 @@ about a closed-unmerged PR changes the selection inputs. **If you are the
 owner and you close a work pull request without merging it, label its issue
 `agent:stuck`** so the precheck skips it instead of retrying the same rejected
 approach indefinitely.
+
+**A run that dies during section 4.3 leaves a pull request half-fixed.** The
+`coderabbit_findings_first` snapshot survives, so the measurement is intact,
+but the record still reads `started` and the pull request carries partial fix
+commits. Treat it like any other lost trial: the record is the evidence, and
+the pull request needs a human read.
 
 ## Rules that are absolute
 
