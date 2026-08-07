@@ -1,7 +1,9 @@
 # Agent Loop: Unattended Single-Item Runs — Design Spec
 
 **Date:** 2026-08-07
-**Status:** Designed, not implemented.
+**Status:** Designed. Architecture revised 2026-08-07 after the composition
+spike (`docs/superpowers/plans/2026-08-07-agent-loop-spike-findings.md`)
+disproved the coordinator/worker split; see "Why one agent".
 **Predecessor:** `docs/superpowers/specs/2026-08-06-agent-substrate-design.md`
 (merged as `c6f1558`), which built the backlog and knowledge store this
 consumes.
@@ -52,15 +54,18 @@ Spec 1's research still applies. Three points bear directly on this design:
 - Huntley's [Ralph](https://ghuntley.com/ralph/) — progress accumulates in files
   and git, never in a context window, and quality is a function of how hard the
   project's checks push back.
-- The counterweight literature on runaway loops — hence the hard timeout, the
-  runs-per-day ceiling, and a kill switch that is one command.
+- The counterweight literature on runaway loops — hence the runs-per-day
+  ceiling, the agent's self-checked wall-clock budget, and a kill switch that is
+  one command.
 
 Yegge's [prescription](https://yegge.ai/essays/the-shape-of-things-to-come/) to
 build orchestration "chemically bonded to your application" rather than adopting
 a general harness is the one point this design consciously departs from, and the
-departure is bounded: Orca supplies scheduling, per-run worktrees, and worker
-supervision — all things a bash script would do badly — while the protocol
-itself stays a versioned file in this repository.
+departure is bounded, and the spike narrowed it further: Orca supplies scheduling
+and per-run worktrees with repo setup hooks — the two things a bash script would
+do badly here — while the protocol stays a versioned file in this repository.
+Worker supervision was the third thing Orca was chosen for; it does not work, so
+the design no longer relies on it.
 
 ## Architecture
 
@@ -76,38 +81,57 @@ Four tracked artifacts and one Orca object.
 
 ### One run
 
-1. **The automation fires** (three times daily) and the precheck runs first. It
-   refuses when a run is already live, when the root checkout's engine is stale
-   (see Risks), or when no issue is claimable. A refusal exits non-zero, the run
-   is skipped, and nothing is spent.
-2. **Selection.** From open `agent:eligible` issues, excluding any labelled
-   `agent:in-progress` or `agent:stuck` and any with a linked open pull request.
-   Ordered `size:xs`, then `size:s`, then `size:m`, tie-broken by ascending issue
-   number. Deterministic, so a trial can be reproduced.
-3. **Orca creates a fresh worktree** off `main` and runs the `orca.yaml` setup
-   hook, which clones `Vendor/out` with its `.fingerprint` stamp — so the
-   worktree starts engine-current and skips a ~25-minute rebuild.
-4. **The coordinator** labels the issue `agent:in-progress` — the claim — and
-   starts a supervised worker with a 45-minute hard timeout.
-5. **The worker** reads the issue, does the work, runs *that issue's own*
+1. **The automation fires** (three times daily). Orca creates a fresh worktree
+   off `main` and runs the `orca.yaml` setup hook, which clones `Vendor/out` with
+   its `.fingerprint` stamp — so the worktree starts engine-current and skips a
+   ~25-minute rebuild.
+2. **The agent runs `Scripts/loop-precheck.sh` as its first action.** It refuses
+   when a run is already live, when the root checkout's engine is stale (see
+   Risks), or when no issue is claimable. On refusal the agent stops immediately
+   and nothing further is spent. On success it prints one issue number.
+3. **Selection**, inside the precheck. From open `agent:eligible` issues,
+   excluding any labelled `agent:in-progress` or `agent:stuck` and any with a
+   linked open pull request. Ordered `size:xs`, then `size:s`, then `size:m`,
+   tie-broken by ascending issue number. Deterministic, so a trial can be
+   reproduced.
+4. **The agent claims the issue** with `agent:in-progress`, then immediately
+   writes and pushes a trial record with `outcome: started`. This is the failure
+   marker — see below.
+5. **The agent does the work**: reads the issue, runs *that issue's own*
    verification command unmodified, commits under the agent signing identity,
-   pushes, and opens a pull request declaring `Closes #N`. If it hit a trap
-   worth recording, it adds a `docs/learnings/` file and its index line in the
-   same pull request.
-6. **The coordinator** reads the worker's output and writes the trial record.
+   pushes, and opens a pull request declaring `Closes #N`. If it hit a trap worth
+   recording, it adds a `docs/learnings/` file and its index line in the same
+   pull request.
+6. **The agent rewrites its trial record** with the real outcome and pushes again.
 7. **Cleanup.** The claim label is removed. On failure, `agent:stuck` is applied
    and a comment left on the issue stating what was tried and where it stopped.
 
-### Why the coordinator and worker are separate roles
+### Why one agent, and how failures are still recorded
 
-If the agent doing the work also wrote the trial record, then a worker that
-hangs or dies would leave no record — and those are precisely the trials worth
-studying. An experiment that silently drops its failures reports a success rate
-that means nothing. Separating the roles means a fenced or timed-out worker is
-still recorded, honestly, as a timeout.
+An earlier draft split this into a coordinator supervising a worker, so that the
+recorder was never the thing being recorded. A spike disproved the mechanics
+(see `docs/superpowers/plans/2026-08-07-agent-loop-spike-findings.md`):
 
-This is the same generator-never-judges rule spec 1 applied to code review,
-applied here to measurement.
+- Workers launched via `orca orchestration worker-start` **never executed** —
+  both stalled on the agent's interactive cold-start screen with no recovery.
+- `--timeout-ms` is accepted and echoed but **not self-enforcing**; 118 seconds
+  elapsed against a 30-second timeout with no state change and no notification.
+  Fencing a hung worker was the split's main benefit, and it does not exist.
+- An automation's **own** agent, by contrast, ran and completed normally,
+  returning its output in the run's `outputSnapshot`.
+
+So the split cost a layer and bought nothing the runtime actually delivers.
+
+Failure capture moves instead to a **two-phase trial record**. The agent's first
+act after claiming is to push a record with `outcome: started`; its last act is
+to rewrite that record with the real outcome. A record still reading `started` is
+a run that died — which is exactly the signal the split existed to preserve, at
+no structural cost. The reconciliation happens in `Scripts/loop-report.sh`, which
+reports any `started` record as a lost trial rather than omitting it.
+
+This preserves the intent of the generator-never-judges rule where it matters —
+no outcome can be silently dropped — while accepting that a single agent reports
+on itself for outcomes it survives to report.
 
 ### Why trial records live on their own branch
 
@@ -131,7 +155,7 @@ recreating it would scatter records across divergent histories.
 
 ## Boundaries
 
-### What the worker may never touch
+### What the agent may never touch
 
 - **Its own guardrails** — `Scripts/loop-*.sh`, `Scripts/loop-prompt.md`,
   `orca.yaml`, `CLAUDE.md`. A loop that can rewrite the rules it is judged by
@@ -151,7 +175,9 @@ These hold without the agent's cooperation:
 
 - One run at a time, by precheck construction — so two `xcodebuild` sessions can
   never share a simulator.
-- A 45-minute timeout enforced by Orca, not by the agent's own judgment.
+- A wall-clock budget the agent checks itself. Orca's `--timeout-ms` is accepted
+  but does not fire (spike, step 3), so this rail is instructed, not structural —
+  a hung run is caught after the fact by its record still reading `started`.
 - Three runs per day as the burn ceiling.
 - A dedicated signing identity, so `git log --author` separates loop commits
   from the owner's for free.
@@ -179,7 +205,8 @@ would re-pick an issue already done.
 
 A run that dies between labelling and cleanup would leave the claim stuck
 forever, silently shrinking the backlog. So the precheck treats any
-`agent:in-progress` older than two hours — well past the 45-minute timeout — as
+`agent:in-progress` older than two hours — well past the agent's wall-clock
+budget — as
 stale, clears it, and records that it did.
 
 Liveness is determined by the label, never by the presence of a worktree. A
@@ -194,8 +221,8 @@ worktree left behind for inspection must not be mistaken for a running job.
 | Run id, timestamp | |
 | **Prompt version** | Git SHA of `Scripts/loop-prompt.md` at run time |
 | Issue number, `kind`, `size` | |
-| Outcome | `pr-opened`, `failed-verification`, `timeout`, `no-repro`, `stuck` |
-| Worker wall clock, turn count | |
+| Outcome | `started`, `pr-opened`, `failed-verification`, `no-repro`, `stuck` |
+| Wall clock | Self-timed by the agent; Orca exposes no turn or token count |
 | Verification command, result | The issue's own command, run unmodified |
 | Pull request number | If one was opened |
 | Learnings file added | If any |
@@ -203,14 +230,23 @@ worktree left behind for inspection must not be mistaken for a running job.
 The prompt version is the independent variable. Without it, a change in success
 rate is unattributable and the experiment answers nothing.
 
+`started` is not a terminal outcome. It is written before the work begins and
+overwritten at the end; a record still reading `started` means the run died
+mid-flight. `timeout` was dropped from the enum because nothing enforces a
+timeout — a hung run presents as `started`, which is the honest description.
+
 ### The success metric: a leading and a lagging signal
 
 **Leading** — arrives within minutes, graded, automatable, and what the prompt
 is tuned against:
 
-- Count of CodeRabbit findings at Important-or-above on the run's pull request.
+- Count of CodeRabbit findings at Major-or-Critical on the run's pull request.
   CodeRabbit already reviews every pull request in this repository, so this
-  costs nothing to collect.
+  costs nothing to collect. This repository's configuration prefixes every
+  review comment with a `_<category>_ | _<severity>_ | _<effort>_` triple, so
+  the count is `grep -c '🟠 Major\|🔴 Critical'` over
+  `gh api repos/{owner}/{repo}/pulls/<N>/comments --jq '.[].body'`. A plain count
+  of all review comments is the fallback if that format ever changes.
 - Whether the issue's own stated verification passed **unmodified**.
 
 **Lagging** — slow, authoritative, low volume, and not used for tuning: a pull
@@ -247,17 +283,31 @@ timeouts that look like agent failures and are actually the owner's checkout
 drifting. Mitigation: the precheck asserts engine freshness in `ORCA_ROOT_PATH`
 and skips the run with an explicit reason when stale.
 
-**The Orca composition is unverified.** It is not established that an
-automation-launched agent session can itself call
-`orca orchestration worker-start`, nor that this composes cleanly with
-`--workspace-mode new-per-run`. Implementation task 1 is a spike proving it. If
-it does not compose, the documented fallback is a single automation whose agent
-does the work and writes its own record, with the precheck stamping a run-start
-marker so an unfinished stamp still registers as a failed trial.
+**`--precheck` does not gate a manually triggered run.** The spike found that
+`orca automations run <id>` skips the precheck entirely, for both a failing and a
+passing command, leaving `precheckResult: null`. Whether it gates a *scheduled*
+run was not established. Since the rollout deliberately begins with manual runs,
+the gate cannot live there. Mitigation: the agent runs
+`Scripts/loop-precheck.sh` itself as its first action and stops on refusal, which
+behaves identically for manual and scheduled fires. Passing `--precheck` as well
+is harmless belt-and-braces, but nothing depends on it.
 
-**The CodeRabbit severity parse may be brittle.** Extracting a clean
-Important-or-above count from its comment format is unproven; the same spike
-validates it, falling back to a raw comment count.
+**Precheck stdout does not reach the agent.** Pass-through could not be observed,
+so the agent re-runs the selection itself rather than trusting an unverified
+channel. The precheck is therefore idempotent and safe to run twice, with one
+exception noted below.
+
+**The stale-claim sweep is a side effect in otherwise pure logic.** Because the
+agent runs the precheck itself, a sweep that clears a stale
+`agent:in-progress` label happens during selection. That is acceptable — clearing
+a dead run's claim is correct however often it happens — but it means the
+precheck is not purely a query, and anything that runs it (including a human
+debugging) may mutate labels. It logs every sweep to stderr for that reason.
+
+**Orca leaves worktrees behind.** `orca automations remove` does not delete the
+per-run git worktree and branch it created under `new-per-run`. The spike found
+and cleaned two orphans by hand. Left unattended these accumulate at three per
+day, so cleanup is explicit rather than assumed.
 
 **Prompt regressions** show as a step change in the report, because every record
 carries the prompt SHA. This is the reason the SHA is recorded rather than a
@@ -276,8 +326,9 @@ engine-freshness refusal. It is pure logic, cheap to test properly, and the
 component most able to misbehave silently. `Scripts/loop-report.sh` gets one
 too, against fixture records.
 
-A dry-run mode proves the record path and the `loop-trials` push using a no-op
-worker, without doing real work.
+A dry-run mode proves the record path and the `loop-trials` push with the agent
+instructed to select an issue, write both phases of its trial record, and stop
+without editing any file or opening a pull request.
 
 The first three trials are run manually via `orca automations run` and watched.
 The schedule is enabled only after those land clean.
