@@ -116,8 +116,8 @@ the only thing left after claiming is a single push:
 
    ```bash
    git fetch origin loop-trials
-   git worktree add /tmp/loop-trials-<ISSUE> origin/loop-trials
-   cd /tmp/loop-trials-<ISSUE>
+   git worktree add /tmp/loop-trials-<RUN_TS> origin/loop-trials
+   cd /tmp/loop-trials-<RUN_TS>
    # write docs/loop-trials/<RUN_TS>-issue-<ISSUE>.md with outcome: started,
    # using the format in section 5 and the literals from section 1, then:
    git add docs/loop-trials/<RUN_TS>-issue-<ISSUE>.md
@@ -131,11 +131,16 @@ the only thing left after claiming is a single push:
    cd -
    ```
 
-   (Use `/tmp/loop-trials-<ISSUE>`, the literal issue number — not `$$` — as
-   the worktree path: the claim step below is a separate tool invocation, and
-   a shell PID captured in one invocation is gone in the next, same as any
-   other shell variable. The issue number is stable and, by construction of
-   the precheck's liveness guard, unique to the one run alive at a time.)
+   (Use `/tmp/loop-trials-<RUN_TS>` — the literal timestamp you recorded in
+   section 1 — as the worktree path. Two properties are both required. It must
+   be a **literal**, not `$$` or any shell variable, because the steps below
+   are separate tool invocations and shell state does not survive between them.
+   And it must be **unique per trial**, not per issue: `git worktree add` fails
+   outright if its target directory already exists, so a run that dies after
+   creating this worktree leaves a directory behind — and an issue-keyed path
+   would then block every future run on that issue, failing before it could
+   even write its own record. `<RUN_TS>` is stable within a trial and different
+   across trials, which is exactly what both properties demand.)
 
 2. Only once that commit exists locally, claim the issue:
 
@@ -147,8 +152,8 @@ the only thing left after claiming is a single push:
    this being the same shell as step 1:
 
    ```bash
-   git -C /tmp/loop-trials-<ISSUE> push origin HEAD:loop-trials
-   git worktree remove /tmp/loop-trials-<ISSUE>
+   git -C /tmp/loop-trials-<RUN_TS> push origin HEAD:loop-trials
+   git worktree remove /tmp/loop-trials-<RUN_TS>
    ```
 
 **Do this before doing any work on the issue itself.** If you die, hang, or
@@ -226,8 +231,8 @@ commit and its push, for the first write only, to shrink the window in
 
 ```bash
 git fetch origin loop-trials
-git worktree add /tmp/loop-trials-<ISSUE> origin/loop-trials
-cd /tmp/loop-trials-<ISSUE>
+git worktree add /tmp/loop-trials-<RUN_TS> origin/loop-trials
+cd /tmp/loop-trials-<RUN_TS>
 # write docs/loop-trials/<RUN_TS>-issue-<ISSUE>.md, then:
 git add docs/loop-trials/<RUN_TS>-issue-<ISSUE>.md
 git -c user.name="WADdle Agent Loop" \
@@ -240,7 +245,7 @@ git -c user.name="WADdle Agent Loop" \
     # or: -m "docs(loop-trials): record <outcome> outcome for issue <ISSUE>"
 git push origin HEAD:loop-trials
 cd -
-git worktree remove /tmp/loop-trials-<ISSUE>
+git worktree remove /tmp/loop-trials-<RUN_TS>
 ```
 
 If the `loop-trials` branch does not exist, stop and report. **Do not create
