@@ -164,4 +164,61 @@ fi
 grep -q "run already live" "$TMP/err" || fail "wrong refusal reason: $(cat "$TMP/err")"
 pass "refuses (as live, not stale) when no agent:in-progress labeling event is found"
 
+# 11. Sweeps an abandoned per-run worktree older than the threshold, and leaves
+#     a recent one alone. Orca does not remove these itself and a run cannot
+#     remove the one it is executing inside, so without this they accumulate at
+#     three a day.
+make_fixture "$TMP/j"
+cat > "$TMP/j/issues.json" <<'J'
+[{"number":42,"labels":[{"name":"agent:eligible"},{"name":"size:xs"}]}]
+J
+cat > "$TMP/j/bin/orca" <<'STUB'
+#!/bin/bash
+FIX="$(dirname "$(dirname "$0")")"
+echo "$*" >> "$FIX/orca-calls.log"
+case "$1 $2" in
+  "worktree list")
+    echo "id::/w/auto-waddle-loop-run-1-20260807T0900  refs/heads/a  /w/auto-waddle-loop-run-1-20260807T0900"
+    echo "id::/w/auto-waddle-loop-run-2-20260807T1155  refs/heads/b  /w/auto-waddle-loop-run-2-20260807T1155"
+    echo "id::/w/CRUD-games  refs/heads/c  /w/CRUD-games" ;;
+  "worktree rm") exit 0 ;;
+  *) exit 0 ;;
+esac
+STUB
+chmod +x "$TMP/j/bin/orca"
+: > "$TMP/j/orca-calls.log"
+out=$(run_precheck "$TMP/j") || fail "refused a valid backlog"
+[ "$out" = "42" ] || fail "picked $out; expected 42"
+grep -q "auto-waddle-loop-run-1-20260807T0900" "$TMP/j/orca-calls.log" \
+    || fail "the 3h-old worktree was not swept"
+grep -q "auto-waddle-loop-run-2-20260807T1155" "$TMP/j/orca-calls.log" \
+    && fail "swept a worktree only 5 minutes old"
+grep -q "CRUD-games" "$TMP/j/orca-calls.log" \
+    && fail "touched a worktree that is not a loop worktree"
+pass "sweeps abandoned loop worktrees and spares recent and unrelated ones"
+
+# 12. An unparseable worktree name is REPORTED and skipped, never silently
+#     ignored. The sweep keys on Orca's naming convention; if that changes, the
+#     sweep must fail loudly rather than quietly stop working.
+make_fixture "$TMP/k"
+cat > "$TMP/k/issues.json" <<'J'
+[{"number":42,"labels":[{"name":"agent:eligible"},{"name":"size:xs"}]}]
+J
+cat > "$TMP/k/bin/orca" <<'STUB'
+#!/bin/bash
+FIX="$(dirname "$(dirname "$0")")"
+echo "$*" >> "$FIX/orca-calls.log"
+case "$1 $2" in
+  "worktree list") echo "id::/w/auto-waddle-loop-newformat  refs/heads/a  /w/auto-waddle-loop-newformat" ;;
+  *) exit 0 ;;
+esac
+STUB
+chmod +x "$TMP/k/bin/orca"
+: > "$TMP/k/orca-calls.log"
+out=$(run_precheck "$TMP/k" 2>"$TMP/err") || fail "refused a valid backlog"
+[ "$out" = "42" ] || fail "picked $out; expected 42"
+grep -q "cannot parse a timestamp" "$TMP/err" || fail "unparseable name was skipped silently"
+grep -q "worktree rm" "$TMP/k/orca-calls.log" && fail "removed a worktree it could not date"
+pass "reports an unparseable worktree name instead of silently skipping it"
+
 echo "All loop-precheck tests passed."
