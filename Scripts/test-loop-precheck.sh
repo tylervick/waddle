@@ -1,0 +1,167 @@
+#!/bin/bash
+# Tests for Scripts/loop-precheck.sh.
+#
+# Fully HERMETIC: a fixture repo in a temp dir, a stub `gh` on a controlled
+# PATH, and a stub check-engine-fresh.sh. Never touches the real tree, the real
+# GitHub, or the real engine.
+#
+# The stub gh answers exactly the four calls the precheck makes -- issue list,
+# pr list, the labeled-events timeline, and issue edit -- from fixture files, so
+# each case controls the world precisely. A real gh would make these tests
+# depend on live repo state, which is the opposite of a regression suite.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+fail() { echo "FAIL: $1" >&2; exit 1; }
+pass() { echo "ok - $1"; }
+
+make_fixture() { # dest
+    mkdir -p "$1/Scripts" "$1/bin"
+    cp "$ROOT/Scripts/loop-precheck.sh" "$1/Scripts/"
+    printf '#!/bin/bash\nexit 0\n' > "$1/Scripts/check-engine-fresh.sh"
+    chmod +x "$1/Scripts/check-engine-fresh.sh"
+    printf '[]\n' > "$1/issues.json"
+    printf '[]\n' > "$1/prs.json"
+    printf '[]\n' > "$1/timeline.json"
+    : > "$1/gh-calls.log"
+    cat > "$1/bin/gh" <<'STUB'
+#!/bin/bash
+# Stub gh. Echoes fixture JSON; logs every call so tests can assert mutations.
+FIX="$(dirname "$(dirname "$0")")"
+echo "$*" >> "$FIX/gh-calls.log"
+case "$1 $2" in
+  "issue list") cat "$FIX/issues.json" ;;
+  "pr list")    cat "$FIX/prs.json" ;;
+  "api "*)      cat "$FIX/timeline.json" ;;
+  "issue edit") exit 0 ;;
+  *) echo "stub gh: unhandled: $*" >&2; exit 64 ;;
+esac
+STUB
+    chmod +x "$1/bin/gh"
+}
+
+# LOOP_NOW pins "now" so staleness is deterministic across runs.
+run_precheck() { # dir
+    env PATH="$1/bin:/usr/bin:/bin" LOOP_NOW="2026-08-07T12:00:00Z" \
+        "$1/Scripts/loop-precheck.sh"
+}
+
+# 1. No eligible issues -> refuse, on stderr, with stdout silent.
+make_fixture "$TMP/a"
+if out=$(run_precheck "$TMP/a" 2>"$TMP/err"); then fail "proceeded with no issues"; fi
+[ -z "$out" ] || fail "printed '$out' to stdout on refusal; must be silent"
+grep -q "^skip: " "$TMP/err" || fail "refusal reason missing from stderr"
+pass "refuses when no eligible issues exist"
+
+# 2. Ordering: size:xs beats size:s beats size:m, whatever order gh returns.
+make_fixture "$TMP/b"
+cat > "$TMP/b/issues.json" <<'J'
+[{"number":50,"labels":[{"name":"agent:eligible"},{"name":"size:m"}]},
+ {"number":51,"labels":[{"name":"agent:eligible"},{"name":"size:xs"}]},
+ {"number":52,"labels":[{"name":"agent:eligible"},{"name":"size:s"}]}]
+J
+out=$(run_precheck "$TMP/b") || fail "refused a valid backlog"
+[ "$out" = "51" ] || fail "picked $out; expected 51 (the only size:xs)"
+pass "prefers size:xs over size:s over size:m"
+
+# 3. Tie-break is the lowest issue number, so a trial is reproducible rather
+#    than dependent on gh's ordering.
+make_fixture "$TMP/c"
+cat > "$TMP/c/issues.json" <<'J'
+[{"number":70,"labels":[{"name":"agent:eligible"},{"name":"size:xs"}]},
+ {"number":44,"labels":[{"name":"agent:eligible"},{"name":"size:xs"}]}]
+J
+out=$(run_precheck "$TMP/c") || fail "refused a valid backlog"
+[ "$out" = "44" ] || fail "picked $out; expected 44 (lowest at same size)"
+pass "tie-breaks on ascending issue number"
+
+# 4. agent:stuck is excluded -- it defeated a previous run and must not be
+#    retried without a human.
+make_fixture "$TMP/d"
+cat > "$TMP/d/issues.json" <<'J'
+[{"number":60,"labels":[{"name":"agent:eligible"},{"name":"size:xs"},{"name":"agent:stuck"}]},
+ {"number":61,"labels":[{"name":"agent:eligible"},{"name":"size:m"}]}]
+J
+out=$(run_precheck "$TMP/d") || fail "refused a valid backlog"
+[ "$out" = "61" ] || fail "picked $out; expected 61 (60 is agent:stuck)"
+pass "excludes agent:stuck issues"
+
+# 5. An issue an open PR says it closes is excluded. Work PRs wait on human
+#    review, so without this a later run re-picks finished work.
+make_fixture "$TMP/e"
+cat > "$TMP/e/issues.json" <<'J'
+[{"number":80,"labels":[{"name":"agent:eligible"},{"name":"size:xs"}]},
+ {"number":81,"labels":[{"name":"agent:eligible"},{"name":"size:m"}]}]
+J
+printf '[{"number":90,"body":"Fixes a thing.\\n\\nCloses #80"}]\n' > "$TMP/e/prs.json"
+out=$(run_precheck "$TMP/e") || fail "refused a valid backlog"
+[ "$out" = "81" ] || fail "picked $out; expected 81 (80 has an open PR)"
+pass "excludes issues with a linked open PR"
+
+# 6. A fresh claim means a run is live -> refuse entirely, so two runs can never
+#    share a simulator.
+make_fixture "$TMP/f"
+cat > "$TMP/f/issues.json" <<'J'
+[{"number":40,"labels":[{"name":"agent:eligible"},{"name":"agent:in-progress"}]},
+ {"number":41,"labels":[{"name":"agent:eligible"},{"name":"size:xs"}]}]
+J
+printf '[{"event":"labeled","created_at":"2026-08-07T11:30:00Z","label":{"name":"agent:in-progress"}}]\n' \
+    > "$TMP/f/timeline.json"
+if out=$(run_precheck "$TMP/f" 2>"$TMP/err"); then fail "proceeded while a run was live"; fi
+grep -q "run already live" "$TMP/err" || fail "wrong refusal reason: $(cat "$TMP/err")"
+pass "refuses while a fresh claim is live"
+
+# 7. A claim older than 2h is debris from a dead run. Clear it and carry on, or
+#    the backlog silently shrinks forever.
+make_fixture "$TMP/g"
+cat > "$TMP/g/issues.json" <<'J'
+[{"number":40,"labels":[{"name":"agent:eligible"},{"name":"size:xs"},{"name":"agent:in-progress"}]}]
+J
+printf '[{"event":"labeled","created_at":"2026-08-07T09:00:00Z","label":{"name":"agent:in-progress"}}]\n' \
+    > "$TMP/g/timeline.json"
+out=$(run_precheck "$TMP/g") || fail "refused despite the claim being stale"
+[ "$out" = "40" ] || fail "picked $out; expected 40 after the stale sweep"
+grep -q "issue edit 40 --remove-label agent:in-progress" "$TMP/g/gh-calls.log" \
+    || fail "stale claim was never actually cleared"
+pass "sweeps a stale claim and then proceeds"
+
+# 8. A stale engine makes every run a 25-minute rebuild inside a 45-minute
+#    budget -- refuse rather than manufacture fake failures.
+make_fixture "$TMP/h"
+cat > "$TMP/h/issues.json" <<'J'
+[{"number":42,"labels":[{"name":"agent:eligible"},{"name":"size:xs"}]}]
+J
+printf '#!/bin/bash\nexit 1\n' > "$TMP/h/Scripts/check-engine-fresh.sh"
+if out=$(run_precheck "$TMP/h" 2>"$TMP/err"); then fail "proceeded with a stale engine"; fi
+grep -q "engine" "$TMP/err" || fail "refusal does not name the engine: $(cat "$TMP/err")"
+pass "refuses when the root checkout's engine is stale"
+
+# 9. An eligible issue with no size label is still reachable, after sized ones.
+make_fixture "$TMP/i"
+cat > "$TMP/i/issues.json" <<'J'
+[{"number":30,"labels":[{"name":"agent:eligible"}]}]
+J
+out=$(run_precheck "$TMP/i") || fail "refused an unsized eligible issue"
+[ "$out" = "30" ] || fail "picked $out; expected 30"
+pass "picks an unsized eligible issue rather than skipping it"
+
+# 10. No matching agent:in-progress labeling event anywhere in the timeline --
+#     e.g. paginated past it, or some other reason it's simply not there --
+#     must refuse as LIVE, never fall back to the 1970 epoch and sweep a claim
+#     that might still be running. Absence of proof is not proof of staleness.
+make_fixture "$TMP/j"
+cat > "$TMP/j/issues.json" <<'J'
+[{"number":90,"labels":[{"name":"agent:eligible"},{"name":"agent:in-progress"}]}]
+J
+printf '[{"event":"commented","created_at":"2026-08-07T09:00:00Z"}]\n' \
+    > "$TMP/j/timeline.json"
+if out=$(run_precheck "$TMP/j" 2>"$TMP/err"); then
+    fail "proceeded despite no labeling event anywhere in the timeline"
+fi
+[ -z "$out" ] || fail "printed '$out' to stdout on refusal; must be silent"
+grep -q "run already live" "$TMP/err" || fail "wrong refusal reason: $(cat "$TMP/err")"
+pass "refuses (as live, not stale) when no agent:in-progress labeling event is found"
+
+echo "All loop-precheck tests passed."
