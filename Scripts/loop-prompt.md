@@ -4,47 +4,62 @@ You are running unattended inside a fresh Orca worktree created for exactly one
 backlog item. Read this whole file before acting. There is no supervisor and no
 enforced timeout — everything below is yours to hold to.
 
-## 0. Configure this worktree's identity
+## 0. Every commit carries its identity inline — nothing is set up in advance
 
 Loop commits carry their own signing identity so `git log --author` separates
 them from the owner's, and so no interactive signing prompt can stall an
 unattended run.
 
-Set these as environment variables, not with plain `git config`.
-`extensions.worktreeConfig` is unset in this repo, so `git config` writes land
-in the shared `.git/config` and would retag the *owner's own main checkout*
-with the agent's identity and signing key — not just this worktree.
-`GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` apply to every git
-invocation this session runs (including the temporary `loop-trials` worktree
-in section 5) without ever writing to a config file, so they cannot leak
-into the shared repo no matter how `extensions.worktreeConfig` is set. If you
-are ever tempted to "simplify" this back to plain `git config`, don't —
-that is precisely the contamination this works around:
+**There is no setup step here, and that is deliberate.** Two earlier forms of
+this section were each tried and each failed:
+
+1. Plain `git config user.name ...` etc. This repo has
+   `extensions.worktreeConfig` unset, so those writes land in the shared
+   `.git/config` and retag the *owner's own main checkout* with the agent's
+   identity and signing key — not just this worktree.
+2. Exporting `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` once,
+   up front. This avoids the file-contamination problem but fails for a
+   different reason: an unattended run is not one continuous shell, it is a
+   sequence of separate tool invocations, and shell state — including
+   exported environment variables — does not survive between them. Verified
+   directly: a variable exported in one invocation was already gone in the
+   next. Section 3's work commit and section 5's `loop-trials` commits happen
+   in later invocations, in a different worktree — by the time they run, the
+   export from this section is gone, `commit.gpgsign true` falls back to the
+   owner's global `gpg.ssh.program` (1Password's `op-ssh-sign`, which cannot
+   see this key), and the commit fails with
+   `fatal: failed to write commit object` — *after* the issue is already
+   claimed. That is the worst failure shape available: a consumed backlog
+   issue with no record of why. Worse, it is intermittent — it depends on
+   whether a given tool call happens to land in the same shell as a prior
+   one — so it reads as flakiness, not a reproducible bug.
+
+**The only form that survives both failures is `git -c` flags spelled out in
+full on every single commit, every time**, because the configuration then
+travels with that one command instead of depending on anything set up
+earlier. If you are ever tempted to hoist this into a one-time `export` or
+`git config` block to avoid repeating it: don't. That is exactly how both
+earlier attempts failed, and doing it a third way will not change the result
+— shell state still won't survive the next tool call. The verbosity is not
+an oversight; every commit in this protocol (section 3's work commit, and
+both trial-record commits in section 5) must carry this exact form written
+out in place, not a reference back to this section:
 
 ```bash
-export GIT_CONFIG_COUNT=6
-export GIT_CONFIG_KEY_0=user.name
-export GIT_CONFIG_VALUE_0="WADdle Agent Loop"
-export GIT_CONFIG_KEY_1=user.email
-export GIT_CONFIG_VALUE_1="agent-loop@tylervick.com"
-export GIT_CONFIG_KEY_2=gpg.format
-export GIT_CONFIG_VALUE_2=ssh
-export GIT_CONFIG_KEY_3=user.signingkey
-export GIT_CONFIG_VALUE_3="$HOME/.ssh/waddle-agent-signing.pub"
-export GIT_CONFIG_KEY_4=gpg.ssh.program
-export GIT_CONFIG_VALUE_4=ssh-keygen
-export GIT_CONFIG_KEY_5=commit.gpgsign
-export GIT_CONFIG_VALUE_5=true
+git -c user.name="WADdle Agent Loop" \
+    -c user.email="agent-loop@tylervick.com" \
+    -c gpg.format=ssh \
+    -c user.signingkey=~/.ssh/waddle-agent-signing.pub \
+    -c gpg.ssh.program=ssh-keygen \
+    -c commit.gpgsign=true \
+    commit -m "..."
 ```
 
-`gpg.ssh.program` must be overridden here: the owner's global git config
-points it at 1Password's `op-ssh-sign`, which only signs with keys held in
-the 1Password agent. `user.signingkey` must point at the `.pub` file, not the
-private key — that is the conventional value `ssh-keygen` expects. Skip
-either override and `commit.gpgsign true` turns every commit into
-`fatal: failed to write commit object` — which happens *after* the issue is
-already claimed, so it is the worst failure shape available: a consumed
-backlog issue with no record of why.
+`gpg.ssh.program=ssh-keygen` must be on every invocation: the owner's global
+git config points that setting at 1Password's `op-ssh-sign`, which only
+signs with keys held in the 1Password agent and will reject this key.
+`user.signingkey` must point at the `.pub` file, not the private key — that
+is the conventional value `ssh-keygen` expects.
 
 ## 1. Decide whether to run at all
 
@@ -83,7 +98,20 @@ makes a lost trial visible instead of silent.
    This is "tried and was wrong", distinct from `stuck` (ran out of time).
 5. If you hit a trap worth remembering, add one file to `docs/learnings/` and its
    line to `docs/learnings/INDEX.md`, then run `Scripts/check-substrate.sh`.
-6. Commit, push your branch, and open a pull request whose body contains
+6. Commit with the full identity form from section 0 — written out here, not
+   referenced, because this commit happens in its own tool invocation:
+
+   ```bash
+   git -c user.name="WADdle Agent Loop" \
+       -c user.email="agent-loop@tylervick.com" \
+       -c gpg.format=ssh \
+       -c user.signingkey=~/.ssh/waddle-agent-signing.pub \
+       -c gpg.ssh.program=ssh-keygen \
+       -c commit.gpgsign=true \
+       commit -m "<a real commit message describing the change>"
+   ```
+
+   Then push your branch and open a pull request whose body contains
    `Closes #<ISSUE>`.
 
 **Watch your own clock.** Nothing will stop you. If more than 45 minutes have
@@ -108,11 +136,28 @@ could not be reproduced, so the owner can close or correct it.
 ## 5. The trial record
 
 Path: `docs/loop-trials/<YYYY-MM-DD>-issue-<N>.md` on the `loop-trials` branch.
+This procedure runs twice — once from section 2 (`outcome: started`) and once
+from section 4 (the real outcome) — each time in its own tool invocation, in
+its own temporary worktree. The commit must therefore carry the full identity
+form both times; neither run can rely on anything from section 0 or from the
+other run.
 
 ```bash
 git fetch origin loop-trials
 git worktree add /tmp/loop-trials-$$ origin/loop-trials
-# write the file, commit, push to origin HEAD:loop-trials
+cd /tmp/loop-trials-$$
+# write docs/loop-trials/<YYYY-MM-DD>-issue-<N>.md, then:
+git add docs/loop-trials/<YYYY-MM-DD>-issue-<N>.md
+git -c user.name="WADdle Agent Loop" \
+    -c user.email="agent-loop@tylervick.com" \
+    -c gpg.format=ssh \
+    -c user.signingkey=~/.ssh/waddle-agent-signing.pub \
+    -c gpg.ssh.program=ssh-keygen \
+    -c commit.gpgsign=true \
+    commit -m "docs(loop-trials): start record for issue <N>"
+    # or: -m "docs(loop-trials): record <outcome> outcome for issue <N>"
+git push origin HEAD:loop-trials
+cd -
 git worktree remove /tmp/loop-trials-$$
 ```
 
@@ -157,6 +202,15 @@ would want to know.
 
 ## Operating this loop
 
+**Prerequisite before the first real run:** this branch must be merged to
+`main` first. Every per-run worktree Orca creates is cut from `main`, and
+`Scripts/loop-prompt.md`, `Scripts/loop-precheck.sh`, and
+`Scripts/loop-report.sh` currently exist only on this branch
+(`tylervick/agent-loop-spec`). A run against an unmerged `main` dies
+immediately at `Scripts/loop-precheck.sh: no such file`. This is a hard
+prerequisite, not a nicety — the "run once, now" command below will not work
+until it is satisfied.
+
 - Automation id: `8a0d5727-9d5c-46a6-b0ef-92d5accf3859` (`orca automations show
   8a0d5727-9d5c-46a6-b0ef-92d5accf3859`)
 - Pause: `orca automations edit 8a0d5727-9d5c-46a6-b0ef-92d5accf3859 --disabled`
@@ -168,14 +222,6 @@ would want to know.
 - Read results: `Scripts/loop-report.sh`
 
 The automation stays **disabled** until three manual runs have landed clean.
-
-**Prerequisite before the first real run:** this branch must be merged to
-`main` first. Every per-run worktree Orca creates is cut from `main`, and
-`Scripts/loop-prompt.md`, `Scripts/loop-precheck.sh`, and
-`Scripts/loop-report.sh` currently exist only on this branch
-(`tylervick/agent-loop-spec`). A run against an unmerged `main` dies
-immediately at `Scripts/loop-precheck.sh: no such file`. This is a hard
-prerequisite, not a nicety.
 
 **Known cosmetic defect — ignore `boombox` if you see it:** Orca resolves
 this automation's project as `github:tylervick/boombox`, not `waddle`. The
