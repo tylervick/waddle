@@ -44,7 +44,10 @@ if [ ! -f "$INDEX" ]; then
 else
     while IFS= read -r f; do
         base="$(basename "$f")"
-        n="$(grep -cF "]($base)" "$INDEX" || true)"
+        # -c counts matching *lines*, so two links to the same file on one
+        # INDEX.md line would count as one entry and pass; -o plus a line
+        # count counts each match, however many share a line.
+        n="$(grep -oF "]($base)" "$INDEX" | wc -l | tr -d '[:space:]' || true)"
         if [ "$n" -ne 1 ]; then
             err "docs/learnings/$base has $n index entries in INDEX.md, expected exactly 1."
         fi
@@ -59,20 +62,31 @@ fi
 # 3. Every open agent:eligible issue carries the three required sections.
 #
 # `gh` resolves the target repo from the current working directory, not from
-# any argument -- every call below runs in a `cd "$ROOT"` subshell so the
-# query targets this repo even when the guard itself is invoked from
-# elsewhere. `--limit 1000` overrides gh's default page size of 30, which
-# this plan's own issue count is on track to exceed.
+# any argument -- the query below runs in a `cd "$ROOT"` subshell so it
+# targets this repo even when the guard itself is invoked from elsewhere.
+# `--limit 1000` overrides gh's default page size of 30, which this plan's
+# own issue count is on track to exceed.
+#
+# Numbers and bodies come back from a single list call, not one `gh issue
+# view` per issue -- that used to cost one API request per open issue, and
+# fed a bare `body="$(...)"` assignment that, under `set -e`, aborted the
+# whole script on a transient failure with no `error:` line at all. Bodies
+# are multi-line, so each one is base64-encoded and paired with its issue
+# number on one tab-delimited line -- that survives an ordinary `while read`
+# loop without losing the newlines the awk section-extraction below depends
+# on.
 if ! command -v gh >/dev/null 2>&1; then
     echo "skip - gh not installed; agent:eligible issue format not checked"
 elif ! gh auth status >/dev/null 2>&1; then
     echo "skip - gh not authenticated; agent:eligible issue format not checked"
-elif ! issue_numbers="$(cd "$ROOT" && gh issue list --label agent:eligible \
-        --state open --limit 1000 --json number --jq '.[].number')"; then
+elif ! issues="$(cd "$ROOT" && gh issue list --label agent:eligible \
+        --state open --limit 1000 --json number,body \
+        --jq '.[] | "\(.number)\t\(.body // "" | @base64)"')"; then
     err "gh issue list failed -- could not verify agent:eligible issue format (bad token scope, network error, rate limit, or wrong repo)."
 else
-    for n in $issue_numbers; do
-        body="$(cd "$ROOT" && gh issue view "$n" --json body --jq .body)"
+    while IFS=$'\t' read -r n body_b64; do
+        [ -z "$n" ] && continue
+        body="$(printf '%s' "$body_b64" | base64 --decode)"
         for heading in 'Definition of done' 'Verification' 'Provenance'; do
             # The first rule strips a trailing \r so issues filed through the
             # GitHub web form (CRLF bodies) match the same as API-created
@@ -88,7 +102,7 @@ else
                 err "issue #$n is agent:eligible but has no content under '## $heading'."
             fi
         done
-    done
+    done <<< "$issues"
 fi
 
 exit "$status"

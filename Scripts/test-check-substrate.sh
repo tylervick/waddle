@@ -4,12 +4,19 @@
 # Fully HERMETIC: builds a fake repo in a temp dir and runs the guard there.
 # Nothing here touches the real CLAUDE.md or docs/learnings/.
 #
-# Every case runs with PATH stripped to /usr/bin:/bin so `gh` is invisible.
-# That is deliberate: it pins the issue-format check's skip path, which is the
+# Every case runs with PATH stripped to /usr/bin:/bin so `gh` is invisible,
+# and with GH_TOKEN/GITHUB_TOKEN cleared and GH_CONFIG_DIR pointed at a
+# nonexistent directory so a `gh` that does exist there -- e.g. a future
+# macOS image that ships one at /usr/bin/gh -- still can't authenticate.
+# CI sets GH_TOKEN at the step level, and without clearing it here that
+# token would leak into this "no gh" fixture and run the real, authenticated
+# `gh` against a directory that isn't a git repo, breaking case 1. That is
+# deliberate: it pins the issue-format check's skip path, which is the
 # behaviour CI depends on when no token is present, and it keeps the whole
 # suite offline and deterministic. The one exception is case 9, which needs
 # `gh` to appear installed and authenticated so it can reach the query-failure
-# path; it prepends a fixture bin/ directory containing a stub `gh` instead.
+# path; it prepends a fixture bin/ directory containing a stub `gh` instead,
+# bypassing check() (and its cleared credentials) entirely.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
@@ -27,7 +34,7 @@ make_fixture() { # dest
     printf '# Learnings Index\n\n- [A learning](alpha.md) — hook\n' \
         > "$1/docs/learnings/INDEX.md"
 }
-check() { env PATH=/usr/bin:/bin "$1/Scripts/check-substrate.sh"; }
+check() { env PATH=/usr/bin:/bin GH_TOKEN= GITHUB_TOKEN= GH_CONFIG_DIR=/nonexistent "$1/Scripts/check-substrate.sh"; }
 
 # 1. Well-formed substrate -> pass, and announce the skipped issue check.
 make_fixture "$TMP/a"

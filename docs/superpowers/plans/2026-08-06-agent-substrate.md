@@ -562,8 +562,8 @@ in the per-user memory store.
 - Create: `docs/learnings/worktree-setup-traps.md`
 - Create: `docs/learnings/simulator-test-hazards.md`
 - Modify: `docs/learnings/INDEX.md`
-- Modify: `~/.claude/projects/-Users-tyler-Documents-doom-ios-2026/memory/doom-ios-project-facts.md`
-- Modify: `~/.claude/projects/-Users-tyler-Documents-doom-ios-2026/memory/MEMORY.md`
+- Modify: `doom-ios-project-facts.md` in the per-user memory store
+- Modify: `MEMORY.md` in the per-user memory store
 
 **Interfaces:**
 - Consumes: the index format and guard from Tasks 1–2.
@@ -720,7 +720,7 @@ Expected: exit 0, with twelve learning files in bijection with the index.
 The spec requires migration, not duplication — a fact held in both places
 eventually disagrees with itself.
 
-Edit `~/.claude/projects/-Users-tyler-Documents-doom-ios-2026/memory/doom-ios-project-facts.md`
+Edit `doom-ios-project-facts.md` in the per-user memory store
 and delete the bullets now covered by `docs/learnings/`: the Woof pin and save
 flag, `SDL_SetMainReady`/SIGTERM, engine console output, the TabView UI-test
 contract, orientation's two halves, the simulator rotation and screenshot

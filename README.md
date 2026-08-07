@@ -103,8 +103,8 @@ the configured team and does not manage the build number. Full procedure:
   Xcode emit macOS-style codesign rules that break `simctl install` on an
   iOS target.
 - Engine sessions are launched with `-save <dir>` (not `-savedir`), pointing
-  at a per-loadout directory (`Documents/Saves/<loadout-id>/`) so each
-  loadout keeps its own save games, even loadouts that share an IWAD.
+  at a per-preset directory (`Documents/Saves/<preset-id>/`) so each
+  preset keeps its own save games, even presets that share an IWAD.
 
 ## WAD library
 
@@ -114,9 +114,9 @@ on next launch). IWADs, PWADs, `.deh`/`.bex` patches, and zips containing
 any of those all work; zips are recursed into and duplicates are deduped by
 content hash. Files that fail to import (bad header, unsupported type,
 etc.) are never silently deleted — they're moved to `Documents/Import
-Failed/`, visible and recoverable from the Files app. Build **loadouts**
-(one IWAD + ordered PWADs/patches); each loadout keeps its own save games.
-Freedoom Phase 1+2 are bundled and pre-wired as loadouts.
+Failed/`, visible and recoverable from the Files app. Build **presets**
+(one IWAD + ordered PWADs/patches); each preset keeps its own save games.
+Freedoom Phase 1+2 are bundled and pre-wired as presets.
 
 ## Controls
 
