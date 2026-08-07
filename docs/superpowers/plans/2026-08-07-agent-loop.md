@@ -1,5 +1,13 @@
 # Agent Loop Implementation Plan
 
+> **SUPERSEDED — do not execute.** Task 1 (the composition spike) ran and
+> returned `COMPOSITION FAILED`: workers launched via `orca orchestration
+> worker-start` never executed, and `--timeout-ms` does not fire. Tasks 2–6 of
+> this plan describe the coordinator/worker architecture that finding
+> disproved, and would not work. Findings:
+> `docs/superpowers/plans/2026-08-07-agent-loop-spike-findings.md`. Replacement:
+> `docs/superpowers/plans/2026-08-07-agent-loop-shape-a.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build an unattended loop that takes one `agent:eligible` issue per run,
