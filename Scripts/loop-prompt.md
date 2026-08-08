@@ -93,6 +93,17 @@ fill in rather than variables to expand:
   measured against this: to check it later, run `date -u +%s` again in
   whichever invocation you're in and subtract the literal `<START>` value —
   not a `$START` variable, which will not exist there.
+- **`<WAIT_TOTAL>`** — record it now as the literal **`0`**. This is the
+  running total of seconds spent in section 4.1's wait and its 4.3 rechecks —
+  the 15-minute CI/review cap, which the spec requires to be separate from
+  and additional to the 45-minute work budget above, not carved out of it.
+  Every wait in section 4 updates this to a new literal — its old value plus
+  that wait's own elapsed seconds — the instant the wait ends, whether it
+  finished early or hit its cap. Section 3's budget check subtracts the
+  current `<WAIT_TOTAL>` from elapsed time for exactly this reason: without
+  it, time spent waiting on a slow CI run or a slow CodeRabbit review would
+  silently eat into the time budgeted for work. See section 3 and section
+  4.1.
 - **`<PROMPT_SHA>`** — `git log -1 --format=%h -- Scripts/loop-prompt.md`,
   captured now. Goes in the trial record's `prompt_sha` field.
 - **`<RUN_TS>`** — `date -u +%Y-%m-%dT%H%M%SZ`, captured now. This is the time
@@ -104,7 +115,7 @@ fill in rather than variables to expand:
 - **`<PR>`** — not available yet: nothing has been opened at this point, so
   there is nothing to capture. Section 3 captures it the moment `gh pr
   create` prints the pull request number. It is listed here because it
-  follows the exact same rule as the other four the instant it exists: a
+  follows the exact same rule as the other five the instant it exists: a
   literal you record and then substitute directly into every command that
   names it — most heavily in section 4, which uses it three times.
 - **`<CR_FIRST>`** — not available yet: nothing has been reviewed at this
@@ -119,12 +130,15 @@ fill in rather than variables to expand:
   (`timeout`), or the no-PR exit (`not-run`). Carried unchanged into section 5
   exactly like `<CR_FIRST>`.
 
-From here on, `<ISSUE>`, `<START>`, `<PROMPT_SHA>`, and `<RUN_TS>` each mean
-"the literal value you recorded in this section" — substitute the actual
-value directly into every command below that names it. `<PR>` means the same
-thing from the moment section 3 records it onward, and `<CR_FIRST>` /
-`<CI_RESULT>` mean the same thing from the moment whichever of 4.1's timeout,
-4.2, or section 4's no-PR exit records them, onward.
+From here on, `<ISSUE>`, `<START>`, `<PROMPT_SHA>`, `<RUN_TS>`, and
+`<WAIT_TOTAL>` each mean "the literal value you recorded in this section" —
+substitute the actual value directly into every command below that names it.
+For `<WAIT_TOTAL>` specifically, that means whichever value you most recently
+recorded, not the section-1 starting point of `0`, once section 4.1 has
+updated it at least once. `<PR>` means the same thing from the moment section
+3 records it onward, and `<CR_FIRST>` / `<CI_RESULT>` mean the same thing from
+the moment whichever of 4.1's timeout, 4.2, or section 4's no-PR exit records
+them, onward.
 
 ## 2. Claim, and write the failure marker
 
@@ -216,11 +230,18 @@ happened — it is what makes a lost trial visible instead of silent.
    separate tool invocations and needs this literal three times; a `$PR`
    shell variable will not survive to get there.
 
-**Watch your own clock.** Nothing will stop you. Run `date -u +%s` and
-subtract the literal `<START>` value you recorded in section 1; if the result
-is more than 2700 (45 minutes), stop where you are and finish with `outcome:
-stuck`, recording how far you got. An honest partial record beats an
-unbounded run.
+**Watch your own clock.** Nothing will stop you. Run `date -u +%s`, subtract
+the literal `<START>` value you recorded in section 1, then subtract the
+literal `<WAIT_TOTAL>` value most recently recorded (still `0` at this point
+in a first pass through section 3, since section 4 hasn't run yet):
+`now - <START> - <WAIT_TOTAL>`. If the result is more than 2700 (45 minutes),
+stop where you are and finish with `outcome: stuck`, recording how far you
+got. An honest partial record beats an unbounded run. This is the one budget
+formula in this document — every other mention of "the 45-minute work budget"
+below means this same subtraction, not a bare `now - <START>`: the 15-minute
+CI/review wait cap in section 4.1 is separate from and additional to this
+budget, and `<WAIT_TOTAL>` is what keeps a slow CI run or a slow CodeRabbit
+review from silently eating into it.
 
 ## 4. Wait for CI and review, snapshot, then respond
 
@@ -264,6 +285,14 @@ value — not a `$WAIT_START` variable, which will not survive between
 invocations, exactly as section 1 warns about `$START`. Treat CI and the
 review as finished once `gh pr checks` reports a conclusion and the
 CodeRabbit review count is at least 1.
+
+**The instant this wait ends** — whether because both finished or because the
+900-second cap was hit, whichever comes first — compute its own elapsed
+seconds (`now - <WAIT_START>`, one last time) and update the literal
+`<WAIT_TOTAL>` to the sum of its previous value and that elapsed time. Do
+this before anything else below, including the timeout branch: this wait's
+cost must be folded in exactly once, right when it stops, or the work budget
+in section 3 will silently absorb it.
 
 If the elapsed time exceeds **900 seconds** before both finish: record
 `ci_result: timeout` and `coderabbit_findings_first: none` — the literals
@@ -358,15 +387,20 @@ instruction. That instruction was written for the first wait, before 4.2 has
 run: `ci_result` and `coderabbit_findings_first`, once written in 4.2, are
 **never overwritten** — they are the measurement this whole section exists to
 protect, and a later-round timeout is a fact about the fix phase, not about
-the original work. If a round's recheck exceeds 900 seconds: stop fixing,
-leave the 4.2 values exactly as they are, record the `fix_rounds` you
-completed and `coderabbit_findings_after: none` (you never got a clean
-re-count), and go to section 5.
+the original work. This recheck wait updates `<WAIT_TOTAL>` exactly as 4.1's
+first wait does — the instant it ends, add its own elapsed seconds to
+`<WAIT_TOTAL>`'s previous value, before anything else, including the timeout
+handling below. If a round's recheck exceeds 900 seconds: stop fixing, leave
+the 4.2 values exactly as they are, record the `fix_rounds` you completed and
+`coderabbit_findings_after: none` (you never got a clean re-count), and go to
+section 5.
 
 The 900-second cap applies **per round**, not once for the whole fix phase.
 The fix phase as a whole is still bounded by whichever limit is hit first:
-the remaining 45-minute work budget (measured against section 3's `<START>`,
-as always), or the round ceiling below.
+the remaining 45-minute work budget (section 3's formula,
+`now - <START> - <WAIT_TOTAL>`, as always — this phase's own waits keep
+updating `<WAIT_TOTAL>` as they happen, so each round's budget check reads
+the version current at that moment), or the round ceiling below.
 
 Count each pass over CI-plus-review as one `fix_rounds`. Stop at **3 rounds**
 even if findings remain: a fourth round means the disagreement is not one you
