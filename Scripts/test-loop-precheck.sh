@@ -253,4 +253,35 @@ out=$(run_precheck "$TMP/l" 2>"$TMP/err") \
 grep -q "worktree rm" "$TMP/l/orca-calls.log" && fail "removed a worktree when nothing matched"
 pass "proceeds when orca worktree list has no loop worktrees to sweep"
 
+# 14. A shape-valid but CALENDAR-INVALID timestamp (Feb 30th) must not fail
+#     open. This is the same shape as case 10's bug: a value the code cannot
+#     interpret gets treated as ancient rather than as unknown. Verified on
+#     this platform's `date`: Feb 30 2026 does not error -- `mktime` silently
+#     normalizes it to Mar 2 2026 and returns success, which (against a NOW of
+#     Aug 7) reads as a plausible ~5-month-old worktree and would get swept.
+#     Pre-fix, this case fails at the `worktree rm` assertion below; post-fix
+#     it must be reported and left alone.
+make_fixture "$TMP/m"
+cat > "$TMP/m/issues.json" <<'J'
+[{"number":42,"labels":[{"name":"agent:eligible"},{"name":"size:xs"}]}]
+J
+cat > "$TMP/m/bin/orca" <<'STUB'
+#!/bin/bash
+FIX="$(dirname "$(dirname "$0")")"
+echo "$*" >> "$FIX/orca-calls.log"
+case "$1 $2" in
+  "worktree list")
+    echo "id::/w/auto-waddle-loop-run-9-20260230T1200  refs/heads/a  /w/auto-waddle-loop-run-9-20260230T1200" ;;
+  "worktree rm") exit 0 ;;
+  *) exit 0 ;;
+esac
+STUB
+chmod +x "$TMP/m/bin/orca"
+: > "$TMP/m/orca-calls.log"
+out=$(run_precheck "$TMP/m" 2>"$TMP/err") || fail "refused a valid backlog"
+[ "$out" = "42" ] || fail "picked $out; expected 42"
+grep -qi "calendar-invalid" "$TMP/err" || fail "calendar-invalid timestamp was not reported: $(cat "$TMP/err")"
+grep -q "worktree rm" "$TMP/m/orca-calls.log" && fail "removed a worktree with a calendar-invalid timestamp"
+pass "reports a calendar-invalid worktree timestamp instead of sweeping it"
+
 echo "All loop-precheck tests passed."

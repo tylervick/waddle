@@ -104,7 +104,30 @@ if command -v orca >/dev/null 2>&1; then
         esac
         d="${stamp%T*}"; t="${stamp#*T}"
         wt_iso="${d:0:4}-${d:4:2}-${d:6:2}T${t:0:2}:${t:2:2}:00Z"
-        wt_age=$(( NOW_EPOCH - $(to_epoch "$wt_iso") ))
+        wt_epoch="$(to_epoch "$wt_iso")"
+        # A shape-valid but CALENDAR-INVALID stamp (e.g. Feb 30th) must not be
+        # scored as an age. `to_epoch` echoes 0 when `date -j -f` outright
+        # rejects its input, but that is not the only failure shape: on this
+        # platform's `date`, an out-of-range day within an in-range month
+        # (Feb 30, or day 31 of a 30-day month) does not get rejected at all
+        # -- `mktime` silently normalizes it ("2026-02-30" becomes
+        # "2026-03-02") and returns success. A bare `wt_epoch = 0` check would
+        # miss that second shape entirely, and a normalized-but-wrong date can
+        # land anywhere -- including, as here, far enough in the past to read
+        # as a plausible stale worktree and get swept. Round-tripping the
+        # epoch back through the same format catches both shapes uniformly: a
+        # genuinely valid stamp always reformats back to itself, so any
+        # mismatch -- whether from the 0 fallback or from silent
+        # normalization -- means the input was never a real calendar date.
+        # Fail closed exactly like the "no labeling event" guard above: a
+        # timestamp the code cannot trust is UNKNOWN age, never ancient age,
+        # and unknown age must never sweep.
+        roundtrip="$(date -u -r "$wt_epoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo '')"
+        if [ "$roundtrip" != "$wt_iso" ]; then
+            echo "worktree sweep: '$base' decodes to a calendar-invalid date ('$wt_iso'); skipping it" >&2
+            continue
+        fi
+        wt_age=$(( NOW_EPOCH - wt_epoch ))
         if [ "$wt_age" -ge "$STALE_WORKTREE_SECONDS" ]; then
             if orca worktree rm --worktree "path:$wt_path" >/dev/null 2>&1; then
                 echo "swept abandoned worktree $base (${wt_age}s old)" >&2
