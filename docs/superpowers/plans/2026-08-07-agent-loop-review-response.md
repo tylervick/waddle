@@ -21,6 +21,31 @@ that count before the report ever runs.
 
 **Branch:** `tylervick/agent-loop-review-response` (already created).
 
+> **Status note (added after implementation, PR #56 review response):** This
+> plan is implemented on this branch. As with any point-in-time plan document
+> in this repo, it is left unedited below as a record of what was proposed —
+> the shipped scripts and `Scripts/loop-prompt.md` are authoritative wherever
+> they differ from the text that follows. Four differences worth flagging:
+>
+> - The worktree sweep below reuses `STALE_CLAIM_SECONDS` (2 hours). The
+>   shipped `Scripts/loop-precheck.sh` gives it its own, larger constant,
+>   `STALE_WORKTREE_SECONDS=14400` (4 hours), because the worktree sweep has no
+>   way to know whether the run inside a worktree is still live — only the
+>   stale-claim sweep has that signal, from the label's timeline event.
+> - The task steps below cite growing the suites to twelve and ten cases.
+>   Both suites have grown past those counts since, from further review
+>   findings; treat the counts in `Scripts/test-loop-precheck.sh` and
+>   `Scripts/test-loop-report.sh` as current, not the numbers named here.
+> - The example pull-request comment queries below (4.2's snapshot, and the
+>   report's legacy fallback) omit the trusted-app allowlist. The shipped
+>   `Scripts/loop-prompt.md` and `Scripts/loop-report.sh` filter every such
+>   query to `coderabbitai[bot]` and `renovate[bot]` — required on a public
+>   repository, where an unfiltered query would count any author's comment
+>   text, including a human contributor's or the owner's own.
+> - `Scripts/loop-prompt.md` has since gained more content than this plan
+>   describes (a `<WAIT_TOTAL>` budget-tracking literal, additional Known
+>   gaps entries, and similar), none of which contradicts anything here.
+
 ## Global Constraints
 
 - Bash scripts: `set -euo pipefail`, `ROOT` derived from the script's own
