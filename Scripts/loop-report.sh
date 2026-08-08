@@ -23,11 +23,14 @@
 #               live query (and the report says so, as its own "legacy"
 #               line), which understates them. A record that HAS the field
 #               but reads the literal `none` (a 4.1 CI/review timeout -- this
-#               run never obtained a measurement) or something malformed is a
-#               different situation and must never be queried live either:
-#               there is no pre-fix number to recover, live or otherwise, so
-#               it is excluded from the findings total and reported on its
-#               own "unavailable" line instead. Conflating the two would
+#               run never obtained a measurement), the literal `unavailable`
+#               (a 4.1 terminal non-review state, e.g. CodeRabbit reporting
+#               itself rate limited -- this run was told outright no review
+#               was coming), or something malformed is a different situation
+#               and must never be queried live either: there is no pre-fix
+#               number to recover, live or otherwise, so it is excluded from
+#               the findings total and reported on its own "unavailable" line
+#               instead. Conflating any of these with the legacy case would
 #               fabricate a post-fix number for a trial that measured
 #               nothing.
 #   lagging  -- the PR merged without requiring changes. Slow and authoritative;
@@ -123,23 +126,32 @@ if [ "${#rows[@]}" -gt 0 ]; then
                           | grep -c -E "$MARKERS" || true)"
                     findings=$((findings + c))
                     ;;
-                none|*[!0-9]*)
+                none|unavailable|*[!0-9]*)
                     # The field is PRESENT but unusable: the literal `none`
                     # (a 4.1 CI/review timeout -- this run never obtained a
-                    # measurement) or a non-numeric/decorated value (e.g.
-                    # "none (CI timed out)", "n/a") -- the protocol only ever
-                    # promises an integer or the literal `none`, and nothing
-                    # validates that an agent actually wrote one. $((...))
+                    # measurement), the literal `unavailable` (a 4.1 terminal
+                    # non-review state, e.g. CodeRabbit reporting itself rate
+                    # limited -- this run was told outright no review was
+                    # coming, so there was never anything to wait for), or a
+                    # non-numeric/decorated value (e.g. "none (CI timed out)",
+                    # "n/a") -- the protocol only ever promises an integer or
+                    # one of those two literals, and nothing validates that an
+                    # agent actually wrote one. `unavailable` would in fact
+                    # already fall into the `*[!0-9]*` glob below (it is
+                    # non-empty and every character is a non-digit), but it is
+                    # listed explicitly so this branch documents the literal
+                    # the protocol actually writes rather than relying on it
+                    # merely surviving the wildcard by coincidence. $((...))
                     # evaluates the field's contents as arithmetic, so
-                    # treating either of these as a number here would abort
-                    # the whole report under `set -euo pipefail` -- silencing
-                    # the LOST TRIALS section for every record, not just this
-                    # one. Neither may be queried live: unlike the absent-field
-                    # case above, a snapshot field exists here and it says
-                    # nothing was measured, so a live query would not recover
-                    # a pre-fix number -- it would fabricate one, scoring a
-                    # trial that measured nothing as though it had a real
-                    # result. Exclude from the findings total; count and
+                    # treating any of these as a number here would abort the
+                    # whole report under `set -euo pipefail` -- silencing the
+                    # LOST TRIALS section for every record, not just this one.
+                    # None of these may be queried live: unlike the
+                    # absent-field case above, a snapshot field exists here
+                    # and it says nothing was measured, so a live query would
+                    # not recover a pre-fix number -- it would fabricate one,
+                    # scoring a trial that measured nothing as though it had a
+                    # real result. Exclude from the findings total; count and
                     # report separately so this is never mistaken for the
                     # legacy (field-absent) case.
                     unavailable=$((unavailable + 1))
@@ -160,7 +172,7 @@ if [ "${#rows[@]}" -gt 0 ]; then
             echo "    ($legacy legacy record(s) predate coderabbit_findings_first entirely; scored by live query, which is post-fix and may understate)"
         fi
         if [ "$unavailable" -gt 0 ]; then
-            echo "    ($unavailable record(s) have an unavailable coderabbit_findings_first -- a 4.1 CI/review timeout ('none') or a malformed value -- excluded from the findings total above, never queried live)"
+            echo "    ($unavailable record(s) have an unavailable coderabbit_findings_first -- a 4.1 CI/review timeout ('none'), a 4.1 terminal non-review state ('unavailable'), or a malformed value -- excluded from the findings total above, never queried live)"
         fi
     done
 fi

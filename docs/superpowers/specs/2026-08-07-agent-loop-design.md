@@ -102,10 +102,30 @@ Four tracked artifacts and one Orca object.
    pushes, and opens a pull request declaring `Closes #N`. If it hit a trap worth
    recording, it adds a `docs/learnings/` file and its index line in the same
    pull request.
-6. **The agent waits for CI and CodeRabbit**, capped at 15 minutes. That cap is
-   separate from the 45-minute work budget — a run must never block indefinitely
-   on a service it does not control. If either has not finished by then, the
-   agent records `ci_result: timeout`, skips step 7 entirely, and goes to step 8.
+6. **The agent waits for CI and CodeRabbit, polling each independently**, capped
+   at 15 minutes shared between them. That cap is separate from the 45-minute
+   work budget — a run must never block indefinitely on a service it does not
+   control. `ci_result` reflects CI's own conclusion only — `pass` once every
+   check row other than CodeRabbit's has concluded successfully, `fail` the
+   moment any of those rows concludes unsuccessfully, `timeout` only if CI
+   itself had not concluded when the wait ended — and a stalled or
+   rate-limited review never overwrites it. Separately, if `gh pr checks`
+   reports a terminal non-review state for CodeRabbit (observed in practice
+   as the check description `Review
+   rate limited`), that is treated as an answer, not a pending state: the agent
+   stops waiting for a review at once, records
+   `coderabbit_findings_first: unavailable`, and does not retry or wait for
+   CodeRabbit to recover. If CI has not concluded yet, the agent keeps polling
+   for CI alone until it does or the cap expires. If CodeRabbit's terminal
+   state fires, or the cap expires with no review to count — whether or not CI
+   itself concluded — the agent skips step 7 entirely and goes to step 8, with
+   `ci_result` already reflecting CI's own true outcome. Independence cuts both ways, though: if a
+   real CodeRabbit review lands before the cap but CI is still running when
+   the cap expires, the agent does not throw that review away — it still
+   takes step 7.1's snapshot (a real, countable Major/Critical count) before
+   going to step 8, records `ci_result: timeout` since CI itself never
+   concluded, and skips the rest of step 7 (there is no concluded CI run to
+   fix). A slow CI run must never suppress a review that already landed.
 7. **The agent snapshots the review, then responds to it.** In that order, and
    the order is the whole point:
    1. Record `coderabbit_findings_first` — the Major/Critical count **before any
@@ -311,8 +331,8 @@ than a bare majority.
 | Verification command, result | The issue's own command, run unmodified |
 | Pull request number | If one was opened |
 | Learnings file added | If any |
-| `ci_result` | `pass`, `fail`, `timeout`, or `not-run` — CI on the run's own pull request |
-| **`coderabbit_findings_first`** | Major/Critical count **before any fix**. The leading signal. |
+| `ci_result` | `pass`, `fail`, `timeout`, or `not-run` — CI on the run's own pull request, resolved independently of the review |
+| **`coderabbit_findings_first`** | Major/Critical count **before any fix**, or `none` (the wait cap expired before an answer) or `unavailable` (CodeRabbit reported a terminal non-review state, e.g. rate-limited, and will not review). The leading signal. |
 | `coderabbit_findings_after` | Same count after the fix phase, or `none` if no fixes were attempted |
 | `fix_rounds` | How many CI/review fix passes the agent made |
 
@@ -435,6 +455,28 @@ live backlog: PR #55, open and declaring `Closes #13`, causes the precheck to
 select issue #15 instead of #13, even though #13 would otherwise win the
 size/number tie-break. Such a pull request depends entirely on the owner from
 that point forward; closing it unmerged is what returns its issue to the pool.
+
+**A rate-limited reviewer yields a trial with no leading signal, by design.**
+CodeRabbit can report itself rate-limited as a check status — observed live on
+PR #57, `gh pr checks 57` showing `CodeRabbit  pass  Review rate limited` —
+without ever creating a review object. A poll that waited on the review count
+alone would sit at 0 forever and burn the full 15-minute cap for an answer that
+had already arrived, while a poll that treated CI and the review as one gate
+would falsify a CI result that had nothing wrong with it: in the observed
+case, CI passed in 6m8s and the run still recorded `ci_result: timeout`
+because the review never resolved. `Scripts/loop-prompt.md` section 4.1
+resolves CI and the review independently for exactly this reason, and treats
+CodeRabbit's own terminal non-review state as an answer rather than a pending
+one — recording `coderabbit_findings_first: unavailable` and moving on rather
+than waiting for CodeRabbit to recover. The owner's ruling is that this is the
+correct outcome, not a gap to close: a rate-limited review means the trial has
+no leading signal, full stop, and the run must not wait for one, retry, or
+treat the missing signal as a reason to discard an otherwise legitimate
+`pr-opened` result with a passing CI run. `unavailable` is scored identically
+to `none` by `Scripts/loop-report.sh` — excluded from the findings total,
+reported on its own line, never queried live — but recorded as a distinct
+value so a report reader can tell "the cap expired" apart from "the reviewer
+declined."
 
 **Prompt regressions** show as a step change in the report, because every record
 carries the prompt SHA. This is the reason the SHA is recorded rather than a
