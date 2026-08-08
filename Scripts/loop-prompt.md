@@ -120,12 +120,19 @@ fill in rather than variables to expand:
   names it — most heavily in section 4, which uses it three times.
 - **`<CR_FIRST>`** — not available yet: nothing has been reviewed at this
   point. It is captured the moment its value becomes known, at exactly one of
-  four places: 4.2's grep count, the moment that command runs; the literal
-  `unavailable` the instant 4.1 recognises CodeRabbit's terminal non-review
-  state; the literal `none` from 4.1's timeout; or the literal `none` from
-  the no-PR exit at the top of section 4. It follows the exact same rule as
-  `<PR>` the instant it exists: record it, then carry it unchanged into
-  section 5's rewrite — never re-derived there.
+  four places: 4.2's grep count, the moment that command runs (this is also
+  where a real review's count lands if it arrived while CI alone was still
+  unresolved — see 4.1's cap-exceeded paragraph); the literal `unavailable`
+  the instant 4.1 recognises CodeRabbit's terminal non-review state; the
+  literal `none` when the 900-second wait ends with no review having landed
+  and no terminal non-review state seen — regardless of whether CI has
+  concluded; or the literal `none` from the no-PR exit at the top of section
+  4. `none` means exactly one thing — no review landed before the wait ended,
+  or there was no pull request at all — and is never set based on CI's state:
+  CI's own outcome is `<CI_RESULT>`, captured and resolved entirely
+  separately, below. It follows the exact same rule as `<PR>` the instant it
+  exists: record it, then carry it unchanged into section 5's rewrite — never
+  re-derived there.
 - **`<CI_RESULT>`** — not available yet, for the same reason, and captured at
   the same four possible places, though two of them share one rule: 4.2
   (`pass` or `fail`, once a real review has also landed); 4.1's terminal
@@ -324,14 +331,17 @@ this same wait, not in 4.3. The instant you see it:
 
 - Record `coderabbit_findings_first: unavailable` — the literal `<CR_FIRST>`
   from section 1 — right then, and do not revisit this value even if
-  CodeRabbit's row later changes within the same wait. `unavailable` is
-  distinct from `none`: `none` means the cap expired while genuinely waiting
-  for an answer; `unavailable` means the reviewer told you outright it would
-  not review. Both mean this trial has no leading signal, but the reason
-  differs and the record should say which. A rate-limited review is *not* a
-  reason to discard the rest of the run's work — the pull request is open,
-  and if CI passes this is still a legitimate `pr-opened` outcome; only its
-  leading signal is missing.
+  CodeRabbit's row later changes within the same wait. This terminal-review
+  detection sets `coderabbit_findings_first` **only** — it never sets or
+  otherwise touches `ci_result`, which keeps resolving from CI's own state,
+  entirely independently, per the next bullet. `unavailable` is distinct from
+  `none`: `none` means the wait ended with no review having landed and no
+  terminal non-review state seen, regardless of CI's outcome; `unavailable`
+  means the reviewer told you outright it would not review. Both mean this
+  trial has no leading signal, but the reason differs and the record should
+  say which. A rate-limited review is *not* a reason to discard the rest of
+  the run's work — the pull request is open, and if CI passes this is still a
+  legitimate `pr-opened` outcome; only its leading signal is missing.
 - Stop checking the review from here on. Keep polling for CI alone, on the
   same interval, against the same `<WAIT_START>` and the same 900-second cap,
   if CI has not concluded yet — CI is unaffected by CodeRabbit's rate limit
@@ -590,7 +600,7 @@ outcome: started|pr-opened|failed-verification|no-repro|stuck
 wall_clock_seconds: <now - START>
 verification_result: pass|fail|not-run
 ci_result: pass|fail|timeout|not-run
-coderabbit_findings_first: <integer, none if CI/review timed out or never ran, or unavailable if CodeRabbit reported it would not review>
+coderabbit_findings_first: <integer, none if no review landed before the wait ended or there was no pull request at all (independent of CI's own state), or unavailable if CodeRabbit reported it would not review>
 coderabbit_findings_after: <integer, or none if no fixes were attempted>
 fix_rounds: <integer, 0 if none>
 pr: <number or none>

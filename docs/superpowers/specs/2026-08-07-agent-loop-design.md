@@ -105,11 +105,13 @@ Four tracked artifacts and one Orca object.
 6. **The agent waits for CI and CodeRabbit, polling each independently**, capped
    at 15 minutes shared between them. That cap is separate from the 45-minute
    work budget — a run must never block indefinitely on a service it does not
-   control. `ci_result` reflects CI's own conclusion only — `pass` or `fail`
-   once `gh pr checks` reports one, `timeout` only if CI itself has not
-   concluded within the cap — and a stalled or rate-limited review never
-   overwrites it. Separately, if `gh pr checks` reports a terminal non-review
-   state for CodeRabbit (observed in practice as the check description `Review
+   control. `ci_result` reflects CI's own conclusion only — `pass` once every
+   check row other than CodeRabbit's has concluded successfully, `fail` the
+   moment any of those rows concludes unsuccessfully, `timeout` only if CI
+   itself had not concluded when the wait ended — and a stalled or
+   rate-limited review never overwrites it. Separately, if `gh pr checks`
+   reports a terminal non-review state for CodeRabbit (observed in practice
+   as the check description `Review
    rate limited`), that is treated as an answer, not a pending state: the agent
    stops waiting for a review at once, records
    `coderabbit_findings_first: unavailable`, and does not retry or wait for
