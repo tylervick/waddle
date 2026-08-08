@@ -44,6 +44,7 @@ jobs:
           Scripts/test-check-engine-fresh.sh
           Scripts/test-release-args.sh
           Scripts/test-check-substrate.sh
+          Scripts/test-build-deps.sh
           Scripts/check-substrate.sh
 
       - uses: ./.github/actions/setup-waddle-build
