@@ -21,6 +21,15 @@ struct LibraryView: View {
         return components.url
     }
 
+    /// A multi-row delete blocks on each row separately, so the alert's names
+    /// accumulate across the whole batch; repeats are dropped because one
+    /// preset commonly holds several of the WADs being deleted.
+    static func blockedNames(_ existing: [String], adding names: [String]) -> [String] {
+        var merged = existing
+        for name in names where !merged.contains(name) { merged.append(name) }
+        return merged
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -150,7 +159,7 @@ struct LibraryView: View {
         do {
             try library.deleteWAD(wad, force: false)
         } catch LibraryError.wadReferencedByLoadouts(let names) {
-            deleteBlocked = names
+            deleteBlocked = Self.blockedNames(deleteBlocked, adding: names)
         } catch {}
         refresh()
     }
