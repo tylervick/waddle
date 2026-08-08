@@ -276,12 +276,26 @@ neither can a run delete its own — the agent is executing inside it. At three
 runs a day these accumulate.
 
 The precheck therefore sweeps them at the **start** of a run, next to the
-stale-claim sweep and on the same two-hour threshold: any `auto-waddle-loop-*`
-worktree older than that is removed, and every removal is logged. Start-of-run is
-the only workable moment. A run that crashes cannot clean up by definition, so
-end-of-run cleanup only ever fires in the case where there was nothing to clean.
-Sweeping cannot strand a pull request: the loop pushes its branch to `origin`
-long before any worktree is old enough to qualify.
+stale-claim sweep but on its **own, higher** threshold: `STALE_WORKTREE_SECONDS`
+(4h) rather than the stale-claim sweep's `STALE_CLAIM_SECONDS` (2h). Any
+`auto-waddle-loop-*` worktree older than that is removed, and every removal is
+logged. Start-of-run is the only workable moment. A run that crashes cannot
+clean up by definition, so end-of-run cleanup only ever fires in the case where
+there was nothing to clean. Sweeping cannot strand a pull request: the loop
+pushes its branch to `origin` long before any worktree is old enough to
+qualify.
+
+The two thresholds are deliberately different, not shared. Section 4 (waiting
+on CI and CodeRabbit, then fixing across up to three rounds) roughly doubled
+how long a live run can take — 45 minutes of work, plus up to 15 minutes
+waiting on CI/CodeRabbit, plus up to three rounds at up to 900 seconds each,
+a worst case of about 105 minutes. The worktree sweep, unlike the stale-claim
+sweep, has no independent signal of liveness: a worktree's name encodes only
+its run's *start* time, so worktree age is run age, full stop. A threshold that
+merely cleared the old 45-minute work budget would risk `orca worktree rm`-ing
+a still-running agent's own worktree out from under it. `STALE_WORKTREE_SECONDS`
+is set well above the ~105-minute worst case instead, with real margin rather
+than a bare majority.
 
 ## Instrumentation
 
@@ -360,13 +374,15 @@ those records are identifiable by its absence and should be reported as such
 rather than silently scored as zero. Merge state is still queried live, because
 that genuinely changes after the run and no snapshot could capture it.
 
-Every trial record also carries `verification_result`, `size`, `kind`, and
-`wall_clock_seconds` (see the instrumentation table above). Those fields are
-captured for later analysis; the report does not currently segment by `size`
-or `kind`, nor does it compute a median wall clock or read
-`verification_result` at all. That is a known gap between the ambition of this
-section and what is implemented, called out here rather than left for the
-report and this document to quietly disagree.
+Every trial record also carries `verification_result`, `size`, `kind`,
+`wall_clock_seconds`, `ci_result`, `coderabbit_findings_after`, and
+`fix_rounds` (see the instrumentation table above). Those fields are captured
+for later analysis; the report does not currently segment by `size` or `kind`,
+nor does it compute a median wall clock, or read `verification_result`,
+`ci_result`, or `fix_rounds` at all. `coderabbit_findings_after` in particular
+is written by the protocol and read by nothing. That is a known gap between
+the ambition of this section and what is implemented, called out here rather
+than left for the report and this document to quietly disagree.
 
 ## Risks
 

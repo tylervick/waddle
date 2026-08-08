@@ -160,7 +160,7 @@ pass "flags records that predate the snapshot field"
 
 # 11. `coderabbit_findings_first: none` is the value the protocol actually
 #    instructs the agent to write on a CI/review timeout (Scripts/loop-prompt.md
-#    section 5) -- distinct from the field being absent entirely, which is what
+#    section 6) -- distinct from the field being absent entirely, which is what
 #    case 10 covers. It must route to the legacy branch (live query + note),
 #    not crash arithmetic on the literal string.
 make_fixture "$TMP/k"

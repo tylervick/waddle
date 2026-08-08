@@ -178,7 +178,7 @@ FIX="$(dirname "$(dirname "$0")")"
 echo "$*" >> "$FIX/orca-calls.log"
 case "$1 $2" in
   "worktree list")
-    echo "id::/w/auto-waddle-loop-run-1-20260807T0900  refs/heads/a  /w/auto-waddle-loop-run-1-20260807T0900"
+    echo "id::/w/auto-waddle-loop-run-1-20260807T0700  refs/heads/a  /w/auto-waddle-loop-run-1-20260807T0700"
     echo "id::/w/auto-waddle-loop-run-2-20260807T1155  refs/heads/b  /w/auto-waddle-loop-run-2-20260807T1155"
     echo "id::/w/CRUD-games  refs/heads/c  /w/CRUD-games" ;;
   "worktree rm") exit 0 ;;
@@ -189,8 +189,8 @@ chmod +x "$TMP/j/bin/orca"
 : > "$TMP/j/orca-calls.log"
 out=$(run_precheck "$TMP/j") || fail "refused a valid backlog"
 [ "$out" = "42" ] || fail "picked $out; expected 42"
-grep -q "auto-waddle-loop-run-1-20260807T0900" "$TMP/j/orca-calls.log" \
-    || fail "the 3h-old worktree was not swept"
+grep -q "auto-waddle-loop-run-1-20260807T0700" "$TMP/j/orca-calls.log" \
+    || fail "the 5h-old worktree was not swept"
 grep -q "auto-waddle-loop-run-2-20260807T1155" "$TMP/j/orca-calls.log" \
     && fail "swept a worktree only 5 minutes old"
 grep -q "CRUD-games" "$TMP/j/orca-calls.log" \

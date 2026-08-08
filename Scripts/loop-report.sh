@@ -24,10 +24,12 @@
 #   lagging  -- the PR merged without requiring changes. Slow and authoritative;
 #               it exists to check the leading signal is telling the truth.
 #
-# Every trial record also carries `verification_result`, `size`, `kind`, and
-# `wall_clock_seconds` (Scripts/loop-prompt.md section 5). This script does not
-# read or surface any of those today -- they are captured for later analysis,
-# not because a report is already computed from them.
+# Every trial record also carries `verification_result`, `size`, `kind`,
+# `wall_clock_seconds`, `ci_result`, `coderabbit_findings_after`, and
+# `fix_rounds` (Scripts/loop-prompt.md section 6). This script does not read or
+# surface any of those today -- they are captured for later analysis, not
+# because a report is already computed from them. `coderabbit_findings_after`
+# in particular is written by the protocol and read by nothing.
 #
 # A record whose outcome is still `started` is a LOST TRIAL -- the run died
 # before rewriting it. There is no supervising process to notice that (Orca's
@@ -102,11 +104,19 @@ if [ "${#rows[@]}" -gt 0 ]; then
                     # contents as arithmetic, so anything else here would abort the
                     # whole report under `set -euo pipefail` -- silencing the
                     # LOST TRIALS section for every record, not just this one.
-                    # Query live, but say so: since the agent now fixes findings
-                    # before a run ends, this number is post-fix and understates
-                    # what the run originally produced.
+                    # Query live, but say so -- for one of two different reasons
+                    # depending on why the field was unusable: a record that
+                    # predates coderabbit_findings_first entirely may have had
+                    # findings fixed before this field existed, so the live count
+                    # can be post-fix and understate; a record with the literal
+                    # `none` from a 4.1 CI/review timeout never had a fix attempt
+                    # at all, so its live count is neither pre- nor post-fix, just
+                    # whatever has landed on GitHub since. Either way, filter to
+                    # CodeRabbit's own comments -- this is a public repo, and an
+                    # unfiltered query would count any author's comment text.
                     legacy=$((legacy + 1))
-                    c="$(gh api "repos/{owner}/{repo}/pulls/$pr/comments" --jq '.[].body' 2>/dev/null \
+                    c="$(gh api "repos/{owner}/{repo}/pulls/$pr/comments" --paginate \
+                          --jq '.[] | select(.user.login=="coderabbitai[bot]") | .body' 2>/dev/null \
                           | grep -c -E "$MARKERS" || true)"
                     findings=$((findings + c))
                     ;;
@@ -123,7 +133,7 @@ if [ "${#rows[@]}" -gt 0 ]; then
             echo "  $sha: $n trials, no PRs opened"
         fi
         if [ "$legacy" -gt 0 ]; then
-            echo "    ($legacy legacy record(s) predate coderabbit_findings_first; scored by live query, which is post-fix and may understate)"
+            echo "    ($legacy legacy record(s) had no usable coderabbit_findings_first -- some predate the field (scored by live query, which is post-fix and may understate), others recorded 'none' after a CI/review timeout where no fix was ever attempted (scored by live query, which is simply whatever has landed on GitHub since))"
         fi
     done
 fi

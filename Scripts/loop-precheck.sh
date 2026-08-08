@@ -33,7 +33,15 @@
 # sweep is logged to stderr.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-STALE_CLAIM_SECONDS=7200   # 2h; comfortably past the 45m wall-clock budget
+# 2h; comfortably past the ~105m worst-case run (45m work budget + 15m
+# CI/review wait + up to 3 x 900s fix rounds).
+STALE_CLAIM_SECONDS=7200
+# 4h; well above that same ~105m ceiling, and deliberately its own constant
+# rather than reusing STALE_CLAIM_SECONDS: this sweep can only see a
+# worktree's start time, never whether the run inside it is still live, so its
+# threshold must clear the worst case with real margin, not merely exceed the
+# common case.
+STALE_WORKTREE_SECONDS=14400
 CLAIM_LABEL="agent:in-progress"
 
 # LOOP_NOW lets the self-test pin "now". Unset in production.
@@ -57,6 +65,14 @@ fi
 # Start of run is the only workable moment. A run that crashes cannot clean up
 # after itself by definition, so end-of-run cleanup would only ever fire in the
 # case where there is nothing to clean.
+#
+# This sweep uses its own STALE_WORKTREE_SECONDS threshold, not
+# STALE_CLAIM_SECONDS -- and deliberately a much larger one. Unlike the
+# stale-claim sweep above, this one can only see a worktree's start-time-encoded
+# name; it has no way to ask whether the run inside it is still alive. A
+# threshold merely past the work budget would risk `orca worktree rm`-ing a
+# live run's own worktree out from under it while section 4 (waiting on CI and
+# CodeRabbit, then up to three fix rounds) is still in progress.
 #
 # Age comes from the timestamp Orca puts in the worktree name
 # (auto-waddle-loop-run-<n>-<YYYYMMDDTHHMM>) rather than filesystem mtime, so it
@@ -89,7 +105,7 @@ if command -v orca >/dev/null 2>&1; then
         d="${stamp%T*}"; t="${stamp#*T}"
         wt_iso="${d:0:4}-${d:4:2}-${d:6:2}T${t:0:2}:${t:2:2}:00Z"
         wt_age=$(( NOW_EPOCH - $(to_epoch "$wt_iso") ))
-        if [ "$wt_age" -ge "$STALE_CLAIM_SECONDS" ]; then
+        if [ "$wt_age" -ge "$STALE_WORKTREE_SECONDS" ]; then
             if orca worktree rm --worktree "path:$wt_path" >/dev/null 2>&1; then
                 echo "swept abandoned worktree $base (${wt_age}s old)" >&2
             else
