@@ -115,9 +115,9 @@ Four tracked artifacts and one Orca object.
    `coderabbit_findings_first: unavailable`, and does not retry or wait for
    CodeRabbit to recover. If CI has not concluded yet, the agent keeps polling
    for CI alone until it does or the cap expires. If CodeRabbit's terminal
-   state fires, or the cap expires with neither signal resolved, the agent
-   skips step 7 entirely and goes to step 8, with `ci_result` already
-   reflecting CI's own true outcome. Independence cuts both ways, though: if a
+   state fires, or the cap expires with no review to count — whether or not CI
+   itself concluded — the agent skips step 7 entirely and goes to step 8, with
+   `ci_result` already reflecting CI's own true outcome. Independence cuts both ways, though: if a
    real CodeRabbit review lands before the cap but CI is still running when
    the cap expires, the agent does not throw that review away — it still
    takes step 7.1's snapshot (a real, countable Major/Critical count) before
