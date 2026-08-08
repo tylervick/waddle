@@ -268,4 +268,50 @@ echo "$out" | grep -qi "legacy" \
     && fail "a decorated non-numeric snapshot must not be reported as legacy; got: $out"
 pass "a decorated non-numeric snapshot doesn't abort the report, is unavailable not legacy, and doesn't silence LOST TRIALS"
 
+# 14. `coderabbit_findings_first: unavailable` is the value the protocol
+#    instructs the agent to write when 4.1 recognises CodeRabbit's terminal
+#    non-review state (e.g. "Review rate limited" reported as a check status,
+#    never as a review) and stops waiting for it rather than burning the full
+#    900-second cap. Distinct from `none` (case 12, a genuine timeout) and
+#    from a malformed value (case 13) in *meaning*, but it must land in the
+#    exact same bucket as both: excluded from the findings total, reported on
+#    its own "unavailable" line, and never live-queried -- there is no
+#    pre-fix number to recover for a run that was told outright no review was
+#    coming. This fixture's stub `gh api` (see make_fixture) always has a real
+#    Major finding ready to hand back on any query, unconditionally -- so if
+#    this record's PR were live-queried by mistake, the total below would
+#    read "1 CodeRabbit", not "0 CodeRabbit". That makes "never live-queried"
+#    directly observable rather than merely asserted.
+make_fixture "$TMP/m"
+cat > "$TMP/m/trials/2026-08-07T120000Z-issue-50.md" <<'EOF'
+---
+run_id: r-50
+timestamp: 2026-08-07T12:00:00Z
+prompt_sha: abc123
+issue: 50
+kind: bug
+size: size:xs
+outcome: pr-opened
+wall_clock_seconds: 600
+verification_result: pass
+ci_result: pass
+coderabbit_findings_first: unavailable
+coderabbit_findings_after: none
+fix_rounds: 0
+pr: 59
+learning_added: none
+---
+prose
+EOF
+out="$(report "$TMP/m" 2>&1)" || fail "report aborted on coderabbit_findings_first: unavailable; got: $out"
+echo "$out" | grep -qi "unavailable" \
+    || fail "coderabbit_findings_first: unavailable was not flagged as unavailable; got: $out"
+echo "$out" | grep -qi "legacy" \
+    && fail "coderabbit_findings_first: unavailable must not be reported as legacy; got: $out"
+echo "$out" | grep -q "0 CodeRabbit" \
+    || fail "coderabbit_findings_first: unavailable must be excluded from the findings total; got: $out"
+echo "$out" | grep -q "1 CodeRabbit" \
+    && fail "coderabbit_findings_first: unavailable's PR was live-queried -- the stub's ready Major finding leaked into the total; got: $out"
+pass "routes coderabbit_findings_first: unavailable to the unavailable line, excluded from the total, never live-queried"
+
 echo "All loop-report tests passed."
