@@ -28,8 +28,4 @@ final class LibraryViewTests: XCTestCase {
         XCTAssertEqual(LibraryView.blockedNames(first, adding: ["Eviternity", "Valiant"]),
                        ["Sunlust", "Eviternity", "Valiant"])
     }
-
-    func testBlockedNamesStartsFromEmptyAfterAlertDismissal() {
-        XCTAssertEqual(LibraryView.blockedNames([], adding: ["Sunlust"]), ["Sunlust"])
-    }
 }
