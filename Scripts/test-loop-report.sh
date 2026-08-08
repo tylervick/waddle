@@ -158,11 +158,47 @@ echo "$out" | grep -qi "legacy\|no recorded snapshot" \
     || fail "legacy record was scored without any warning; got: $out"
 pass "flags records that predate the snapshot field"
 
-# 11. `coderabbit_findings_first: none` is the value the protocol actually
+# 11. An ABSENT field (case 10's fixture, via `record()`, which never emits
+#    coderabbit_findings_first at all) and a PRESENT-but-`none` field are
+#    different situations and must produce different report lines: absent
+#    means "this run predates the field, fall back to a live query"; `none`
+#    means "this run has the field and says nothing was measured, never query
+#    live for it." This case pins the absent-field side explicitly, with its
+#    own fixture (not reusing case 10), so the two paths stay separately
+#    verifiable even as the following cases change what `none` does.
+make_fixture "$TMP/k0"
+cat > "$TMP/k0/trials/2026-08-07T120000Z-issue-48.md" <<'EOF'
+---
+run_id: r-48
+timestamp: 2026-08-07T12:00:00Z
+prompt_sha: abc123
+issue: 48
+kind: bug
+size: size:xs
+outcome: pr-opened
+wall_clock_seconds: 600
+verification_result: pass
+pr: 57
+learning_added: none
+---
+prose
+EOF
+out="$(report "$TMP/k0" 2>&1)" || fail "report failed"
+echo "$out" | grep -qi "legacy\|no recorded snapshot" \
+    || fail "a record with the field entirely absent was not flagged as legacy; got: $out"
+echo "$out" | grep -qi "unavailable" \
+    && fail "an absent field must never be reported as 'unavailable' -- that's the none/malformed line; got: $out"
+pass "an absent coderabbit_findings_first field takes the live fallback and prints the legacy note"
+
+# 12. `coderabbit_findings_first: none` is the value the protocol actually
 #    instructs the agent to write on a CI/review timeout (Scripts/loop-prompt.md
-#    section 6) -- distinct from the field being absent entirely, which is what
-#    case 10 covers. It must route to the legacy branch (live query + note),
-#    not crash arithmetic on the literal string.
+#    section 6) -- distinct from the field being absent entirely (case 11).
+#    Unlike the absent case, the field IS present here and says explicitly
+#    that nothing was measured, so this must route to the "unavailable" line,
+#    excluded from the findings total, and must NOT be scored by a live query
+#    (which would fabricate a post-fix number for a trial that never had a
+#    fix attempt) and must NOT be reported as "legacy" (which would conflate
+#    it with a record that simply predates the field).
 make_fixture "$TMP/k"
 cat > "$TMP/k/trials/2026-08-07T120000Z-issue-45.md" <<'EOF'
 ---
@@ -185,18 +221,22 @@ learning_added: none
 prose
 EOF
 out="$(report "$TMP/k" 2>&1)" || fail "report aborted on a literal 'none' snapshot; got: $out"
-echo "$out" | grep -qi "legacy\|no recorded snapshot" \
-    || fail "literal 'none' snapshot was not flagged as legacy; got: $out"
-pass "routes a literal 'none' snapshot to the legacy branch instead of crashing"
+echo "$out" | grep -qi "unavailable" \
+    || fail "literal 'none' snapshot was not flagged as unavailable; got: $out"
+echo "$out" | grep -qi "legacy" \
+    && fail "a literal 'none' snapshot must not be reported as legacy -- it never had a pre-fix measurement to recover; got: $out"
+pass "routes a literal 'none' snapshot to the unavailable line, not legacy, without crashing"
 
-# 12. THE REAL DAMAGE. A decorated, non-numeric snapshot value (ordinary model
+# 13. THE REAL DAMAGE. A decorated, non-numeric snapshot value (ordinary model
 #    drift -- the protocol specifies the field freehand as "<integer, or none
 #    if CI/review timed out>" and nothing validates it) must not abort the
 #    whole report under `set -euo pipefail`. The crash itself is not the worst
 #    part: output stops mid-script, so the LOST TRIALS section -- the only
 #    thing that ever surfaces a died-mid-run trial -- never prints, for every
 #    record in the dataset, not just the offending one. This case pairs the bad
-#    value with a `started` record and asserts LOST TRIALS still appears.
+#    value with a `started` record and asserts LOST TRIALS still appears, and
+#    (like case 12) that the value is scored as unavailable, not legacy, and
+#    excluded from the findings total, never queried live.
 make_fixture "$TMP/l"
 record "$TMP/l" 46 started abc123
 cat > "$TMP/l/trials/2026-08-07T120000Z-issue-47.md" <<'EOF'
@@ -222,6 +262,10 @@ EOF
 out="$(report "$TMP/l" 2>&1)" || fail "a decorated non-numeric snapshot aborted the report; got: $out"
 echo "$out" | grep -qi "lost" \
     || fail "LOST TRIALS was silenced by an unrelated decorated snapshot value; got: $out"
-pass "a decorated non-numeric snapshot doesn't abort the report or silence LOST TRIALS"
+echo "$out" | grep -qi "unavailable" \
+    || fail "decorated non-numeric snapshot was not flagged as unavailable; got: $out"
+echo "$out" | grep -qi "legacy" \
+    && fail "a decorated non-numeric snapshot must not be reported as legacy; got: $out"
+pass "a decorated non-numeric snapshot doesn't abort the report, is unavailable not legacy, and doesn't silence LOST TRIALS"
 
 echo "All loop-report tests passed."

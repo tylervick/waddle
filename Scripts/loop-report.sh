@@ -19,8 +19,17 @@
 #               run ends, so this is read from the record's
 #               coderabbit_findings_first snapshot, not queried live -- a live
 #               query at report time would return post-fix counts. Records
-#               written before that field existed fall back to a live query
-#               (and the report says so), which understates them.
+#               written before that field existed entirely fall back to a
+#               live query (and the report says so, as its own "legacy"
+#               line), which understates them. A record that HAS the field
+#               but reads the literal `none` (a 4.1 CI/review timeout -- this
+#               run never obtained a measurement) or something malformed is a
+#               different situation and must never be queried live either:
+#               there is no pre-fix number to recover, live or otherwise, so
+#               it is excluded from the findings total and reported on its
+#               own "unavailable" line instead. Conflating the two would
+#               fabricate a post-fix number for a trial that measured
+#               nothing.
 #   lagging  -- the PR merged without requiring changes. Slow and authoritative;
 #               it exists to check the leading signal is telling the truth.
 #
@@ -78,7 +87,7 @@ echo
 echo "by prompt version:"
 if [ "${#rows[@]}" -gt 0 ]; then
     for sha in $(printf '%s\n' "${rows[@]}" | cut -d'|' -f1 | sort -u); do
-        n=0; merged=0; prs=0; findings=0; legacy=0
+        n=0; merged=0; prs=0; findings=0; legacy=0; unavailable=0
         for r in "${rows[@]}"; do
             [ "${r%%|*}" = "$sha" ] || continue
             n=$((n + 1))
@@ -96,31 +105,44 @@ if [ "${#rows[@]}" -gt 0 ]; then
             esac
             crf="$(printf '%s' "$r" | cut -d'|' -f5)"
             case "$crf" in
-                ''|*[!0-9]*)
-                    # Missing, `none`, or a non-numeric/decorated value (e.g. "none
-                    # (CI timed out)", "n/a") -- the protocol only ever promises an
-                    # integer or the literal `none`, and nothing validates that an
-                    # agent actually wrote one. $((...)) evaluates the field's
-                    # contents as arithmetic, so anything else here would abort the
-                    # whole report under `set -euo pipefail` -- silencing the
-                    # LOST TRIALS section for every record, not just this one.
-                    # Query live, but say so -- for one of two different reasons
-                    # depending on why the field was unusable: a record that
-                    # predates coderabbit_findings_first entirely may have had
-                    # findings fixed before this field existed, so the live count
-                    # can be post-fix and understate; a record with the literal
-                    # `none` from a 4.1 CI/review timeout never had a fix attempt
-                    # at all, so its live count is neither pre- nor post-fix, just
-                    # whatever has landed on GitHub since. Either way, filter to
-                    # the trusted-app allowlist (Scripts/loop-prompt.md, section
-                    # 4's intro) -- this is a public repo, and an unfiltered
-                    # query would count any author's comment text, including a
-                    # human contributor's or the owner's own.
+                '')
+                    # The field is ABSENT ENTIRELY -- a record written before
+                    # coderabbit_findings_first existed. This is the only
+                    # situation where a live query is legitimate: the run
+                    # predates the field, so there is no snapshot to fall back
+                    # on except GitHub's current state. It is still post-fix
+                    # and may understate, which is why it is reported
+                    # separately below rather than folded in silently. Filter
+                    # to the trusted-app allowlist (Scripts/loop-prompt.md,
+                    # section 4's intro) -- this is a public repo, and an
+                    # unfiltered query would count any author's comment text,
+                    # including a human contributor's or the owner's own.
                     legacy=$((legacy + 1))
                     c="$(gh api "repos/{owner}/{repo}/pulls/$pr/comments" --paginate \
                           --jq '.[] | select(.user.login as $l | ["coderabbitai[bot]","renovate[bot]"] | index($l)) | .body' 2>/dev/null \
                           | grep -c -E "$MARKERS" || true)"
                     findings=$((findings + c))
+                    ;;
+                none|*[!0-9]*)
+                    # The field is PRESENT but unusable: the literal `none`
+                    # (a 4.1 CI/review timeout -- this run never obtained a
+                    # measurement) or a non-numeric/decorated value (e.g.
+                    # "none (CI timed out)", "n/a") -- the protocol only ever
+                    # promises an integer or the literal `none`, and nothing
+                    # validates that an agent actually wrote one. $((...))
+                    # evaluates the field's contents as arithmetic, so
+                    # treating either of these as a number here would abort
+                    # the whole report under `set -euo pipefail` -- silencing
+                    # the LOST TRIALS section for every record, not just this
+                    # one. Neither may be queried live: unlike the absent-field
+                    # case above, a snapshot field exists here and it says
+                    # nothing was measured, so a live query would not recover
+                    # a pre-fix number -- it would fabricate one, scoring a
+                    # trial that measured nothing as though it had a real
+                    # result. Exclude from the findings total; count and
+                    # report separately so this is never mistaken for the
+                    # legacy (field-absent) case.
+                    unavailable=$((unavailable + 1))
                     ;;
                 *)
                     # Force base 10: a zero-padded value like "08" would otherwise
@@ -135,7 +157,10 @@ if [ "${#rows[@]}" -gt 0 ]; then
             echo "  $sha: $n trials, no PRs opened"
         fi
         if [ "$legacy" -gt 0 ]; then
-            echo "    ($legacy legacy record(s) had no usable coderabbit_findings_first -- some predate the field (scored by live query, which is post-fix and may understate), others recorded 'none' after a CI/review timeout where no fix was ever attempted (scored by live query, which is simply whatever has landed on GitHub since))"
+            echo "    ($legacy legacy record(s) predate coderabbit_findings_first entirely; scored by live query, which is post-fix and may understate)"
+        fi
+        if [ "$unavailable" -gt 0 ]; then
+            echo "    ($unavailable record(s) have an unavailable coderabbit_findings_first -- a 4.1 CI/review timeout ('none') or a malformed value -- excluded from the findings total above, never queried live)"
         fi
     done
 fi
