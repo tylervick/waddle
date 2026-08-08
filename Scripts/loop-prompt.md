@@ -549,7 +549,7 @@ the pull request needs a human read.
 **Prerequisite before this branch's changes take effect in a real run:** this
 branch (`tylervick/agent-loop-review-response`) must be merged to `main`
 first. `Scripts/loop-prompt.md`, `Scripts/loop-precheck.sh`, and
-`Scripts/loop-report.sh` already exist on `main` — PR #55 merged the original
+`Scripts/loop-report.sh` already exist on `main` — PR #54 merged the original
 protocol there — but every per-run worktree Orca creates is cut from `main`,
 so the worktree sweep, the CI/CodeRabbit wait-and-fix phase in section 4, and
 every other fix in this branch stay invisible to a real run until this branch
