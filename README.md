@@ -1,5 +1,7 @@
 # WADdle
 
+[![CI](https://github.com/tylervick/waddle/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tylervick/waddle/actions/workflows/ci.yml)
+
 A free, open-source Doom source-port app for iPhone and iPad, built on
 [Woof!](https://github.com/fabiangreffrath/woof) (Boom/MBF21 compatibility).
 Bundles [Freedoom](https://freedoom.github.io/) so it plays out of the box;
@@ -112,6 +114,57 @@ the configured team and does not manage the build number. Full procedure:
 - Engine sessions are launched with `-save <dir>` (not `-savedir`), pointing
   at a per-preset directory (`Documents/Saves/<preset-id>/`) so each
   preset keeps its own save games, even presets that share an IWAD.
+
+## Continuous integration
+
+Two workflows cover the test path, both on GitHub-hosted `macos-26` runners
+with the Xcode and simulator versions pinned in each workflow's `env:` block:
+
+| Workflow | Runs when | What it does |
+| --- | --- | --- |
+| [`ci.yml`](.github/workflows/ci.yml) | Every pull request, and every push to `main` | Build + unit tests |
+| [`ui-tests.yml`](.github/workflows/ui-tests.yml) | Manual dispatch only | The UI test suite |
+
+**`ci.yml`** runs the build-script helper tests and
+`Scripts/check-substrate.sh` first (they are ~0.1s each and guard the values
+the build caches key on), then builds the `WADdle` scheme and tests it with
+`-only-testing:WADdleTests`. That filter is required, not a tuning choice: the
+scheme's test action also includes `WADdleUITests`, which boot the real engine
+and belong to the workflow below. So `mise run test` locally is *broader* than
+CI — it runs the whole scheme, UI tests included.
+
+**`ui-tests.yml`** is manual dispatch only
+(`gh workflow run ui-tests.yml --ref <branch>`), because a real engine session
+in the simulator is the slow, flake-prone half of the suite and is kept off
+the pull-request path. It takes two inputs:
+
+- `device` — simulator device name. Default `iPhone 17 Pro`.
+- `only_testing` — an optional `-only-testing` filter, e.g.
+  `WADdleUITests/EngineSmokeTests`. Leave it blank to run all of
+  `WADdleUITests`.
+
+**`WADdleUITests/RealWADTests` never runs in CI**, under either workflow.
+`ui-tests.yml` passes `-skip-testing:WADdleUITests/RealWADTests`
+unconditionally, so even an explicit `only_testing` dispatch cannot pull it
+back in: it needs the non-redistributable WADs in `~/Downloads/doom-test-wads/`,
+which no runner has and this repository will never ship. See
+[Real-WAD test matrix](#real-wad-test-matrix) for what those tests cover and
+how to provision the WADs locally.
+
+**Stale-engine guard.** `Scripts/check-engine-fresh.sh` refuses a
+`WoofEngine.xcframework` that does not match the sources that should have
+produced it. It compares content, not modification times — the older
+`find -newer` behaviour fired on any fresh worktree checkout or restored cache
+and demanded a ~25-minute rebuild that changed nothing, so treat any
+description of it as an mtime check as out of date. `Scripts/archive.sh` calls
+it on the release path; CI runs its tests
+(`Scripts/test-check-engine-fresh.sh`) rather than the guard itself, because a
+framework restored from cache carries its fingerprint stamp inside the same
+cache entry and would pass trivially. It is a staleness guard, not an
+integrity guard.
+
+TestFlight builds run from a third workflow, `testflight.yml` — see
+[Building](#building) above.
 
 ## WAD library
 
