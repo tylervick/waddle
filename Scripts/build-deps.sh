@@ -10,9 +10,41 @@ SRC="$ROOT/Vendor/src"
 OUT="$ROOT/Vendor/out"
 mkdir -p "$SRC"
 
+# A checkout may be reused only when it is the ROOT of a real work tree whose
+# HEAD is the commit tagged $2. A bare repo, an interrupted clone, a stray
+# directory, and a checkout left at some other tag all read as false, so each
+# gets replaced rather than silently built.
+#
+# Compare COMMITS, not `git describe --exact-match`: several tags can point at
+# one commit, and describe would then report a name other than the one asked
+# for. The requested tag is usually absent outright from a clone made at the
+# previous pin (`--depth 1 --branch` fetches only that one tag), which is the
+# ordinary bumped-pin case and is handled by the same rev-parse failing.
+at_pin() { # dir tag
+    local dir="$1" tag="$2" top head want
+    [ "$(git -C "$dir" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] || return 1
+    # --is-inside-work-tree is not sufficient on its own: Vendor/src lives
+    # inside this repo's own work tree, so a plain `mkdir Vendor/src/SDL`
+    # answers "true" and then reports WADdle's HEAD. Require the work tree's
+    # root to be $dir itself. `pwd -P` matches the physical path git prints.
+    top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || return 1
+    [ "$top" = "$(cd "$dir" && pwd -P)" ] || return 1
+    head="$(git -C "$dir" rev-parse HEAD 2>/dev/null)" || return 1
+    want="$(git -C "$dir" rev-parse --verify --quiet "refs/tags/$tag^{commit}")" || return 1
+    [ "$head" = "$want" ]
+}
+
+# Guarding the clone on directory existence alone let a bumped SDL_TAG or
+# OPENAL_TAG rebuild the OLD sources on any machine that had built once --
+# no error, no warning, and a framework that did not match the pin.
 fetch() { # dir url tag
-    if [ ! -d "$SRC/$1" ]; then
-        git clone --depth 1 --branch "$3" "$2" "$SRC/$1"
+    local dir="$SRC/$1"
+    if [ -e "$dir" ] && ! at_pin "$dir" "$3"; then
+        echo "$1: checkout is not at $3 -- replacing it"
+        rm -rf "$dir"
+    fi
+    if [ ! -d "$dir" ]; then
+        git clone --depth 1 --branch "$3" "$2" "$dir"
     fi
 }
 fetch SDL https://github.com/libsdl-org/SDL.git "$SDL_TAG"
