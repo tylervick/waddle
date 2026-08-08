@@ -314,4 +314,43 @@ echo "$out" | grep -q "1 CodeRabbit" \
     && fail "coderabbit_findings_first: unavailable's PR was live-queried -- the stub's ready Major finding leaked into the total; got: $out"
 pass "routes coderabbit_findings_first: unavailable to the unavailable line, excluded from the total, never live-queried"
 
+# 15. A record with `ci_result: timeout` but a REAL numeric
+#    `coderabbit_findings_first` -- the shape 4.1's cap-exceeded paragraph now
+#    produces when a real CodeRabbit review landed before the cap but CI
+#    never concluded within it: the leading signal was genuinely captured via
+#    4.2's snapshot even though CI itself timed out. This must be counted
+#    normally in the findings total -- the case statement keys off
+#    `coderabbit_findings_first` alone, never `ci_result`, so a real count
+#    must never be excluded, treated as unavailable, or treated as legacy
+#    just because CI happened to time out on that same trial.
+make_fixture "$TMP/n"
+cat > "$TMP/n/trials/2026-08-07T120000Z-issue-51.md" <<'EOF'
+---
+run_id: r-51
+timestamp: 2026-08-07T12:00:00Z
+prompt_sha: cafefeed
+issue: 51
+kind: bug
+size: size:xs
+outcome: pr-opened
+wall_clock_seconds: 900
+verification_result: pass
+ci_result: timeout
+coderabbit_findings_first: 2
+coderabbit_findings_after: none
+fix_rounds: 0
+pr: 60
+learning_added: none
+---
+prose
+EOF
+out="$(report "$TMP/n" 2>&1)" || fail "report failed on ci_result: timeout with a real findings count; got: $out"
+echo "$out" | grep -q "2 CodeRabbit" \
+    || fail "a real coderabbit_findings_first must be counted even when ci_result: timeout; got: $out"
+echo "$out" | grep -qi "unavailable" \
+    && fail "a real numeric coderabbit_findings_first must not be reported as unavailable just because ci_result: timeout; got: $out"
+echo "$out" | grep -qi "legacy" \
+    && fail "a real numeric coderabbit_findings_first must not be reported as legacy; got: $out"
+pass "counts a real coderabbit_findings_first even when ci_result: timeout (review landed, CI did not conclude)"
+
 echo "All loop-report tests passed."

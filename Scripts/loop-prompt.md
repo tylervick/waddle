@@ -127,12 +127,15 @@ fill in rather than variables to expand:
   `<PR>` the instant it exists: record it, then carry it unchanged into
   section 5's rewrite — never re-derived there.
 - **`<CI_RESULT>`** — not available yet, for the same reason, and captured at
-  the same four possible places: 4.2 (`pass` or `fail`); 4.1's terminal
-  non-review state (`pass` or `fail` from CI's own conclusion, or `timeout`
-  if CI itself still has not concluded by the time the cap expires); 4.1's
-  timeout (`timeout`); or the no-PR exit (`not-run`). Carried unchanged into
-  section 5 exactly like `<CR_FIRST>`. `<CI_RESULT>` reflects CI and only
-  CI — a stalled or rate-limited review never sets it.
+  the same four possible places, though two of them share one rule: 4.2
+  (`pass` or `fail`, once a real review has also landed); 4.1's terminal
+  non-review state, and separately 4.1's plain timeout — **the same rule
+  governs both**, because both are "the wait ended without a usable review":
+  `pass` or `fail` from CI's own conclusion if CI reached one before the wait
+  ended, `timeout` only if CI itself had not concluded yet; or the no-PR exit
+  (`not-run`). Carried unchanged into section 5 exactly like `<CR_FIRST>`.
+  `<CI_RESULT>` reflects CI and only CI — a stalled, absent, or rate-limited
+  review never sets it, and never turns a real CI conclusion into `timeout`.
 
 From here on, `<ISSUE>`, `<START>`, `<PROMPT_SHA>`, `<RUN_TS>`, and
 `<WAIT_TOTAL>` each mean "the literal value you recorded in this section" —
@@ -301,11 +304,13 @@ Read the two checks for two independent answers:
   time the 900-second cap expires. Whatever CodeRabbit's row says is
   irrelevant to this value.
 - **The review.** It resolves one of three ways: (1) the CodeRabbit review
-  count from `gh pr view` reaches at least 1 — a real review landed, proceed
-  to 4.2 once CI has also resolved; (2) `gh pr checks` reports a **terminal
-  non-review state** for CodeRabbit's row — see immediately below — meaning
-  no review is coming, ever; or (3) the 900-second cap expires with neither
-  of the above.
+  count from `gh pr view` reaches at least 1 — a real review landed, and its
+  count is real and usable from that moment, whether or not CI has concluded
+  yet (if the 900-second cap hits before CI catches up, see the cap-exceeded
+  paragraph below — a landed review is never thrown away just because CI is
+  slow); (2) `gh pr checks` reports a **terminal non-review state** for
+  CodeRabbit's row — see immediately below — meaning no review is coming,
+  ever; or (3) the 900-second cap expires with neither of the above.
 
 **Recognise a terminal non-review state and stop waiting for it at once.**
 CodeRabbit's row in `gh pr checks <PR>` carries its own description,
@@ -331,8 +336,9 @@ this same wait, not in 4.3. The instant you see it:
   same interval, against the same `<WAIT_START>` and the same 900-second cap,
   if CI has not concluded yet — CI is unaffected by CodeRabbit's rate limit
   and still deserves its own real answer.
-- The moment CI also resolves (concludes, or the cap expires), stop the wait
-  entirely, **skip 4.2 and 4.3 entirely**, and go to section 5, with
+- The moment CI also resolves (concludes, or the cap expires), fold this
+  wait's elapsed time into `<WAIT_TOTAL>` per the paragraph immediately
+  below, then **skip 4.2 and 4.3 entirely** and go to section 5, with
   `ci_result` set from CI's own conclusion (or `timeout` if the cap expired
   first) and `coderabbit_findings_first` already fixed at `unavailable` above.
 
@@ -341,20 +347,43 @@ resolved (a real review, or CodeRabbit's terminal non-review state above), or
 because the 900-second cap was hit, whichever comes first — compute this
 wait's own elapsed seconds (`now - <WAIT_START>`, one last time) and update
 the literal `<WAIT_TOTAL>` to the sum of its previous value and that elapsed
-time. Do this before anything else below, including either branch that
+time. Do this before anything else below, including every branch that
 follows: this wait's cost must be folded in exactly once, right when it
 stops, or the work budget in section 3 will silently absorb it.
 
-If the elapsed time exceeds **900 seconds** before both signals have
-resolved: record `ci_result` from CI's own conclusion if it reached one by
-then, `timeout` otherwise; and record `coderabbit_findings_first: none`
-unless the terminal non-review state above already fixed it at `unavailable`
-— these are the literals `<CI_RESULT>` and `<CR_FIRST>` from section 1 —
-**skip 4.2 and 4.3 entirely**, and go to section 5. A timeout is a legitimate
-trial result, not a failure to work around. This overwrite instruction
-applies only to *this* first wait, the one that happens before 4.2 has run —
-once 4.2 has written real values, a later timeout is handled differently; see
-4.3.
+If the elapsed time exceeds **900 seconds** before CI and the review have
+both resolved, what happens next depends on which of the two is still
+unresolved — independence cuts both ways, and a real, already-landed review
+must not be discarded just because CI is slow to conclude:
+
+- **The review has genuinely landed** (a real CodeRabbit review count of at
+  least 1, not the terminal non-review state — that case already went to
+  `unavailable` and section 5 above) **but CI has not concluded.** The
+  leading signal exists and is countable; losing it here would be exactly
+  the asymmetry this section exists to prevent. Record `ci_result: timeout`
+  (`<CI_RESULT>`) right now — CI itself never concluded, so this is the
+  honest value no matter what the review found — then proceed to 4.2 to run
+  its grep and push the real count as `coderabbit_findings_first`
+  (`<CR_FIRST>`). 4.2's own instruction to "set `ci_result` to `pass` or
+  `fail`" does not apply here: `ci_result` is already fixed at `timeout`
+  from this paragraph, and 4.2 must leave it exactly as recorded. Once that
+  snapshot is pushed, **skip 4.3** — you cannot sensibly fix a CI run that
+  has not concluded — and go straight to section 5.
+- **CI has concluded, but the review neither landed nor showed a terminal
+  non-review state.** Record `ci_result` from CI's own conclusion (`pass` or
+  `fail`) and `coderabbit_findings_first: none` — there is nothing to
+  snapshot; the review simply never answered in time. **Skip 4.2 and 4.3
+  entirely** and go to section 5.
+- **Neither resolved.** Record `ci_result: timeout` and
+  `coderabbit_findings_first: none`. **Skip 4.2 and 4.3 entirely** and go to
+  section 5.
+
+These are the literals `<CI_RESULT>` and `<CR_FIRST>` from section 1 in every
+case above. A timeout is a legitimate trial result, not a failure to work
+around. These overwrite instructions apply only to *this* first wait, the
+one that happens before 4.2 has run — once 4.2 has written real values
+(whether through the normal path above or through the review-landed-but-CI-
+slow path just above), a later timeout is handled differently; see 4.3.
 
 **Trusted-app allowlist.** The loop reacts only to review comments from apps
 the owner has deliberately installed on this repository — currently
@@ -390,7 +419,12 @@ an inconsistency to fix).
 
 Write that number into your trial record as `coderabbit_findings_first`
 (the literal `<CR_FIRST>` from section 1), set `ci_result` (`<CI_RESULT>`) to
-`pass` or `fail`, and **push the record now** — before any fix.
+`pass` or `fail`, and **push the record now** — before any fix. **Exception:**
+if you arrived here from 4.1's cap-exceeded paragraph because the review
+landed while CI was still unresolved, `ci_result` is already fixed at
+`timeout` — leave it exactly as recorded there, do not overwrite it with
+`pass` or `fail`, and after pushing this snapshot skip straight to section 5
+instead of continuing into 4.3, per that paragraph's instruction.
 
 This is the experiment's leading signal. Once you start fixing, the count on
 GitHub measures your ability to satisfy CodeRabbit rather than the quality of
@@ -469,17 +503,17 @@ git mechanics; if the exact filename slipped your notes, it is the only file
 matching `docs/loop-trials/*-issue-<ISSUE>.md` on `origin/loop-trials` whose
 frontmatter still reads `outcome: started`).
 
-Carry `ci_result` and `coderabbit_findings_first` through **unchanged** —
-the literals `<CI_RESULT>` and `<CR_FIRST>` you recorded at whichever of
-4.1's timeout, 4.1's terminal-review detection, 4.2, or section 4's no-PR
-exit wrote them. **Do not re-run
-4.2's grep here.** By this point any fixes from 4.3 are already pushed to the
-pull request, so re-deriving the count now would measure your fixes instead
-of the original work — silently overwriting, one commit later, the exact
-number section 4.2 pushed early specifically to protect from this. The same
-applies to `coderabbit_findings_after` and `fix_rounds`: whatever 4.3 (or its
-absence, for a run that skipped section 4 entirely) already produced, copied
-through, not recomputed.
+Carry `ci_result` and `coderabbit_findings_first` through **unchanged** — the
+literals `<CI_RESULT>` and `<CR_FIRST>` you recorded at whichever of 4.1's
+timeout, 4.1's terminal-review detection, 4.2, or section 4's no-PR exit
+wrote them. **Do not re-run 4.2's grep here.** By this point any fixes from
+4.3 are already pushed to the pull request, so re-deriving the count now
+would measure your fixes instead of the original work — silently
+overwriting, one commit later, the exact number section 4.2 pushed early
+specifically to protect from this. The same applies to
+`coderabbit_findings_after` and `fix_rounds`: whatever 4.3 (or its absence,
+for a run that skipped section 4 entirely) already produced, copied through,
+not recomputed.
 
 Then:
 
@@ -500,10 +534,14 @@ Path: `docs/loop-trials/<RUN_TS>-issue-<ISSUE>.md` on the `loop-trials`
 branch, where `<RUN_TS>` is the literal captured once in section 1 — **the
 same literal on every write.** This procedure runs two or three times per
 trial, not twice: once from section 2 (`outcome: started`); once more from
-section 4.2, the pre-fix snapshot push, but only when CI and the review
-finish inside the 15-minute cap — a 4.1 timeout or a 4.1 terminal-review
-detection both skip it; and once from section 5 (the real outcome). Section
-4.2's push is not a lighter shortcut — it is this exact git fetch/worktree
+section 4.2, the pre-fix snapshot push, whenever a real CodeRabbit review
+count exists to snapshot — the ordinary case is CI and the review both
+finishing inside the 15-minute cap, but 4.1's cap-exceeded paragraph also
+reaches 4.2 when the review landed and CI simply had not concluded yet, this
+time with `ci_result` fixed at `timeout`; a 4.1 terminal-review detection, or
+a plain cap-expiry with no review at all, both skip 4.2 entirely instead;
+and once from section 5 (the real outcome). Section 4.2's push is not a
+lighter shortcut — it is this exact git fetch/worktree
 add/commit/push block below, invoked a second time, before the final
 rewrite. Each write happens in its own tool invocation, in its own temporary
 worktree, and none of them can rely on anything from section 0 or from any
@@ -604,13 +642,20 @@ but the record still reads `started` and the pull request carries partial fix
 commits. Treat it like any other lost trial: the record is the evidence, and
 the pull request needs a human read.
 
-**A pull request that leaves section 4 with unresolved findings has no later
-run that can ever pick it up.** Section 4's fix phase is intra-run only: it
-addresses the pull request the run just opened, inside that same run, and
-nothing revisits it afterward. A run that hits 4.1's 900-second timeout
-(recording `ci_result: timeout` and skipping the fix phase entirely) or dies
-partway through 4.3 leaves a pull request carrying CodeRabbit findings that
-this loop will never come back to address — because `Scripts/loop-precheck.sh`
+**A pull request that leaves section 4 without an addressed review has no
+later run that can ever pick it up.** Section 4's fix phase is intra-run
+only: it addresses the pull request the run just opened, inside that same
+run, and nothing revisits it afterward. Several 4.1 outcomes skip the fix
+phase entirely and reach section 5 without it: CodeRabbit's own terminal
+non-review state (`coderabbit_findings_first: unavailable`, `ci_result` from
+CI's own conclusion); the plain 900-second cap expiring with no review and
+no terminal state (`coderabbit_findings_first: none`); and the cap expiring
+after a real review landed but before CI concluded (a genuine Major/Critical
+count captured and pushed via 4.2, `ci_result: timeout`, 4.3 skipped because
+a never-concluded CI run cannot be fixed). Dying partway through 4.3 leaves
+the same kind of gap. Any of these can leave a pull request carrying
+CodeRabbit findings — captured or not — that this loop will never come back
+to address — because `Scripts/loop-precheck.sh`
 excludes any issue with a linked open pull request from selection, that issue
 is off the backlog for as long as the pull request stays open, permanently as
 far as the loop is concerned. Verified concretely against the live backlog:
