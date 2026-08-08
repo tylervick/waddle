@@ -102,9 +102,48 @@ Four tracked artifacts and one Orca object.
    pushes, and opens a pull request declaring `Closes #N`. If it hit a trap worth
    recording, it adds a `docs/learnings/` file and its index line in the same
    pull request.
-6. **The agent rewrites its trial record** with the real outcome and pushes again.
-7. **Cleanup.** The claim label is removed. On failure, `agent:stuck` is applied
+6. **The agent waits for CI and CodeRabbit**, capped at 15 minutes. That cap is
+   separate from the 45-minute work budget — a run must never block indefinitely
+   on a service it does not control. If either has not finished by then, the
+   agent records `ci_result: timeout`, skips step 7 entirely, and goes to step 8.
+7. **The agent snapshots the review, then responds to it.** In that order, and
+   the order is the whole point:
+   1. Record `coderabbit_findings_first` — the Major/Critical count **before any
+      fix is attempted** — and push that record immediately. This is the leading
+      signal; once the agent starts fixing, the live count on GitHub no longer
+      measures anything.
+   2. Fix a red CI. A failing build is not a matter of opinion; the work is
+      objectively incomplete.
+   3. Address the Major/Critical CodeRabbit findings, within whatever remains of
+      the 45-minute work budget and **at most three fix rounds**. A fourth round
+      means the disagreement is not one the agent is going to resolve
+      unattended, and grinding at it converts a useful trial into a timeout.
+      Minor and Nitpick findings are recorded, never acted on. A finding the
+      agent believes is wrong gets a reply on the pull request and no code
+      change — changing correct code to clear a comment is the failure this
+      rule exists to prevent.
+8. **The agent rewrites its trial record** with the real outcome and pushes again.
+9. **Cleanup.** The claim label is removed. On failure, `agent:stuck` is applied
    and a comment left on the issue stating what was tried and where it stopped.
+
+### Why the snapshot must precede the fixes
+
+The leading signal is "CodeRabbit Major/Critical findings on the run's pull
+request". If the agent fixes those findings before the count is recorded, the
+metric reads zero on every trial forever — and what it would then be measuring
+is the agent's ability to satisfy CodeRabbit, not the quality of what it
+produced. Snapshotting first keeps the measurement intact while still getting
+the iteration.
+
+The consequence is not confined to the protocol: `Scripts/loop-report.sh` must
+read `coderabbit_findings_first` **from the record** rather than querying GitHub
+at report time, because a live query now returns post-fix counts. A report that
+kept querying live would silently report zero findings for every run and look
+entirely healthy doing it.
+
+The snapshot is pushed as its own record write, before any fix. A run that dies
+mid-fix therefore still leaves the measurement behind — the same two-phase logic
+that already protects the `started` marker.
 
 ### Why one agent, and how failures are still recorded
 
@@ -192,6 +231,10 @@ These hold without the agent's cooperation:
 - A wall-clock budget the agent checks itself. Orca's `--timeout-ms` is accepted
   but does not fire (spike, step 3), so this rail is instructed, not structural —
   a hung run is caught after the fact by its record still reading `started`.
+- A **separate 15-minute cap on waiting for CI and CodeRabbit**, which does not
+  draw on the 45-minute work budget. The two are capped separately on purpose: a
+  slow service must not consume the time the agent needs to do its job, and an
+  unresponsive one must never park a run indefinitely.
 - Three runs per day as the burn ceiling.
 - A dedicated signing identity, so `git log --author` separates loop commits
   from the owner's for free.
@@ -226,6 +269,34 @@ stale, clears it, and records that it did.
 Liveness is determined by the label, never by the presence of a worktree. A
 worktree left behind for inspection must not be mistaken for a running job.
 
+### Sweeping abandoned worktrees
+
+`orca automations remove` does not delete the per-run worktrees Orca creates, and
+neither can a run delete its own — the agent is executing inside it. At three
+runs a day these accumulate.
+
+The precheck therefore sweeps them at the **start** of a run, next to the
+stale-claim sweep but on its **own, higher** threshold: `STALE_WORKTREE_SECONDS`
+(4h) rather than the stale-claim sweep's `STALE_CLAIM_SECONDS` (2h). Any
+`auto-waddle-loop-*` worktree older than that is removed, and every removal is
+logged. Start-of-run is the only workable moment. A run that crashes cannot
+clean up by definition, so end-of-run cleanup only ever fires in the case where
+there was nothing to clean. Sweeping cannot strand a pull request: the loop
+pushes its branch to `origin` long before any worktree is old enough to
+qualify.
+
+The two thresholds are deliberately different, not shared. Section 4 (waiting
+on CI and CodeRabbit, then fixing across up to three rounds) roughly doubled
+how long a live run can take — 45 minutes of work, plus up to 15 minutes
+waiting on CI/CodeRabbit, plus up to three rounds at up to 900 seconds each,
+a worst case of about 105 minutes. The worktree sweep, unlike the stale-claim
+sweep, has no independent signal of liveness: a worktree's name encodes only
+its run's *start* time, so worktree age is run age, full stop. A threshold that
+merely cleared the old 45-minute work budget would risk `orca worktree rm`-ing
+a still-running agent's own worktree out from under it. `STALE_WORKTREE_SECONDS`
+is set well above the ~105-minute worst case instead, with real margin rather
+than a bare majority.
+
 ## Instrumentation
 
 ### The trial record
@@ -240,6 +311,10 @@ worktree left behind for inspection must not be mistaken for a running job.
 | Verification command, result | The issue's own command, run unmodified |
 | Pull request number | If one was opened |
 | Learnings file added | If any |
+| `ci_result` | `pass`, `fail`, `timeout`, or `not-run` — CI on the run's own pull request |
+| **`coderabbit_findings_first`** | Major/Critical count **before any fix**. The leading signal. |
+| `coderabbit_findings_after` | Same count after the fix phase, or `none` if no fixes were attempted |
+| `fix_rounds` | How many CI/review fix passes the agent made |
 
 The prompt version is the independent variable. Without it, a change in success
 rate is unattributable and the experiment answers nothing.
@@ -254,14 +329,18 @@ timeout — a hung run presents as `started`, which is the honest description.
 **Leading** — arrives within minutes, graded, automatable, and what the prompt
 is tuned against:
 
-- Count of CodeRabbit findings at Major-or-Critical on the run's pull request.
-  CodeRabbit already reviews every pull request in this repository, so this
-  costs nothing to collect. This repository's configuration prefixes every
-  review comment with a `_<category>_ | _<severity>_ | _<effort>_` triple, so
-  the count is `grep -c '🟠 Major\|🔴 Critical'` over
+- **`coderabbit_findings_first`** — the Major/Critical count on the run's pull
+  request, snapshotted **before the agent fixes anything**. This repository's
+  CodeRabbit prefixes every review comment with a
+  `_<category>_ | _<severity>_ | _<effort>_` triple, so the agent computes it as
+  `grep -c '🟠 Major\|🔴 Critical'` over
   `gh api repos/{owner}/{repo}/pulls/<N>/comments --jq '.[].body'`. A plain count
   of all review comments is the fallback if that format ever changes.
+  **The report must read this field from the record, never query GitHub live** —
+  since the agent now fixes findings, a live query returns post-fix counts and
+  would report zero for every run while appearing perfectly healthy.
 - Whether the issue's own stated verification passed **unmodified**.
+- `ci_result` on the run's own pull request.
 
 **Lagging** — slow, authoritative, low volume, and not used for tuning: a pull
 request merged without requiring changes. Its job is to check that the leading
@@ -280,20 +359,30 @@ signal alone caught that.
 
 ### The report
 
-`Scripts/loop-report.sh` walks the trial records, queries each pull request's
-current state via `gh`, and prints exactly this: total trial count and an
-outcome breakdown; per prompt version, the trial count, PRs merged without
-requiring changes, and CodeRabbit Major/Critical findings across those PRs;
-the lost-trial list (records still reading `started`); and the stuck pile. It
-is the artifact the experiment exists to produce.
+`Scripts/loop-report.sh` walks the trial records and prints exactly this: total
+trial count and an outcome breakdown; per prompt version, the trial count, PRs
+merged without requiring changes, and the CodeRabbit Major/Critical total; the
+lost-trial list (records still reading `started`); and the stuck pile. It is the
+artifact the experiment exists to produce.
 
-Every trial record also carries `verification_result`, `size`, `kind`, and
-`wall_clock_seconds` (see the instrumentation table above). Those fields are
-captured for later analysis; the report does not currently segment by `size`
-or `kind`, nor does it compute a median wall clock or read
-`verification_result` at all. That is a known gap between the ambition of this
-section and what is implemented, called out here rather than left for the
-report and this document to quietly disagree.
+**It reads `coderabbit_findings_first` from each record. It must not query
+GitHub for that count.** The agent now fixes Major/Critical findings before the
+run ends, so a live query returns post-fix numbers — the report would print zero
+findings for every trial and give no outward sign anything was wrong. The live
+query survives only as a fallback for records written before this field existed;
+those records are identifiable by its absence and should be reported as such
+rather than silently scored as zero. Merge state is still queried live, because
+that genuinely changes after the run and no snapshot could capture it.
+
+Every trial record also carries `verification_result`, `size`, `kind`,
+`wall_clock_seconds`, `ci_result`, `coderabbit_findings_after`, and
+`fix_rounds` (see the instrumentation table above). Those fields are captured
+for later analysis; the report does not currently segment by `size` or `kind`,
+nor does it compute a median wall clock, or read `verification_result`,
+`ci_result`, or `fix_rounds` at all. `coderabbit_findings_after` in particular
+is written by the protocol and read by nothing. That is a known gap between
+the ambition of this section and what is implemented, called out here rather
+than left for the report and this document to quietly disagree.
 
 ## Risks
 
@@ -332,6 +421,20 @@ debugging) may mutate labels. It logs every sweep to stderr for that reason.
 per-run git worktree and branch it created under `new-per-run`. The spike found
 and cleaned two orphans by hand. Left unattended these accumulate at three per
 day, so cleanup is explicit rather than assumed.
+
+**A pull request left mid-review by section 4 has no path back into the
+loop.** The wait-snapshot-fix phase (`Scripts/loop-prompt.md`, section 4) acts
+only on the pull request the run that opened it is still executing inside. A
+run that times out waiting on CI/CodeRabbit (4.1's 900-second cap) or dies
+during the fix phase (4.3) leaves that pull request exactly where CodeRabbit
+left it, findings and all — and no later run can resume the work, because the
+precheck excludes any issue with a linked open pull request from selection
+(see "Claiming, and its failure mode" above). That issue stays off the backlog
+for as long as the pull request stays open. Verified concretely against the
+live backlog: PR #55, open and declaring `Closes #13`, causes the precheck to
+select issue #15 instead of #13, even though #13 would otherwise win the
+size/number tie-break. Such a pull request depends entirely on the owner from
+that point forward; closing it unmerged is what returns its issue to the pool.
 
 **Prompt regressions** show as a step change in the report, because every record
 carries the prompt SHA. This is the reason the SHA is recorded rather than a

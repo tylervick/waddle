@@ -33,7 +33,15 @@
 # sweep is logged to stderr.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-STALE_CLAIM_SECONDS=7200   # 2h; comfortably past the 45m wall-clock budget
+# 2h; comfortably past the ~105m worst-case run (45m work budget + 15m
+# CI/review wait + up to 3 x 900s fix rounds).
+STALE_CLAIM_SECONDS=7200
+# 4h; well above that same ~105m ceiling, and deliberately its own constant
+# rather than reusing STALE_CLAIM_SECONDS: this sweep can only see a
+# worktree's start time, never whether the run inside it is still live, so its
+# threshold must clear the worst case with real margin, not merely exceed the
+# common case.
+STALE_WORKTREE_SECONDS=14400
 CLAIM_LABEL="agent:in-progress"
 
 # LOOP_NOW lets the self-test pin "now". Unset in production.
@@ -48,13 +56,95 @@ if ! "$ROOT/Scripts/check-engine-fresh.sh" >/dev/null 2>&1; then
     skip "root checkout's engine is stale; every worktree would inherit it and rebuild"
 fi
 
-# 2. Fetch the world in two calls, then decide locally.
+# 2. Sweep abandoned per-run worktrees.
+#
+# `orca automations remove` does not delete the worktrees Orca creates per run,
+# and a run cannot delete the one it is executing inside. At three runs a day
+# they accumulate indefinitely.
+#
+# Start of run is the only workable moment. A run that crashes cannot clean up
+# after itself by definition, so end-of-run cleanup would only ever fire in the
+# case where there is nothing to clean.
+#
+# This sweep uses its own STALE_WORKTREE_SECONDS threshold, not
+# STALE_CLAIM_SECONDS -- and deliberately a much larger one. Unlike the
+# stale-claim sweep above, this one can only see a worktree's start-time-encoded
+# name; it has no way to ask whether the run inside it is still alive. A
+# threshold merely past the work budget would risk `orca worktree rm`-ing a
+# live run's own worktree out from under it while section 4 (waiting on CI and
+# CodeRabbit, then up to three fix rounds) is still in progress.
+#
+# Age comes from the timestamp Orca puts in the worktree name
+# (auto-waddle-loop-run-<n>-<YYYYMMDDTHHMM>) rather than filesystem mtime, so it
+# is deterministic and testable. If that convention ever changes the name will
+# stop parsing, and this reports it loudly rather than quietly sweeping nothing.
+#
+# Removing a swept worktree cannot strand a pull request: the loop pushes its
+# branch to origin long before any worktree is old enough to qualify.
+#
+# The trailing `|| true` is load-bearing, not decoration. `grep` exits 1 when
+# nothing matches, and under this script's `set -euo pipefail` that failure
+# (or a `while` loop whose body never runs, which itself exits non-zero at
+# EOF) would otherwise abort the whole precheck before it ever reaches `gh
+# issue list` -- silently, with no `skip:` reason, on the ordinary day when
+# there is nothing to sweep. A failed `orca worktree list` collapses to the
+# same "no matches" shape and must not abort the run either: the sweep is
+# hygiene, and hygiene failing must never stop the run from doing its actual
+# job.
+if command -v orca >/dev/null 2>&1; then
+    orca worktree list 2>/dev/null | awk '{print $3}' | grep '/auto-waddle-loop-' \
+    | while read -r wt_path; do
+        base="$(basename "$wt_path")"
+        stamp="${base##*-}"
+        case "$stamp" in
+            [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9]) ;;
+            *)
+                echo "worktree sweep: cannot parse a timestamp from '$base'; skipping it" >&2
+                continue ;;
+        esac
+        d="${stamp%T*}"; t="${stamp#*T}"
+        wt_iso="${d:0:4}-${d:4:2}-${d:6:2}T${t:0:2}:${t:2:2}:00Z"
+        wt_epoch="$(to_epoch "$wt_iso")"
+        # A shape-valid but CALENDAR-INVALID stamp (e.g. Feb 30th) must not be
+        # scored as an age. `to_epoch` echoes 0 when `date -j -f` outright
+        # rejects its input, but that is not the only failure shape: on this
+        # platform's `date`, an out-of-range day within an in-range month
+        # (Feb 30, or day 31 of a 30-day month) does not get rejected at all
+        # -- `mktime` silently normalizes it ("2026-02-30" becomes
+        # "2026-03-02") and returns success. A bare `wt_epoch = 0` check would
+        # miss that second shape entirely, and a normalized-but-wrong date can
+        # land anywhere -- including, as here, far enough in the past to read
+        # as a plausible stale worktree and get swept. Round-tripping the
+        # epoch back through the same format catches both shapes uniformly: a
+        # genuinely valid stamp always reformats back to itself, so any
+        # mismatch -- whether from the 0 fallback or from silent
+        # normalization -- means the input was never a real calendar date.
+        # Fail closed exactly like the "no labeling event" guard above: a
+        # timestamp the code cannot trust is UNKNOWN age, never ancient age,
+        # and unknown age must never sweep.
+        roundtrip="$(date -u -r "$wt_epoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo '')"
+        if [ "$roundtrip" != "$wt_iso" ]; then
+            echo "worktree sweep: '$base' decodes to a calendar-invalid date ('$wt_iso'); skipping it" >&2
+            continue
+        fi
+        wt_age=$(( NOW_EPOCH - wt_epoch ))
+        if [ "$wt_age" -ge "$STALE_WORKTREE_SECONDS" ]; then
+            if orca worktree rm --worktree "path:$wt_path" >/dev/null 2>&1; then
+                echo "swept abandoned worktree $base (${wt_age}s old)" >&2
+            else
+                echo "worktree sweep: could not remove '$base'" >&2
+            fi
+        fi
+    done || true
+fi
+
+# 3. Fetch the world in two calls, then decide locally.
 issues="$(gh issue list --label agent:eligible --state open --limit 1000 \
             --json number,labels 2>/dev/null)" || skip "gh issue list failed"
 open_prs="$(gh pr list --state open --limit 1000 --json number,body 2>/dev/null)" \
     || skip "gh pr list failed"
 
-# 3. Liveness + stale sweep.
+# 4. Liveness + stale sweep.
 claimed="$(printf '%s' "$issues" | python3 -c 'import json,sys
 for i in json.load(sys.stdin):
     if any(l["name"]=="agent:in-progress" for l in i["labels"]): print(i["number"])')"
@@ -105,7 +195,7 @@ print(hits[-1] if hits else "")')" || skip "gh api timeline failed for #$n"
     swept="$swept $n"
 done
 
-# 4. Select. SWEPT carries the numbers just cleared above -- `issues` is a
+# 5. Select. SWEPT carries the numbers just cleared above -- `issues` is a
 # snapshot fetched before the sweep, so without this an issue swept this run
 # would still show its now-removed agent:in-progress label and get excluded
 # by the very filter meant to let it back in.
