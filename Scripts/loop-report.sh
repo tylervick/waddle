@@ -112,11 +112,13 @@ if [ "${#rows[@]}" -gt 0 ]; then
                     # `none` from a 4.1 CI/review timeout never had a fix attempt
                     # at all, so its live count is neither pre- nor post-fix, just
                     # whatever has landed on GitHub since. Either way, filter to
-                    # CodeRabbit's own comments -- this is a public repo, and an
-                    # unfiltered query would count any author's comment text.
+                    # the trusted-app allowlist (Scripts/loop-prompt.md, section
+                    # 4's intro) -- this is a public repo, and an unfiltered
+                    # query would count any author's comment text, including a
+                    # human contributor's or the owner's own.
                     legacy=$((legacy + 1))
                     c="$(gh api "repos/{owner}/{repo}/pulls/$pr/comments" --paginate \
-                          --jq '.[] | select(.user.login=="coderabbitai[bot]") | .body' 2>/dev/null \
+                          --jq '.[] | select(.user.login as $l | ["coderabbitai[bot]","renovate[bot]"] | index($l)) | .body' 2>/dev/null \
                           | grep -c -E "$MARKERS" || true)"
                     findings=$((findings + c))
                     ;;
