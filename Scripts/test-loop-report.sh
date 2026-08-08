@@ -158,4 +158,70 @@ echo "$out" | grep -qi "legacy\|no recorded snapshot" \
     || fail "legacy record was scored without any warning; got: $out"
 pass "flags records that predate the snapshot field"
 
+# 11. `coderabbit_findings_first: none` is the value the protocol actually
+#    instructs the agent to write on a CI/review timeout (Scripts/loop-prompt.md
+#    section 5) -- distinct from the field being absent entirely, which is what
+#    case 10 covers. It must route to the legacy branch (live query + note),
+#    not crash arithmetic on the literal string.
+make_fixture "$TMP/k"
+cat > "$TMP/k/trials/2026-08-07T120000Z-issue-45.md" <<'EOF'
+---
+run_id: r-45
+timestamp: 2026-08-07T12:00:00Z
+prompt_sha: abc123
+issue: 45
+kind: bug
+size: size:xs
+outcome: pr-opened
+wall_clock_seconds: 600
+verification_result: pass
+ci_result: timeout
+coderabbit_findings_first: none
+coderabbit_findings_after: none
+fix_rounds: 0
+pr: 57
+learning_added: none
+---
+prose
+EOF
+out="$(report "$TMP/k" 2>&1)" || fail "report aborted on a literal 'none' snapshot; got: $out"
+echo "$out" | grep -qi "legacy\|no recorded snapshot" \
+    || fail "literal 'none' snapshot was not flagged as legacy; got: $out"
+pass "routes a literal 'none' snapshot to the legacy branch instead of crashing"
+
+# 12. THE REAL DAMAGE. A decorated, non-numeric snapshot value (ordinary model
+#    drift -- the protocol specifies the field freehand as "<integer, or none
+#    if CI/review timed out>" and nothing validates it) must not abort the
+#    whole report under `set -euo pipefail`. The crash itself is not the worst
+#    part: output stops mid-script, so the LOST TRIALS section -- the only
+#    thing that ever surfaces a died-mid-run trial -- never prints, for every
+#    record in the dataset, not just the offending one. This case pairs the bad
+#    value with a `started` record and asserts LOST TRIALS still appears.
+make_fixture "$TMP/l"
+record "$TMP/l" 46 started abc123
+cat > "$TMP/l/trials/2026-08-07T120000Z-issue-47.md" <<'EOF'
+---
+run_id: r-47
+timestamp: 2026-08-07T12:00:00Z
+prompt_sha: abc123
+issue: 47
+kind: bug
+size: size:xs
+outcome: pr-opened
+wall_clock_seconds: 600
+verification_result: pass
+ci_result: timeout
+coderabbit_findings_first: none (CI timed out)
+coderabbit_findings_after: none
+fix_rounds: 0
+pr: 58
+learning_added: none
+---
+prose
+EOF
+out="$(report "$TMP/l" 2>&1)" || fail "a decorated non-numeric snapshot aborted the report; got: $out"
+echo "$out" | grep -qi "lost" \
+    || fail "LOST TRIALS was silenced by an unrelated decorated snapshot value; got: $out"
+pass "a decorated non-numeric snapshot doesn't abort the report or silence LOST TRIALS"
+
 echo "All loop-report tests passed."

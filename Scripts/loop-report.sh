@@ -93,17 +93,29 @@ if [ "${#rows[@]}" -gt 0 ]; then
                 esac ;;
             esac
             crf="$(printf '%s' "$r" | cut -d'|' -f5)"
-            if [ -n "$crf" ] && [ "$crf" != "none" ]; then
-                findings=$((findings + crf))
-            else
-                # Pre-snapshot record. Query live, but say so: since the agent now
-                # fixes findings before a run ends, this number is post-fix and
-                # understates what the run originally produced.
-                legacy=$((legacy + 1))
-                c="$(gh api "repos/{owner}/{repo}/pulls/$pr/comments" --jq '.[].body' 2>/dev/null \
-                      | grep -c -E "$MARKERS" || true)"
-                findings=$((findings + c))
-            fi
+            case "$crf" in
+                ''|*[!0-9]*)
+                    # Missing, `none`, or a non-numeric/decorated value (e.g. "none
+                    # (CI timed out)", "n/a") -- the protocol only ever promises an
+                    # integer or the literal `none`, and nothing validates that an
+                    # agent actually wrote one. $((...)) evaluates the field's
+                    # contents as arithmetic, so anything else here would abort the
+                    # whole report under `set -euo pipefail` -- silencing the
+                    # LOST TRIALS section for every record, not just this one.
+                    # Query live, but say so: since the agent now fixes findings
+                    # before a run ends, this number is post-fix and understates
+                    # what the run originally produced.
+                    legacy=$((legacy + 1))
+                    c="$(gh api "repos/{owner}/{repo}/pulls/$pr/comments" --jq '.[].body' 2>/dev/null \
+                          | grep -c -E "$MARKERS" || true)"
+                    findings=$((findings + c))
+                    ;;
+                *)
+                    # Force base 10: a zero-padded value like "08" would otherwise
+                    # be read as octal (and "08"/"09" would abort as invalid).
+                    findings=$((findings + 10#$crf))
+                    ;;
+            esac
         done
         if [ "$prs" -gt 0 ]; then
             echo "  $sha: $n trials, $merged merged without changes, $findings CodeRabbit Major/Critical across $prs PR(s)"
