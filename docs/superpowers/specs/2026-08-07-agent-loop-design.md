@@ -422,6 +422,20 @@ per-run git worktree and branch it created under `new-per-run`. The spike found
 and cleaned two orphans by hand. Left unattended these accumulate at three per
 day, so cleanup is explicit rather than assumed.
 
+**A pull request left mid-review by section 4 has no path back into the
+loop.** The wait-snapshot-fix phase (`Scripts/loop-prompt.md`, section 4) acts
+only on the pull request the run that opened it is still executing inside. A
+run that times out waiting on CI/CodeRabbit (4.1's 900-second cap) or dies
+during the fix phase (4.3) leaves that pull request exactly where CodeRabbit
+left it, findings and all — and no later run can resume the work, because the
+precheck excludes any issue with a linked open pull request from selection
+(see "Claiming, and its failure mode" above). That issue stays off the backlog
+for as long as the pull request stays open. Verified concretely against the
+live backlog: PR #55, open and declaring `Closes #13`, causes the precheck to
+select issue #15 instead of #13, even though #13 would otherwise win the
+size/number tie-break. Such a pull request depends entirely on the owner from
+that point forward; closing it unmerged is what returns its issue to the pool.
+
 **Prompt regressions** show as a step change in the report, because every record
 carries the prompt SHA. This is the reason the SHA is recorded rather than a
 hand-maintained version string.

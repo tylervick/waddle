@@ -514,7 +514,7 @@ silently report zero findings for every run.
 
 ## Known gaps
 
-Three containment holes exist. None is closed by this document; each is
+Four containment holes exist. None is closed by this document; each is
 acknowledged here so a report that looks strange in exactly these ways is
 read correctly rather than treated as a mystery.
 
@@ -547,6 +547,23 @@ approach indefinitely.
 but the record still reads `started` and the pull request carries partial fix
 commits. Treat it like any other lost trial: the record is the evidence, and
 the pull request needs a human read.
+
+**A pull request that leaves section 4 with unresolved findings has no later
+run that can ever pick it up.** Section 4's fix phase is intra-run only: it
+addresses the pull request the run just opened, inside that same run, and
+nothing revisits it afterward. A run that hits 4.1's 900-second timeout
+(recording `ci_result: timeout` and skipping the fix phase entirely) or dies
+partway through 4.3 leaves a pull request carrying CodeRabbit findings that
+this loop will never come back to address — because `Scripts/loop-precheck.sh`
+excludes any issue with a linked open pull request from selection, that issue
+is off the backlog for as long as the pull request stays open, permanently as
+far as the loop is concerned. Verified concretely against the live backlog:
+with PR #55 open declaring `Closes #13`, the precheck selects issue #15
+instead of #13, even though #13 is the lower `size:xs` issue and would
+otherwise win the tie-break. Such a pull request depends entirely on the
+owner from that point on — merging it despite the outstanding findings,
+pushing a fix by hand, or closing it unmerged, which (per the gap above)
+returns its issue to the pool for a future run to reattempt from scratch.
 
 ## Rules that are absolute
 
