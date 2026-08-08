@@ -29,6 +29,37 @@ esac
 STUB
     chmod +x "$1/bin/gh"
 }
+make_recon_fixture() { # dest
+    # A second stub, purpose-built for the reconciliation tests (16-19).
+    # make_fixture's stub answers every `gh api` call identically regardless
+    # of endpoint, which is fine for the existing tests (none of them assert
+    # anything about a commits query) but useless here: reconciliation reads
+    # TWO different `gh api` endpoints -- pulls/<pr>/commits (authorship) and
+    # pulls/<pr>/comments (the live CodeRabbit query) -- and a test needs to
+    # control each independently and see which ones actually fired. Defaults:
+    # a single agent-authored commit (so a bare fixture is reconciliation-
+    # eligible) and one real Major finding waiting on the comments endpoint
+    # (so "was it live-queried" is directly observable, same trick as
+    # make_fixture's stub for case 14). Tests override commit-emails.txt to
+    # exercise the foreign-author refusal.
+    mkdir -p "$1/trials" "$1/bin"
+    : > "$1/gh-calls.log"
+    printf 'agent-loop@tylervick.com\n' > "$1/commit-emails.txt"
+    cat > "$1/review-body.txt" <<'BODY'
+_🗄️ Data Integrity & Integration_ | _🟠 Major_ | _🏗️ Heavy lift_
+BODY
+    cat > "$1/bin/gh" <<'STUB'
+#!/bin/bash
+FIX="$(dirname "$(dirname "$0")")"
+echo "$*" >> "$FIX/gh-calls.log"
+case "$*" in
+  *"pulls/"*"/commits"*)  cat "$FIX/commit-emails.txt" ;;
+  *"pulls/"*"/comments"*) cat "$FIX/review-body.txt" ;;
+  *) echo '{"state":"MERGED","reviewDecision":""}' ;;
+esac
+STUB
+    chmod +x "$1/bin/gh"
+}
 record() { # dir issue outcome prompt_sha [pr]
     cat > "$1/trials/2026-08-07-issue-$2.md" <<EOF
 ---
@@ -352,5 +383,161 @@ echo "$out" | grep -qi "unavailable" \
 echo "$out" | grep -qi "legacy" \
     && fail "a real numeric coderabbit_findings_first must not be reported as legacy; got: $out"
 pass "counts a real coderabbit_findings_first even when ci_result: timeout (review landed, CI did not conclude)"
+
+# 16. RECONCILIATION: an unusable snapshot (`unavailable`), `fix_rounds: 0`,
+#    and a PR whose only commit is agent-authored together mean a live query
+#    today reads the exact same code the run left behind -- a valid pre-fix
+#    count, not a fabrication. This is PR #59's real shape from the
+#    experiment. Proven two ways: the live-queried Major finding lands in the
+#    total, and the gh-calls log shows both the commits check and the
+#    comments query actually fired.
+make_recon_fixture "$TMP/o"
+cat > "$TMP/o/trials/2026-08-08T000000Z-issue-59.md" <<'EOF'
+---
+run_id: r-59
+timestamp: 2026-08-08T00:00:00Z
+prompt_sha: ce934c6
+issue: 59
+kind: documentation
+size: size:xs
+outcome: pr-opened
+wall_clock_seconds: 568
+verification_result: pass
+ci_result: pass
+coderabbit_findings_first: unavailable
+coderabbit_findings_after: none
+fix_rounds: 0
+pr: 59
+learning_added: none
+---
+prose
+EOF
+out="$(report "$TMP/o" 2>&1)" || fail "report failed on a reconciliation-eligible record; got: $out"
+echo "$out" | grep -qi "reconcil" \
+    || fail "an eligible unavailable/fix_rounds:0/all-agent-commits record was not reported as reconciled; got: $out"
+echo "$out" | grep -q "1 CodeRabbit" \
+    || fail "reconciled record's live-queried Major finding was not added to the findings total; got: $out"
+grep -q "pulls/59/commits" "$TMP/o/gh-calls.log" \
+    || fail "reconciliation did not check commit authorship; calls were: $(cat "$TMP/o/gh-calls.log")"
+grep -q "pulls/59/comments" "$TMP/o/gh-calls.log" \
+    || fail "reconciliation did not live-query CodeRabbit comments; calls were: $(cat "$TMP/o/gh-calls.log")"
+pass "reconciles an unavailable snapshot when fix_rounds is 0 and every commit is agent-authored"
+
+# 17. REFUSED: a foreign-authored commit exists. This is PR #61's exact shape
+#    from the experiment -- `unavailable`, `fix_rounds: 0`, but a human
+#    (tyler@tylervick.com) pushed a commit after the loop's own commit, so a
+#    later CodeRabbit review would be reviewing the human's code, not the
+#    loop's. `fix_rounds: 0` alone is not enough: it only proves the loop
+#    itself stopped pushing, not that nobody else did. Proven the same way as
+#    case 14 -- the commits check fires (it must, to discover the foreign
+#    author), but the comments endpoint must NEVER be reached, so the ready
+#    Major finding in review-body.txt cannot leak into the total.
+make_recon_fixture "$TMP/p"
+printf 'agent-loop@tylervick.com\ntyler@tylervick.com\n' > "$TMP/p/commit-emails.txt"
+cat > "$TMP/p/trials/2026-08-08T000000Z-issue-42.md" <<'EOF'
+---
+run_id: r-42
+timestamp: 2026-08-08T00:00:00Z
+prompt_sha: ce934c6
+issue: 42
+kind: bug
+size: size:xs
+outcome: pr-opened
+wall_clock_seconds: 714
+verification_result: pass
+ci_result: pass
+coderabbit_findings_first: unavailable
+coderabbit_findings_after: none
+fix_rounds: 0
+pr: 61
+learning_added: none
+---
+prose
+EOF
+out="$(report "$TMP/p" 2>&1)" || fail "report failed on a foreign-commit record; got: $out"
+echo "$out" | grep -qi "unavailable" \
+    || fail "a foreign-authored-commit record must stay on the unavailable line; got: $out"
+echo "$out" | grep -qi "not authored by the agent" \
+    || fail "an otherwise-eligible record refused for a foreign commit must say so distinctly; got: $out"
+echo "$out" | grep -q "0 CodeRabbit" \
+    || fail "a foreign-authored-commit record must not contribute to the findings total; got: $out"
+grep -q "pulls/61/commits" "$TMP/p/gh-calls.log" \
+    || fail "authorship must still be checked when the snapshot is unusable and fix_rounds is 0; calls were: $(cat "$TMP/p/gh-calls.log")"
+grep -q "pulls/61/comments" "$TMP/p/gh-calls.log" \
+    && fail "a foreign commit must refuse reconciliation BEFORE live-querying CodeRabbit comments; calls were: $(cat "$TMP/p/gh-calls.log")"
+pass "refuses reconciliation when a commit on the PR is not authored by the agent identity"
+
+# 18. REFUSED: fix_rounds is non-zero. A run that fixed findings touched the
+#    code again, so a review landing later is post-fix, exactly the case the
+#    existing unavailable/legacy split already guards against -- reconciling
+#    here would be the same fabrication the header warns about. This fixture's
+#    commit-emails.txt (via make_recon_fixture's default) is single-author
+#    agent-only, so if the code checked fix_rounds loosely it would reconcile;
+#    it must not. Proven strongly: the commits endpoint must never even be
+#    queried when fix_rounds rules reconciliation out up front.
+make_recon_fixture "$TMP/q"
+cat > "$TMP/q/trials/2026-08-08T000000Z-issue-99.md" <<'EOF'
+---
+run_id: r-99
+timestamp: 2026-08-08T00:00:00Z
+prompt_sha: ce934c6
+issue: 99
+kind: bug
+size: size:xs
+outcome: pr-opened
+wall_clock_seconds: 900
+verification_result: pass
+ci_result: pass
+coderabbit_findings_first: unavailable
+coderabbit_findings_after: 0
+fix_rounds: 2
+pr: 59
+learning_added: none
+---
+prose
+EOF
+out="$(report "$TMP/q" 2>&1)" || fail "report failed on a fix_rounds>0 record; got: $out"
+echo "$out" | grep -qi "unavailable" \
+    || fail "a fix_rounds>0 record with an unusable snapshot must stay on the unavailable line; got: $out"
+echo "$out" | grep -q "0 CodeRabbit" \
+    || fail "a fix_rounds>0 record must not be reconciled into the findings total; got: $out"
+grep -q "commits" "$TMP/q/gh-calls.log" \
+    && fail "fix_rounds > 0 must refuse reconciliation without ever checking commit authorship; calls were: $(cat "$TMP/q/gh-calls.log")"
+pass "refuses reconciliation when fix_rounds is non-zero, without even checking commit authorship"
+
+# 19. `none` reconciles exactly like `unavailable` (case 16): both mean "no
+#    review happened", not "reviewed and found nothing," so a 900s timeout is
+#    just as reconcilable as an explicit refusal once fix_rounds is 0 and
+#    every commit is agent-authored. This is PR #57's real shape from the
+#    experiment. The issue text singles out `unavailable` and says to leave
+#    `none` alone -- this case pins that `none` gets the identical treatment,
+#    since a timeout is no less reconcilable than a refusal.
+make_recon_fixture "$TMP/s"
+cat > "$TMP/s/trials/2026-08-08T000000Z-issue-13.md" <<'EOF'
+---
+run_id: r-13
+timestamp: 2026-08-08T00:00:00Z
+prompt_sha: c5d5af3
+issue: 13
+kind: bug
+size: size:xs
+outcome: pr-opened
+wall_clock_seconds: 1765
+verification_result: pass
+ci_result: timeout
+coderabbit_findings_first: none
+coderabbit_findings_after: none
+fix_rounds: 0
+pr: 57
+learning_added: none
+---
+prose
+EOF
+out="$(report "$TMP/s" 2>&1)" || fail "report failed on a reconciliation-eligible 'none' record; got: $out"
+echo "$out" | grep -qi "reconcil" \
+    || fail "'none' must reconcile the same as 'unavailable' when fix_rounds is 0 and commits are all agent-authored; got: $out"
+echo "$out" | grep -q "1 CodeRabbit" \
+    || fail "'none' record's live-queried Major finding was not added to the findings total; got: $out"
+pass "reconciles a literal 'none' snapshot the same as 'unavailable'"
 
 echo "All loop-report tests passed."
