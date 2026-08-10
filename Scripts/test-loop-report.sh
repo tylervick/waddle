@@ -30,7 +30,7 @@ STUB
     chmod +x "$1/bin/gh"
 }
 make_recon_fixture() { # dest
-    # A second stub, purpose-built for the reconciliation tests (16-19).
+    # A second stub, purpose-built for the reconciliation tests (16-23).
     # make_fixture's stub answers every `gh api` call identically regardless
     # of endpoint, which is fine for the existing tests (none of them assert
     # anything about a commits query) but useless here: reconciliation reads
@@ -38,13 +38,19 @@ make_recon_fixture() { # dest
     # pulls/<pr>/comments (the live CodeRabbit query) -- and a test needs to
     # control each independently and see which ones actually fired. Defaults:
     # a single agent-authored commit (so a bare fixture is reconciliation-
-    # eligible) and one real Major finding waiting on the comments endpoint
-    # (so "was it live-queried" is directly observable, same trick as
-    # make_fixture's stub for case 14). Tests override commit-emails.txt to
-    # exercise the foreign-author refusal.
+    # eligible), exit 0 from both endpoints, and one real Major finding
+    # waiting on the comments endpoint (so "was it live-queried" is directly
+    # observable, same trick as make_fixture's stub for case 14). Tests
+    # override commit-emails.txt / review-body.txt for content, and
+    # commit-exit.txt / comment-exit.txt (plain integer, one per line) to
+    # simulate a `gh api` failure independently of what it printed --
+    # required for cases 20-22, which pin that a failed call must never be
+    # mistaken for a successful empty or all-agent one.
     mkdir -p "$1/trials" "$1/bin"
     : > "$1/gh-calls.log"
     printf 'agent-loop@tylervick.com\n' > "$1/commit-emails.txt"
+    printf '0\n' > "$1/commit-exit.txt"
+    printf '0\n' > "$1/comment-exit.txt"
     cat > "$1/review-body.txt" <<'BODY'
 _🗄️ Data Integrity & Integration_ | _🟠 Major_ | _🏗️ Heavy lift_
 BODY
@@ -53,8 +59,14 @@ BODY
 FIX="$(dirname "$(dirname "$0")")"
 echo "$*" >> "$FIX/gh-calls.log"
 case "$*" in
-  *"pulls/"*"/commits"*)  cat "$FIX/commit-emails.txt" ;;
-  *"pulls/"*"/comments"*) cat "$FIX/review-body.txt" ;;
+  *"pulls/"*"/commits"*)
+    cat "$FIX/commit-emails.txt"
+    exit "$(cat "$FIX/commit-exit.txt")"
+    ;;
+  *"pulls/"*"/comments"*)
+    cat "$FIX/review-body.txt"
+    exit "$(cat "$FIX/comment-exit.txt")"
+    ;;
   *) echo '{"state":"MERGED","reviewDecision":""}' ;;
 esac
 STUB
@@ -539,5 +551,169 @@ echo "$out" | grep -qi "reconcil" \
 echo "$out" | grep -q "1 CodeRabbit" \
     || fail "'none' record's live-queried Major finding was not added to the findings total; got: $out"
 pass "reconciles a literal 'none' snapshot the same as 'unavailable'"
+
+# 20. RECONCILIATION REFUSED: the commits query itself fails (gh api exits
+#    nonzero -- a transient API error). This must be refused outright, not
+#    treated as an empty-but-successful result that happens to look similar
+#    -- and the comments endpoint must never even be reached, since there is
+#    nothing to reconcile against without confirmed authorship.
+make_recon_fixture "$TMP/t20"
+printf '' > "$TMP/t20/commit-emails.txt"
+printf '1\n' > "$TMP/t20/commit-exit.txt"
+cat > "$TMP/t20/trials/2026-08-08T000000Z-issue-62.md" <<'EOF'
+---
+run_id: r-62
+timestamp: 2026-08-08T00:00:00Z
+prompt_sha: ce934c6
+issue: 62
+kind: bug
+size: size:xs
+outcome: pr-opened
+wall_clock_seconds: 500
+verification_result: pass
+ci_result: pass
+coderabbit_findings_first: unavailable
+coderabbit_findings_after: none
+fix_rounds: 0
+pr: 62
+learning_added: none
+---
+prose
+EOF
+out="$(report "$TMP/t20" 2>&1)" || fail "report failed when the commits query itself fails; got: $out"
+echo "$out" | grep -qi "unavailable" \
+    || fail "a failing commits query must fall back to unavailable, not abort or silently pass; got: $out"
+echo "$out" | grep -qi "reconcil" \
+    && fail "a failing commits query must never be reported as reconciled; got: $out"
+echo "$out" | grep -q "0 CodeRabbit" \
+    || fail "a failing commits query must not contribute to the findings total; got: $out"
+grep -q "pulls/62/comments" "$TMP/t20/gh-calls.log" \
+    && fail "the comments query must never run when the commits query itself failed; calls were: $(cat "$TMP/t20/gh-calls.log")"
+pass "refuses reconciliation when the commits query itself fails, without ever querying comments"
+
+# 21. THE FAIL-OPEN BUG THIS FIX CLOSES: with `--paginate`, gh streams page 1
+#    to stdout before a later page fails. Simulate that shape directly: the
+#    stub prints a single agent-authored email (a page 1 that, on its own,
+#    would look like a clean all-agent PR) and then exits 1 (page 2 failed).
+#    The old `2>/dev/null || true` masked this exit status entirely, so
+#    `commit_emails` would end up non-empty and all-agent, and the record
+#    would reconcile -- exactly the failure this review flagged, since a
+#    human commit could be sitting on the page that failed. This must now
+#    refuse reconciliation despite the agent-only partial output.
+make_recon_fixture "$TMP/t21"
+printf 'agent-loop@tylervick.com\n' > "$TMP/t21/commit-emails.txt"
+printf '1\n' > "$TMP/t21/commit-exit.txt"
+cat > "$TMP/t21/trials/2026-08-08T000000Z-issue-63.md" <<'EOF'
+---
+run_id: r-63
+timestamp: 2026-08-08T00:00:00Z
+prompt_sha: ce934c6
+issue: 63
+kind: bug
+size: size:xs
+outcome: pr-opened
+wall_clock_seconds: 500
+verification_result: pass
+ci_result: pass
+coderabbit_findings_first: none
+coderabbit_findings_after: none
+fix_rounds: 0
+pr: 63
+learning_added: none
+---
+prose
+EOF
+out="$(report "$TMP/t21" 2>&1)" || fail "report failed on the fail-open pagination case; got: $out"
+echo "$out" | grep -qi "reconcil" \
+    && fail "partial agent-only output followed by a failed commits query must not reconcile (the fail-open bug); got: $out"
+echo "$out" | grep -qi "unavailable" \
+    || fail "the fail-open case must fall back to unavailable; got: $out"
+echo "$out" | grep -q "0 CodeRabbit" \
+    || fail "the fail-open case must not contribute to the findings total; got: $out"
+grep -q "pulls/63/comments" "$TMP/t21/gh-calls.log" \
+    && fail "comments must never be queried after a failed commits query, even with all-agent partial output; calls were: $(cat "$TMP/t21/gh-calls.log")"
+pass "refuses reconciliation when the commits query prints an agent-only page then fails (the fail-open bug)"
+
+# 22. RECONCILIATION REFUSED: the commits query succeeds and is all-agent
+#    (fully eligible), but the comments query itself fails. The old code
+#    computed the finding count with `| grep -c ... || true`, which collapses
+#    ANY failure of the piped `gh api` call to a count of 0 and still counted
+#    the record as reconciled -- fabricating a measured zero for a query that
+#    never actually returned data. This pins that a failed comments query
+#    must fall back to unavailable instead, discovered before `reconciled` is
+#    incremented.
+make_recon_fixture "$TMP/t22"
+printf '1\n' > "$TMP/t22/comment-exit.txt"
+cat > "$TMP/t22/trials/2026-08-08T000000Z-issue-64.md" <<'EOF'
+---
+run_id: r-64
+timestamp: 2026-08-08T00:00:00Z
+prompt_sha: ce934c6
+issue: 64
+kind: bug
+size: size:xs
+outcome: pr-opened
+wall_clock_seconds: 500
+verification_result: pass
+ci_result: pass
+coderabbit_findings_first: unavailable
+coderabbit_findings_after: none
+fix_rounds: 0
+pr: 64
+learning_added: none
+---
+prose
+EOF
+out="$(report "$TMP/t22" 2>&1)" || fail "report failed when the comments query itself fails; got: $out"
+echo "$out" | grep -qi "reconcil" \
+    && fail "a failing comments query must never be reported as reconciled; got: $out"
+echo "$out" | grep -qi "unavailable" \
+    || fail "a failing comments query must fall back to unavailable; got: $out"
+echo "$out" | grep -q "0 CodeRabbit" \
+    || fail "a failing comments query must not fabricate a zero in the findings total; got: $out"
+grep -q "pulls/64/commits" "$TMP/t22/gh-calls.log" \
+    || fail "the commits query must still run and pass before the comments query is attempted; calls were: $(cat "$TMP/t22/gh-calls.log")"
+grep -q "pulls/64/comments" "$TMP/t22/gh-calls.log" \
+    || fail "the comments query must actually be attempted, not skipped; calls were: $(cat "$TMP/t22/gh-calls.log")"
+pass "refuses reconciliation when the comments query itself fails, without fabricating a zero"
+
+# 23. THE DEVIATION FROM THE REVIEW, PINNED: the review asked to keep a record
+#    unavailable if either query "exits nonzero or has no output." Applying
+#    the no-output half to the COMMENTS query would be wrong: a PR CodeRabbit
+#    reviewed and found nothing Major/Critical in legitimately produces no
+#    matching comment bodies, and that is a real measured zero -- PRs #57 and
+#    #59's actual shape -- not a failed measurement. This pins that an
+#    empty-but-successful comments query DOES reconcile, with 0 findings,
+#    distinguishing it from case 22's genuine failure.
+make_recon_fixture "$TMP/t23"
+printf '' > "$TMP/t23/review-body.txt"
+cat > "$TMP/t23/trials/2026-08-08T000000Z-issue-65.md" <<'EOF'
+---
+run_id: r-65
+timestamp: 2026-08-08T00:00:00Z
+prompt_sha: ce934c6
+issue: 65
+kind: bug
+size: size:xs
+outcome: pr-opened
+wall_clock_seconds: 500
+verification_result: pass
+ci_result: pass
+coderabbit_findings_first: none
+coderabbit_findings_after: none
+fix_rounds: 0
+pr: 65
+learning_added: none
+---
+prose
+EOF
+out="$(report "$TMP/t23" 2>&1)" || fail "report failed on an empty-but-successful comments query; got: $out"
+echo "$out" | grep -qi "reconcil" \
+    || fail "an empty-but-successful comments query must still reconcile (a real zero, not a failure); got: $out"
+echo "$out" | grep -q "0 CodeRabbit" \
+    || fail "an empty-but-successful comments query must reconcile with 0 findings; got: $out"
+grep -q "pulls/65/comments" "$TMP/t23/gh-calls.log" \
+    || fail "the comments query must actually run; calls were: $(cat "$TMP/t23/gh-calls.log")"
+pass "reconciles with 0 findings when the comments query succeeds but returns no matching comments (a real zero, not a failure)"
 
 echo "All loop-report tests passed."

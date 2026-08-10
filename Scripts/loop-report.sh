@@ -62,6 +62,27 @@
 #               the authorship check says so explicitly in the output, since
 #               "refused for a foreign commit" is a meaningfully different
 #               outcome than "never eligible to begin with".
+#
+#               Reconciliation depends on two separate live `gh api` calls
+#               both succeeding -- the commits query above, and a second
+#               query for CodeRabbit's review comments. Either can fail
+#               transiently (rate limiting, a network blip), and a failed
+#               call is never treated as though it had answered: it falls
+#               back to unavailable, the same bucket a record lands in when
+#               it was never eligible to begin with. It must not fall back to
+#               zero. A failed commits query cannot establish authorship, so
+#               there is nothing to reconcile against. A failed comments
+#               query means the review count was simply never read, and
+#               recording that as zero findings would fabricate the exact
+#               kind of measurement this whole mechanism exists to avoid
+#               inventing -- indistinguishable in the report from a PR
+#               CodeRabbit genuinely reviewed and cleared. The two queries do
+#               treat an empty-but-successful result differently, and
+#               deliberately so: an empty commits list is impossible for any
+#               real PR, so it is treated the same as a failure, while an
+#               empty comments list is a legitimate, fully-measured zero -- a
+#               PR CodeRabbit reviewed and found nothing Major/Critical in,
+#               which is PRs #57 and #59's actual outcome.
 #   lagging  -- the PR merged without requiring changes. Slow and authoritative;
 #               it exists to check the leading signal is telling the truth.
 #
@@ -204,39 +225,85 @@ if [ "${#rows[@]}" -gt 0 ]; then
                     fr="$(printf '%s' "$r" | cut -d'|' -f6)"
                     is_reconciled=0
                     if [ "$fr" = "0" ]; then
-                        # `--paginate` in case a PR somehow exceeds one page
-                        # of commits; `2>/dev/null || true` so a transient API
-                        # failure degrades to "can't confirm" (falls through
-                        # to the ordinary unavailable path) rather than
-                        # aborting the whole report under `set -euo pipefail`.
-                        commit_emails="$(gh api "repos/{owner}/{repo}/pulls/$pr/commits" --paginate \
-                              --jq '.[].commit.author.email' 2>/dev/null || true)"
-                        if [ -n "$commit_emails" ]; then
-                            all_agent=1
-                            while IFS= read -r email; do
-                                [ -z "$email" ] && continue
-                                [ "$email" = "$AGENT_EMAIL" ] || all_agent=0
-                            done < <(printf '%s\n' "$commit_emails")
-                            if [ "$all_agent" -eq 1 ]; then
-                                is_reconciled=1
-                            else
-                                # Eligible on every other count but refused
-                                # for this one: a distinct outcome from never
-                                # having been eligible, and worth saying so in
-                                # the report rather than folding silently into
-                                # the plain unavailable count. This is PR
-                                # #61's exact shape: fix_rounds 0, but a
-                                # second commit landed from a human author.
-                                foreign=$((foreign + 1))
+                        # `--paginate` in case a PR somehow exceeds one page of
+                        # commits. The exit status is tested directly on the
+                        # command substitution (`if commit_emails="$(...)";
+                        # then`) rather than masked with `|| true` -- that is
+                        # safe under `set -e` (the assignment's status is the
+                        # command substitution's status) and it is the only
+                        # way to tell "gh failed" apart from "gh succeeded and
+                        # printed nothing". That distinction matters
+                        # specifically because of `--paginate`: gh streams
+                        # each page to stdout as it arrives, so a failure on
+                        # page 2 still leaves page 1's output sitting in
+                        # `commit_emails`. If page 1 happened to be all
+                        # agent-authored commits, a masked exit status would
+                        # leave this looking like a clean all-agent result and
+                        # reconcile a PR that a later page might have shown
+                        # carries a human commit -- the authorship gate would
+                        # fail open. So: gh failing outright, for any reason,
+                        # means "can't confirm" and must fall through to the
+                        # ordinary unavailable path, not to reconciliation.
+                        # Empty-but-successful output is treated the same way
+                        # (and is likewise not reconciled) -- it is genuinely
+                        # suspect on its own, since every PR has at least one
+                        # commit.
+                        if commit_emails="$(gh api "repos/{owner}/{repo}/pulls/$pr/commits" --paginate \
+                              --jq '.[].commit.author.email' 2>/dev/null)"; then
+                            if [ -n "$commit_emails" ]; then
+                                all_agent=1
+                                while IFS= read -r email; do
+                                    [ -z "$email" ] && continue
+                                    [ "$email" = "$AGENT_EMAIL" ] || all_agent=0
+                                done < <(printf '%s\n' "$commit_emails")
+                                if [ "$all_agent" -eq 1 ]; then
+                                    is_reconciled=1
+                                else
+                                    # Eligible on every other count but refused
+                                    # for this one: a distinct outcome from never
+                                    # having been eligible, and worth saying so in
+                                    # the report rather than folding silently into
+                                    # the plain unavailable count. This is PR
+                                    # #61's exact shape: fix_rounds 0, but a
+                                    # second commit landed from a human author.
+                                    foreign=$((foreign + 1))
+                                fi
                             fi
                         fi
                     fi
                     if [ "$is_reconciled" -eq 1 ]; then
-                        reconciled=$((reconciled + 1))
-                        c="$(gh api "repos/{owner}/{repo}/pulls/$pr/comments" --paginate \
-                              --jq '.[] | select(.user.login as $l | ["coderabbitai[bot]","renovate[bot]"] | index($l)) | .body' 2>/dev/null \
-                              | grep -c -E "$MARKERS" || true)"
-                        findings=$((findings + c))
+                        # Same exit-status-first discipline as the commits
+                        # query above, but the failure verdict differs: an
+                        # empty-but-successful result here is a real, valid
+                        # measurement (a PR CodeRabbit reviewed and found
+                        # nothing Major/Critical in -- PRs #57 and #59's
+                        # actual shape), not a suspect one, so only a failed
+                        # call refuses reconciliation. The two queries cannot
+                        # share one verdict: this one measures a count, where
+                        # zero is meaningful, while the commits query measures
+                        # presence, where zero is impossible for a real PR.
+                        if out="$(gh api "repos/{owner}/{repo}/pulls/$pr/comments" --paginate \
+                              --jq '.[] | select(.user.login as $l | ["coderabbitai[bot]","renovate[bot]"] | index($l)) | .body' 2>/dev/null)"; then
+                            # `|| true` here masks grep's own no-match exit
+                            # status (1 when zero lines match), which is
+                            # unrelated to the `gh api` failure this block
+                            # just ruled out above by testing `out=$(...)`
+                            # directly -- do not use this line to reason about
+                            # API failures too, and do not remove it: a PR
+                            # with no Major/Critical comments is a real zero,
+                            # and grep must be allowed to report that without
+                            # aborting the report under `set -euo pipefail`.
+                            c="$(printf '%s' "$out" | grep -c -E "$MARKERS" || true)"
+                            reconciled=$((reconciled + 1))
+                            findings=$((findings + c))
+                        else
+                            # The comments query failed after the commits
+                            # query already succeeded and passed the
+                            # authorship check -- do not fabricate a zero for
+                            # a query that never actually ran. Fall back to
+                            # unavailable exactly like a failed commits query.
+                            unavailable=$((unavailable + 1))
+                        fi
                     else
                         # Excluded from the findings total; count and report
                         # separately so this is never mistaken for the legacy
