@@ -17,3 +17,4 @@ One file per hard-won fact. Add an entry here in the same PR that adds the file 
 - [Simulator hazards that produce misleading test results](simulator-test-hazards.md) — rotation, screenshot orientation, and RealWADTests fixtures
 - [A test that builds a git fixture inherits the developer's signing config](git-fixtures-inherit-signing-config.md) — `tag.gpgSign` surfaces as `fatal: no tag message?`
 - [Masking a query's exit status makes a guard fail open](masked-exit-status-fails-open.md) — three times now; test the status, then rule on empty output separately
+- [An empty simulator list means infrastructure, not a bad pin](simulator-enumeration-race.md) — CoreSimulator can fail to enumerate anything on a cold runner; `Scripts/check-simulator-available.sh` is the check
