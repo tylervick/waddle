@@ -166,8 +166,19 @@ targets:
           - Generated/BuildInfo.generated.swift
       - path: Sources/Generated/BuildInfo.generated.swift
         optional: true
-      # App icon (regenerate with `swift Scripts/generate-app-icon.swift`).
       - path: Assets.xcassets
+      # The app icon is an Icon Composer package, not an .appiconset. With a
+      # deployment target of iOS 26 there is nothing to fall back to, and the
+      # retired 20/29/40/60/76/83.5 size matrix has no role: a .icon holds the
+      # artwork once and the OS renders Default/Dark/Clear/Tinted from it,
+      # supplying the squircle, the drop shadow, and the glass specular itself.
+      # That is why AppIcon.icon/Assets/mark.png is the bare subject on
+      # transparency -- the white card and cast shadow in the source render are
+      # stripped during extraction so we do not double up on the system's.
+      #
+      # Basename must match ASSETCATALOG_COMPILER_APPICON_NAME (AppIcon) above.
+      # Regenerate the artwork with `mise run icons`.
+      - path: AppIcon.icon
       # NOTE: deliberately Resources/GameData, not Resources. A folder
       # reference whose bundle-root name is literally "Resources" makes
       # Xcode emit macOS-style Contents/Resources codesign rules
