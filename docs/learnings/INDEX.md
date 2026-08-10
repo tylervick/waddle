@@ -16,3 +16,4 @@ One file per hard-won fact. Add an entry here in the same PR that adds the file 
 - [Setting up a second worktree has two traps](worktree-setup-traps.md) — the Vendor symlink and the stale CMakeCache
 - [Simulator hazards that produce misleading test results](simulator-test-hazards.md) — rotation, screenshot orientation, and RealWADTests fixtures
 - [A test that builds a git fixture inherits the developer's signing config](git-fixtures-inherit-signing-config.md) — `tag.gpgSign` surfaces as `fatal: no tag message?`
+- [Masking a query's exit status makes a guard fail open](masked-exit-status-fails-open.md) — three times now; test the status, then rule on empty output separately
