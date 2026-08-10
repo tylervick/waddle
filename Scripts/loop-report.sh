@@ -22,26 +22,78 @@
 #               written before that field existed entirely fall back to a
 #               live query (and the report says so, as its own "legacy"
 #               line), which understates them. A record that HAS the field
-#               but reads the literal `none` (a 4.1 CI/review timeout -- this
-#               run never obtained a measurement), the literal `unavailable`
-#               (a 4.1 terminal non-review state, e.g. CodeRabbit reporting
-#               itself rate limited -- this run was told outright no review
-#               was coming), or something malformed is a different situation
-#               and must never be queried live either: there is no pre-fix
-#               number to recover, live or otherwise, so it is excluded from
-#               the findings total and reported on its own "unavailable" line
-#               instead. Conflating any of these with the legacy case would
-#               fabricate a post-fix number for a trial that measured
-#               nothing.
+#               but reads the literal `none` (a 900s wait that expired with no
+#               review landing), the literal `unavailable` (CodeRabbit
+#               reporting outright that it would not review), or something
+#               malformed is a different situation: there is no pre-fix number
+#               *in the record*. Normally that also means never queried live --
+#               conflating it with the legacy case would fabricate a post-fix
+#               number for a trial that measured nothing -- so it is excluded
+#               from the findings total and reported on its own "unavailable"
+#               line instead.
+#
+#               One narrow exception recovers a real measurement instead of
+#               discarding it: RECONCILIATION. `none` and `unavailable` are
+#               equally unmeasured at run time -- a 900s timeout and an
+#               explicit refusal both mean "no review happened yet", not
+#               "reviewed and found nothing" -- so both are eligible. If, in
+#               addition, the record's `fix_rounds` is `0` (the run never
+#               touched the code after opening its PR) AND every commit on
+#               that PR is authored by the agent identity
+#               (agent-loop@tylervick.com, checked live via `gh api
+#               .../pulls/<PR>/commits`), then a CodeRabbit review landing
+#               after the run ended is reviewing exactly the code the run
+#               produced -- a live query today recovers the same pre-fix count
+#               a snapshot would have captured, had one been possible. The
+#               authorship check exists because `fix_rounds: 0` alone only
+#               proves the *loop* never pushed again -- it says nothing about
+#               whether a human did. A human commit on the PR after the loop
+#               stopped means a later review is reviewing the human's code,
+#               and reconciling would credit the loop with someone else's
+#               work. This is not a theoretical risk: PR #61's run recorded
+#               `unavailable` with `fix_rounds: 0`, but a human pushed a
+#               follow-up commit before CodeRabbit reviewed, so that trial
+#               must be refused despite otherwise qualifying. Reconciled
+#               records are counted in the findings total and reported on
+#               their own "reconciled" line, distinct from both "legacy" (the
+#               field predates the schema) and "unavailable" (no measurement
+#               exists, live or otherwise) -- the provenance genuinely
+#               differs from both. A record that qualifies on every count but
+#               the authorship check says so explicitly in the output, since
+#               "refused for a foreign commit" is a meaningfully different
+#               outcome than "never eligible to begin with".
+#
+#               Reconciliation depends on two separate live `gh api` calls
+#               both succeeding -- the commits query above, and a second
+#               query for CodeRabbit's review comments. Either can fail
+#               transiently (rate limiting, a network blip), and a failed
+#               call is never treated as though it had answered: it falls
+#               back to unavailable, the same bucket a record lands in when
+#               it was never eligible to begin with. It must not fall back to
+#               zero. A failed commits query cannot establish authorship, so
+#               there is nothing to reconcile against. A failed comments
+#               query means the review count was simply never read, and
+#               recording that as zero findings would fabricate the exact
+#               kind of measurement this whole mechanism exists to avoid
+#               inventing -- indistinguishable in the report from a PR
+#               CodeRabbit genuinely reviewed and cleared. The two queries do
+#               treat an empty-but-successful result differently, and
+#               deliberately so: an empty commits list is impossible for any
+#               real PR, so it is treated the same as a failure, while an
+#               empty comments list is a legitimate, fully-measured zero -- a
+#               PR CodeRabbit reviewed and found nothing Major/Critical in,
+#               which is PRs #57 and #59's actual outcome.
 #   lagging  -- the PR merged without requiring changes. Slow and authoritative;
 #               it exists to check the leading signal is telling the truth.
 #
 # Every trial record also carries `verification_result`, `size`, `kind`,
-# `wall_clock_seconds`, `ci_result`, `coderabbit_findings_after`, and
-# `fix_rounds` (Scripts/loop-prompt.md section 6). This script does not read or
-# surface any of those today -- they are captured for later analysis, not
-# because a report is already computed from them. `coderabbit_findings_after`
-# in particular is written by the protocol and read by nothing.
+# `wall_clock_seconds`, `ci_result`, and `coderabbit_findings_after`
+# (Scripts/loop-prompt.md section 6). This script does not read or surface any
+# of those today -- they are captured for later analysis, not because a report
+# is already computed from them. `coderabbit_findings_after` in particular is
+# written by the protocol and read by nothing. `fix_rounds` is the one field
+# from that list this script does read, solely to decide reconciliation
+# eligibility above.
 #
 # A record whose outcome is still `started` is a LOST TRIAL -- the run died
 # before rewriting it. There is no supervising process to notice that (Orca's
@@ -51,6 +103,7 @@
 set -euo pipefail
 TRIALS_DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)/docs/loop-trials}"
 MARKERS='🟠 Major|🔴 Critical'
+AGENT_EMAIL='agent-loop@tylervick.com'
 
 shopt -s nullglob
 files=("$TRIALS_DIR"/*-issue-*.md)
@@ -68,7 +121,7 @@ for f in "${files[@]}"; do
     issue="$(field "$fm" issue)"; outcome="$(field "$fm" outcome)"
     if [ -z "$issue" ] || [ -z "$outcome" ]; then bad+=("$(basename "$f")"); continue; fi
     total=$((total + 1))
-    rows+=("$(field "$fm" prompt_sha)|$outcome|$(field "$fm" pr)|$issue|$(field "$fm" coderabbit_findings_first)")
+    rows+=("$(field "$fm" prompt_sha)|$outcome|$(field "$fm" pr)|$issue|$(field "$fm" coderabbit_findings_first)|$(field "$fm" fix_rounds)")
     [ "$outcome" = "stuck" ] && stuck+=("$issue")
     [ "$outcome" = "started" ] && lost+=("$issue")
 done
@@ -90,7 +143,7 @@ echo
 echo "by prompt version:"
 if [ "${#rows[@]}" -gt 0 ]; then
     for sha in $(printf '%s\n' "${rows[@]}" | cut -d'|' -f1 | sort -u); do
-        n=0; merged=0; prs=0; findings=0; legacy=0; unavailable=0
+        n=0; merged=0; prs=0; findings=0; legacy=0; unavailable=0; reconciled=0; foreign=0
         for r in "${rows[@]}"; do
             [ "${r%%|*}" = "$sha" ] || continue
             n=$((n + 1))
@@ -128,11 +181,9 @@ if [ "${#rows[@]}" -gt 0 ]; then
                     ;;
                 none|unavailable|*[!0-9]*)
                     # The field is PRESENT but unusable: the literal `none`
-                    # (a 4.1 CI/review timeout -- this run never obtained a
-                    # measurement), the literal `unavailable` (a 4.1 terminal
-                    # non-review state, e.g. CodeRabbit reporting itself rate
-                    # limited -- this run was told outright no review was
-                    # coming, so there was never anything to wait for), or a
+                    # (a 900s wait that expired with no review landing), the
+                    # literal `unavailable` (CodeRabbit reporting outright
+                    # that it would not review, e.g. rate limiting), or a
                     # non-numeric/decorated value (e.g. "none (CI timed out)",
                     # "n/a") -- the protocol only ever promises an integer or
                     # one of those two literals, and nothing validates that an
@@ -146,15 +197,119 @@ if [ "${#rows[@]}" -gt 0 ]; then
                     # treating any of these as a number here would abort the
                     # whole report under `set -euo pipefail` -- silencing the
                     # LOST TRIALS section for every record, not just this one.
-                    # None of these may be queried live: unlike the
+                    #
+                    # By default none of these may be queried live: unlike the
                     # absent-field case above, a snapshot field exists here
                     # and it says nothing was measured, so a live query would
                     # not recover a pre-fix number -- it would fabricate one,
                     # scoring a trial that measured nothing as though it had a
-                    # real result. Exclude from the findings total; count and
-                    # report separately so this is never mistaken for the
-                    # legacy (field-absent) case.
-                    unavailable=$((unavailable + 1))
+                    # real result.
+                    #
+                    # RECONCILIATION is the one exception, and it is narrow on
+                    # purpose. `none` and `unavailable` both mean "no
+                    # measurement happened", not "measured and found nothing",
+                    # so both are equally eligible -- there is no reason to
+                    # treat a timeout differently from an explicit refusal.
+                    # What makes reconciliation safe is proving the code a
+                    # later review would see is the SAME code the run
+                    # produced: `fix_rounds: 0` proves the loop itself never
+                    # pushed again after opening the PR, but it says nothing
+                    # about a human pushing to the same PR afterward -- a
+                    # later review would then be reviewing the human's
+                    # change, and crediting the loop with it would corrupt
+                    # the signal in the other direction from fabrication. So
+                    # reconciliation additionally requires every commit on
+                    # the PR to be authored by the agent identity. Only when
+                    # both hold is a live query today equivalent to the
+                    # snapshot that could not be taken at run time.
+                    fr="$(printf '%s' "$r" | cut -d'|' -f6)"
+                    is_reconciled=0
+                    if [ "$fr" = "0" ]; then
+                        # `--paginate` in case a PR somehow exceeds one page of
+                        # commits. The exit status is tested directly on the
+                        # command substitution (`if commit_emails="$(...)";
+                        # then`) rather than masked with `|| true` -- that is
+                        # safe under `set -e` (the assignment's status is the
+                        # command substitution's status) and it is the only
+                        # way to tell "gh failed" apart from "gh succeeded and
+                        # printed nothing". That distinction matters
+                        # specifically because of `--paginate`: gh streams
+                        # each page to stdout as it arrives, so a failure on
+                        # page 2 still leaves page 1's output sitting in
+                        # `commit_emails`. If page 1 happened to be all
+                        # agent-authored commits, a masked exit status would
+                        # leave this looking like a clean all-agent result and
+                        # reconcile a PR that a later page might have shown
+                        # carries a human commit -- the authorship gate would
+                        # fail open. So: gh failing outright, for any reason,
+                        # means "can't confirm" and must fall through to the
+                        # ordinary unavailable path, not to reconciliation.
+                        # Empty-but-successful output is treated the same way
+                        # (and is likewise not reconciled) -- it is genuinely
+                        # suspect on its own, since every PR has at least one
+                        # commit.
+                        if commit_emails="$(gh api "repos/{owner}/{repo}/pulls/$pr/commits" --paginate \
+                              --jq '.[].commit.author.email' 2>/dev/null)"; then
+                            if [ -n "$commit_emails" ]; then
+                                all_agent=1
+                                while IFS= read -r email; do
+                                    [ -z "$email" ] && continue
+                                    [ "$email" = "$AGENT_EMAIL" ] || all_agent=0
+                                done < <(printf '%s\n' "$commit_emails")
+                                if [ "$all_agent" -eq 1 ]; then
+                                    is_reconciled=1
+                                else
+                                    # Eligible on every other count but refused
+                                    # for this one: a distinct outcome from never
+                                    # having been eligible, and worth saying so in
+                                    # the report rather than folding silently into
+                                    # the plain unavailable count. This is PR
+                                    # #61's exact shape: fix_rounds 0, but a
+                                    # second commit landed from a human author.
+                                    foreign=$((foreign + 1))
+                                fi
+                            fi
+                        fi
+                    fi
+                    if [ "$is_reconciled" -eq 1 ]; then
+                        # Same exit-status-first discipline as the commits
+                        # query above, but the failure verdict differs: an
+                        # empty-but-successful result here is a real, valid
+                        # measurement (a PR CodeRabbit reviewed and found
+                        # nothing Major/Critical in -- PRs #57 and #59's
+                        # actual shape), not a suspect one, so only a failed
+                        # call refuses reconciliation. The two queries cannot
+                        # share one verdict: this one measures a count, where
+                        # zero is meaningful, while the commits query measures
+                        # presence, where zero is impossible for a real PR.
+                        if out="$(gh api "repos/{owner}/{repo}/pulls/$pr/comments" --paginate \
+                              --jq '.[] | select(.user.login as $l | ["coderabbitai[bot]","renovate[bot]"] | index($l)) | .body' 2>/dev/null)"; then
+                            # `|| true` here masks grep's own no-match exit
+                            # status (1 when zero lines match), which is
+                            # unrelated to the `gh api` failure this block
+                            # just ruled out above by testing `out=$(...)`
+                            # directly -- do not use this line to reason about
+                            # API failures too, and do not remove it: a PR
+                            # with no Major/Critical comments is a real zero,
+                            # and grep must be allowed to report that without
+                            # aborting the report under `set -euo pipefail`.
+                            c="$(printf '%s' "$out" | grep -c -E "$MARKERS" || true)"
+                            reconciled=$((reconciled + 1))
+                            findings=$((findings + c))
+                        else
+                            # The comments query failed after the commits
+                            # query already succeeded and passed the
+                            # authorship check -- do not fabricate a zero for
+                            # a query that never actually ran. Fall back to
+                            # unavailable exactly like a failed commits query.
+                            unavailable=$((unavailable + 1))
+                        fi
+                    else
+                        # Excluded from the findings total; count and report
+                        # separately so this is never mistaken for the legacy
+                        # (field-absent) case or the reconciled case.
+                        unavailable=$((unavailable + 1))
+                    fi
                     ;;
                 *)
                     # Force base 10: a zero-padded value like "08" would otherwise
@@ -172,7 +327,13 @@ if [ "${#rows[@]}" -gt 0 ]; then
             echo "    ($legacy legacy record(s) predate coderabbit_findings_first entirely; scored by live query, which is post-fix and may understate)"
         fi
         if [ "$unavailable" -gt 0 ]; then
-            echo "    ($unavailable record(s) have an unavailable coderabbit_findings_first -- a 4.1 CI/review timeout ('none'), a 4.1 terminal non-review state ('unavailable'), or a malformed value -- excluded from the findings total above, never queried live)"
+            echo "    ($unavailable record(s) have an unavailable coderabbit_findings_first -- a 900s wait that expired with no review ('none'), an explicit refusal to review ('unavailable'), or a malformed value -- excluded from the findings total above, never queried live)"
+            if [ "$foreign" -gt 0 ]; then
+                echo "      ($foreign of the above were otherwise eligible for reconciliation (unusable snapshot, fix_rounds 0, PR exists) but refused: a commit on the PR was not authored by the agent identity, so the PR no longer represents only the loop's own work)"
+            fi
+        fi
+        if [ "$reconciled" -gt 0 ]; then
+            echo "    ($reconciled record(s) reconciled -- no measurement existed at run time (fix_rounds 0, so the code was never touched again), and every commit on the PR is authored by the agent, so a live query today reads the same pre-fix code and is counted in the findings total above)"
         fi
     done
 fi
