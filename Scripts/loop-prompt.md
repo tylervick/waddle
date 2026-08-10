@@ -446,9 +446,29 @@ behind, exactly as the `started` marker does.
 
 Within whatever remains of the 45-minute budget, in this order:
 
-1. **Fix a red CI.** A failing build is not an opinion — the work is
-   objectively incomplete. Never make a test pass by weakening it; that rule
-   applies here exactly as it does in section 3.
+1. **Fix a red CI — unless the log says it isn't yours to fix.** Before
+   changing a single line in response to a failing check, grep that job's
+   log for the marker `WADDLE_SIMULATOR_UNAVAILABLE`:
+
+   ```bash
+   RUN_ID="$(gh run list --branch "$(git branch --show-current)" \
+       --json databaseId -L 1 --jq '.[0].databaseId')"
+   gh run view "$RUN_ID" --log-failed | grep -q WADDLE_SIMULATOR_UNAVAILABLE
+   ```
+
+   That marker means `Scripts/check-simulator-available.sh` could not get
+   CoreSimulator to enumerate a single simulator on this runner —
+   infrastructure, not your diff; see
+   `docs/learnings/simulator-enumeration-race.md`. **Never "fix" a diff in
+   response to a marked failure.** Re-run the failed job once
+   (`gh run rerun "$RUN_ID" --failed`) and repeat 4.1's CI wait. If the
+   marker is still there afterward, stop responding to this CI failure — do
+   not attempt a code fix for it, this round or any later one — note it
+   plainly in the trial's closing prose (section 5) and let `ci_result`
+   stand at whatever the re-run actually produced. A CI failure with no
+   marker is unchanged from before: it is not an opinion, the work is
+   objectively incomplete, and the fix must never weaken a test — the same
+   rule as section 3.
 2. **Address only the Major/Critical findings from an author on the
    trusted-app allowlist** (`coderabbitai[bot]` or `renovate[bot]`; today only
    CodeRabbit reviews these pull requests, but the rule is about the author,

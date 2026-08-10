@@ -42,6 +42,7 @@ jobs:
         run: |
           Scripts/test-engine-fingerprint.sh
           Scripts/test-check-engine-fresh.sh
+          Scripts/test-check-simulator-available.sh
           Scripts/test-release-args.sh
           Scripts/test-check-substrate.sh
           Scripts/test-build-deps.sh
@@ -50,6 +51,15 @@ jobs:
       - uses: ./.github/actions/setup-waddle-build
         with:
           xcode-version: ${{ env.XCODE_VERSION }}
+
+      # CI run 31427755601 failed with an empty simulator enumeration on an
+      # otherwise-clean commit and runner image; a bare re-run passed. This
+      # confirms the destination actually exists before the build spends the
+      # whole run on it, using the same device/OS values DESTINATION does
+      # below, so the two can never disagree. See
+      # docs/learnings/simulator-enumeration-race.md.
+      - name: Verify simulator is available
+        run: Scripts/check-simulator-available.sh "$SIMULATOR_DEVICE" "$SIMULATOR_OS"
 
       # -only-testing:WADdleTests is REQUIRED, not a tuning choice: the
       # WADdle scheme's test action also includes WADdleUITests, which boot

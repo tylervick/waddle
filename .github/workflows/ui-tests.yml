@@ -38,6 +38,17 @@ jobs:
         with:
           xcode-version: ${{ env.XCODE_VERSION }}
 
+      # Same rationale as ci.yml's identical step: confirm the destination
+      # actually exists before spending the run on it, using the same
+      # device/OS values DESTINATION uses below. See
+      # docs/learnings/simulator-enumeration-race.md. inputs.device goes
+      # through env for the same shell-injection reason as ONLY_TESTING
+      # below.
+      - name: Verify simulator is available
+        env:
+          SIM_DEVICE: ${{ inputs.device }}
+        run: Scripts/check-simulator-available.sh "$SIM_DEVICE" "$SIMULATOR_OS"
+
       # Inputs go through env rather than direct ${{ }} interpolation into
       # the script body, so a value containing shell metacharacters cannot
       # break out of the command.
