@@ -31,8 +31,8 @@ final class TouchOverlayView: UIView {
     private var summonTouches = Set<UITouch>()
     private var summonArmed = true
 
-    init(gamepad: TouchGamepad, scheme: TouchControlScheme = .defaultScheme,
-         tuning: TouchTuning = .default, debugHUDEnabled: Bool = false) {
+    init(gamepad: TouchGamepad, scheme: TouchControlScheme,
+         tuning: TouchTuning, debugHUDEnabled: Bool) {
         self.gamepad = gamepad
         self.scheme = scheme
         self.tuning = tuning
