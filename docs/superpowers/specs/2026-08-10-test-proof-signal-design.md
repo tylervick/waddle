@@ -90,14 +90,34 @@ otherwise:
 ```
 
 **Reverting is not `git checkout base -- <paths>`.** That fails for a file the
-change *added*, which has no base state. The revert must handle three cases
+change *added*, which has no base state. The revert must handle four cases
 explicitly: a modified file is restored to its base content, an added file is
-deleted, and a deleted file is restored. Getting this wrong produces `error` at
-best and a false `vacuous` at worst.
+deleted, a deleted file is restored, and a **renamed** file is treated as both
+a delete and an add. The fourth is not free: `git diff --name-only` has rename
+detection on by default and prints only the destination path, so a revert built
+from that list deletes the new name and never restores the old one — the
+"reverted" tree is base *minus a file*, and a pure `git mv` with no behavioural
+change scores `proved` (or `proved-by-compile`) off a tree that never existed.
+`--no-renames` emits the rename as a delete plus an add, which the other three
+cases already handle. Getting any of this wrong produces `error` at best and a
+false verdict at worst.
 
-**There is no restore-and-confirm-green step.** CI already runs the full suite
-on the pull request as-is; a second green run would spend roughly four minutes
-proving something already proven.
+**There is no restore-and-confirm-green step.** The preceding CI steps are what
+establish green: the helper-suite step runs every `Scripts/test-*.sh`, and the
+unit-test step's `-only-testing:WADdleTests` covers all of `App/Tests/`. The
+proof job inherits `if: success()`, so it does not run at all unless both
+passed — and that skip is required, not incidental. The measurement is
+differential; on a red HEAD the reverted run fails for a reason the revert did
+not cause, which is a fabricated `proved`. A second green run inside the job
+would spend roughly four minutes re-proving what those steps already proved.
+
+That reasoning holds for the swift domain on the strength of CI's ordering
+alone. It does not hold for shell work on the strength of a workflow file:
+`ci.yml` names its shell suites one by one, and a suite left off that list is
+green on a pull request by never having run. So the shell domain runs each
+matching suite once at HEAD *before* reverting anything and reports `error` if
+one is already failing — an executable check rather than a comment asking a
+future editor to keep the list complete.
 
 ### Test selection
 

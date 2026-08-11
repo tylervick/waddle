@@ -28,7 +28,16 @@ if [ -n "$(git status --porcelain)" ]; then
 fi
 
 BASE="$(git merge-base HEAD "$BASE_REF")"
-changed="$(git diff --name-only "$BASE" HEAD)"
+# `--no-renames` is load-bearing, not tidiness. Rename detection is on by
+# default, and for a renamed file `--name-only` prints the destination path
+# only. `revert_src` would then delete that path (it has no base version) and
+# never restore the source path, so the "reverted" tree would be base *minus a
+# file* -- not the base tree at all. A pure `git mv` with no behavioural change
+# would report `proved` in the shell domain and `proved-by-compile` in the
+# swift one, both fabricated from a tree that never existed. With
+# `--no-renames` the same rename arrives as a delete plus an add, which the
+# modified/added/deleted logic below already handles correctly.
+changed="$(git diff --no-renames --name-only "$BASE" HEAD)"
 
 # Domain membership. Printed one path per line; empty output means the domain
 # has no files of that kind in this diff.
@@ -36,6 +45,22 @@ swift_src()  { printf '%s\n' "$changed" | grep -E '^App/Sources/.*\.swift$'     
 swift_test() { printf '%s\n' "$changed" | grep -E '^App/Tests/.*\.swift$'          || true; }
 shell_src()  { printf '%s\n' "$changed" | grep -E '^Scripts/[^/]*\.sh$' | grep -v '^Scripts/test-' || true; }
 shell_test() { printf '%s\n' "$changed" | grep -E '^Scripts/test-[^/]*\.sh$'       || true; }
+
+# Worst-of ranking, most severe first. `error` is deliberately absent: it is
+# not a rank but an absence of measurement, and is handled before this is
+# consulted. Defined up here rather than beside its use at the bottom because
+# `run_shell_domain` needs it too, and bash resolves a function name when the
+# call executes -- the bottom-of-file calls into classify_domain run before a
+# definition placed down there would exist.
+severity() { # verdict
+    case "$1" in
+        vacuous)           echo 4 ;;
+        no-test)           echo 3 ;;
+        proved-by-compile) echo 2 ;;
+        proved)            echo 1 ;;
+        *)                 echo 0 ;;
+    esac
+}
 
 # Paths this run reverted, so the trap knows exactly what to put back. A
 # newline-separated list; bash 3.2 has no arrays worth the trouble here.
@@ -93,21 +118,71 @@ $p"
 # The test for Scripts/foo.sh is Scripts/test-foo.sh, by name and nothing
 # cleverer. A changed script with no matching suite is unproven, which is
 # `no-test` -- not `error`, because nothing failed: the proof is simply absent.
+#
+# Returns `proved` | `vacuous` | `no-test` | `error`. The `error` is narrow and
+# has exactly one cause: a matching suite that is already failing at HEAD,
+# which makes the reverted run unable to say anything about the revert. It is
+# decided before any file is touched.
 run_shell_domain() { # src, test
-    suites=""
+    : > "$TMPDIR_RG/suites"
+    : > "$TMPDIR_RG/unmatched"
     printf '%s\n' "$1" | while IFS= read -r s; do
         [ -n "$s" ] || continue
         t="Scripts/test-$(basename "$s")"
         # Not `[ -f "$t" ] && echo "$t"`: a source file with no matching
         # suite is the ordinary, expected case, but it makes that `&&` list's
-        # own status 1 -- and as the last command run in the loop body, that
-        # becomes the whole `while` compound's status. Unguarded, `errexit`
-        # aborts the script right there. See
+        # own status 1, and this loop is a *pipeline stage* -- it runs in a
+        # subshell whose status reaches the parent stripped of the `&&`-list
+        # exemption that would otherwise make it harmless, so `errexit` aborts
+        # the script right after the loop. See
         # docs/learnings/loop-body-last-status-triggers-errexit.md.
-        if [ -f "$t" ]; then echo "$t"; fi
-    done > "$TMPDIR_RG/suites"
+        # Both lists are appended to files rather than accumulated in
+        # variables for the same subshell reason: an assignment made here
+        # would vanish the instant the pipeline stage exits.
+        if [ -f "$t" ]; then
+            echo "$t" >> "$TMPDIR_RG/suites"
+        else
+            echo "$s" >> "$TMPDIR_RG/unmatched"
+        fi
+    done
     suites="$(cat "$TMPDIR_RG/suites")"
     if [ -z "$suites" ]; then echo "no-test"; return; fi
+
+    # Green-HEAD baseline, run BEFORE anything is reverted. Without it `rc`
+    # below comes entirely from the reverted tree, so a change that broke its
+    # own suite at HEAD reads as `proved`: the suite fails with the source
+    # reverted, and nothing ever asked whether it was failing anyway. The
+    # spec's justification for having no confirm-green step -- "CI already
+    # runs the full suite on the pull request as-is" -- is true for the swift
+    # domain, where `-only-testing:WADdleTests` really does cover all of
+    # App/Tests/. It is not true for shell: ci.yml runs a hardcoded list of
+    # suites, and a suite missing from that list is green on the pull request
+    # by never having run. This check is what makes the premise true here, and
+    # unlike the list itself it cannot rot out of sync with what exists.
+    head_red=""
+    while IFS= read -r t; do
+        [ -n "$t" ] || continue
+        # The same never-ran discipline the reverted run below uses, and for
+        # the same reason: 126/127 mean the suite died before an assertion,
+        # so they say nothing about HEAD's health and must not be read as
+        # "HEAD is red" any more than as "the revert was noticed". Left
+        # unguarded, `errexit` aborts the script; the EXIT trap restores the
+        # tree (nothing is reverted yet at this point) and the caller sees no
+        # verdict -- the proof could not be computed. See
+        # docs/learnings/exit-status-conflates-failed-with-never-ran.md.
+        [ -x "$t" ]
+        status=0
+        "./$t" >/dev/null 2>&1 || status=$?
+        case "$status" in
+            0) : ;;
+            126 | 127) exit 1 ;;
+            *) head_red=1 ;;
+        esac
+    done < <(printf '%s\n' "$suites")
+    # `error`, not a verdict: a suite already failing at HEAD cannot report
+    # anything about the revert, so the proof could not be computed. Returned
+    # before `revert_src`, so the working tree is never touched at all.
+    if [ -n "$head_red" ]; then echo "error"; return; fi
 
     revert_src "$1"
     rc=0
@@ -152,7 +227,17 @@ run_shell_domain() { # src, test
     restore_tree
 
     # Non-zero means at least one suite noticed the revert. That is the proof.
-    if [ "$rc" -eq 1 ]; then echo "proved"; else echo "vacuous"; fi
+    if [ "$rc" -eq 1 ]; then v="proved"; else v="vacuous"; fi
+    # A changed script with no matching suite CONTRIBUTES `no-test`, per
+    # source -- it is not dropped just because a sibling script did have one.
+    # `revert_src` reverts every changed script, the unmatched one included,
+    # so the unmatched script can be exactly what made the sibling's suite
+    # fail while the sibling collects the credit. Worst-of, not an override:
+    # `vacuous` still outranks `no-test`, so a vacuous half is never softened.
+    if [ -s "$TMPDIR_RG/unmatched" ] && [ "$(severity no-test)" -gt "$(severity "$v")" ]; then
+        v="no-test"
+    fi
+    echo "$v"
 }
 
 # Every `final class X: XCTestCase` / `class X: XCTestCase` declared in the
@@ -191,13 +276,17 @@ run_swift_domain() { # src, test
 
     only=""
     while IFS= read -r c; do
-        # `if`/`fi`, not `[ -n "$c" ] && only="..."`: the latter's status is
-        # 1 for a blank line, and unguarded that is fatal under `errexit` as
-        # the last command of this loop body -- see
-        # docs/learnings/loop-body-last-status-triggers-errexit.md. Nothing
-        # in `test_classes` above actually emits a blank line today, so this
-        # is defensive, not a reproduced failure, but the fix costs nothing
-        # and closes the shape on sight.
+        # `if`/`fi`, not `[ -n "$c" ] && only="..."`, for uniformity with the
+        # pipeline-fed loops elsewhere in this file -- NOT because the `&&`
+        # form would be fatal here. This loop is fed by a plain redirect and
+        # sits mid-function, and measured on bash 3.2 that shape carries the
+        # `&&`-list's own `errexit` exemption through the loop's trailing
+        # status: it does not abort. The hazard in
+        # docs/learnings/loop-body-last-status-triggers-errexit.md needs the
+        # status to cross an execution boundary -- a pipeline stage's
+        # subshell, which is what `run_shell_domain`'s suites loop above
+        # genuinely is. Nothing in `test_classes` emits a blank line today
+        # either, so this guard is defensive on both counts.
         if [ -n "$c" ]; then only="$only -only-testing:WADdleTests/$c"; fi
     done < "$TMPDIR_RG/classes"
 
@@ -286,18 +375,6 @@ sw="$(cat "$verdict_tmp")"
 classify_domain shell "$(shell_src)" "$(shell_test)" > "$verdict_tmp"
 sh="$(cat "$verdict_tmp")"
 rm -f "$verdict_tmp"
-
-# Worst-of, most severe first. `error` is deliberately absent: it is not a
-# rank but an absence of measurement, and is handled before this is consulted.
-severity() { # verdict
-    case "$1" in
-        vacuous)           echo 4 ;;
-        no-test)           echo 3 ;;
-        proved-by-compile) echo 2 ;;
-        proved)            echo 1 ;;
-        *)                 echo 0 ;;
-    esac
-}
 
 domains=""
 [ "$sw" != "absent" ] && domains="swift"

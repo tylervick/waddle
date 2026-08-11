@@ -49,8 +49,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Cheap (~0.1s each) and they guard the value both cache keys depend
-      # on, plus the check that stops a stale engine from being shipped.
+      # Cheap (most ~0.1s; the three loop suites together are ~12s) and they
+      # guard the value both cache keys depend on, plus the check that stops a
+      # stale engine from being shipped.
+      #
+      # This list must name EVERY Scripts/test-*.sh suite, not just the ones
+      # that guard the build. Scripts/check-red-green.sh's shell domain reverts
+      # a changed script and re-runs the matching suite, and the spec's reason
+      # for having no confirm-green step is that "CI already runs the full
+      # suite on the pull request as-is" -- a premise this list is what makes
+      # true for shell work. test-loop-report.sh and test-loop-precheck.sh ran
+      # nowhere on a pull request, and test-check-issue-format.sh only in
+      # issue-format.yml, which triggers on issues/schedule/workflow_dispatch
+      # and never on a pull request; a change breaking one of those suites was
+      # green here and then scored `proved` for breaking its own tests. The
+      # script now runs its own green-HEAD baseline so it no longer depends on
+      # this list staying complete, but an omission here is still a suite
+      # nobody runs before merge.
       - name: Verify the build-script helpers
         run: |
           Scripts/test-engine-fingerprint.sh
@@ -62,6 +77,13 @@ jobs:
           Scripts/test-build-deps.sh
           Scripts/test-check-icons-fresh.sh
           Scripts/test-check-icon-json.sh
+          Scripts/test-loop-report.sh
+          Scripts/test-loop-precheck.sh
+          # Hermetic: it clears GH_TOKEN/GITHUB_TOKEN and strips PATH itself,
+          # so it needs no credentials here and never reaches real GitHub.
+          # issue-format.yml runs it too, but that workflow fires on
+          # issues/schedule/workflow_dispatch only -- never on a pull request.
+          Scripts/test-check-issue-format.sh
           Scripts/check-substrate.sh
           # --sync-only, not the full check: this step runs before the toolchain
           # setup and the runner has neither uv nor potrace. It still catches the
@@ -111,7 +133,26 @@ jobs:
       # `proved` on every trial forever -- the exact defect that made
       # coderabbit_findings_first a pre-fix snapshot. See
       # docs/superpowers/specs/2026-08-10-test-proof-signal-design.md.
+      #
+      # `if: success()` is the value this step would inherit anyway. It is
+      # written out because it is load-bearing and the reader has to confront
+      # it: this step must never RUN on a red build, for a reason as strong as
+      # why it must never FAIL one. The proof is a *differential* measurement
+      # -- it asks whether reverting the change makes the tests fail -- and
+      # that only means anything if they pass at HEAD. The steps above are
+      # what establish that: the helper suites cover the shell domain and
+      # `-only-testing:WADdleTests` covers all of App/Tests/. If either is red,
+      # the reverted run fails for a reason the revert did not cause, and the
+      # verdict would be a fabricated `proved`.
+      #
+      # DO NOT change this to `if: always()` to close the "no marker in the
+      # log" gap. loop-prompt.md section 4.1 already handles that gap
+      # correctly: a grep that matches nothing is recorded as `error`, an
+      # absent measurement. Running anyway would replace that honest absence
+      # with a confident wrong number, which is the one outcome this whole
+      # feature exists to prevent.
       - name: Red-green test proof
+        if: success()
         continue-on-error: true
         env:
           RG_DESTINATION: platform=iOS Simulator,name=${{ env.SIMULATOR_DEVICE }},OS=${{ env.SIMULATOR_OS }}

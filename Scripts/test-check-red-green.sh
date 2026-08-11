@@ -21,7 +21,16 @@ export GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
 
 # Builds a git repo with a base commit, then applies $2 as a shell script that
 # edits the tree, and commits that as HEAD. Prints the repo path.
-make_repo() { # name, mutate-script
+#
+# $3 is an optional second script applied *before* the base commit, for the
+# cases that need a file to already exist at base -- a script whose suite is
+# red at HEAD (case 24) or a pure rename (case 25) can only be expressed as a
+# base-to-HEAD diff if the pre-change file is committed at base. It is a
+# separate parameter rather than an addition to the shared base tree above on
+# purpose: adding e.g. Scripts/foo.sh to every fixture's base would silently
+# turn cases 9, 10 and 23's *added* foo.sh into a *modified* one, changing what
+# their reverts do and weakening the cases without a single assertion moving.
+make_repo() { # name, mutate-script, [base-mutate-script]
     d="$TMP/$1"; mkdir -p "$d"; cd "$d"
     git init -q .; git config user.email t@e.st; git config user.name T
     mkdir -p App/Sources App/Tests Scripts
@@ -46,6 +55,7 @@ make_repo() { # name, mutate-script
     # as of base, keeps stub_xcodebuild's paths exactly as given while
     # leaving the guard's dirty check meaningful for everything else.
     printf '/bin/\n/xcb.log\n' > .gitignore
+    eval "${3:-}"
     git add -A; git commit -qm base
     git branch -f base-ref
     eval "$2"
@@ -458,5 +468,156 @@ out="$(cd "$r" && PATH="$r/bin:$PATH" ./Scripts/check-red-green.sh base-ref)"
 [ "$(echo "$out" | head -1)" = "vacuous" ] \
     || fail "expected vacuous (swift's revert already restored before shell's suite ran), got: $out"
 pass "shell's suite observes swift's source already restored to HEAD, not swift's in-flight revert"
+
+# 24. THE SHELL DOMAIN'S GREEN-HEAD BASELINE. The suite is ALREADY failing at
+#     HEAD -- the change broke its own test. Without a baseline run, `rc` comes
+#     entirely from the reverted tree, the suite fails there too, and the trial
+#     records `proved` for a change that broke its own tests. This is not
+#     hypothetical: ci.yml runs a hardcoded list of shell suites, so a suite
+#     absent from that list is green on the pull request by never having run,
+#     which is exactly the state the spec's "CI already runs the full suite"
+#     justification assumes cannot happen.
+#
+#     The fixture is issue 71's shape exactly: Scripts/foo.sh exists at base
+#     (hence the base-mutate argument), HEAD changes it, and HEAD's own suite
+#     fails against HEAD. Before the baseline check this returned `proved` --
+#     the reverted foo.sh also fails the assertion, so the revert looked like
+#     the cause. It must be `error` (the proof could not be computed), never a
+#     verdict, and the tree must be untouched: nothing is ever reverted.
+mk_head_red_base='
+mkdir -p Scripts
+cat > Scripts/foo.sh <<"EOS"
+#!/bin/bash
+echo old
+EOS
+chmod +x Scripts/foo.sh'
+mk_head_red='
+cat > Scripts/foo.sh <<"EOS"
+#!/bin/bash
+echo broken
+EOS
+cat > Scripts/test-foo.sh <<"EOS"
+#!/bin/bash
+[ "$(./Scripts/foo.sh)" = "fixed" ] || exit 1
+EOS
+chmod +x Scripts/test-foo.sh'
+r="$(make_repo sh_head_red "$mk_head_red" "$mk_head_red_base")"
+out="$(cd "$r" && ./Scripts/check-red-green.sh base-ref)"
+[ "$(echo "$out" | head -1)" = "error" ] \
+    || fail "a suite already failing at HEAD must be error, not a verdict; got: $out"
+[ "$(echo "$out" | head -1)" != "proved" ] || fail "recorded proved for a change that broke its own tests"
+echo "$out" | grep -q "domains: shell" || fail "did not report the shell domain; got: $out"
+[ -z "$(cd "$r" && git status --porcelain)" ] \
+    || fail "tree left dirty by the HEAD baseline run: $(cd "$r" && git status --porcelain)"
+pass "shell: a suite already red at HEAD is error, not a fabricated proved"
+
+# 25. A RENAMED SOURCE FILE. `git diff --name-only` has rename detection on by
+#     default and prints only the destination path, so the revert deletes the
+#     new name and never restores the old one -- the "reverted" tree is base
+#     minus a file, which is not the base tree. `--no-renames` emits the
+#     rename as a delete plus an add instead, and both flow through the
+#     existing modified/added/deleted logic.
+#
+#     The fixture is a pure `git mv` with no content change, so the honest
+#     verdict is `vacuous`: nothing behavioural changed, and the suites cannot
+#     notice a revert that restores the same bytes under a different name.
+#     Each suite asserts only that ONE of the two names exists, which is true
+#     at HEAD (the new name) and true after a correct revert (the old name) --
+#     but false after the buggy revert, where the new name is deleted and the
+#     old one was never brought back, so both suites fail and the run reports
+#     `proved` for a rename. That is the discrimination: vacuous when fixed,
+#     proved when broken.
+mk_rename_base='
+mkdir -p Scripts
+cat > Scripts/renamed-me.sh <<"EOS"
+#!/bin/bash
+echo same
+EOS
+cat > Scripts/test-renamed-me.sh <<"EOS"
+#!/bin/bash
+[ -f Scripts/renamed-me.sh ] || [ -f Scripts/renamed-you.sh ] || exit 1
+exit 0
+EOS
+chmod +x Scripts/renamed-me.sh Scripts/test-renamed-me.sh'
+mk_rename='
+git mv Scripts/renamed-me.sh Scripts/renamed-you.sh
+cat > Scripts/test-renamed-you.sh <<"EOS"
+#!/bin/bash
+[ -f Scripts/renamed-me.sh ] || [ -f Scripts/renamed-you.sh ] || exit 1
+exit 0
+EOS
+chmod +x Scripts/test-renamed-you.sh'
+r="$(make_repo sh_rename "$mk_rename" "$mk_rename_base")"
+# The fixture only means anything if git really does collapse this to a rename
+# without --no-renames; assert that directly rather than trusting the default.
+[ "$(cd "$r" && git diff --name-only base-ref HEAD -- 'Scripts/renamed-*')" = "Scripts/renamed-you.sh" ] \
+    || fail "fixture does not reproduce rename detection: $(cd "$r" && git diff --name-only base-ref HEAD)"
+out="$(cd "$r" && ./Scripts/check-red-green.sh base-ref)"
+[ "$(echo "$out" | head -1)" = "vacuous" ] \
+    || fail "a pure rename with no behavioural change should be vacuous, got: $out"
+[ -z "$(cd "$r" && git status --porcelain)" ] \
+    || fail "tree left dirty after a rename: $(cd "$r" && git status --porcelain)"
+pass "a renamed source file is reverted to the base tree, not to base minus a file"
+
+# 26. A CHANGED SCRIPT WITH NO MATCHING SUITE CONTRIBUTES `no-test`, even when
+#     a sibling script in the same diff does have one and that sibling's suite
+#     noticed the revert. Case 11 cannot catch this: its fixture has a single
+#     source file, so `no-test` fires from the "no suite matched anything at
+#     all" early return rather than from the per-source contribution the spec
+#     describes. Here Scripts/foo.sh is genuinely proved and Scripts/bar.sh is
+#     unproven -- and bar.sh is reverted too, so it can be what made
+#     test-foo.sh fail while foo.sh takes the credit. Worst-of puts `no-test`
+#     above `proved`, so the pull request is `no-test`.
+mk_partial_base='
+mkdir -p Scripts
+cat > Scripts/foo.sh <<"EOS"
+#!/bin/bash
+echo old
+EOS
+cat > Scripts/test-foo.sh <<"EOS"
+#!/bin/bash
+[ "$(./Scripts/foo.sh)" = "fixed" ] || exit 1
+EOS
+chmod +x Scripts/foo.sh Scripts/test-foo.sh'
+mk_partial='
+cat > Scripts/foo.sh <<"EOS"
+#!/bin/bash
+echo fixed
+EOS
+cat > Scripts/bar.sh <<"EOS"
+#!/bin/bash
+echo bar
+EOS
+chmod +x Scripts/bar.sh'
+r="$(make_repo sh_partial "$mk_partial" "$mk_partial_base")"
+out="$(cd "$r" && ./Scripts/check-red-green.sh base-ref)"
+[ "$(echo "$out" | head -1)" = "no-test" ] \
+    || fail "an unproven sibling script must contribute no-test, got: $out"
+[ -z "$(cd "$r" && git status --porcelain)" ] \
+    || fail "tree left dirty: $(cd "$r" && git status --porcelain)"
+pass "shell: a changed script with no suite contributes no-test even when a sibling is proved"
+
+# 27. ...and `vacuous` still outranks that `no-test`: the contribution is a
+#     worst-of, not an override. Same fixture shape as case 26 with a suite
+#     that cannot fail, so foo.sh's own half is vacuous. Collapsing to
+#     `no-test` here would soften a real defect into a milder one.
+mk_partial_vac='
+cat > Scripts/foo.sh <<"EOS"
+#!/bin/bash
+echo fixed
+EOS
+cat > Scripts/test-foo.sh <<"EOS"
+#!/bin/bash
+exit 0
+EOS
+cat > Scripts/bar.sh <<"EOS"
+#!/bin/bash
+echo bar
+EOS
+chmod +x Scripts/bar.sh'
+r="$(make_repo sh_partial_vac "$mk_partial_vac" "$mk_partial_base")"
+[ "$(verdict "$r")" = "vacuous" ] \
+    || fail "vacuous must outrank the no-test contribution, got: $(verdict "$r")"
+pass "shell: vacuous still outranks an unproven sibling's no-test contribution"
 
 echo "All check-red-green tests passed."

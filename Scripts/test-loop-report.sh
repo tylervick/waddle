@@ -726,19 +726,35 @@ pass "reconciles with 0 findings when the comments query succeeds but returns no
 # 24. THE NEW SIGNAL: test_proof_first (Scripts/loop-prompt.md section 4.1's
 #    red-green verdict) is counted per prompt version, same as the CodeRabbit
 #    signal, but n/a and error are absences, not scores, and must never be
-#    counted as though the run proved nothing. All four trials share one
+#    counted as though the run proved nothing. All six trials share one
 #    prompt_sha so their counts land on the same summary line, distinguished
 #    by distinct PRs and issues.
+#
+#    All SIX vocabulary literals appear, and each is given a distinct count so
+#    the assertion pins which arm produced which number. Asserting only four of
+#    them left `proved-by-compile` and `no-test` interchangeable: swapping
+#    those two `case` arms in loop-report.sh -- which would report the weaker
+#    kind of proof as an untested change and vice versa, the exact distinction
+#    the spec introduced `proved-by-compile` to preserve -- passed either way.
 make_fixture "$TMP/u"
 record "$TMP/u" proof1 pr-opened proofsha 201 proved
 record "$TMP/u" proof2 pr-opened proofsha 202 vacuous
 record "$TMP/u" proof3 pr-opened proofsha 203 n/a
 record "$TMP/u" proof4 pr-opened proofsha 204 error
+record "$TMP/u" proof5 pr-opened proofsha 205 proved-by-compile
+record "$TMP/u" proof6 pr-opened proofsha 206 proved-by-compile
+record "$TMP/u" proof7 pr-opened proofsha 207 no-test
+record "$TMP/u" proof8 pr-opened proofsha 208 no-test
+record "$TMP/u" proof9 pr-opened proofsha 209 no-test
 out="$(report "$TMP/u" 2>&1)" || fail "report failed on test_proof_first records; got: $out"
 echo "$out" | grep -q "test proof: 1 proved, 1 vacuous" \
     || fail "did not summarise proved/vacuous counts; got: $out"
+echo "$out" | grep -q "2 proved-by-compile" \
+    || fail "did not count proved-by-compile separately; got: $out"
+echo "$out" | grep -q "3 no-test" \
+    || fail "did not count no-test separately; got: $out"
 echo "$out" | grep -q "2 not measured (1 n/a, 1 error)" \
     || fail "folded absent measurements into a score; got: $out"
-pass "reports red-green verdicts and keeps n/a and error out of the scores"
+pass "counts all six red-green verdicts distinctly and keeps n/a and error out of the scores"
 
 echo "All loop-report tests passed."

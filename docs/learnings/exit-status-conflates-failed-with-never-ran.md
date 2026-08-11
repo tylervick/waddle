@@ -5,12 +5,11 @@ though it only returns one number. Exit 0 means the assertions ran and held.
 A meaningful nonzero exit -- the one the whole test-proof feature is built to
 detect -- means the assertions ran and one of them didn't hold. But other
 nonzero exits mean the assertions never ran at all: 126 (`Permission denied`,
-the executable bit is missing), 127 (`command not found`, a bad shebang or a
-missing interpreter), a shell syntax error caught before the first line
-executes. Catching all of these with one `|| rc=1` and reading `rc=1` as "the
-suite noticed the revert" folds "detected a regression" and "never got the
-chance to check" into the same bucket, and reports the stronger claim for
-both.
+the executable bit is missing) and 127 (`command not found`, a bad shebang or
+a missing interpreter). Catching all of these with one `|| rc=1` and reading
+`rc=1` as "the suite noticed the revert" folds "detected a regression" and
+"never got the chance to check" into the same bucket, and reports the stronger
+claim for both.
 
 This is the same shape as the failure `docs/superpowers/specs/2026-08-10-test-proof-signal-design.md`
 was written to replace: CodeRabbit's rate-limit response read as check state
@@ -56,9 +55,12 @@ This is not [a masked exit status read as data](masked-exit-status-fails-open.md
 126 and 127 were being read as data (a real assertion failure) when neither
 should have been interpreted as data about the *test's own logic* at all.
 
-The fix also does not require a new verdict string. `run_shell_domain`'s
-contract is exactly `proved` | `vacuous` | `no-test` -- no `error` outlet.
-Two things enforce the boundary, both unguarded on purpose:
+The fix also does not require a new verdict string. `run_shell_domain` does
+print `error` in one narrow place -- when a matching suite is already failing
+at HEAD, decided before any file is touched -- but that is a fact about the
+*tree*, and it is knowable. A suite that never ran is not: there is nothing to
+print and no tree state to report, so the function simply stops. Two things
+enforce that boundary, both unguarded on purpose:
 
 - **Precondition:** `[ -x "$t" ]` runs as its own bare statement before the
   suite is invoked at all, ruling out the common case (126) up front.
@@ -84,6 +86,15 @@ legitimate assertion failure as an infrastructure problem -- the same
 fabrication in the opposite direction. 126 and 127 are the two POSIX shell
 reserves specifically for "could not execute the command at all"; nothing
 past that line has as clean a claim to meaning "never ran."
+
+A shell **syntax error** (bash exits 2) is the tempting third case, and it is
+deliberately outside the boundary: 2 falls to `*) rc=1` and reads as `proved`,
+exactly like any other unrecognised nonzero status. It is genuinely a
+"never ran" in the abstract, but 2 is not reserved for it — plenty of real
+tools exit 2 for a real, noticed failure (`grep` does, for one) — so widening
+the bucket to catch it would start swallowing legitimate failures. Naming it
+as a never-ran case in this file's own list, as an earlier draft did, said the
+opposite of what the code does three paragraphs below.
 
 ## Where else to look
 
