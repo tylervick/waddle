@@ -22,7 +22,8 @@ and compared (machine trace, gradient decomposition, authored illustration) and
 all three read visibly worse than the render. An iOS icon tops out at 1024 and
 the subject lands ~657px inside that frame, so the raster is lossless at every
 size iOS asks for. Only the FLAT mark is vector, because it has jobs the raster
-cannot do: the Tinted/Mono appearance, 29px, favicons, and print.
+cannot do: 29px, favicons, and print. (Not the Tinted appearance -- actool derives
+that from the raster itself.)
 
 Requires potrace on PATH (brew install potrace).
 """

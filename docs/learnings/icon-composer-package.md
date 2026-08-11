@@ -1,4 +1,4 @@
-# The `.icon` package format, and two actool behaviours that mislead
+# The `.icon` package format, and the actool behaviours that mislead
 
 The app icon is an Icon Composer package (`App/AppIcon.icon`), not an
 `.appiconset`. There is no public schema for it, so everything below was
@@ -43,21 +43,63 @@ xcrun assetutil --info "$APP/Assets.car" | grep -A2 UIAppearanceDark
 A working icon yields `AppIcon` renditions for the default appearance,
 `UIAppearanceDark`, and `ISAppearanceTintable`, plus `AppIcon_Assets/<layer>`.
 
+## The dark and tinted appearances are generated — do not author them
+
+`fill` sets the background for the **default appearance only**. The Dark and
+Tinted renditions are derived by actool from the layer artwork, with their own
+backgrounds, and nothing in `icon.json` needs to ask for them.
+
+Shown by holding everything else fixed and varying `fill` alone. Values are
+`SizeOnDisk` from `assetutil --info`, not a byte comparison — actool's output is
+not reproducible (see below), so sizes are the only stable signal available:
+
+| `fill` | default `SizeOnDisk` | `UIAppearanceDark` | `ISAppearanceTintable` |
+| --- | --- | --- | --- |
+| white | 513347 | 610556 | 249283 |
+| black | 535180 | 610556 | 249283 |
+| red | 589396 | 610556 | 249283 |
+| omitted | 393969 | 610556 | 249283 |
+
+Only the default column moves; the Dark and Tinted sizes are unchanged across
+all four, consistent with neither consulting `fill`. Confirmed independently by
+extracting the renditions and looking at them (see below) — Dark really does
+come out on a near-black ground.
+
 ## `fill-specializations` at the top level is silently ignored
 
-Putting `fill-specializations` next to the top-level `fill` — the obvious way to
-give the icon a dark background — **compiles without error or warning and has no
-effect**. actool accepts the key and discards it. It is only honoured on a
-*layer*, which is where the shipping example uses it.
+Putting `fill-specializations` next to the top-level `fill` **compiles without
+error or warning and has no effect** — with `appearance` set to `dark`,
+`dark-color`, all three dark variants, or alongside `fully-specialize-for`. Every
+one produced the same `SizeOnDisk` for all three renditions as the baseline.
+actool accepts the key and discards it. It is only honoured on a *layer*, which
+is where the shipping example uses it.
 
-`Scripts/check-icon-json.sh` enforces this, along with the neighbouring silent
-failures (a layer pointing at artwork that is not there, orphaned files in
+This is a correctness trap, not a missing feature: the generated Dark appearance
+is already correct, so a hand-written top-level key is both inert **and**
+unnecessary. `Scripts/check-icon-json.sh` rejects it, along with the neighbouring
+silent failures (a layer pointing at artwork that is not there, orphaned files in
 `Assets/`, a package that declares no layers). All of them build green and only
 show up as an icon that renders wrong. Run it via `mise run check-icons`; CI runs
 it too.
 
-If a dark background is wanted, author it in Icon Composer.app rather than
-assuming a hand-written key took.
+## How to actually look at a rendition
+
+Do not trust a simulator screenshot — see the icon-cache section below. Extract
+the renditions from the compiled catalog instead, via CoreUI:
+
+```objc
+NSError *e = nil;
+CUICatalog *cat = [[NSClassFromString(@"CUICatalog") alloc] initWithURL:carURL error:&e];
+for (id o in [cat imagesWithName:@"AppIcon"]) {
+    id ap   = [o performSelector:@selector(appearance)];          // UIAppearanceDark, ...
+    id rend = [o performSelector:NSSelectorFromString(@"_rendition")];
+    CGImageRef img = (__bridge CGImageRef)[rend performSelector:@selector(unslicedImage)];
+}
+```
+
+Link with `-F/System/Library/PrivateFrameworks -framework CoreUI`. Note the app
+icon comes back as `CUINamedMultisizeImageSet`, which has **no** `-image`
+selector — go through `-_rendition` on its `CUINamedLookup` superclass.
 
 ## actool output is not deterministic
 
@@ -75,7 +117,7 @@ Two consequences:
   every run. `Scripts/check-icons-fresh.sh` compares the *sources* in `Design/`,
   which regenerate deterministically, and never `Assets.car`.
 - When A/B-ing an `icon.json` change, compare `SizeOnDisk`, not the digest. That
-  is how the `fill-specializations` no-op above was proven: byte-identical sizes
+  is how the `fill-specializations` no-op above was established: equal sizes
   across the change, with only the meaningless digests moving.
 
 ## The simulator caches app icons past reinstall
