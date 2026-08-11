@@ -381,6 +381,11 @@ this same wait, not in 4.3. The instant you see it:
   below, then **skip 4.2 and 4.3 entirely** and go to section 5, with
   `ci_result` set from CI's own conclusion (or `timeout` if the cap expired
   first) and `coderabbit_findings_first` already fixed at `unavailable` above.
+  If CI concluded, the read instruction above already set
+  `test_proof_first`/`test_proof_domains`. If instead the cap expired with CI
+  still unconcluded, that read never fired — record `test_proof_first: error`
+  and `test_proof_domains: none` here: CI never concluded, so the proof was
+  never computed.
 
 **The instant the wait ends** — whether because CI and the review both
 resolved (a real review, or CodeRabbit's terminal non-review state above), or
@@ -402,11 +407,16 @@ must not be discarded just because CI is slow to conclude:
   count is real and usable; losing it here would be exactly the asymmetry
   this section exists to prevent. Record `ci_result: timeout`
   (`<CI_RESULT>`) right now — CI itself never concluded, so this is the
-  honest value no matter what the review found — then proceed to 4.2 to run
+  honest value no matter what the review found — and record
+  `test_proof_first: error` and `test_proof_domains: none` alongside it: CI
+  never concluded, so 4.1's read instruction above never fired and there is
+  nothing to read. Then proceed to 4.2 to run
   its grep and push the real count as `coderabbit_findings_first`
   (`<CR_FIRST>`). 4.2's own instruction to "set `ci_result` to `pass` or
-  `fail`" does not apply here: `ci_result` is already fixed at `timeout`
-  from this paragraph, and 4.2 must leave it exactly as recorded. Once that
+  `fail`" does not apply here: `ci_result`, `test_proof_first`, and
+  `test_proof_domains` are already fixed exactly as recorded in this
+  paragraph, and 4.2 must carry all three in unchanged rather than
+  overwriting or re-deriving them. Once that
   snapshot is pushed, **skip 4.3** — you cannot sensibly fix a CI run that
   has not concluded — and go straight to section 5.
 - **CI has concluded, but the review neither landed nor showed a terminal
@@ -414,8 +424,10 @@ must not be discarded just because CI is slow to conclude:
   `fail`) and `coderabbit_findings_first: none` — there is nothing to
   snapshot; the review simply never answered in time. **Skip 4.2 and 4.3
   entirely** and go to section 5.
-- **Neither resolved.** Record `ci_result: timeout` and
-  `coderabbit_findings_first: none`. **Skip 4.2 and 4.3 entirely** and go to
+- **Neither resolved.** Record `ci_result: timeout`,
+  `coderabbit_findings_first: none`, `test_proof_first: error`, and
+  `test_proof_domains: none` — CI never concluded, so 4.1's read instruction
+  above never fired. **Skip 4.2 and 4.3 entirely** and go to
   section 5.
 
 These are the literals `<CI_RESULT>` and `<CR_FIRST>` from section 1 in every
@@ -460,21 +472,25 @@ an inconsistency to fix).
 Write that number into your trial record as `coderabbit_findings_first`
 (the literal `<CR_FIRST>` from section 1), set `ci_result` (`<CI_RESULT>`) to
 `pass` or `fail`, carry in `test_proof_first` and `test_proof_domains` exactly
-as you read them in 4.1, and **push the record now** — before any fix. **Exception:**
-if you arrived here from 4.1's cap-exceeded paragraph because the review
-landed while CI was still unresolved, `ci_result` is already fixed at
-`timeout` — leave it exactly as recorded there, do not overwrite it with
-`pass` or `fail`, and after pushing this snapshot skip straight to section 5
-instead of continuing into 4.3, per that paragraph's instruction.
+as 4.1 already set them, and **push the record now** — before any fix.
+**Exception:** if you arrived here from 4.1's cap-exceeded paragraph because
+the review landed while CI was still unresolved, `ci_result`,
+`test_proof_first`, and `test_proof_domains` are already fixed there —
+`timeout`, `error`, and `none` respectively, since CI never concluded and
+4.1's read never fired. Carry all three through exactly as recorded: do not
+overwrite `ci_result` with `pass` or `fail`, and do not re-derive the other
+two from a log that was never read. After pushing this snapshot skip
+straight to section 5 instead of continuing into 4.3, per that paragraph's
+instruction.
 
-This was the experiment's leading signal; `test_proof_first` (read in section
+This was the experiment's leading signal; `test_proof_first` (set in section
 4.1) now leads, and this is secondary. Once you start fixing, the count on
 GitHub measures your ability to satisfy CodeRabbit rather than the quality of
 what you originally produced, and the number is gone for good. Pushing it as its
 own write also means a run that dies mid-fix still leaves the measurement
 behind, exactly as the `started` marker does — and carrying `test_proof_first`
 / `test_proof_domains` into this same write protects the new leading signal
-for the identical reason: read in 4.1 but left unpushed until here, a crash
+for the identical reason: fixed in 4.1 but left unpushed until here, a crash
 during 4.3 would otherwise lose it while this demoted signal survived.
 
 ### 4.3 Respond
@@ -576,10 +592,10 @@ wrote them. **Do not re-run 4.2's grep here.** By this point any fixes from
 would measure your fixes instead of the original work — silently
 overwriting, one commit later, the exact number section 4.2 pushed early
 specifically to protect from this. `test_proof_first` and `test_proof_domains`
-carry through unchanged for the same reason: they were fixed once — in
-section 4.1 from the first CI run's log, or at section 4's no-PR exit — and a
-later run's log is post-fix; 4.2 only carries them into its push, it does not
-re-derive them. The same applies to
+carry through unchanged for the same reason: whichever exit from section 4
+this run took already fixed them exactly once — never re-derive them here,
+regardless of which exit that was, since a later run's log is always
+post-fix. The same applies to
 `coderabbit_findings_after` and `fix_rounds`: whatever 4.3 (or its absence,
 for a run that skipped section 4 entirely) already produced, copied through,
 not recomputed.
