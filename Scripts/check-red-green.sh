@@ -15,6 +15,9 @@ cd "$ROOT"
 # Scratch space for lists that must cross a subshell boundary.
 TMPDIR_RG="$(mktemp -d)"
 
+# Overridable so the hermetic suite never needs a real simulator.
+RG_DESTINATION="${RG_DESTINATION:-platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2}"
+
 BASE_REF="${1:-origin/main}"
 
 # Mutating a dirty tree could not be reliably undone, and this script's whole
@@ -152,25 +155,99 @@ run_shell_domain() { # src, test
     if [ "$rc" -eq 1 ]; then echo "proved"; else echo "vacuous"; fi
 }
 
-# One domain's verdict, given its source and test file lists. Task 4 replaces
-# the swift `run_*` call; until then a swift domain with both halves is
-# `error`, which is honest -- nothing has been proved yet.
+# Every `final class X: XCTestCase` / `class X: XCTestCase` declared in the
+# changed test files. Parsed from content because one file may declare
+# several and nothing enforces that a file's name matches its classes --
+# App/Tests/ImportNoticesTests.swift declares both ImportNoticesTests and
+# ImportNoticesMessageTests, and filename inference would silently run only
+# half the file.
+test_classes() { # test paths
+    printf '%s\n' "$1" | while IFS= read -r f; do
+        [ -n "$f" ] && [ -f "$f" ] || continue
+        # `|| true` on the whole pipe, not just the `grep`: a file with no
+        # matching class (the ordinary, expected input to the `error` check
+        # below) makes `grep -o` exit 1 for "no lines selected", and under
+        # `pipefail` that becomes this pipeline's own status even though
+        # `sed` itself runs and exits 0. Unguarded, that status would be the
+        # last thing this loop iteration runs -- the same shape
+        # docs/learnings/loop-body-last-status-triggers-errexit.md warns
+        # about, just reached through `pipefail` instead of a trailing `&&`.
+        # Confirmed by a standalone repro before touching this file: without
+        # the `|| true`, a single classless test file aborts the whole
+        # script under `errexit`, silently, before `run_swift_domain` ever
+        # gets to report `error` itself.
+        grep -hoE '^[[:space:]]*(final[[:space:]]+)?class[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:[[:space:]]*XCTestCase' "$f" \
+            | sed -E 's/.*class[[:space:]]+([A-Za-z0-9_]+).*/\1/' || true
+    done | sort -u
+}
+
+run_swift_domain() { # src, test
+    test_classes "$2" > "$TMPDIR_RG/classes"
+    # No class was parsed out of any changed test file: nothing to run, so
+    # nothing was proved. This is `error`, not `vacuous` -- `vacuous` means
+    # the tests ran and didn't notice the revert; this means they never ran
+    # at all. See docs/learnings/exit-status-conflates-failed-with-never-ran.md.
+    if [ ! -s "$TMPDIR_RG/classes" ]; then echo "error"; return; fi
+
+    only=""
+    while IFS= read -r c; do
+        # `if`/`fi`, not `[ -n "$c" ] && only="..."`: the latter's status is
+        # 1 for a blank line, and unguarded that is fatal under `errexit` as
+        # the last command of this loop body -- see
+        # docs/learnings/loop-body-last-status-triggers-errexit.md. Nothing
+        # in `test_classes` above actually emits a blank line today, so this
+        # is defensive, not a reproduced failure, but the fix costs nothing
+        # and closes the shape on sight.
+        if [ -n "$c" ]; then only="$only -only-testing:WADdleTests/$c"; fi
+    done < "$TMPDIR_RG/classes"
+
+    revert_src "$1"
+    # Two xcodebuild invocations, not one `xcodebuild test`: that single
+    # invocation exits 65 for a compile failure and for a test failure
+    # alike, which would be exactly the failed-vs-never-ran conflation
+    # docs/learnings/exit-status-conflates-failed-with-never-ran.md warns
+    # against -- a build that never reached a single assertion reading as
+    # `proved`. `build-for-testing` isolates the compile step: any failure
+    # there means no test in this run ever executed, which is
+    # `proved-by-compile` -- a real proof, but a weaker one than the tests
+    # themselves noticing the revert. Only `test-without-building` failing,
+    # once the build already succeeded, is the stronger `proved`.
+    # shellcheck disable=SC2086 -- $only is a deliberately word-split flag list
+    if ! xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
+            -destination "$RG_DESTINATION" $only build-for-testing >/dev/null 2>&1; then
+        restore_tree
+        echo "proved-by-compile"
+        return
+    fi
+    # shellcheck disable=SC2086
+    if ! xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
+            -destination "$RG_DESTINATION" $only test-without-building >/dev/null 2>&1; then
+        restore_tree
+        echo "proved"
+        return
+    fi
+    restore_tree
+    echo "vacuous"
+}
+
+# One domain's verdict, given its source and test file lists.
 classify_domain() { # name, src, test
     if [ -z "$2" ]; then echo "absent"; return; fi
     if [ "$1" = "shell" ]; then run_shell_domain "$2" "$3"; return; fi
-    if [ -z "$3" ]; then echo "no-test"; return; fi
-    revert_src "$2"
-    # Test hook: prove the EXIT trap restores the tree even on a hard failure.
-    if [ -n "${RED_GREEN_DIE_AFTER_REVERT:-}" ]; then exit 70; fi
-    echo "error"
+    if [ "$1" = "swift" ]; then
+        if [ -z "$3" ]; then echo "no-test"; return; fi
+        run_swift_domain "$2" "$3"
+        return
+    fi
 }
 
 # classify_domain is called with its output redirected to a file, not wrapped
-# in `$(...)`. Command substitution forks a subshell in bash, and this domain
-# can call revert_src (which sets REVERTED) or, under the
-# RED_GREEN_DIE_AFTER_REVERT test hook, `exit`; either one done inside a
-# subshell would vanish the instant the subshell exits, leaving the parent's
-# REVERTED empty and a hard failure unable to actually stop the script. A
+# in `$(...)`. Command substitution forks a subshell in bash, and both
+# run_shell_domain and run_swift_domain call revert_src (which sets
+# REVERTED) and can themselves die mid-run under `errexit` (e.g. an
+# unguarded precondition failing); either effect done inside a subshell would
+# vanish the instant the subshell exits, leaving the parent's REVERTED empty
+# and a hard failure unable to actually stop the script. A
 # redirect runs the function in this same shell, so both survive.
 verdict_tmp="$(mktemp)"
 classify_domain swift "$(swift_src)" "$(swift_test)" > "$verdict_tmp"

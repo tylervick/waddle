@@ -33,6 +33,13 @@ make_repo() { # name, mutate-script
     # shell-domain source change in every fixture's diff.
     cp "$ROOT/Scripts/check-red-green.sh" Scripts/check-red-green.sh
     chmod +x Scripts/check-red-green.sh
+    # stub_xcodebuild (below) writes its fake binary and call log straight
+    # into this same repo root, after this function has already returned --
+    # untracked, that would trip the guard's own dirty-tree refusal the same
+    # way a copied-in-after-head guard script would. Ignoring both up front,
+    # as of base, keeps stub_xcodebuild's paths exactly as given while
+    # leaving the guard's dirty check meaningful for everything else.
+    printf '/bin/\n/xcb.log\n' > .gitignore
     git add -A; git commit -qm base
     git branch -f base-ref
     eval "$2"
@@ -193,5 +200,73 @@ fi
 [ "$(cat "$out")" != "proved" ] || fail "a suite exiting 127 (command not found) must never read as proved"
 [ -z "$(cd "$r" && git status --porcelain)" ] || fail "tree left dirty after a command-not-found suite aborts: $(cd "$r" && git status --porcelain)"
 pass "shell: a suite that dies with command-not-found (127) aborts instead of fabricating proved"
+
+# A stubbed xcodebuild whose behaviour is driven by two files, so each case
+# can choose independently whether the build and the tests succeed.
+stub_xcodebuild() { # dir, build-rc, test-rc
+    mkdir -p "$1/bin"
+    cat > "$1/bin/xcodebuild" <<STUB
+#!/bin/bash
+for a in "\$@"; do
+  case "\$a" in
+    build-for-testing)    echo "\$*" >> "$1/xcb.log"; exit $2 ;;
+    test-without-building) echo "\$*" >> "$1/xcb.log"; exit $3 ;;
+  esac
+done
+exit 0
+STUB
+    chmod +x "$1/bin/xcodebuild"
+}
+
+mk_swift='
+echo "let y = 2" >> App/Sources/Thing.swift
+cat > App/Tests/ThingTests.swift <<"EOS"
+import XCTest
+final class ThingTests: XCTestCase { func testA() {} }
+final class ThingExtraTests: XCTestCase { func testB() {} }
+EOS'
+
+# 14. Build fails with the source reverted -> proved-by-compile.
+r="$(make_repo sw_compile "$mk_swift")"; stub_xcodebuild "$r" 65 0
+[ "$(cd "$r" && PATH="$r/bin:$PATH" ./Scripts/check-red-green.sh base-ref)" = "proved-by-compile" ] \
+    || fail "expected proved-by-compile"
+pass "swift: a reverted tree that will not compile is proved-by-compile"
+
+# 15. Build succeeds, tests fail -> proved.
+r="$(make_repo sw_proved "$mk_swift")"; stub_xcodebuild "$r" 0 65
+[ "$(cd "$r" && PATH="$r/bin:$PATH" ./Scripts/check-red-green.sh base-ref)" = "proved" ] \
+    || fail "expected proved"
+pass "swift: a reverted tree whose tests fail is proved"
+
+# 16. Build succeeds, tests pass -> vacuous.
+r="$(make_repo sw_vacuous "$mk_swift")"; stub_xcodebuild "$r" 0 0
+[ "$(cd "$r" && PATH="$r/bin:$PATH" ./Scripts/check-red-green.sh base-ref)" = "vacuous" ] \
+    || fail "expected vacuous"
+pass "swift: a reverted tree whose tests still pass is vacuous"
+
+# 17. EVERY class in a changed test file is targeted, not just the one whose
+#     name matches the file. ImportNoticesTests.swift in the real repo declares
+#     two; missing the second would silently halve the proof.
+grep -q 'only-testing:WADdleTests/ThingTests' "$r/xcb.log" || fail "did not target ThingTests"
+grep -q 'only-testing:WADdleTests/ThingExtraTests' "$r/xcb.log" || fail "did not target the second class in the file"
+pass "swift: targets every XCTestCase class declared in a changed test file"
+
+# 18. A changed test file that declares no XCTestCase class at all is
+#     `error`, not `vacuous`: nothing ran, so nothing was proved. This is
+#     also the fixture that catches the `test_classes` pipefail/errexit
+#     hazard directly: a no-match `grep -o` feeding `sed` is the last
+#     statement of a loop-body iteration, and unguarded it aborts the whole
+#     script rather than letting run_swift_domain ever report `error` --
+#     see docs/learnings/loop-body-last-status-triggers-errexit.md. xcodebuild
+#     must never even run: nothing was there to prove.
+mk_swift_no_classes='
+echo "let y = 2" >> App/Sources/Thing.swift
+echo "// no XCTestCase class here" > App/Tests/ThingTests.swift'
+r="$(make_repo sw_no_classes "$mk_swift_no_classes")"; stub_xcodebuild "$r" 0 0
+[ "$(cd "$r" && PATH="$r/bin:$PATH" ./Scripts/check-red-green.sh base-ref)" = "error" ] \
+    || fail "expected error for a test file declaring no XCTestCase class"
+[ ! -s "$r/xcb.log" ] || fail "xcodebuild should never run when no test class was found"
+[ -z "$(cd "$r" && git status --porcelain)" ] || fail "tree left dirty: $(cd "$r" && git status --porcelain)"
+pass "swift: a changed test file declaring no XCTestCase class is error, not vacuous"
 
 echo "All check-red-green tests passed."

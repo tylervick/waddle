@@ -64,3 +64,18 @@ pair where the "did nothing" branch is a legitimate outcome, not an error, is
 suspect. Guarding the *whole* compound with `|| true` would hide a real
 failure inside `action` too, so `if`/`fi` (or moving the guard so the
 unchecked command is never last) is the fix, not blanket masking.
+
+`pipefail` produces the identical shape without any `&&`/`||` in sight.
+`test_classes` in `Scripts/check-red-green.sh` (Task 4, the Swift domain
+runner) ends each loop iteration with `grep -o ... | sed ...`: a test file
+that legitimately declares no `XCTestCase` class makes `grep` exit 1 for "no
+lines selected" even though `sed` runs and exits 0. Under `set -o pipefail`
+the pipeline's own status is `grep`'s nonzero one, and as the loop body's
+last statement that killed the whole script under `errexit` -- silently,
+before `run_swift_domain` ever got to report the `error` verdict this exact
+input is supposed to produce. The fix is the same family, just applied to a
+pipeline instead of a `&&` list: `... | sed ... || true`, justified the same
+way the `swift_src`/`swift_test`/etc. domain functions at the top of the same
+file already mask a query's own no-match exit -- the absence of a match is
+the expected answer here, read from the *accumulated output*, not from this
+command's exit status.
