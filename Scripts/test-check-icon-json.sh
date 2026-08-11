@@ -62,6 +62,25 @@ if check "$TMP/missing" > "$TMP/out" 2>&1; then fail "accepted a layer with no a
 grep -q "no matching file" "$TMP/out" || fail "missing-artwork error is unclear"
 pass "rejects a layer whose artwork is absent"
 
+# 4b. A PATH in image-name, rather than a bare filename, escapes Assets/ and
+#     makes the existence test pass against an unrelated file: '../icon.json'
+#     resolves to something real, so the package would validate while Icon
+#     Composer still has no artwork. Absolute paths replace the prefix outright.
+for escape in "../icon.json" "/etc/hosts" "sub/mark.png"; do
+    make_pkg "$TMP/escape"; rm "$TMP/escape/Assets/mark.png"
+    python3 - "$TMP/escape/icon.json" "$escape" <<'PY'
+import json, sys
+p, name = sys.argv[1], sys.argv[2]
+d = json.load(open(p)); d["groups"][0]["layers"][0]["image-name"] = name
+json.dump(d, open(p, "w"), indent=2)
+PY
+    if check "$TMP/escape" > "$TMP/out" 2>&1; then
+        fail "accepted image-name '$escape', which points outside Assets/"
+    fi
+    grep -q "bare filename" "$TMP/out" || fail "'$escape' was rejected for the wrong reason"
+done
+pass "rejects image-name paths that escape Assets/"
+
 # 5. Orphaned asset -> someone hand-edited the package.
 make_pkg "$TMP/orphan"; printf 'stale' > "$TMP/orphan/Assets/old-mark.png"
 if check "$TMP/orphan" > "$TMP/out" 2>&1; then fail "accepted an unreferenced asset"; fi

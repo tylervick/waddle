@@ -146,8 +146,20 @@ with the new icon and that regeneration is reproducible:
 
 1. `xcodegen generate` succeeds with the `.icon` wired in.
 2. `xcodebuild` compiles the asset catalog without actool errors.
-3. `Scripts/check-icons-fresh.sh` passes on a clean tree and fails after touching a
-   `Design/` source without regenerating.
+3. `Scripts/check-icons-fresh.sh` passes on a clean tree, and fails both when the
+   source render changes without regenerating and when a derived file is edited
+   directly.
+
+   What it asserts precisely is `derived == regenerate(source)` — not that the
+   source is untouched. So re-stamping an mtime passes (the point of comparing
+   content), and so does a source edit that leaves the derived output identical,
+   such as appending bytes after a PNG's `IEND` chunk. Both are correct: the
+   committed assets really are what the source produces. Verifying with a
+   trailing-byte append therefore proves nothing — use a change that moves
+   pixels.
+
+4. `Scripts/check-icon-json.sh` passes on the real package and rejects each
+   silent-failure case, including an `image-name` that escapes `Assets/`.
 
 ## What building it turned up
 

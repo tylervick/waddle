@@ -54,6 +54,16 @@ for g_i, group in enumerate(icon.get("groups", [])):
         if not name:
             problems.append(f"groups[{g_i}].layers[{l_i}] has no 'image-name'.")
             continue
+        # A path here would escape Assets/ and make the existence test below
+        # pass against something else entirely -- '../icon.json' resolves to a
+        # real file, so the package validates while Icon Composer still has no
+        # artwork to render. An absolute path replaces the prefix outright.
+        if name != Path(name).name:
+            problems.append(
+                f"layer image-name '{name}' must be a bare filename in Assets/, "
+                "not a path."
+            )
+            continue
         declared.add(name)
         if not (pkg / "Assets" / name).is_file():
             problems.append(f"layer '{name}' has no matching file in Assets/.")
