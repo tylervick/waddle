@@ -18,4 +18,5 @@ One file per hard-won fact. Add an entry here in the same PR that adds the file 
 - [A test that builds a git fixture inherits the developer's signing config](git-fixtures-inherit-signing-config.md) — `tag.gpgSign` surfaces as `fatal: no tag message?`
 - [Masking a query's exit status makes a guard fail open](masked-exit-status-fails-open.md) — three times now; test the status, then rule on empty output separately
 - [An empty simulator list means infrastructure, not a bad pin](simulator-enumeration-race.md) — CoreSimulator can fail to enumerate anything on a cold runner; `Scripts/check-simulator-available.sh` is the check
+- [An unattended `git push` hangs instead of failing](unattended-git-auth-hangs.md) — a locked 1Password agent, and why `credential.helper` must be cleared before it is set
 - [The `.icon` package format, and the actool behaviours that mislead](icon-composer-package.md) — Dark/Tinted are generated for you, a silently-ignored key, nondeterministic output, and the simulator's icon cache

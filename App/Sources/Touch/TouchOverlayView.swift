@@ -64,7 +64,14 @@ final class TouchOverlayView: UIView {
         //                 (not a button at all --   (:656,658) -- synthesized from the
         //                 see setFireTrigger)        trigger axis, see TouchButton's
         //                                            doc comment in TouchGamepad.swift
-        //   USE           .south                     input_use: GAMEPAD_SOUTH (:654-655)
+        //   USE           .south                     input_use: GAMEPAD_SOUTH (:654-655).
+        //                                             Previously wired to
+        //                                             SDL_GAMEPAD_BUTTON_EAST (ordinal 1),
+        //                                             which -- like BACK below -- has no
+        //                                             default_inputs entry, so it silently
+        //                                             did nothing. TouchButton no longer
+        //                                             declares a case for that ordinal;
+        //                                             nothing in the app drives it.
         //   weapon prev   .leftShoulder              input_prevweapon: GAMEPAD_LEFT_SHOULDER
         //                                             (:659-660)
         //   weapon next   .rightShoulder             input_nextweapon: GAMEPAD_RIGHT_SHOULDER
