@@ -43,6 +43,7 @@ jobs:
           Scripts/test-engine-fingerprint.sh
           Scripts/test-check-engine-fresh.sh
           Scripts/test-check-simulator-available.sh
+          Scripts/test-check-red-green.sh
           Scripts/test-release-args.sh
           Scripts/test-check-substrate.sh
           Scripts/test-build-deps.sh
@@ -86,6 +87,25 @@ jobs:
             -only-testing:WADdleTests \
             -resultBundlePath TestResults.xcresult \
             test
+
+      # The loop's leading signal: does the test shipped with this change
+      # actually fail without the change? Prints a greppable marker the same
+      # way check-simulator-available.sh does.
+      #
+      # `|| true` and `continue-on-error` are BOTH deliberate and neither is
+      # sloppiness: this step must never fail the build. A gating proof would
+      # make the loop iterate until it went green, and the signal would read
+      # `proved` on every trial forever -- the exact defect that made
+      # coderabbit_findings_first a pre-fix snapshot. See
+      # docs/superpowers/specs/2026-08-10-test-proof-signal-design.md.
+      - name: Red-green test proof
+        continue-on-error: true
+        env:
+          RG_DESTINATION: platform=iOS Simulator,name=${{ env.SIMULATOR_DEVICE }},OS=${{ env.SIMULATOR_OS }}
+        run: |
+          out="$(Scripts/check-red-green.sh "origin/${{ github.base_ref || 'main' }}" || echo 'error')"
+          echo "TEST_PROOF: $(printf '%s\n' "$out" | head -1)"
+          echo "TEST_PROOF_DOMAINS: $(printf '%s\n' "$out" | sed -n 's/^domains: //p')"
 
       - name: Upload test results
         if: failure()
