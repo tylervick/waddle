@@ -42,5 +42,8 @@ description = "Regenerate icon assets from Design/source/waddle-logo.png"
 run = "Scripts/render-icons.sh"
 
 [tasks.check-icons]
-description = "Verify the committed icon assets match the source render"
-run = "Scripts/check-icons-fresh.sh"
+description = "Verify the icon package is sound and matches the source render"
+run = """
+Scripts/check-icon-json.sh
+Scripts/check-icons-fresh.sh
+"""

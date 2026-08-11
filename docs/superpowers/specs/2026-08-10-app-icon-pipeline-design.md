@@ -73,7 +73,7 @@ path, while the raster keeps the render's real (slightly asymmetric) lighting.
 
 Package directory, hand-authored so it diffs. Verified format:
 
-```
+```text
 AppIcon.icon/
   icon.json
   Assets/mark.png
@@ -123,6 +123,17 @@ Two modes, because they need different things installed:
 The narrow CI mode is a *scoped* check, not a fail-open one: within its scope it
 fails closed, and it never silently downgrades — you get the mode you asked for or
 an error.
+
+### `Scripts/check-icon-json.sh`
+
+Freshness is not the only way this package can be wrong. actool compiles several
+mistakes green, and the only symptom is an icon that renders wrong on a device.
+This guard rejects them: root-level `fill-specializations` (silently discarded —
+see the learning), a layer whose artwork is missing from `Assets/`, orphaned files
+left behind by a rename, and a package that declares no layers. Layer-level
+`fill-specializations` stays legal, because that is where the key actually works.
+
+python3 only, so it runs in the same cheap CI step as the sync check.
 
 No renderer-version assertion is needed after all: the pipeline lost its `resvg`
 and `oxipng` steps along with the dropped rasters, and the surviving `potrace`

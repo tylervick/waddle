@@ -3,14 +3,14 @@
 Everything here derives from one hand-supplied file. To change the logo, replace
 that file and re-run the pipeline — do not edit the derived assets.
 
-```
+```text
 Design/source/waddle-logo.png   the only hand-supplied input (1254x1254 render)
 Design/waddle-mark.png          derived: subject on transparency, 1024 canvas
 Design/waddle-mark-flat.svg     derived: flat silhouette, 1024 viewBox
 App/AppIcon.icon/Assets/mark.png  derived: copy of waddle-mark.png
 ```
 
-```
+```sh
 mise run icons         regenerate everything from the source render
 mise run check-icons   verify the committed assets match the source
 ```

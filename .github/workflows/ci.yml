@@ -47,6 +47,7 @@ jobs:
           Scripts/test-check-substrate.sh
           Scripts/test-build-deps.sh
           Scripts/test-check-icons-fresh.sh
+          Scripts/test-check-icon-json.sh
           Scripts/check-substrate.sh
           # --sync-only, not the full check: this step runs before the toolchain
           # setup and the runner has neither uv nor potrace. It still catches the
@@ -54,6 +55,10 @@ jobs:
           # package being updated. The full regeneration check is `mise run
           # check-icons` locally.
           Scripts/check-icons-fresh.sh --sync-only
+          # Catches icon.json mistakes that actool compiles green: a
+          # silently-ignored root-level key, a layer whose artwork is
+          # absent, orphaned assets. python3 only, no extra tooling.
+          Scripts/check-icon-json.sh
 
       - uses: ./.github/actions/setup-waddle-build
         with:

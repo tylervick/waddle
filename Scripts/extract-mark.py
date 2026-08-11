@@ -39,7 +39,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 from scipy import ndimage
-from svgpathtools import CubicBezier, Line, Path as SvgPath, parse_path
+from svgpathtools import CubicBezier, Line, parse_path
+from svgpathtools import Path as SvgPath
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "Design/source/waddle-logo.png"
@@ -62,9 +63,9 @@ CANVAS = 1024  # icon canvas; the source is scaled into this, preserving framing
 SAT_THRESHOLD = 60.0
 
 # potrace: tuned by sweeping alphamax x opttolerance against the mask and taking
-# the knee -- 0.18px mean boundary deviation at 1254 (IoU 0.9985) for 22
-# segments. Tightening to 104 segments buys 0.05px, which is not worth the
-# unreadable path data.
+# the knee -- 0.18px mean boundary deviation at 1254 (IoU 0.9985). Tightening
+# opttolerance to 0.2 roughly doubles the node count to buy 0.05px, which is not
+# worth the unreadable path data.
 POTRACE_ALPHAMAX = "1.0"
 POTRACE_OPTTOLERANCE = "1.0"
 POTRACE_UNIT = "100"
@@ -116,7 +117,7 @@ def mirror_axis(alpha: np.ndarray) -> float:
     """Sub-pixel vertical axis maximising self-mirror IoU."""
     width = alpha.shape[1]
     columns = np.arange(width)
-    ys, xs = np.nonzero(alpha > 0.5)
+    _, xs = np.nonzero(alpha > 0.5)
     centre = (xs.min() + xs.max()) // 2
 
     def mirrored(cx: float) -> np.ndarray:

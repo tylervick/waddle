@@ -10,7 +10,7 @@ established by inspecting a shipping example and by A/B-ing real builds.
 conforming to `com.apple.package`, declared by
 `Xcode.app/Contents/Applications/Icon Composer.app`. Layout:
 
-```
+```text
 AppIcon.icon/
   icon.json
   Assets/mark.png      # SVG works here too
@@ -36,7 +36,7 @@ picks it up alongside the asset catalog.
 To confirm a build actually consumed it, look for the three appearances in the
 compiled catalog rather than trusting a green build:
 
-```
+```sh
 xcrun assetutil --info "$APP/Assets.car" | grep -A2 UIAppearanceDark
 ```
 
@@ -50,17 +50,21 @@ give the icon a dark background — **compiles without error or warning and has 
 effect**. actool accepts the key and discards it. It is only honoured on a
 *layer*, which is where the shipping example uses it.
 
-This is worth knowing because the failure mode is invisible: the build is green,
-the dark rendition still exists in the catalog, and only a pixel comparison shows
-that nothing changed. If a dark background is wanted, author it in Icon
-Composer.app rather than assuming the hand-written key took.
+`Scripts/check-icon-json.sh` enforces this, along with the neighbouring silent
+failures (a layer pointing at artwork that is not there, orphaned files in
+`Assets/`, a package that declares no layers). All of them build green and only
+show up as an icon that renders wrong. Run it via `mise run check-icons`; CI runs
+it too.
+
+If a dark background is wanted, author it in Icon Composer.app rather than
+assuming a hand-written key took.
 
 ## actool output is not deterministic
 
 Two builds from a byte-identical `icon.json` produce **different `SHA1Digest`
 values** for every rendition:
 
-```
+```text
 build 1   (light) CAE95BC2DAB08579   dark C27862EE686D5B94
 build 2   (light) 8E9DD7F8FDE24215   dark 07BE08F2E0FACC83
 ```
