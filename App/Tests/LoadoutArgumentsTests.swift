@@ -63,8 +63,10 @@ final class LoadoutArgumentsTests: XCTestCase {
     }
 
     func testBuildBaseGameOnlyArgv() throws {
+        let saveID = UUID()
         let args = try LoadoutArguments.build(
-            iwadURL: URL(fileURLWithPath: "/tmp/doom2.wad"), saveID: UUID())
+            iwadURL: URL(fileURLWithPath: "/tmp/doom2.wad"), saveID: saveID)
+        addTeardownBlock { try? FileManager.default.removeItem(at: LibraryService.savesDirectory(forLoadoutID: saveID)) }
         XCTAssertEqual(Array(args.prefix(3)), ["woof", "-iwad", "/tmp/doom2.wad"])
         XCTAssertFalse(args.contains("-file"))
         XCTAssertFalse(args.contains("-deh"))
@@ -73,9 +75,11 @@ final class LoadoutArgumentsTests: XCTestCase {
     }
 
     func testBuildWithPWADsAndComplevel() throws {
+        let saveID = UUID()
         let args = try LoadoutArguments.build(
-            iwadURL: URL(fileURLWithPath: "/tmp/doom2.wad"), saveID: UUID(),
+            iwadURL: URL(fileURLWithPath: "/tmp/doom2.wad"), saveID: saveID,
             pwadURLs: [URL(fileURLWithPath: "/tmp/sunlust.wad")], complevel: "mbf21")
+        addTeardownBlock { try? FileManager.default.removeItem(at: LibraryService.savesDirectory(forLoadoutID: saveID)) }
         XCTAssertEqual(args[args.firstIndex(of: "-file")! + 1], "/tmp/sunlust.wad")
         XCTAssertEqual(args[args.firstIndex(of: "-complevel")! + 1], "mbf21")
     }
