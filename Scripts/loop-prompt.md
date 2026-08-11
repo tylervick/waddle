@@ -319,6 +319,26 @@ Read the two checks for two independent answers:
   CodeRabbit's row — see immediately below — meaning no review is coming,
   ever; or (3) the 900-second cap expires with neither of the above.
 
+When CI concludes, read the red-green proof from the same run — it is the
+leading signal and replaces `coderabbit_findings_first` in that role:
+
+```bash
+RUN_ID="$(gh run list --branch "$(git branch --show-current)" \
+    --json databaseId -L 1 --jq '.[0].databaseId')"
+gh run view "$RUN_ID" --log | grep -oE 'TEST_PROOF(_DOMAINS)?: .*' | tail -2
+```
+
+Record both as literals, from the **first** CI run only. If a later fix round
+triggers another run, its proof is post-fix and must not overwrite these — the
+same rule, and the same reason, as `coderabbit_findings_first`. If the lines
+are absent, record `test_proof_first: error`: the proof was not computed, which
+is not the same as the change failing to prove anything.
+
+**Never act on this verdict.** A `vacuous` result is a real defect and you will
+be standing next to it, but section 4's fix phase covers red CI and trusted-app
+review findings only. A measurement you are instructed to improve stops being a
+measurement.
+
 **Recognise a terminal non-review state and stop waiting for it at once.**
 CodeRabbit's row in `gh pr checks <PR>` carries its own description,
 separate from CI's rows. Read it on every poll. If it reads `Review rate
@@ -338,10 +358,11 @@ this same wait, not in 4.3. The instant you see it:
   `none`: `none` means the wait ended with no review having landed and no
   terminal non-review state seen, regardless of CI's outcome; `unavailable`
   means the reviewer told you outright it would not review. Both mean this
-  trial has no leading signal, but the reason differs and the record should
-  say which. A rate-limited review is *not* a reason to discard the rest of
-  the run's work — the pull request is open, and if CI passes this is still a
-  legitimate `pr-opened` outcome; only its leading signal is missing.
+  trial has no `coderabbit_findings_first`, but the reason differs and the
+  record should say which. A rate-limited review is *not* a reason to discard
+  the rest of the run's work — the pull request is open, and if CI passes
+  this is still a legitimate `pr-opened` outcome; only its
+  `coderabbit_findings_first` is missing.
 - Stop checking the review from here on. Keep polling for CI alone, on the
   same interval, against the same `<WAIT_START>` and the same 900-second cap,
   if CI has not concluded yet — CI is unaffected by CodeRabbit's rate limit
@@ -368,9 +389,9 @@ must not be discarded just because CI is slow to conclude:
 
 - **The review has genuinely landed** (a real CodeRabbit review count of at
   least 1, not the terminal non-review state — that case already went to
-  `unavailable` and section 5 above) **but CI has not concluded.** The
-  leading signal exists and is countable; losing it here would be exactly
-  the asymmetry this section exists to prevent. Record `ci_result: timeout`
+  `unavailable` and section 5 above) **but CI has not concluded.** This
+  count is real and usable; losing it here would be exactly the asymmetry
+  this section exists to prevent. Record `ci_result: timeout`
   (`<CI_RESULT>`) right now — CI itself never concluded, so this is the
   honest value no matter what the review found — then proceed to 4.2 to run
   its grep and push the real count as `coderabbit_findings_first`
@@ -436,7 +457,8 @@ landed while CI was still unresolved, `ci_result` is already fixed at
 `pass` or `fail`, and after pushing this snapshot skip straight to section 5
 instead of continuing into 4.3, per that paragraph's instruction.
 
-This is the experiment's leading signal. Once you start fixing, the count on
+This was the experiment's leading signal; `test_proof_first` (read in section
+4.1) now leads, and this is secondary. Once you start fixing, the count on
 GitHub measures your ability to satisfy CodeRabbit rather than the quality of
 what you originally produced, and the number is gone for good. Pushing it as its
 own write also means a run that dies mid-fix still leaves the measurement
@@ -540,7 +562,10 @@ wrote them. **Do not re-run 4.2's grep here.** By this point any fixes from
 4.3 are already pushed to the pull request, so re-deriving the count now
 would measure your fixes instead of the original work — silently
 overwriting, one commit later, the exact number section 4.2 pushed early
-specifically to protect from this. The same applies to
+specifically to protect from this. `test_proof_first` and `test_proof_domains`
+carry through unchanged for the same reason: they were read once, in section
+4.1, from the first CI run's log, and a later run's log is post-fix. The same
+applies to
 `coderabbit_findings_after` and `fix_rounds`: whatever 4.3 (or its absence,
 for a run that skipped section 4 entirely) already produced, copied through,
 not recomputed.
@@ -622,6 +647,8 @@ verification_result: pass|fail|not-run
 ci_result: pass|fail|timeout|not-run
 coderabbit_findings_first: <integer, none if no review landed before the wait ended or there was no pull request at all (independent of CI's own state), or unavailable if CodeRabbit reported it would not review>
 coderabbit_findings_after: <integer, or none if no fixes were attempted>
+test_proof_first: <proved|proved-by-compile|vacuous|no-test|n/a|error — from the FIRST CI run, before any fix round>
+test_proof_domains: <swift|shell|swift+shell|none>
 fix_rounds: <integer, 0 if none>
 pr: <number or none>
 learning_added: <path or none>
@@ -631,10 +658,12 @@ What happened, what surprised you, what a human reading this in six weeks
 would want to know.
 ```
 
-`coderabbit_findings_first` is the experiment's leading signal and is written in
-section 4.2 *before* any fix. `Scripts/loop-report.sh` reads it from this record
-and never queries GitHub for it — a live query would return post-fix counts and
-silently report zero findings for every run.
+`test_proof_first` is the experiment's leading signal, read in section 4.1 from
+the first CI run's log, before any fix round. `coderabbit_findings_first` is a
+secondary signal, written in section 4.2 *before* any fix. `Scripts/loop-report.sh`
+reads both from this record and never queries GitHub for the CodeRabbit count —
+a live query would return post-fix counts and silently report zero findings for
+every run.
 
 ## Known gaps
 
