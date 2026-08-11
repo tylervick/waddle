@@ -143,4 +143,30 @@ r="$(make_repo sh_unmatched "$mk_shell_unmatched")"
 [ "$(verdict "$r")" = "no-test" ] || fail "expected no-test, got: $(verdict "$r")"
 pass "shell: a changed script with no matching suite is no-test"
 
+# 12. Shell: a matching suite that exists but is not executable must never
+#     read as `proved` -- it never ran, so it neither passed nor failed. A
+#     permission error (exit 126) is not the same signal as a real assertion
+#     failure; folding them together fabricates the exact measurement this
+#     feature exists to prevent.
+mk_shell_not_executable='
+mkdir -p Scripts
+cat > Scripts/foo.sh <<"EOS"
+#!/bin/bash
+echo fixed
+EOS
+cat > Scripts/test-foo.sh <<"EOS"
+#!/bin/bash
+[ "$(./Scripts/foo.sh)" = "fixed" ] || exit 1
+EOS
+chmod +x Scripts/foo.sh
+chmod -x Scripts/test-foo.sh'
+r="$(make_repo sh_not_executable "$mk_shell_not_executable")"
+out="$TMP/sh_not_executable.out"
+if (cd "$r" && ./Scripts/check-red-green.sh base-ref >"$out" 2>&1); then
+    fail "a non-executable suite should abort rather than print a verdict, got: $(cat "$out")"
+fi
+[ "$(cat "$out")" != "proved" ] || fail "a non-executable suite must never read as proved"
+[ -z "$(cd "$r" && git status --porcelain)" ] || fail "tree left dirty after a non-executable suite aborts: $(cd "$r" && git status --porcelain)"
+pass "shell: a suite that exists but isn't executable aborts instead of fabricating proved"
+
 echo "All check-red-green tests passed."

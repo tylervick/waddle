@@ -108,10 +108,27 @@ run_shell_domain() { # src, test
 
     revert_src "$1"
     rc=0
-    printf '%s\n' "$suites" | while IFS= read -r t; do
+    # Reads via `< <(...)`, not `printf ... |`: a pipe forks a subshell in
+    # bash, and this loop needs the `[ -x "$t" ]` check below to actually
+    # reach `errexit` in the *current* shell, not die invisibly inside a
+    # subshell -- see docs/learnings/command-substitution-discards-callee-state.md,
+    # which documents the same subshell-erases-state trap one call shape over.
+    while IFS= read -r t; do
         [ -n "$t" ] || continue
-        "./$t" >/dev/null 2>&1 || exit 1
-    done || rc=1
+        # Unguarded, on purpose. A suite that isn't executable never ran --
+        # it neither passed nor failed -- so folding its permission-denied
+        # (exit 126) into the same `|| rc=1` as a real assertion failure
+        # would print `proved` from a broken commit, never having noticed
+        # the revert at all. That is the exact fabrication this feature
+        # exists to prevent, so it is not treated as data: left unguarded,
+        # `errexit` aborts the whole script right here, the same hard-stop
+        # `revert_src` already relies on for its own unmasked `git
+        # checkout`. The `EXIT` trap restores the tree; the caller sees a
+        # non-zero exit and no verdict, i.e. the proof could not be
+        # computed. See docs/learnings/exit-status-conflates-failed-with-never-ran.md.
+        [ -x "$t" ]
+        "./$t" >/dev/null 2>&1 || rc=1
+    done < <(printf '%s\n' "$suites")
     restore_tree
 
     # Non-zero means at least one suite noticed the revert. That is the proof.
