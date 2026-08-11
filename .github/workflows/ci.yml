@@ -34,7 +34,20 @@ jobs:
     # headroom well beyond either figure, not a number derived from them.
     timeout-minutes: 90
     steps:
+      # fetch-depth: 0 (all history, all branches/tags), not the default
+      # shallow depth-1 clone: Scripts/check-red-green.sh needs
+      # `git merge-base HEAD origin/<base>` to resolve, and a depth-1 fetch
+      # brings back only the ref being built -- no `origin/main` at all on a
+      # pull_request run (merge-base fails outright: "Not a valid object name
+      # origin/main"), and `origin/main` aliased to HEAD itself on a push to
+      # main (merge-base succeeds but the diff against it is empty, so the
+      # proof is permanently n/a). Reproduced against a scratch clone before
+      # this change and confirmed fixed after; this repo's history is small
+      # (39M .git, ~300 commits) so the unshallow fetch this adds is well
+      # under a second, against a job otherwise measured at minutes.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # Cheap (~0.1s each) and they guard the value both cache keys depend
       # on, plus the check that stops a stale engine from being shipped.
