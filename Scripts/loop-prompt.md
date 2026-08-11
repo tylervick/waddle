@@ -262,10 +262,12 @@ review from silently eating into it.
 **If no pull request was opened** — section 3's `no-repro`, `failed-verification`,
 and 45-minute `stuck` paths all end this way — skip this entire section.
 Record `ci_result: not-run` and `coderabbit_findings_first: none` (these become
-the literals `<CI_RESULT>` and `<CR_FIRST>` from section 1) and go straight to
-section 5. There is nothing here to wait for, and polling `gh pr checks` against
-a `<PR>` that was never recorded would burn the full 900-second cap for
-nothing.
+the literals `<CI_RESULT>` and `<CR_FIRST>` from section 1), and also
+`test_proof_first: error` and `test_proof_domains: none` — no pull request
+means no CI run, so the proof was never computed, the same sense of `error`
+used below for a crashed job — and go straight to section 5. There is nothing
+here to wait for, and polling `gh pr checks` against a `<PR>` that was never
+recorded would burn the full 900-second cap for nothing.
 
 Your pull request is open but the run is not over. Two things now judge it: CI,
 and CodeRabbit's review. You will respond to both — but the **order below is not
@@ -330,9 +332,16 @@ gh run view "$RUN_ID" --log | grep -oE 'TEST_PROOF(_DOMAINS)?: .*' | tail -2
 
 Record both as literals, from the **first** CI run only. If a later fix round
 triggers another run, its proof is post-fix and must not overwrite these — the
-same rule, and the same reason, as `coderabbit_findings_first`. If the lines
-are absent, record `test_proof_first: error`: the proof was not computed, which
-is not the same as the change failing to prove anything.
+same rule, and the same reason, as `coderabbit_findings_first`. If the grep
+matches nothing at all, record `test_proof_first: error`: the proof was not
+computed, which is not the same as the change failing to prove anything. A
+crashed job has its own shape, confirmed against
+`.github/workflows/ci.yml`: `TEST_PROOF: error` prints normally, but
+`TEST_PROOF_DOMAINS:` prints with nothing after the colon rather than the
+word `none`. Record that empty capture as `test_proof_domains: none` anyway —
+nothing was evaluated, which is what `none` means — never a blank: the
+field's vocabulary is closed to exactly `swift`, `shell`, `swift+shell`, and
+`none`.
 
 **Never act on this verdict.** A `vacuous` result is a real defect and you will
 be standing next to it, but section 4's fix phase covers red CI and trusted-app
@@ -450,7 +459,8 @@ an inconsistency to fix).
 
 Write that number into your trial record as `coderabbit_findings_first`
 (the literal `<CR_FIRST>` from section 1), set `ci_result` (`<CI_RESULT>`) to
-`pass` or `fail`, and **push the record now** — before any fix. **Exception:**
+`pass` or `fail`, carry in `test_proof_first` and `test_proof_domains` exactly
+as you read them in 4.1, and **push the record now** — before any fix. **Exception:**
 if you arrived here from 4.1's cap-exceeded paragraph because the review
 landed while CI was still unresolved, `ci_result` is already fixed at
 `timeout` — leave it exactly as recorded there, do not overwrite it with
@@ -462,7 +472,10 @@ This was the experiment's leading signal; `test_proof_first` (read in section
 GitHub measures your ability to satisfy CodeRabbit rather than the quality of
 what you originally produced, and the number is gone for good. Pushing it as its
 own write also means a run that dies mid-fix still leaves the measurement
-behind, exactly as the `started` marker does.
+behind, exactly as the `started` marker does — and carrying `test_proof_first`
+/ `test_proof_domains` into this same write protects the new leading signal
+for the identical reason: read in 4.1 but left unpushed until here, a crash
+during 4.3 would otherwise lose it while this demoted signal survived.
 
 ### 4.3 Respond
 
@@ -563,9 +576,10 @@ wrote them. **Do not re-run 4.2's grep here.** By this point any fixes from
 would measure your fixes instead of the original work — silently
 overwriting, one commit later, the exact number section 4.2 pushed early
 specifically to protect from this. `test_proof_first` and `test_proof_domains`
-carry through unchanged for the same reason: they were read once, in section
-4.1, from the first CI run's log, and a later run's log is post-fix. The same
-applies to
+carry through unchanged for the same reason: they were fixed once — in
+section 4.1 from the first CI run's log, or at section 4's no-PR exit — and a
+later run's log is post-fix; 4.2 only carries them into its push, it does not
+re-derive them. The same applies to
 `coderabbit_findings_after` and `fix_rounds`: whatever 4.3 (or its absence,
 for a run that skipped section 4 entirely) already produced, copied through,
 not recomputed.
@@ -696,10 +710,12 @@ owner and you close a work pull request without merging it, label its issue
 approach indefinitely.
 
 **A run that dies during section 4.3 leaves a pull request half-fixed.** The
-`coderabbit_findings_first` snapshot survives, so the measurement is intact,
-but the record still reads `started` and the pull request carries partial fix
-commits. Treat it like any other lost trial: the record is the evidence, and
-the pull request needs a human read.
+`coderabbit_findings_first`, `test_proof_first`, and `test_proof_domains`
+snapshots all survive — 4.2 pushes all three before any fix, precisely
+because 4.3 never runs without 4.2 having run first — so the measurement is
+intact, but the record still reads `started` and the pull request carries
+partial fix commits. Treat it like any other lost trial: the record is the
+evidence, and the pull request needs a human read.
 
 **A pull request that leaves section 4 without an addressed review has no
 later run that can ever pick it up.** Section 4's fix phase is intra-run
