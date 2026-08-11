@@ -10,6 +10,9 @@
 #   - total trial count and an outcome breakdown
 #   - per prompt_sha: trial count, PRs merged without requiring changes, and
 #     CodeRabbit Major/Critical findings across those PRs
+#   - per prompt_sha: test_proof_first verdict counts (proved,
+#     proved-by-compile, vacuous, no-test), with n/a and error broken out on
+#     their own line as unmeasured, never folded into those counts
 #   - the lost-trial list (records still reading `started`)
 #   - the stuck pile (records with outcome `stuck`)
 #
@@ -86,14 +89,39 @@
 #   lagging  -- the PR merged without requiring changes. Slow and authoritative;
 #               it exists to check the leading signal is telling the truth.
 #
+# `test_proof_first` (Scripts/loop-prompt.md section 4.1) is the experiment's
+# actual leading signal as of the red-green design -- the CodeRabbit signal
+# above is now secondary -- but it is read straight from the record with no
+# live query involved and prints on its own "test proof" line beneath the
+# CodeRabbit line rather than being fused into it. Unlike the CodeRabbit
+# block, it does not skip records with no PR: section 4's no-PR exit still
+# records a real verdict (`error`, since no PR means no CI run ever produced
+# one), so gating on `pr != none` the way reconciliation above must would
+# silently drop those trials. Its vocabulary is closed to six literals --
+# `proved`, `proved-by-compile`, `vacuous`, `no-test`, `n/a`, and `error` --
+# matched with a `case` rather than any arithmetic on the field's contents,
+# because it is free text an unattended agent writes and nothing validates it;
+# arithmetic on a non-numeric value would abort the whole script under
+# `set -euo pipefail`, exactly the failure mode
+# docs/learnings/masked-exit-status-fails-open.md documents for the
+# CodeRabbit snapshot below. Anything outside that vocabulary -- including the
+# field being absent entirely, which is every record on `loop-trials` as of
+# this writing, since it predates the field -- falls into the catch-all `*`
+# branch and is counted as `error`. `n/a` and `error` are ABSENT MEASUREMENTS,
+# NOT ZEROS: `n/a` means the change had no source to prove (e.g. a docs-only
+# diff), `error` means the proof could not be computed. Both are reported on
+# their own "not measured" line, counted separately from each other, and never
+# folded into the proved/vacuous/proved-by-compile/no-test counts or presented
+# as though the run proved nothing.
+#
 # Every trial record also carries `verification_result`, `size`, `kind`,
-# `wall_clock_seconds`, `ci_result`, and `coderabbit_findings_after`
-# (Scripts/loop-prompt.md section 6). This script does not read or surface any
-# of those today -- they are captured for later analysis, not because a report
-# is already computed from them. `coderabbit_findings_after` in particular is
-# written by the protocol and read by nothing. `fix_rounds` is the one field
-# from that list this script does read, solely to decide reconciliation
-# eligibility above.
+# `wall_clock_seconds`, `ci_result`, `coderabbit_findings_after`, and
+# `test_proof_domains` (Scripts/loop-prompt.md section 6). This script does not
+# read or surface any of those today -- they are captured for later analysis,
+# not because a report is already computed from them. `coderabbit_findings_after`
+# in particular is written by the protocol and read by nothing.
+# `fix_rounds` is the one field from that list this script does read, solely
+# to decide reconciliation eligibility above.
 #
 # A record whose outcome is still `started` is a LOST TRIAL -- the run died
 # before rewriting it. There is no supervising process to notice that (Orca's
@@ -121,7 +149,7 @@ for f in "${files[@]}"; do
     issue="$(field "$fm" issue)"; outcome="$(field "$fm" outcome)"
     if [ -z "$issue" ] || [ -z "$outcome" ]; then bad+=("$(basename "$f")"); continue; fi
     total=$((total + 1))
-    rows+=("$(field "$fm" prompt_sha)|$outcome|$(field "$fm" pr)|$issue|$(field "$fm" coderabbit_findings_first)|$(field "$fm" fix_rounds)")
+    rows+=("$(field "$fm" prompt_sha)|$outcome|$(field "$fm" pr)|$issue|$(field "$fm" coderabbit_findings_first)|$(field "$fm" fix_rounds)|$(field "$fm" test_proof_first)")
     [ "$outcome" = "stuck" ] && stuck+=("$issue")
     [ "$outcome" = "started" ] && lost+=("$issue")
 done
@@ -144,9 +172,36 @@ echo "by prompt version:"
 if [ "${#rows[@]}" -gt 0 ]; then
     for sha in $(printf '%s\n' "${rows[@]}" | cut -d'|' -f1 | sort -u); do
         n=0; merged=0; prs=0; findings=0; legacy=0; unavailable=0; reconciled=0; foreign=0
+        proved=0; provedc=0; vac=0; notest=0; nap=0; errp=0
         for r in "${rows[@]}"; do
             [ "${r%%|*}" = "$sha" ] || continue
             n=$((n + 1))
+            # test_proof_first is read unconditionally, unlike the CodeRabbit
+            # signal below -- it comes straight from the record with no live
+            # query involved, and Scripts/loop-prompt.md's section 4 records a
+            # real verdict (typically `error`, since no PR means no CI run)
+            # even for a trial that never opened a pull request. Gating this on
+            # `pr != none` the way the CodeRabbit block below must (it needs a
+            # PR to query) would silently drop those trials from the count.
+            # The vocabulary is closed to six literals; anything else --
+            # including the field being absent entirely, which is every record
+            # on loop-trials as of this writing -- falls into the `*` branch
+            # below and is treated as `error`: unmeasured, not a zero. Matching
+            # a case pattern rather than doing arithmetic on the field's
+            # contents is deliberate: `test_proof_first` is free text written
+            # by an unattended agent, and arithmetic on a non-numeric value
+            # would abort the whole script under `set -euo pipefail` -- see
+            # the coderabbit_findings_first handling below and
+            # docs/learnings/masked-exit-status-fails-open.md.
+            tp="$(printf '%s' "$r" | cut -d'|' -f7)"
+            case "$tp" in
+                proved)            proved=$((proved + 1)) ;;
+                proved-by-compile) provedc=$((provedc + 1)) ;;
+                vacuous)           vac=$((vac + 1)) ;;
+                no-test)           notest=$((notest + 1)) ;;
+                n/a)               nap=$((nap + 1)) ;;
+                *)                 errp=$((errp + 1)) ;;
+            esac
             pr="$(printf '%s' "$r" | cut -d'|' -f3)"
             # A trial with no PR feeds neither signal. Counting it as zero findings
             # would score a dead run as a flawless review.
@@ -334,6 +389,10 @@ if [ "${#rows[@]}" -gt 0 ]; then
         fi
         if [ "$reconciled" -gt 0 ]; then
             echo "    ($reconciled record(s) reconciled -- no measurement existed at run time (fix_rounds 0, so the code was never touched again), and every commit on the PR is authored by the agent, so a live query today reads the same pre-fix code and is counted in the findings total above)"
+        fi
+        echo "    test proof: $proved proved, $vac vacuous, $provedc proved-by-compile, $notest no-test"
+        if [ "$((nap + errp))" -gt 0 ]; then
+            echo "      ($((nap + errp)) not measured ($nap n/a, $errp error) -- absent measurements, not zeros)"
         fi
     done
 fi

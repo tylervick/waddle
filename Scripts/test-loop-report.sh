@@ -72,8 +72,14 @@ esac
 STUB
     chmod +x "$1/bin/gh"
 }
-record() { # dir issue outcome prompt_sha [pr]
-    cat > "$1/trials/2026-08-07-issue-$2.md" <<EOF
+record() { # dir issue outcome prompt_sha [pr] [test_proof_first]
+    # $6 is optional and, when omitted, must leave the field entirely absent
+    # from the front matter rather than writing it empty -- a record written
+    # before test_proof_first existed (every existing case here) has no such
+    # line at all, and that absence is exactly what the report must treat as
+    # unmeasured rather than as a zero.
+    {
+        cat <<EOF
 ---
 run_id: r-$2
 timestamp: 2026-08-07T12:00:00Z
@@ -86,9 +92,10 @@ wall_clock_seconds: 600
 verification_result: pass
 pr: ${5:-none}
 learning_added: none
----
-prose
 EOF
+        [ -n "${6:-}" ] && echo "test_proof_first: $6"
+        printf '%s\n' "---" "prose"
+    } > "$1/trials/2026-08-07-issue-$2.md"
 }
 report() { env PATH="$1/bin:/usr/bin:/bin" "$ROOT/Scripts/loop-report.sh" "$1/trials"; }
 
@@ -715,5 +722,23 @@ echo "$out" | grep -q "0 CodeRabbit" \
 grep -q "pulls/65/comments" "$TMP/t23/gh-calls.log" \
     || fail "the comments query must actually run; calls were: $(cat "$TMP/t23/gh-calls.log")"
 pass "reconciles with 0 findings when the comments query succeeds but returns no matching comments (a real zero, not a failure)"
+
+# 24. THE NEW SIGNAL: test_proof_first (Scripts/loop-prompt.md section 4.1's
+#    red-green verdict) is counted per prompt version, same as the CodeRabbit
+#    signal, but n/a and error are absences, not scores, and must never be
+#    counted as though the run proved nothing. All four trials share one
+#    prompt_sha so their counts land on the same summary line, distinguished
+#    by distinct PRs and issues.
+make_fixture "$TMP/u"
+record "$TMP/u" proof1 pr-opened proofsha 201 proved
+record "$TMP/u" proof2 pr-opened proofsha 202 vacuous
+record "$TMP/u" proof3 pr-opened proofsha 203 n/a
+record "$TMP/u" proof4 pr-opened proofsha 204 error
+out="$(report "$TMP/u" 2>&1)" || fail "report failed on test_proof_first records; got: $out"
+echo "$out" | grep -q "test proof: 1 proved, 1 vacuous" \
+    || fail "did not summarise proved/vacuous counts; got: $out"
+echo "$out" | grep -q "2 not measured (1 n/a, 1 error)" \
+    || fail "folded absent measurements into a score; got: $out"
+pass "reports red-green verdicts and keeps n/a and error out of the scores"
 
 echo "All loop-report tests passed."
