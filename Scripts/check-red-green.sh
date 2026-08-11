@@ -202,6 +202,12 @@ run_swift_domain() { # src, test
     done < "$TMPDIR_RG/classes"
 
     revert_src "$1"
+    # Test hook: prove the EXIT trap restores the tree even on a hard
+    # failure that happens after a revert. Lives here, not in classify_domain
+    # itself, because this is the one place in the swift domain that actually
+    # calls revert_src -- see test case 8, which needs a changed test file
+    # that declares a real XCTestCase class to ever reach this line at all.
+    if [ -n "${RED_GREEN_DIE_AFTER_REVERT:-}" ]; then exit 70; fi
     # Two xcodebuild invocations, not one `xcodebuild test`: that single
     # invocation exits 65 for a compile failure and for a test failure
     # alike, which would be exactly the failed-vs-never-ran conflation
@@ -219,6 +225,31 @@ run_swift_domain() { # src, test
         echo "proved-by-compile"
         return
     fi
+
+    # `test-without-building` genuinely launches the test bundle on a
+    # simulator; `build-for-testing` above only needs the SDK to compile
+    # against, so it can (and, on this exact `RG_DESTINATION` default, once
+    # did -- CI run 31427755601, docs/learnings/simulator-enumeration-race.md)
+    # succeed while CoreSimulator has enumerated nothing. A nonzero
+    # `test-without-building` exit in that state is not "the tests noticed
+    # the revert" -- it's infrastructure, and reading it as `proved` would be
+    # the strongest verdict this instrument can emit, fabricated from an
+    # unbootable simulator. Exactly the failed-vs-never-ran conflation
+    # docs/learnings/exit-status-conflates-failed-with-never-ran.md names
+    # this task as the place it would recur. Reused rather than
+    # reimplemented: Scripts/check-simulator-available.sh already has its own
+    # hermetic suite and already distinguishes "CoreSimulator enumerated
+    # nothing" from "devices exist, none match the pin" -- both mean
+    # test-without-building is not about to prove anything, so either exit
+    # is treated the same way here. Unguarded, on purpose, the same hard-stop
+    # the shell domain uses for suite exit 126/127: a failure here means no
+    # verdict can be trusted, so `errexit` aborts the script; the `EXIT` trap
+    # restores the tree, and the caller sees a non-zero exit with nothing on
+    # stdout -- the proof could not be computed.
+    device="$(printf '%s' "$RG_DESTINATION" | sed -E 's/.*name=([^,]*).*/\1/')"
+    os_version="$(printf '%s' "$RG_DESTINATION" | sed -E 's/.*OS=([^,]*).*/\1/')"
+    Scripts/check-simulator-available.sh "$device" "$os_version" >/dev/null 2>&1
+
     # shellcheck disable=SC2086
     if ! xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
             -destination "$RG_DESTINATION" $only test-without-building >/dev/null 2>&1; then

@@ -30,6 +30,25 @@ second one was caught only because a reviewer asked "what else exits nonzero
 without the assertions running" instead of accepting that the first fix
 closed the category.
 
+The prediction in this file's own "Where else to look" section came true
+before the file was a day old: `run_swift_domain`'s `test-without-building`
+step hit it directly. `xcodebuild`'s own exit code cannot tell "a test
+failed" apart from "the simulator was never available to run it on" --
+`build-for-testing` only needs the SDK and had already succeeded, so a
+CoreSimulator enumeration failure at the `test-without-building` step (CI
+run 31427755601, `docs/learnings/simulator-enumeration-race.md`, against
+this exact `RG_DESTINATION` default) would have reached `proved`, the
+strongest verdict this instrument can emit, from an infrastructure hiccup.
+Closed by reusing rather than reimplementing:
+`Scripts/check-simulator-available.sh` already exists, already has its own
+hermetic suite, and already distinguishes "CoreSimulator enumerated nothing"
+from "a genuine destination pin problem" for exactly this device/OS pair.
+Run unguarded immediately before `test-without-building`, either of its
+failure modes hits the same unguarded-hard-stop shape as the shell domain's
+126/127 -- `errexit` aborts the script, the `EXIT` trap restores the tree,
+and the caller sees a non-zero exit with no verdict rather than a fabricated
+`proved`.
+
 ## The fix is not a masked exit status, and not a fourth verdict
 
 This is not [a masked exit status read as data](masked-exit-status-fails-open.md)

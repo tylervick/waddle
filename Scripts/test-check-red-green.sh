@@ -33,6 +33,12 @@ make_repo() { # name, mutate-script
     # shell-domain source change in every fixture's diff.
     cp "$ROOT/Scripts/check-red-green.sh" Scripts/check-red-green.sh
     chmod +x Scripts/check-red-green.sh
+    # run_swift_domain shells out to this guard before trusting a
+    # test-without-building failure; committed at base for the same reason
+    # check-red-green.sh itself is, and for the same reason never shows up as
+    # a shell-domain change in any fixture's diff.
+    cp "$ROOT/Scripts/check-simulator-available.sh" Scripts/check-simulator-available.sh
+    chmod +x Scripts/check-simulator-available.sh
     # stub_xcodebuild (below) writes its fake binary and call log straight
     # into this same repo root, after this function has already returned --
     # untracked, that would trip the guard's own dirty-tree refusal the same
@@ -49,6 +55,70 @@ make_repo() { # name, mutate-script
 }
 
 verdict() { (cd "$1" && ./Scripts/check-red-green.sh base-ref); }
+
+# A stubbed xcodebuild whose behaviour is driven by two files, so each case
+# can choose independently whether the build and the tests succeed. Defined
+# here, ahead of case 1, because case 8 (below) needs it too: proving the
+# EXIT trap fires on a hard mid-run failure means the stub must say
+# everything would otherwise succeed, so a hard failure can't be confused
+# with a real, unstubbed xcodebuild simply having nothing to build.
+stub_xcodebuild() { # dir, build-rc, test-rc
+    mkdir -p "$1/bin"
+    cat > "$1/bin/xcodebuild" <<STUB
+#!/bin/bash
+for a in "\$@"; do
+  case "\$a" in
+    build-for-testing)    echo "\$*" >> "$1/xcb.log"; exit $2 ;;
+    test-without-building) echo "\$*" >> "$1/xcb.log"; exit $3 ;;
+  esac
+done
+exit 0
+STUB
+    chmod +x "$1/bin/xcodebuild"
+}
+
+# A stubbed xcrun that enumerates RG_DESTINATION's hermetic default (iPhone
+# 17 Pro / iOS 26.2) as available, so cases that reach test-without-building
+# but are not specifically testing the simulator-availability guard don't
+# trip it.
+stub_xcrun_available() { # dir
+    mkdir -p "$1/bin"
+    cat > "$1/bin/xcrun" <<'STUB'
+#!/bin/bash
+if [ "$1" = "simctl" ] && [ "$2" = "list" ]; then
+cat <<'EOF'
+== Devices ==
+-- iOS 26.2 --
+    iPhone 17 Pro (AAAA1111-2222-3333-4444-555566667777) (Shutdown)
+-- tvOS 17.2 --
+EOF
+exit 0
+fi
+echo "stub xcrun: unhandled args: $*" >&2
+exit 64
+STUB
+    chmod +x "$1/bin/xcrun"
+}
+
+# A stubbed xcrun that enumerates NOTHING at all, for any OS -- the CI
+# run 31427755601 shape check-simulator-available.sh exists to catch.
+stub_xcrun_unavailable() { # dir
+    mkdir -p "$1/bin"
+    cat > "$1/bin/xcrun" <<'STUB'
+#!/bin/bash
+if [ "$1" = "simctl" ] && [ "$2" = "list" ]; then
+cat <<'EOF'
+== Devices ==
+-- iOS 26.2 --
+-- tvOS 17.2 --
+EOF
+exit 0
+fi
+echo "stub xcrun: unhandled args: $*" >&2
+exit 64
+STUB
+    chmod +x "$1/bin/xcrun"
+}
 
 # 1. No source file changed at all -> n/a.
 r="$(make_repo na 'echo more >> README.md')"
@@ -98,8 +168,25 @@ pass "restores a deleted source file and leaves the tree clean"
 
 # 8. The tree is restored even when the run dies partway. Simulated by making
 #    the runner blow up: the trap, not the happy path, must do the cleanup.
-r="$(make_repo trap_case 'echo "let y = 2" >> App/Sources/Thing.swift; echo "// t" > App/Tests/ThingTests.swift')"
-(cd "$r" && RED_GREEN_DIE_AFTER_REVERT=1 ./Scripts/check-red-green.sh base-ref >/dev/null 2>&1 || true)
+#    The test file must declare a real XCTestCase class: test_classes finding
+#    one is what makes run_swift_domain reach revert_src at all -- a file
+#    with no class (e.g. `// t`) returns `error` first, RED_GREEN_DIE_AFTER_REVERT
+#    is never consulted, and this case would pass without exercising the
+#    trap it claims to. The xcodebuild stub says BOTH invocations would
+#    succeed (a clean `vacuous` run, exit 0, if the env var did nothing) --
+#    so asserting a non-zero exit below is only possible because the hook
+#    actually fired and killed the script, not because anything about the
+#    stub or the fixture would have failed on its own.
+mk_trap_case='
+echo "let y = 2" >> App/Sources/Thing.swift
+cat > App/Tests/ThingTests.swift <<"EOS"
+import XCTest
+final class ThingTests: XCTestCase { func testA() {} }
+EOS'
+r="$(make_repo trap_case "$mk_trap_case")"; stub_xcodebuild "$r" 0 0; stub_xcrun_available "$r"
+if (cd "$r" && PATH="$r/bin:$PATH" RED_GREEN_DIE_AFTER_REVERT=1 ./Scripts/check-red-green.sh base-ref >/dev/null 2>&1); then
+    fail "RED_GREEN_DIE_AFTER_REVERT should have killed the script even though the stub says everything would succeed"
+fi
 [ -z "$(cd "$r" && git status --porcelain)" ] || fail "tree left dirty after a mid-run failure: $(cd "$r" && git status --porcelain)"
 grep -q 'let y = 2' "$r/App/Sources/Thing.swift" || fail "source not restored after a mid-run failure"
 pass "restores the tree even when the run dies after reverting"
@@ -201,23 +288,6 @@ fi
 [ -z "$(cd "$r" && git status --porcelain)" ] || fail "tree left dirty after a command-not-found suite aborts: $(cd "$r" && git status --porcelain)"
 pass "shell: a suite that dies with command-not-found (127) aborts instead of fabricating proved"
 
-# A stubbed xcodebuild whose behaviour is driven by two files, so each case
-# can choose independently whether the build and the tests succeed.
-stub_xcodebuild() { # dir, build-rc, test-rc
-    mkdir -p "$1/bin"
-    cat > "$1/bin/xcodebuild" <<STUB
-#!/bin/bash
-for a in "\$@"; do
-  case "\$a" in
-    build-for-testing)    echo "\$*" >> "$1/xcb.log"; exit $2 ;;
-    test-without-building) echo "\$*" >> "$1/xcb.log"; exit $3 ;;
-  esac
-done
-exit 0
-STUB
-    chmod +x "$1/bin/xcodebuild"
-}
-
 mk_swift='
 echo "let y = 2" >> App/Sources/Thing.swift
 cat > App/Tests/ThingTests.swift <<"EOS"
@@ -226,20 +296,25 @@ final class ThingTests: XCTestCase { func testA() {} }
 final class ThingExtraTests: XCTestCase { func testB() {} }
 EOS'
 
-# 14. Build fails with the source reverted -> proved-by-compile.
+# 14. Build fails with the source reverted -> proved-by-compile. No xcrun
+#     stub needed: build-for-testing fails first, so the simulator-
+#     availability check (which only guards test-without-building) is never
+#     reached.
 r="$(make_repo sw_compile "$mk_swift")"; stub_xcodebuild "$r" 65 0
 [ "$(cd "$r" && PATH="$r/bin:$PATH" ./Scripts/check-red-green.sh base-ref)" = "proved-by-compile" ] \
     || fail "expected proved-by-compile"
 pass "swift: a reverted tree that will not compile is proved-by-compile"
 
-# 15. Build succeeds, tests fail -> proved.
-r="$(make_repo sw_proved "$mk_swift")"; stub_xcodebuild "$r" 0 65
+# 15. Build succeeds, tests fail -> proved. A genuine test failure must still
+#     reach `proved` once the simulator is confirmed available -- the guard
+#     added for case 19 below must not over-broadly swallow this.
+r="$(make_repo sw_proved "$mk_swift")"; stub_xcodebuild "$r" 0 65; stub_xcrun_available "$r"
 [ "$(cd "$r" && PATH="$r/bin:$PATH" ./Scripts/check-red-green.sh base-ref)" = "proved" ] \
     || fail "expected proved"
 pass "swift: a reverted tree whose tests fail is proved"
 
 # 16. Build succeeds, tests pass -> vacuous.
-r="$(make_repo sw_vacuous "$mk_swift")"; stub_xcodebuild "$r" 0 0
+r="$(make_repo sw_vacuous "$mk_swift")"; stub_xcodebuild "$r" 0 0; stub_xcrun_available "$r"
 [ "$(cd "$r" && PATH="$r/bin:$PATH" ./Scripts/check-red-green.sh base-ref)" = "vacuous" ] \
     || fail "expected vacuous"
 pass "swift: a reverted tree whose tests still pass is vacuous"
@@ -268,5 +343,29 @@ r="$(make_repo sw_no_classes "$mk_swift_no_classes")"; stub_xcodebuild "$r" 0 0
 [ ! -s "$r/xcb.log" ] || fail "xcodebuild should never run when no test class was found"
 [ -z "$(cd "$r" && git status --porcelain)" ] || fail "tree left dirty: $(cd "$r" && git status --porcelain)"
 pass "swift: a changed test file declaring no XCTestCase class is error, not vacuous"
+
+# 19. A test-without-building failure must not read as `proved` when the
+#     simulator itself never became available. CI run 31427755601 hit
+#     exactly this against this same RG_DESTINATION default (see
+#     docs/learnings/simulator-enumeration-race.md): build-for-testing can
+#     succeed while CoreSimulator has enumerated nothing, and only
+#     test-without-building actually needs a live device. The whole run must
+#     abort (no verdict, tree restored) before test-without-building is ever
+#     invoked -- proceeding to it and trusting its exit code would fabricate
+#     the strongest verdict from an infrastructure hiccup.
+r="$(make_repo sw_sim_unavailable "$mk_swift")"
+stub_xcodebuild "$r" 0 65
+stub_xcrun_unavailable "$r"
+out="$TMP/sw_sim_unavailable.out"
+if (cd "$r" && PATH="$r/bin:$PATH" SIMULATOR_CHECK_ATTEMPTS=1 SIMULATOR_CHECK_DELAY=0 \
+        ./Scripts/check-red-green.sh base-ref >"$out" 2>&1); then
+    fail "should have aborted instead of proceeding when the simulator never became available; got: $(cat "$out")"
+fi
+[ "$(cat "$out")" != "proved" ] || fail "an unavailable simulator must never read as proved"
+grep -q "test-without-building" "$r/xcb.log" 2>/dev/null \
+    && fail "test-without-building must never run when the simulator precheck fails"
+[ -z "$(cd "$r" && git status --porcelain)" ] \
+    || fail "tree left dirty after a simulator-unavailable abort: $(cd "$r" && git status --porcelain)"
+pass "swift: an unbootable simulator aborts instead of fabricating proved from test-without-building"
 
 echo "All check-red-green tests passed."
