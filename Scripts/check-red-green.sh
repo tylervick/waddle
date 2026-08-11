@@ -287,9 +287,37 @@ classify_domain shell "$(shell_src)" "$(shell_test)" > "$verdict_tmp"
 sh="$(cat "$verdict_tmp")"
 rm -f "$verdict_tmp"
 
-if [ "$sw" = "absent" ] && [ "$sh" = "absent" ]; then
+# Worst-of, most severe first. `error` is deliberately absent: it is not a
+# rank but an absence of measurement, and is handled before this is consulted.
+severity() { # verdict
+    case "$1" in
+        vacuous)           echo 4 ;;
+        no-test)           echo 3 ;;
+        proved-by-compile) echo 2 ;;
+        proved)            echo 1 ;;
+        *)                 echo 0 ;;
+    esac
+}
+
+domains=""
+[ "$sw" != "absent" ] && domains="swift"
+[ "$sh" != "absent" ] && domains="${domains:+$domains+}shell"
+
+if [ -z "$domains" ]; then
     echo "n/a"
+    echo "domains: none"
     exit 0
 fi
-# Single-domain case only until Task 5 adds combination.
-if [ "$sw" != "absent" ]; then echo "$sw"; else echo "$sh"; fi
+
+if [ "$sw" = "error" ] || [ "$sh" = "error" ]; then
+    echo "error"
+    echo "domains: $domains"
+    exit 0
+fi
+
+worst="$sw"; [ "$sw" = "absent" ] && worst="$sh"
+if [ "$sh" != "absent" ] && [ "$(severity "$sh")" -gt "$(severity "$worst")" ]; then
+    worst="$sh"
+fi
+echo "$worst"
+echo "domains: $domains"

@@ -54,7 +54,12 @@ make_repo() { # name, mutate-script
     echo "$d"
 }
 
-verdict() { (cd "$1" && ./Scripts/check-red-green.sh base-ref); }
+# `head -1`, not the raw output: the stdout contract is two lines (verdict,
+# then `domains: ...`), and callers of this helper only ever want the
+# verdict. Without it every exact-match assertion below would compare a
+# single word against a two-line string and fail on the domains line it was
+# never asking about.
+verdict() { (cd "$1" && ./Scripts/check-red-green.sh base-ref) | head -1; }
 
 # A stubbed xcodebuild whose behaviour is driven by two files, so each case
 # can choose independently whether the build and the tests succeed. Defined
@@ -301,7 +306,7 @@ EOS'
 #     availability check (which only guards test-without-building) is never
 #     reached.
 r="$(make_repo sw_compile "$mk_swift")"; stub_xcodebuild "$r" 65 0
-[ "$(cd "$r" && PATH="$r/bin:$PATH" ./Scripts/check-red-green.sh base-ref)" = "proved-by-compile" ] \
+[ "$(cd "$r" && PATH="$r/bin:$PATH" ./Scripts/check-red-green.sh base-ref | head -1)" = "proved-by-compile" ] \
     || fail "expected proved-by-compile"
 pass "swift: a reverted tree that will not compile is proved-by-compile"
 
@@ -309,13 +314,13 @@ pass "swift: a reverted tree that will not compile is proved-by-compile"
 #     reach `proved` once the simulator is confirmed available -- the guard
 #     added for case 19 below must not over-broadly swallow this.
 r="$(make_repo sw_proved "$mk_swift")"; stub_xcodebuild "$r" 0 65; stub_xcrun_available "$r"
-[ "$(cd "$r" && PATH="$r/bin:$PATH" ./Scripts/check-red-green.sh base-ref)" = "proved" ] \
+[ "$(cd "$r" && PATH="$r/bin:$PATH" ./Scripts/check-red-green.sh base-ref | head -1)" = "proved" ] \
     || fail "expected proved"
 pass "swift: a reverted tree whose tests fail is proved"
 
 # 16. Build succeeds, tests pass -> vacuous.
 r="$(make_repo sw_vacuous "$mk_swift")"; stub_xcodebuild "$r" 0 0; stub_xcrun_available "$r"
-[ "$(cd "$r" && PATH="$r/bin:$PATH" ./Scripts/check-red-green.sh base-ref)" = "vacuous" ] \
+[ "$(cd "$r" && PATH="$r/bin:$PATH" ./Scripts/check-red-green.sh base-ref | head -1)" = "vacuous" ] \
     || fail "expected vacuous"
 pass "swift: a reverted tree whose tests still pass is vacuous"
 
@@ -338,7 +343,7 @@ mk_swift_no_classes='
 echo "let y = 2" >> App/Sources/Thing.swift
 echo "// no XCTestCase class here" > App/Tests/ThingTests.swift'
 r="$(make_repo sw_no_classes "$mk_swift_no_classes")"; stub_xcodebuild "$r" 0 0
-[ "$(cd "$r" && PATH="$r/bin:$PATH" ./Scripts/check-red-green.sh base-ref)" = "error" ] \
+[ "$(cd "$r" && PATH="$r/bin:$PATH" ./Scripts/check-red-green.sh base-ref | head -1)" = "error" ] \
     || fail "expected error for a test file declaring no XCTestCase class"
 [ ! -s "$r/xcb.log" ] || fail "xcodebuild should never run when no test class was found"
 [ -z "$(cd "$r" && git status --porcelain)" ] || fail "tree left dirty: $(cd "$r" && git status --porcelain)"
@@ -367,5 +372,39 @@ grep -q "test-without-building" "$r/xcb.log" 2>/dev/null \
 [ -z "$(cd "$r" && git status --porcelain)" ] \
     || fail "tree left dirty after a simulator-unavailable abort: $(cd "$r" && git status --porcelain)"
 pass "swift: an unbootable simulator aborts instead of fabricating proved from test-without-building"
+
+# 20. Mixed domains take the WORSE verdict: a proved swift half must not mask
+#     a vacuous shell half. Needs stub_xcrun_available, unlike the brief's
+#     literal text: this fixture's swift half reaches test-without-building
+#     (build 0, test 65), and per the hermeticity constraint this suite never
+#     falls through to a real xcrun/simulator -- see case 19 just above,
+#     which exists for exactly this reason.
+mk_mixed="$mk_shell_vacuous"'
+echo "let y = 2" >> App/Sources/Thing.swift
+cat > App/Tests/ThingTests.swift <<"EOS"
+import XCTest
+final class ThingTests: XCTestCase { func testA() {} }
+EOS'
+r="$(make_repo mixed "$mk_mixed")"; stub_xcodebuild "$r" 0 65; stub_xcrun_available "$r"
+out="$(cd "$r" && PATH="$r/bin:$PATH" ./Scripts/check-red-green.sh base-ref)"
+[ "$(echo "$out" | head -1)" = "vacuous" ] || fail "expected worst-of vacuous, got: $out"
+echo "$out" | grep -q "domains: swift+shell" || fail "did not report both domains; got: $out"
+pass "a mixed pull request takes the worse of the two verdicts"
+
+# 21. `error` is not a rank -- it dominates everything, because a
+#     half-computed proof is not a proof.
+mk_err="$mk_shell_proved"'
+echo "let y = 2" >> App/Sources/Thing.swift
+echo "// no XCTestCase here" > App/Tests/ThingTests.swift'
+r="$(make_repo errdom "$mk_err")"; stub_xcodebuild "$r" 0 0
+[ "$(cd "$r" && PATH="$r/bin:$PATH" ./Scripts/check-red-green.sh base-ref | head -1)" = "error" ] \
+    || fail "error did not dominate a proved sibling domain"
+pass "error in one domain dominates a proved verdict in the other"
+
+# 22. The n/a case reports no domains.
+r="$(make_repo na2 'echo more >> README.md')"
+(cd "$r" && ./Scripts/check-red-green.sh base-ref) | grep -q "domains: none" \
+    || fail "n/a did not report 'domains: none'"
+pass "an n/a verdict reports no evaluated domains"
 
 echo "All check-red-green tests passed."
