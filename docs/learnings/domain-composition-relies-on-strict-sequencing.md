@@ -33,17 +33,37 @@ the shell-added file still present (untouched); the shell suite saw the
 swift source back at full HEAD content (already restored) -- no window where
 either domain observed the other's revert.
 
+## The first attempt at an executable check didn't check anything
+
+The mixed-domain worst-of case ("a mixed pull request takes the worse of the
+two verdicts") was written to double as the regression test for this
+invariant, and a review caught that it doesn't work: its swift verdict comes
+entirely from `stub_xcodebuild`'s fixed exit codes, and its shell suite is a
+bare `exit 0` that never reads a file. Neither half's result depends on
+whether the *other* domain's revert has actually been restored yet, so the
+case passes identically whether the sequencing invariant holds or not --
+confirmed by literally no-op'ing all three `restore_tree` calls inside
+`run_swift_domain` and rerunning: that case still passed, byte for byte.
+
 ## Where else to look
 
 If a future change makes the two `classify_domain` calls run concurrently, or
 batches both domains' `revert_src` calls before either evaluates (e.g. to
 share one `xcodebuild` invocation), this invariant breaks silently -- nothing
-type-checks it, and the failure mode is a fabricated `vacuous` in whichever
-domain's evaluation loses the race. The executable check is
-`Scripts/test-check-red-green.sh`'s "a mixed pull request takes the worse of
-the two verdicts" case: it is the only fixture with both a swift and a shell
-half, and stubs `xcodebuild`'s test-without-building to fail (which would
-read as `proved`) while the shell suite is arranged to pass unconditionally
-(`vacuous`) -- the worse of the two. Keep both halves in that fixture strong
-enough that only correct sequencing produces the assertion's expected
-worst-of `vacuous`.
+type-checks it, and the failure mode is a fabricated verdict in whichever
+domain's evaluation observes the other's in-flight revert.
+
+The executable check that actually catches this is
+`Scripts/test-check-red-green.sh`'s "shell's suite observes swift's source
+already restored to HEAD, not swift's in-flight revert" case. Its shell
+suite reads `App/Sources/Thing.swift` -- the *swift* half's own reverted
+file -- at the moment it runs, and fails if that file is still in swift's
+BASE-reverted content rather than HEAD. Swift's own verdict is pinned by the
+`xcodebuild` stub regardless, so only the shell half's observation can move
+the result: sequencing intact reads `vacuous` (which dominates swift's
+stubbed `proved` in the worst-of); sequencing broken reads `proved` on both
+halves, and the worst-of has no `vacuous` left to fall back on. Verified by
+the same no-op: with `run_swift_domain`'s `restore_tree` calls no-op'd, this
+case fails (`got: proved`); restoring them makes it pass again. Keep the
+shell suite's file check in place -- it is the only thing in the fixture
+that makes the case sensitive to the invariant at all.

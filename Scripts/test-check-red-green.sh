@@ -407,4 +407,56 @@ r="$(make_repo na2 'echo more >> README.md')"
     || fail "n/a did not report 'domains: none'"
 pass "an n/a verdict reports no evaluated domains"
 
+# 23. A genuinely discriminating regression test for the cross-domain
+#     restore_tree/REVERTED hazard described in
+#     docs/learnings/domain-composition-relies-on-strict-sequencing.md.
+#     Case 20 does NOT catch this, on inspection: its swift verdict comes
+#     entirely from stub_xcodebuild's fixed exit codes, and mk_shell_vacuous's
+#     test-foo.sh is a bare `exit 0` that never reads a file -- neither half
+#     is sensitive to whether the other domain's revert has actually been
+#     restored yet, so it still passes even with run_swift_domain's
+#     restore_tree calls no-op'd.
+#
+#     This fixture's shell suite instead inspects App/Sources/Thing.swift --
+#     the *swift* half's own reverted file -- at the exact moment it runs.
+#     Swift's own verdict is pinned at `proved` regardless (build 0, test 65
+#     via the stub), so only the shell half's observation can move the
+#     result. If run_swift_domain's restore_tree has already fired (today's
+#     correct behaviour), Thing.swift is back to full HEAD content ("let y =
+#     2" present) long before run_shell_domain's own revert_src ever runs,
+#     and the suite sees nothing wrong -> vacuous, which dominates swift's
+#     proved in the worst-of -> overall "vacuous". If that sequencing ever
+#     broke -- e.g. batching or parallelising the two classify_domain calls,
+#     the exact risk named in the learnings file's "Where else to look" --
+#     Thing.swift would still be stuck in swift's BASE-reverted content when
+#     this suite runs, the suite would notice and exit 1 -> proved, and
+#     since both halves would then read `proved`, the worst-of no longer has
+#     a `vacuous` to fall back on -> overall "proved". Proved to actually
+#     discriminate (not just pass): see the fix report for the no-op/restore
+#     round-trip.
+mk_sequencing='
+mkdir -p Scripts
+cat > Scripts/foo.sh <<"EOS"
+#!/bin/bash
+echo fixed
+EOS
+cat > Scripts/test-foo.sh <<"EOS"
+#!/bin/bash
+if ! grep -q "let y = 2" App/Sources/Thing.swift; then
+    exit 1
+fi
+exit 0
+EOS
+chmod +x Scripts/foo.sh Scripts/test-foo.sh
+echo "let y = 2" >> App/Sources/Thing.swift
+cat > App/Tests/ThingTests.swift <<"EOS"
+import XCTest
+final class ThingTests: XCTestCase { func testA() {} }
+EOS'
+r="$(make_repo sequencing "$mk_sequencing")"; stub_xcodebuild "$r" 0 65; stub_xcrun_available "$r"
+out="$(cd "$r" && PATH="$r/bin:$PATH" ./Scripts/check-red-green.sh base-ref)"
+[ "$(echo "$out" | head -1)" = "vacuous" ] \
+    || fail "expected vacuous (swift's revert already restored before shell's suite ran), got: $out"
+pass "shell's suite observes swift's source already restored to HEAD, not swift's in-flight revert"
+
 echo "All check-red-green tests passed."
