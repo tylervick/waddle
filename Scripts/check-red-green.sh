@@ -12,6 +12,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# Scratch space for lists that must cross a subshell boundary.
+TMPDIR_RG="$(mktemp -d)"
+
 BASE_REF="${1:-origin/main}"
 
 # Mutating a dirty tree could not be reliably undone, and this script's whole
@@ -57,7 +60,7 @@ restore_tree() {
     done
     REVERTED=""
 }
-trap restore_tree EXIT
+trap 'restore_tree; rm -rf "$TMPDIR_RG"' EXIT
 
 # Put the given paths into their BASE state: restore modified and
 # change-deleted files from base, delete files the change added.
@@ -84,11 +87,43 @@ $p"
     done < <(printf '%s\n' "$1")
 }
 
-# One domain's verdict, given its source and test file lists. Task 3 and Task 4
-# replace the `run_*` calls; until then a domain with both halves is `error`,
-# which is honest -- nothing has been proved yet.
+# The test for Scripts/foo.sh is Scripts/test-foo.sh, by name and nothing
+# cleverer. A changed script with no matching suite is unproven, which is
+# `no-test` -- not `error`, because nothing failed: the proof is simply absent.
+run_shell_domain() { # src, test
+    suites=""
+    printf '%s\n' "$1" | while IFS= read -r s; do
+        [ -n "$s" ] || continue
+        t="Scripts/test-$(basename "$s")"
+        # Not `[ -f "$t" ] && echo "$t"`: a source file with no matching
+        # suite is the ordinary, expected case, but it makes that `&&` list's
+        # own status 1 -- and as the last command run in the loop body, that
+        # becomes the whole `while` compound's status. Unguarded, `errexit`
+        # aborts the script right there. See
+        # docs/learnings/loop-body-last-status-triggers-errexit.md.
+        if [ -f "$t" ]; then echo "$t"; fi
+    done > "$TMPDIR_RG/suites"
+    suites="$(cat "$TMPDIR_RG/suites")"
+    if [ -z "$suites" ]; then echo "no-test"; return; fi
+
+    revert_src "$1"
+    rc=0
+    printf '%s\n' "$suites" | while IFS= read -r t; do
+        [ -n "$t" ] || continue
+        "./$t" >/dev/null 2>&1 || exit 1
+    done || rc=1
+    restore_tree
+
+    # Non-zero means at least one suite noticed the revert. That is the proof.
+    if [ "$rc" -eq 1 ]; then echo "proved"; else echo "vacuous"; fi
+}
+
+# One domain's verdict, given its source and test file lists. Task 4 replaces
+# the swift `run_*` call; until then a swift domain with both halves is
+# `error`, which is honest -- nothing has been proved yet.
 classify_domain() { # name, src, test
     if [ -z "$2" ]; then echo "absent"; return; fi
+    if [ "$1" = "shell" ]; then run_shell_domain "$2" "$3"; return; fi
     if [ -z "$3" ]; then echo "no-test"; return; fi
     revert_src "$2"
     # Test hook: prove the EXIT trap restores the tree even on a hard failure.

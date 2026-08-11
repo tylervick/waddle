@@ -97,4 +97,50 @@ r="$(make_repo trap_case 'echo "let y = 2" >> App/Sources/Thing.swift; echo "// 
 grep -q 'let y = 2' "$r/App/Sources/Thing.swift" || fail "source not restored after a mid-run failure"
 pass "restores the tree even when the run dies after reverting"
 
+# 9. Shell: a test that fails once its script is reverted -> proved.
+mk_shell_proved='
+mkdir -p Scripts
+cat > Scripts/foo.sh <<"EOS"
+#!/bin/bash
+echo fixed
+EOS
+cat > Scripts/test-foo.sh <<"EOS"
+#!/bin/bash
+[ "$(./Scripts/foo.sh)" = "fixed" ] || exit 1
+EOS
+chmod +x Scripts/foo.sh Scripts/test-foo.sh'
+r="$(make_repo sh_proved "$mk_shell_proved")"
+[ "$(verdict "$r")" = "proved" ] || fail "expected proved, got: $(verdict "$r")"
+pass "shell: a test that fails without its script change is proved"
+
+# 10. Shell: a test that still passes with the script reverted -> vacuous.
+mk_shell_vacuous='
+mkdir -p Scripts
+cat > Scripts/foo.sh <<"EOS"
+#!/bin/bash
+echo fixed
+EOS
+cat > Scripts/test-foo.sh <<"EOS"
+#!/bin/bash
+exit 0
+EOS
+chmod +x Scripts/foo.sh Scripts/test-foo.sh'
+r="$(make_repo sh_vacuous "$mk_shell_vacuous")"
+[ "$(verdict "$r")" = "vacuous" ] || fail "expected vacuous, got: $(verdict "$r")"
+pass "shell: a test that passes without the change is vacuous"
+
+# 11. Shell: a changed script with no matching test-<name>.sh -> no-test,
+#     even though some other test-*.sh changed in the same diff.
+mk_shell_unmatched='
+mkdir -p Scripts
+echo "#!/bin/bash" > Scripts/bar.sh
+cat > Scripts/test-foo.sh <<"EOS"
+#!/bin/bash
+exit 0
+EOS
+chmod +x Scripts/bar.sh Scripts/test-foo.sh'
+r="$(make_repo sh_unmatched "$mk_shell_unmatched")"
+[ "$(verdict "$r")" = "no-test" ] || fail "expected no-test, got: $(verdict "$r")"
+pass "shell: a changed script with no matching suite is no-test"
+
 echo "All check-red-green tests passed."
