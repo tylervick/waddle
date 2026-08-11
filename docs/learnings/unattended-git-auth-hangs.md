@@ -29,11 +29,22 @@ a `git config` write here would land in the shared `.git/config` and retag the
 owner's own checkout:
 
 ```bash
+GIT_TERMINAL_PROMPT=0 \
 git -c credential.helper= \
     -c credential.helper='!gh auth git-credential' \
     -c url."https://github.com/".insteadOf="git@github.com:" \
     push origin HEAD:<branch>
 ```
+
+`GIT_TERMINAL_PROMPT=0` closes the last version of the same hole. If the `gh`
+helper ever returns nothing — token expired, `gh` logged out — git falls back
+to asking for a username on the terminal and blocks there exactly as
+osxkeychain did. With it set, git fails immediately with `could not read
+Username for 'https://github.com': terminal prompts disabled`, which is the
+outcome an unattended run wants: a fast error it can record, not a stall.
+`GH_PROMPT_DISABLED=1` does not cover this — that governs `gh`'s own
+prompting, not git's. Being a per-command variable assignment rather than an
+`export`, it travels with the one command, same as everything else here.
 
 Two things this does *not* affect. Commit signing is untouched — the loop's
 `gpg.ssh.program=ssh-keygen` signs straight from the
