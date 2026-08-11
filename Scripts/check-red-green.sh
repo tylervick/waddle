@@ -127,7 +127,24 @@ run_shell_domain() { # src, test
         # non-zero exit and no verdict, i.e. the proof could not be
         # computed. See docs/learnings/exit-status-conflates-failed-with-never-ran.md.
         [ -x "$t" ]
-        "./$t" >/dev/null 2>&1 || rc=1
+        # Capture the real exit status instead of collapsing it with `||`:
+        # 126 (not executable -- the `-x` check above should already have
+        # ruled this out, but a `noexec` mount or a race is still possible)
+        # and 127 (command not found -- a bad shebang, a missing
+        # interpreter) both mean the suite died before its assertions ever
+        # ran. A genuine assertion failure is conventionally exit 1 (and
+        # this repo's own suites use exactly that -- see e.g. this file's
+        # own fixtures). Anything else nonzero is treated as a real,
+        # noticed failure, not a "never ran": drawing the line any wider
+        # risks reading a legitimate assertion failure as an infra problem,
+        # which is its own kind of fabrication.
+        status=0
+        "./$t" >/dev/null 2>&1 || status=$?
+        case "$status" in
+            0) : ;;
+            126 | 127) exit 1 ;;
+            *) rc=1 ;;
+        esac
     done < <(printf '%s\n' "$suites")
     restore_tree
 

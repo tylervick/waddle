@@ -20,29 +20,51 @@ as `proved` -- inside the very instrument built to catch exactly that
 substitution, and feeding an autonomous commit loop that cannot eyeball the
 difference the way a human reviewer caught PR #61's vacuous test by hand.
 
-`Scripts/check-red-green.sh`'s `run_shell_domain` hit this concretely: a
-`Scripts/test-*.sh` suite committed without `chmod +x` exits 126 the instant
-it's invoked, before its own assertions run, and would have reported
-`proved` from a broken commit rather than from the revert ever being
-noticed.
+`Scripts/check-red-green.sh`'s `run_shell_domain` hit this concretely, twice,
+because closing one instance of the shape did not close the shape itself:
+first a `Scripts/test-*.sh` suite committed without `chmod +x` (exit 126),
+then a suite with a bad shebang or a typo'd command (exit 127) -- both die
+before their own assertions ever run, and both would have reported `proved`
+from a broken commit rather than from the revert ever being noticed. The
+second one was caught only because a reviewer asked "what else exits nonzero
+without the assertions running" instead of accepting that the first fix
+closed the category.
 
 ## The fix is not a masked exit status, and not a fourth verdict
 
 This is not [a masked exit status read as data](masked-exit-status-fails-open.md)
 -- nothing here throws away evidence with `|| true`. It's the opposite:
-`126` was being read as data (a real assertion failure) when it should not
-have been interpreted as data about the *test's own logic* at all.
+126 and 127 were being read as data (a real assertion failure) when neither
+should have been interpreted as data about the *test's own logic* at all.
 
 The fix also does not require a new verdict string. `run_shell_domain`'s
 contract is exactly `proved` | `vacuous` | `no-test` -- no `error` outlet.
-The precondition for "did the suite even run" (`[ -x "$t" ]`) is checked as
-its own bare, unguarded statement, left uncaught by any `||`/`&&`/`if`. Under
-`errexit` this aborts the whole script the instant it's false, the same
-hard-stop `revert_src` already relies on for its own unmasked `git
-checkout` -- caught by the `EXIT` trap, which restores the tree, and the
-caller sees a non-zero exit with no verdict printed at all. That absence
-*is* `error` ("the proof could not be computed") in every sense that
-matters, without the function needing to spell the word.
+Two things enforce the boundary, both unguarded on purpose:
+
+- **Precondition:** `[ -x "$t" ]` runs as its own bare statement before the
+  suite is invoked at all, ruling out the common case (126) up front.
+- **Postcondition:** the suite's actual exit status is captured
+  (`status=0; "./$t" ... || status=$?`, not folded into `|| rc=1`), and a
+  `case` statement routes 126 and 127 to the same unguarded hard stop, while
+  every other nonzero status -- 1 above all, the conventional assertion
+  failure -- becomes `rc=1`, a real, counted `proved`.
+
+Either path left uncaught (no `||`/`&&`/`if` swallows it) means `errexit`
+aborts the whole script the instant it fires, the same hard-stop
+`revert_src` already relies on for its own unmasked `git checkout` --
+caught by the `EXIT` trap, which restores the tree, and the caller sees a
+non-zero exit with no verdict printed at all. That absence *is* `error`
+("the proof could not be computed") in every sense that matters, without the
+function needing to spell the word.
+
+**The boundary is 126 and 127, not wider.** Signals (a suite killed by
+`SIGSEGV` or `SIGABRT` exits 128+n) are deliberately left as ordinary
+failures: a crash can be exactly the regression a fix addresses, and
+widening the "never ran" bucket to catch it would start misreading a
+legitimate assertion failure as an infrastructure problem -- the same
+fabrication in the opposite direction. 126 and 127 are the two POSIX shell
+reserves specifically for "could not execute the command at all"; nothing
+past that line has as clean a claim to meaning "never ran."
 
 ## Where else to look
 

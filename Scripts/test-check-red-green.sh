@@ -169,4 +169,29 @@ fi
 [ -z "$(cd "$r" && git status --porcelain)" ] || fail "tree left dirty after a non-executable suite aborts: $(cd "$r" && git status --porcelain)"
 pass "shell: a suite that exists but isn't executable aborts instead of fabricating proved"
 
+# 13. Shell: a matching suite that dies with "command not found" (exit 127 --
+#     a bad shebang, a missing interpreter, a typo'd command) must never read
+#     as `proved` either. It is executable and ran, but died before its
+#     assertions did; exit 127 is not the same signal as a real assertion
+#     failure (conventionally exit 1).
+mk_shell_command_not_found='
+mkdir -p Scripts
+cat > Scripts/foo.sh <<"EOS"
+#!/bin/bash
+echo fixed
+EOS
+cat > Scripts/test-foo.sh <<"EOS"
+#!/bin/bash
+nonexistent-command-xyz-123
+EOS
+chmod +x Scripts/foo.sh Scripts/test-foo.sh'
+r="$(make_repo sh_command_not_found "$mk_shell_command_not_found")"
+out="$TMP/sh_command_not_found.out"
+if (cd "$r" && ./Scripts/check-red-green.sh base-ref >"$out" 2>&1); then
+    fail "a suite exiting 127 should abort rather than print a verdict, got: $(cat "$out")"
+fi
+[ "$(cat "$out")" != "proved" ] || fail "a suite exiting 127 (command not found) must never read as proved"
+[ -z "$(cd "$r" && git status --porcelain)" ] || fail "tree left dirty after a command-not-found suite aborts: $(cd "$r" && git status --porcelain)"
+pass "shell: a suite that dies with command-not-found (127) aborts instead of fabricating proved"
+
 echo "All check-red-green tests passed."
