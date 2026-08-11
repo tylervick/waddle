@@ -76,12 +76,15 @@ make_repo() { # name, mutate-script
     mkdir -p App/Sources App/Tests Scripts
     echo 'let x = 1' > App/Sources/Thing.swift
     echo 'nothing' > README.md
+    # The guard under test must be committed BEFORE the base commit. Copying
+    # it in afterwards leaves it untracked, so `git status --porcelain` is
+    # non-empty and the guard's own dirty-tree refusal fires on every case.
+    cp "$ROOT/Scripts/check-red-green.sh" Scripts/check-red-green.sh
+    chmod +x Scripts/check-red-green.sh
     git add -A; git commit -qm base
     git branch -f base-ref
     eval "$2"
     git add -A; git commit -qm head
-    cp "$ROOT/Scripts/check-red-green.sh" Scripts/check-red-green.sh
-    chmod +x Scripts/check-red-green.sh
     cd - >/dev/null
     echo "$d"
 }
