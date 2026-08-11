@@ -52,7 +52,7 @@ restore_tree() {
             # HEAD doesn't have, reported as a dirty "AD" instead of clean.
             # Removing it from the index too is what actually matches HEAD.
             git rm -f -q --ignore-unmatch -- "$p" 2>/dev/null || true
-            rm -f "$p"
+            rm -f "$p" 2>/dev/null || true
         fi
     done
     REVERTED=""
@@ -61,17 +61,27 @@ trap restore_tree EXIT
 
 # Put the given paths into their BASE state: restore modified and
 # change-deleted files from base, delete files the change added.
+#
+# `git checkout "$BASE" -- "$p"` is unmasked and can abort the whole script
+# under `errexit` (disk full, EPERM, an APFS case-collision). Record each path
+# in REVERTED the instant it is actually reverted, not as one batch appended
+# after the loop -- a batch append would lose every already-reverted path from
+# an aborted run, since they'd never make it into REVERTED at all. The loop
+# reads via `< <(...)` rather than `printf ... |`, too: a pipe would run the
+# loop in a subshell in bash, and REVERTED assigned there would vanish the
+# same way it would in a `$(...)` capture -- see
+# docs/learnings/command-substitution-discards-callee-state.md.
 revert_src() { # paths (newline separated)
-    printf '%s\n' "$1" | while IFS= read -r p; do
+    while IFS= read -r p; do
         [ -n "$p" ] || continue
         if git cat-file -e "$BASE:$p" 2>/dev/null; then
             git checkout "$BASE" -- "$p"
         else
             rm -f "$p"
         fi
-    done
-    REVERTED="$REVERTED
-$1"
+        REVERTED="$REVERTED
+$p"
+    done < <(printf '%s\n' "$1")
 }
 
 # One domain's verdict, given its source and test file lists. Task 3 and Task 4

@@ -19,3 +19,4 @@ One file per hard-won fact. Add an entry here in the same PR that adds the file 
 - [Masking a query's exit status makes a guard fail open](masked-exit-status-fails-open.md) — three times now; test the status, then rule on empty output separately
 - [An empty simulator list means infrastructure, not a bad pin](simulator-enumeration-race.md) — CoreSimulator can fail to enumerate anything on a cold runner; `Scripts/check-simulator-available.sh` is the check
 - [The `.icon` package format, and two actool behaviours that mislead](icon-composer-package.md) — a silently-ignored key, nondeterministic output, and the simulator's icon cache
+- [Command substitution around a function call discards everything but its stdout](command-substitution-discards-callee-state.md) — `$(...)` forks a subshell, so the callee's variable writes and even its `exit` never reach the caller
