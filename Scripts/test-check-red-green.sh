@@ -72,4 +72,29 @@ fi
 grep -q "working tree" "$TMP/d.out" || fail "refusal did not say why; got: $(cat "$TMP/d.out")"
 pass "refuses to run against a dirty working tree"
 
+# 6. Reverting must handle a file the change ADDED -- there is no base version
+#    to check out, so it must be deleted. Getting this wrong leaves the new
+#    source in place and fabricates a `vacuous`.
+r="$(make_repo added 'echo "let z = 3" > App/Sources/New.swift; echo "// t" > App/Tests/NewTests.swift')"
+(cd "$r" && ./Scripts/check-red-green.sh base-ref >/dev/null 2>&1 || true)
+[ -f "$r/App/Sources/New.swift" ] || fail "an added source file was not restored after the run"
+[ -z "$(cd "$r" && git status --porcelain)" ] || fail "tree left dirty: $(cd "$r" && git status --porcelain)"
+pass "restores an added source file and leaves the tree clean"
+
+# 7. Reverting must handle a file the change DELETED -- it has to come back
+#    from base, then be removed again on restore.
+r="$(make_repo deleted 'git rm -q App/Sources/Thing.swift; echo "// t" > App/Tests/ThingTests.swift')"
+(cd "$r" && ./Scripts/check-red-green.sh base-ref >/dev/null 2>&1 || true)
+[ ! -f "$r/App/Sources/Thing.swift" ] || fail "a deleted source file reappeared after restore"
+[ -z "$(cd "$r" && git status --porcelain)" ] || fail "tree left dirty: $(cd "$r" && git status --porcelain)"
+pass "restores a deleted source file and leaves the tree clean"
+
+# 8. The tree is restored even when the run dies partway. Simulated by making
+#    the runner blow up: the trap, not the happy path, must do the cleanup.
+r="$(make_repo trap_case 'echo "let y = 2" >> App/Sources/Thing.swift; echo "// t" > App/Tests/ThingTests.swift')"
+(cd "$r" && RED_GREEN_DIE_AFTER_REVERT=1 ./Scripts/check-red-green.sh base-ref >/dev/null 2>&1 || true)
+[ -z "$(cd "$r" && git status --porcelain)" ] || fail "tree left dirty after a mid-run failure: $(cd "$r" && git status --porcelain)"
+grep -q 'let y = 2' "$r/App/Sources/Thing.swift" || fail "source not restored after a mid-run failure"
+pass "restores the tree even when the run dies after reverting"
+
 echo "All check-red-green tests passed."
