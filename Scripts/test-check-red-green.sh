@@ -257,6 +257,16 @@ pass "shell: a changed script with no matching suite is no-test"
 #     permission error (exit 126) is not the same signal as a real assertion
 #     failure; folding them together fabricates the exact measurement this
 #     feature exists to prevent.
+#
+#     WHICH guard this reaches: the suite is non-executable *at HEAD*, and
+#     `revert_src` only ever touches source files, so this fixture trips the
+#     green-HEAD baseline's `[ -x "$t" ]` -- not the identical check in the
+#     post-revert loop, which it never reaches. That is still real coverage
+#     (the baseline must hard-stop rather than read 126 as "HEAD is red"),
+#     and the clean-tree assertion below pins the stronger property that the
+#     baseline aborts before a single file is reverted. The post-revert
+#     guard needs a suite that is green at HEAD and only dies afterwards;
+#     that is case 28.
 mk_shell_not_executable='
 mkdir -p Scripts
 cat > Scripts/foo.sh <<"EOS"
@@ -283,6 +293,13 @@ pass "shell: a suite that exists but isn't executable aborts instead of fabricat
 #     as `proved` either. It is executable and ran, but died before its
 #     assertions did; exit 127 is not the same signal as a real assertion
 #     failure (conventionally exit 1).
+#
+#     Like case 12, this suite is already broken *at HEAD*, so what it
+#     actually exercises is the green-HEAD baseline's 127 arm: a suite that
+#     could not run says nothing about HEAD's health and must hard-stop
+#     rather than be counted as "HEAD is red" (which would print `error`, a
+#     verdict, from a suite that never reported anything). Case 28 covers the
+#     same arm on the other side of the revert.
 mk_shell_command_not_found='
 mkdir -p Scripts
 cat > Scripts/foo.sh <<"EOS"
@@ -619,5 +636,45 @@ r="$(make_repo sh_partial_vac "$mk_partial_vac" "$mk_partial_base")"
 [ "$(verdict "$r")" = "vacuous" ] \
     || fail "vacuous must outrank the no-test contribution, got: $(verdict "$r")"
 pass "shell: vacuous still outranks an unproven sibling's no-test contribution"
+
+# 28. THE POST-REVERT NEVER-RAN GUARD, which is the only shape that reaches
+#     it. Cases 12 and 13 both break their suite at HEAD, so the green-HEAD
+#     baseline hard-stops first and the identical check after `revert_src`
+#     is never executed -- verified by mutation: neutering the post-revert
+#     `[ -x "$t" ]` and changing its `126 | 127) exit 1` to `rc=1` leaves
+#     both of those cases behaving exactly as before.
+#
+#     This suite is genuinely GREEN at HEAD and only dies afterwards, because
+#     what it invokes is the very script the change added -- and the revert
+#     deletes an added file. So it exits 127 on the reverted tree alone. With
+#     the guard: the script aborts, the EXIT trap restores, no verdict. Without
+#     it: 127 folds into `rc=1` and the run prints `proved`, the strongest
+#     verdict this instrument can emit, for a suite that never reached an
+#     assertion on either side of the revert. Same three assertions as cases
+#     12 and 13, and here the clean-tree one is load-bearing rather than
+#     trivially true: a revert really did happen before the abort.
+mk_post_revert_127_base='
+mkdir -p Scripts
+cat > Scripts/test-foo.sh <<"EOS"
+#!/bin/bash
+./Scripts/foo.sh >/dev/null
+EOS
+chmod +x Scripts/test-foo.sh'
+mk_post_revert_127='
+cat > Scripts/foo.sh <<"EOS"
+#!/bin/bash
+echo fixed
+EOS
+chmod +x Scripts/foo.sh'
+r="$(make_repo sh_post_revert_127 "$mk_post_revert_127" "$mk_post_revert_127_base")"
+out="$TMP/sh_post_revert_127.out"
+if (cd "$r" && ./Scripts/check-red-green.sh base-ref >"$out" 2>&1); then
+    fail "a suite exiting 127 only after the revert should abort rather than print a verdict, got: $(cat "$out")"
+fi
+[ "$(cat "$out")" != "proved" ] \
+    || fail "a suite that died with command-not-found on the reverted tree must never read as proved"
+[ -z "$(cd "$r" && git status --porcelain)" ] \
+    || fail "tree left dirty after a post-revert command-not-found abort: $(cd "$r" && git status --porcelain)"
+pass "shell: a suite green at HEAD that dies 127 only after the revert aborts instead of fabricating proved"
 
 echo "All check-red-green tests passed."
