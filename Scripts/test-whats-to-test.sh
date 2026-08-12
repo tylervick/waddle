@@ -12,16 +12,21 @@ fail() { echo "FAIL: $1" >&2; exit 1; }
 pass() { echo "ok - $1"; }
 
 # Builds a repo with a build-206 tag, then applies $2 to add history on top.
+# $3, if given, seeds docs/app-store/whats-to-test.md BEFORE the base commit
+# and the tag -- so a fixture that wants "a preamble exists but nothing has
+# been committed since the tag" gets that precondition for real, rather than
+# writing the preamble via a commit that lands after build-206 and therefore
+# inside its own "since the tag" range.
 # Signing and the user's global config are isolated -- see
 # docs/learnings/git-fixtures-inherit-signing-config.md.
-make_repo() { # name, mutate-script
+make_repo() { # name, mutate-script, [preamble-content]
     d="$TMP/$1"; mkdir -p "$d/docs/app-store" "$d/Scripts"; cd "$d"
     export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
     git init -q .; git config user.email t@e.st; git config user.name T
     git config commit.gpgsign false; git config tag.gpgSign false
     cp "$ROOT/Scripts/whats-to-test.sh" Scripts/whats-to-test.sh
     chmod +x Scripts/whats-to-test.sh
-    : > docs/app-store/whats-to-test.md
+    printf '%s' "${3:-}" > docs/app-store/whats-to-test.md
     git add -A; git commit -qm base
     git tag build-206
     eval "$2"
@@ -73,9 +78,17 @@ pass "fails when there are no changes and no preamble"
 
 # 5. No commits since the tag but a preamble exists -> succeeds on the
 #    preamble alone. A re-release with hand-written framing is legitimate.
-r="$(make_repo onlypre 'printf "Re-testing build 206 signing.\n" > docs/app-store/whats-to-test.md; git add -A; git commit -qm p')"
+#    The preamble is seeded into the BASE commit (via make_repo's $3), before
+#    build-206 is tagged, so build-206..HEAD is genuinely empty here. Writing
+#    the preamble as a commit AFTER the tag would put that very commit inside
+#    the range, so the case would pass even if a changelog section leaked
+#    into the output alongside the preamble -- it must also assert the
+#    changelog's absence, not just the preamble's presence, or it cannot tell
+#    "preamble carried it alone" from "preamble plus a stray bullet".
+r="$(make_repo onlypre '' $'Re-testing build 206 signing.\n')"
 out="$(notes "$r")" || fail "should succeed on a preamble alone"
 echo "$out" | grep -q "Re-testing build 206 signing." || fail "preamble missing; got: $out"
+echo "$out" | grep -q "Changes since" && fail "a changelog section leaked in when nothing was committed since the tag; got: $out"
 pass "succeeds on a preamble alone when nothing merged"
 
 # 6. No build-* tag at all (the bootstrap case, true exactly once) -> falls
@@ -90,5 +103,40 @@ r="$(make_repo direct 'git commit -q --allow-empty -m "fix(engine): direct commi
 out="$(notes "$r")"
 echo "$out" | grep -q -- "- fix(engine): direct commit" || fail "direct commit missing; got: $out"
 pass "includes direct commits, not only merges"
+
+# 8. A genuine `git tag --list` failure (corrupt refs, a shallow or partial
+#    checkout) must NOT be silently folded into the "no tag yet" bootstrap
+#    path -- both produce empty stdout, so only testing the exit status
+#    separates them. `git` itself is stubbed on a controlled PATH so it fails
+#    only for the `tag --list` call the script makes; every other git
+#    invocation (log, checkout, merge, ...) still reaches the real binary, so
+#    this is hermetic without corrupting an actual repository.
+r="$(make_repo tagfails 'merge_pr 95 "fix: thing"')"
+mkdir -p "$r/stubbin"
+REALGIT="$(command -v git)"
+cat > "$r/stubbin/git" <<STUB
+#!/bin/bash
+if [ "\$1" = "tag" ] && [ "\$2" = "--list" ]; then
+    echo "fatal: stubbed git tag failure" >&2
+    exit 128
+fi
+exec "$REALGIT" "\$@"
+STUB
+chmod +x "$r/stubbin/git"
+if out="$(cd "$r" && env PATH="$r/stubbin:$PATH" ./Scripts/whats-to-test.sh --print 2>&1)"; then
+    fail "a git tag failure should not be silently treated as a successful run; got: $out"
+fi
+echo "$out" | grep -qi "git tag" || fail "error did not name git tag as the point of failure; got: $out"
+echo "$out" | grep -qi "no previous build tag" && fail "a real git failure must not read as the bootstrap fallback; got: $out"
+pass "fails loudly, not via the bootstrap fallback, when git tag --list itself fails"
+
+# 9. A merge commit whose body is empty (no PR title line) falls back to the
+#    raw "Merge pull request #N ..." subject rather than crashing or emitting
+#    a blank bullet.
+r="$(make_repo emptytitle 'merge_pr 99 ""')"
+out="$(notes "$r")" || fail "an empty-body merge commit should not fail the run: $out"
+echo "$out" | grep -q -- "- Merge pull request #99 from tylervick/pr-99 (#99)" \
+  || fail "did not fall back to the raw merge subject for an empty PR title; got: $out"
+pass "falls back to the raw merge subject when a merge commit's body is empty"
 
 echo "All whats-to-test tests passed."
