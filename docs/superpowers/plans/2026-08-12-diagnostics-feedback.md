@@ -65,15 +65,23 @@ cat > "$TMP/fixtures/apps.json" <<'JSON'
 {"data":[{"type":"apps","id":"APP123","attributes":{"bundleId":"com.tylervick.waddle"}}]}
 JSON
 
-cat > "$TMP/fixtures/screenshots.json" <<'JSON'
+# Screenshot feedback arrives in two pages so links.next traversal is
+# exercised, not just tolerated. Image objects live in attributes.screenshots
+# (the real attribute name -- not screenshotImages).
+cat > "$TMP/fixtures/screenshots-page1.json" <<'JSON'
 {"data":[
   {"type":"betaFeedbackScreenshotSubmissions","id":"shot-1",
    "attributes":{"createdDate":"2026-08-12T01:02:03Z","comment":"Fire button drifts",
      "deviceModel":"iPhone17,1","osVersion":"26.0",
-     "screenshotImages":[{"url":"https://example.invalid/shot-1.png"}]}},
+     "screenshots":[{"url":"https://example.invalid/shot-1.png"}]}}
+],"links":{"next":"https://api.appstoreconnect.apple.com/v1/apps/APP123/betaFeedbackScreenshotSubmissions?cursor=page2"}}
+JSON
+
+cat > "$TMP/fixtures/screenshots-page2.json" <<'JSON'
+{"data":[
   {"type":"betaFeedbackScreenshotSubmissions","id":"shot-2",
    "attributes":{"createdDate":"2026-08-11T09:00:00Z","comment":"Love it",
-     "deviceModel":"iPad16,3","osVersion":"26.0","screenshotImages":[]}}
+     "deviceModel":"iPad16,3","osVersion":"26.0","screenshots":[]}}
 ]}
 JSON
 
@@ -100,11 +108,14 @@ done
 echo "\$url" >> "$TMP/curl.log"
 if [ -f "$TMP/fail-marker" ]; then exit 22; fi
 body=""
+# Specific routes before the generic /v1/apps lookup: the app-scoped
+# feedback URLs contain "/v1/apps" too.
 case "\$url" in
-    *"/v1/apps"*)                                 body="\$(cat "$TMP/fixtures/apps.json")" ;;
-    *betaFeedbackScreenshotSubmissions*)          body="\$(cat "$TMP/fixtures/screenshots.json")" ;;
-    *betaFeedbackCrashSubmissions*)               body="\$(cat "$TMP/fixtures/crashes.json")" ;;
-    *example.invalid*)                            body="PNGBYTES" ;;
+    *betaFeedbackScreenshotSubmissions*cursor=page2*)      body="\$(cat "$TMP/fixtures/screenshots-page2.json")" ;;
+    *"/v1/apps/APP123/betaFeedbackScreenshotSubmissions"*) body="\$(cat "$TMP/fixtures/screenshots-page1.json")" ;;
+    *"/v1/apps/APP123/betaFeedbackCrashSubmissions"*)      body="\$(cat "$TMP/fixtures/crashes.json")" ;;
+    *"/v1/apps?"*)                                         body="\$(cat "$TMP/fixtures/apps.json")" ;;
+    *example.invalid*)                                     body="PNGBYTES" ;;
     *) exit 22 ;;
 esac
 if [ -n "\$out" ]; then printf '%s' "\$body" > "\$out"; else printf '%s' "\$body"; fi
@@ -131,7 +142,8 @@ echo "$out" | grep -q "iPhone17,1" || fail "missing device model; got: $out"
 echo "$out" | grep -q "shot-2" || fail "missing shot-2; got: $out"
 echo "$out" | grep -q "crash-1" || fail "missing crash-1; got: $out"
 echo "$out" | grep -q "Died loading my WAD" || fail "missing crash comment; got: $out"
-pass "prints screenshot and crash submissions as markdown"
+grep -q "cursor=page2" "$TMP/curl.log" || fail "did not follow links.next to page 2"
+pass "prints screenshot and crash submissions as markdown, across pages"
 
 # 2. All three ids are now in the state file.
 for id in shot-1 shot-2 crash-1; do
@@ -156,18 +168,18 @@ rm -f "$TMP/fail-marker"
 pass "a failed API call exits non-zero and leaves the state file alone"
 
 # 5. Malformed JSON exits non-zero.
-printf 'not json' > "$TMP/fixtures/screenshots.json"
+printf 'not json' > "$TMP/fixtures/screenshots-page1.json"
 rm -f "$TMP/state"
 if out="$(run_fetch 2>&1)"; then
     fail "succeeded despite malformed JSON: $out"
 fi
 pass "malformed JSON is a failure, not an empty result"
-# restore fixture for the next case
-cat > "$TMP/fixtures/screenshots.json" <<'JSON'
+# restore fixture for the next case (single page: no links.next)
+cat > "$TMP/fixtures/screenshots-page1.json" <<'JSON'
 {"data":[{"type":"betaFeedbackScreenshotSubmissions","id":"shot-1",
  "attributes":{"createdDate":"2026-08-12T01:02:03Z","comment":"Fire button drifts",
    "deviceModel":"iPhone17,1","osVersion":"26.0",
-   "screenshotImages":[{"url":"https://example.invalid/shot-1.png"}]}}]}
+   "screenshots":[{"url":"https://example.invalid/shot-1.png"}]}}]}
 JSON
 
 # 6. --download DIR saves each new submission's JSON and fetches image URLs.
@@ -232,13 +244,15 @@ TOKEN="$("$ASC_JWT")" \
   || { echo "error: could not mint an App Store Connect API token" >&2; exit 1; }
 if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::add-mask::$TOKEN"; fi
 
-api_get() { # path -- status tested directly, never masked
-    curl -sS -f -H "Authorization: Bearer $TOKEN" "$API$1"
+api_get() { # absolute-url -- status tested directly, never masked; explicit
+            # timeouts so a stalled connection cannot hang the run
+    curl -sS -f --connect-timeout 10 --max-time 120 \
+        -H "Authorization: Bearer $TOKEN" "$1"
 }
 
 # Resolve the app id from the bundle id (same two-step as whats-to-test.sh:
 # curl status first, parse second, so a failed call never reads as empty).
-APPS_RESP="$(api_get "/v1/apps?filter%5BbundleId%5D=$BUNDLE_ID")" \
+APPS_RESP="$(api_get "$API/v1/apps?filter%5BbundleId%5D=$BUNDLE_ID")" \
   || { echo "error: could not resolve the app id for $BUNDLE_ID" >&2; exit 1; }
 APP_ID="$(printf '%s' "$APPS_RESP" | python3 -c '
 import json, sys
@@ -247,9 +261,33 @@ if not items: sys.exit(3)
 print(items[0]["id"])
 ')" || { echo "error: no app matching $BUNDLE_ID (or unparseable response)" >&2; exit 1; }
 
-SHOTS_RESP="$(api_get "/v1/betaFeedbackScreenshotSubmissions?filter%5Bapp%5D=$APP_ID&sort=-createdDate&limit=50")" \
+# links.next from a response document; empty when there is none. A parse
+# failure exits non-zero and aborts the caller (masked-exit-status rule).
+next_link() { # response
+    printf '%s' "$1" | python3 -c '
+import json, sys
+print((json.load(sys.stdin).get("links") or {}).get("next") or "")
+'
+}
+
+PAGES_DIR="$(mktemp -d)"
+
+# Walks links.next until exhausted, one file per page: a backlog larger than
+# one page must not be silently dropped -- unseen submissions beyond page one
+# would otherwise never surface, since only rendered ids become "seen".
+fetch_all() { # first-url, file-prefix
+    url="$1"; n=0
+    while [ -n "$url" ]; do
+        n=$((n + 1))
+        resp="$(api_get "$url")" || return 1
+        printf '%s' "$resp" > "$PAGES_DIR/$2-$n.json"
+        url="$(next_link "$resp")" || return 1
+    done
+}
+
+fetch_all "$API/v1/apps/$APP_ID/betaFeedbackScreenshotSubmissions?limit=50" shots \
   || { echo "error: could not fetch screenshot feedback" >&2; exit 1; }
-CRASH_RESP="$(api_get "/v1/betaFeedbackCrashSubmissions?filter%5Bapp%5D=$APP_ID&sort=-createdDate&limit=50")" \
+fetch_all "$API/v1/apps/$APP_ID/betaFeedbackCrashSubmissions?limit=50" crash \
   || { echo "error: could not fetch crash feedback" >&2; exit 1; }
 
 [ -f "$STATE_FILE" ] || : > "$STATE_FILE"
@@ -259,12 +297,11 @@ CRASH_RESP="$(api_get "/v1/betaFeedbackCrashSubmissions?filter%5Bapp%5D=$APP_ID&
 # URLs to fetch on fd 3, and the list of newly-seen ids on fd 4. Ids only
 # reach the state file after this whole pipeline has succeeded.
 RENDER_OUT="$(mktemp)"; URLS_OUT="$(mktemp)"; IDS_OUT="$(mktemp)"
-trap 'rm -f "$RENDER_OUT" "$URLS_OUT" "$IDS_OUT"' EXIT
+trap 'rm -f "$RENDER_OUT" "$URLS_OUT" "$IDS_OUT"; rm -rf "$PAGES_DIR"' EXIT
 
-SHOTS_JSON="$SHOTS_RESP" CRASH_JSON="$CRASH_RESP" \
-STATE_PATH="$STATE_FILE" DL_DIR="$DOWNLOAD_DIR" \
+PAGES="$PAGES_DIR" STATE_PATH="$STATE_FILE" DL_DIR="$DOWNLOAD_DIR" \
 python3 - 3>"$URLS_OUT" 4>"$IDS_OUT" >"$RENDER_OUT" <<'PY'
-import json, os, sys
+import glob, json, os, sys
 
 seen = set()
 with open(os.environ["STATE_PATH"]) as f:
@@ -278,33 +315,36 @@ def field(attrs, name):
     v = attrs.get(name)
     return str(v) if v not in (None, "") else "-"
 
-def render(kind, doc):
-    try:
-        items = json.loads(doc).get("data") or []
-    except json.JSONDecodeError:
-        sys.exit(f"error: unparseable {kind} response")
-    for item in items:
-        sid = item.get("id", "")
-        if not sid or sid in seen:
-            continue
-        attrs = item.get("attributes") or {}
-        print(f"## {kind} {sid}")
-        print(f"- created: {field(attrs, 'createdDate')}")
-        print(f"- device: {field(attrs, 'deviceModel')} ({field(attrs, 'osVersion')})")
-        print(f"- comment: {field(attrs, 'comment')}")
-        print()
-        if dl_dir:
-            with open(os.path.join(dl_dir, f"{sid}.json"), "w") as f:
-                json.dump(item, f, indent=2)
-            images = attrs.get("screenshotImages") or []
-            for n, img in enumerate(images, 1):
-                url = (img or {}).get("url")
-                if url:
-                    urls.write(f"{dl_dir}/{sid}-{n}.png\t{url}\n")
-        ids.write(sid + "\n")
+def render(kind, pattern):
+    for path in sorted(glob.glob(pattern)):
+        with open(path) as f:
+            try:
+                items = json.load(f).get("data") or []
+            except json.JSONDecodeError:
+                sys.exit(f"error: unparseable {kind} response")
+        for item in items:
+            sid = item.get("id", "")
+            if not sid or sid in seen:
+                continue
+            attrs = item.get("attributes") or {}
+            print(f"## {kind} {sid}")
+            print(f"- created: {field(attrs, 'createdDate')}")
+            print(f"- device: {field(attrs, 'deviceModel')} ({field(attrs, 'osVersion')})")
+            print(f"- comment: {field(attrs, 'comment')}")
+            print()
+            if dl_dir:
+                with open(os.path.join(dl_dir, f"{sid}.json"), "w") as f:
+                    json.dump(item, f, indent=2)
+                images = attrs.get("screenshots") or []
+                for n, img in enumerate(images, 1):
+                    url = (img or {}).get("url")
+                    if url:
+                        urls.write(f"{dl_dir}/{sid}-{n}.png\t{url}\n")
+            ids.write(sid + "\n")
 
-render("Screenshot feedback", os.environ["SHOTS_JSON"])
-render("Crash feedback", os.environ["CRASH_JSON"])
+pages = os.environ["PAGES"]
+render("Screenshot feedback", os.path.join(pages, "shots-*.json"))
+render("Crash feedback", os.path.join(pages, "crash-*.json"))
 PY
 
 if [ -s "$RENDER_OUT" ]; then
@@ -316,7 +356,7 @@ fi
 # Screenshot downloads: the image URLs are pre-signed and need no auth header.
 while IFS=$'\t' read -r dest url; do
     [ -n "$dest" ] || continue
-    curl -sS -f -o "$dest" "$url" \
+    curl -sS -f --connect-timeout 10 --max-time 120 -o "$dest" "$url" \
       || { echo "error: could not download $url" >&2; exit 1; }
 done < "$URLS_OUT"
 
@@ -492,6 +532,18 @@ final class SessionLogCaptureTests: XCTestCase {
         let capture = SessionLogCapture(directory: tmp)
         capture.end() // must not crash or hang
     }
+
+    func testDiagnosticsDirectoryIsExcludedFromBackup() throws {
+        let (fd, _) = try makeTargetFD()
+        defer { close(fd) }
+        let capture = SessionLogCapture(directory: tmp, targetFDs: [fd])
+        try capture.begin(name: "b1")
+        capture.end()
+
+        let values = try tmp.resourceValues(forKeys: [.isExcludedFromBackupKey])
+        XCTAssertEqual(values.isExcludedFromBackup, true,
+                       "diagnostics must never leave the device via a backup")
+    }
 }
 ```
 
@@ -522,6 +574,20 @@ enum DiagnosticsPaths {
         FileManager.default.urls(for: .applicationSupportDirectory,
                                  in: .userDomainMask)[0]
             .appendingPathComponent("Diagnostics", isDirectory: true)
+    }
+
+    /// Creates the directory if needed and (re)applies the iCloud-backup
+    /// exclusion. Application Support is backed up by default, and
+    /// diagnostics leaving the device through a backup would undercut the
+    /// export-only privacy story -- so every writer goes through this,
+    /// reapplying the flag each time (file operations can reset it).
+    static func ensureExcludedDirectory(_ url: URL) throws {
+        try FileManager.default.createDirectory(at: url,
+                                                withIntermediateDirectories: true)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        var directory = url
+        try? directory.setResourceValues(values)
     }
 }
 ```
@@ -577,8 +643,7 @@ final class SessionLogCapture {
 
     func begin(name: String) throws {
         guard !active else { return }
-        try FileManager.default.createDirectory(at: directory,
-                                                withIntermediateDirectories: true)
+        try DiagnosticsPaths.ensureExcludedDirectory(directory)
 
         // Rotate BEFORE creating the new log: keep the newest maxFiles - 1 so
         // the new file makes exactly maxFiles.
@@ -629,8 +694,14 @@ final class SessionLogCapture {
             close(saved)
         }
         savedFDs.removeAll()
-        // Wait for the pumps to drain (bounded: EOF is already in flight).
-        while readerThreads.contains(where: { !$0.isFinished }) {
+        // Wait for the pumps to drain -- bounded, never indefinite: EOF is
+        // already in flight, but a pathological blocked pass-through write
+        // must not hang session teardown on the main thread. On timeout the
+        // threads are abandoned; the log fd is lock-guarded below, so a
+        // straggler can never touch a closed descriptor.
+        let deadline = Date.now.addingTimeInterval(2)
+        while readerThreads.contains(where: { !$0.isFinished }),
+              Date.now < deadline {
             usleep(1_000)
         }
         readerThreads.removeAll()
@@ -672,7 +743,7 @@ final class SessionLogCapture {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Same `xcodebuild ... -only-testing:WADdleTests/SessionLogCaptureTests` command as Step 2.
-Expected: all 5 tests PASS.
+Expected: all 6 tests PASS.
 
 - [ ] **Step 5: Commit**
 
@@ -731,9 +802,11 @@ isRunning = true
 // Session log names are wall-clock timestamps, not the generation counter:
 // the counter restarts at 1 every launch, so generation-named files would
 // overwrite the previous launch's logs -- exactly the ones a crash report
-// needs. Failure to start capture never blocks gameplay (spec).
+// needs. The random suffix keeps two sessions within the same second from
+// colliding. Failure to start capture never blocks gameplay (spec).
 let logStamp = ISO8601DateFormatter().string(from: .now)
     .replacingOccurrences(of: ":", with: "-")
+    + "-" + String(UUID().uuidString.prefix(4))
 try? sessionLogCapture.begin(name: logStamp)
 OverlayPresenter.shared.begin(scheme: scheme)
 defer {
@@ -868,8 +941,7 @@ final class DiagnosticsStore {
 
     @discardableResult
     func savePayloadData(_ data: Data, receivedAt date: Date) throws -> URL {
-        try FileManager.default.createDirectory(at: directory,
-                                                withIntermediateDirectories: true)
+        try DiagnosticsPaths.ensureExcludedDirectory(directory)
         let stamp = ISO8601DateFormatter().string(from: date)
             .replacingOccurrences(of: ":", with: "-")
         // UUID suffix: several payloads can arrive in one delivery batch with
@@ -986,10 +1058,9 @@ final class DiagnosticsExporterTests: XCTestCase {
 
         let zip = try DiagnosticsExporter.export(diagnosticsDirectory: tmp,
                                                  libraryLines: [])
-        let names = try zipEntryNames(zip)
-        XCTAssertTrue(names.contains("info.txt"))
-        XCTAssertTrue(names.contains("session-a.log"))
-        XCTAssertTrue(names.contains("metrickit-2026-b.json"))
+        XCTAssertEqual(try zipEntryNames(zip),
+                       ["info.txt", "session-a.log", "metrickit-2026-b.json"],
+                       "exactly the allowlisted files, nothing else")
     }
 
     func testExportWithEmptyDiagnosticsStillProducesInfoOnlyZip() throws {
@@ -1054,7 +1125,9 @@ enum DiagnosticsExporter {
         let bundled = SessionLogCapture.sessionLogs(in: diagnosticsDirectory)
             + DiagnosticsStore.payloadFiles(in: diagnosticsDirectory)
         for file in bundled {
-            try? FileManager.default.copyItem(
+            // A failed copy fails the whole export: a silently incomplete
+            // archive is worse than an alert the user can see and retry.
+            try FileManager.default.copyItem(
                 at: file,
                 to: payload.appendingPathComponent(file.lastPathComponent))
         }
@@ -1062,6 +1135,8 @@ enum DiagnosticsExporter {
         let zipURL = staging.appendingPathComponent("WADdle-diagnostics.zip")
         try FileManager.default.zipItem(at: payload, to: zipURL,
                                         shouldKeepParent: false)
+        // The uncompressed staging copy has served its purpose.
+        try? FileManager.default.removeItem(at: payload)
         return zipURL
     }
 
@@ -1190,7 +1265,7 @@ New section after "Open source" (before "Licenses"):
 Section("Diagnostics") {
     Button("Export Diagnostics") { exportDiagnostics() }
         .accessibilityIdentifier("exportDiagnosticsButton")
-    Text("Bundles recent engine session logs and crash reports. Nothing leaves your device unless you share this file.")
+    Text("Bundles recent engine session logs (which can include the names of your WAD files), crash reports, and device details. Nothing leaves your device unless you share this file.")
         .font(.footnote)
 }
 ```
@@ -1215,13 +1290,25 @@ Private method and the representable (bottom of the file):
 
 ```swift
 private func exportDiagnostics() {
-    do {
-        let url = try DiagnosticsExporter.export(
-            diagnosticsDirectory: DiagnosticsPaths.directory,
-            libraryLines: DiagnosticsExporter.libraryLines(from: library))
-        exportedZip = ExportedZip(url: url)
-    } catch {
-        exportError = error.localizedDescription
+    // Library lines are read on the main actor (SwiftData); the file
+    // copying/zipping then runs off it so an export can't hitch the UI.
+    let lines = DiagnosticsExporter.libraryLines(from: library)
+    let previous = exportedZip?.url
+    Task.detached(priority: .userInitiated) {
+        // Each export gets a fresh temp dir; reclaim the previous one
+        // rather than letting them pile up until the OS sweeps tmp.
+        if let previous {
+            try? FileManager.default.removeItem(
+                at: previous.deletingLastPathComponent())
+        }
+        do {
+            let url = try DiagnosticsExporter.export(
+                diagnosticsDirectory: DiagnosticsPaths.directory,
+                libraryLines: lines)
+            await MainActor.run { exportedZip = ExportedZip(url: url) }
+        } catch {
+            await MainActor.run { exportError = error.localizedDescription }
+        }
     }
 }
 ```
@@ -1272,11 +1359,21 @@ third-party SDKs that phone home" bullet remains true).
 
 - [ ] **Step 6: Run the full suite**
 
+If the `RealWADTests` fixtures from `docs/learnings/simulator-test-hazards.md` are provisioned, run the whole scheme:
+
 ```bash
 mise run test
 ```
 
-Expected: green, except `RealWADTests` failures if the fixtures from `docs/learnings/simulator-test-hazards.md` are absent (expected, not a regression). Do not run any other xcodebuild session concurrently.
+Otherwise run the deterministic form that skips the fixture-dependent suite, instead of eyeballing which failures are "expected":
+
+```bash
+xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  test -skip-testing:WADdleUITests/RealWADTests
+```
+
+Either way the result must be fully green. Do not run any other xcodebuild session concurrently.
 
 - [ ] **Step 7: Commit, push, open the Slice 2 PR**
 
