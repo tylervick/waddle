@@ -80,6 +80,7 @@ jobs:
           Scripts/test-check-icon-json.sh
           Scripts/test-loop-report.sh
           Scripts/test-loop-precheck.sh
+          Scripts/test-check-masked-gh-status.sh
           # Both hermetic: test-asc-jwt.sh generates its own throwaway EC key
           # and never reads the real App Store Connect key; test-whats-to-test.sh
           # stubs git, curl and the token minter and never reaches the network.
@@ -93,6 +94,10 @@ jobs:
           # issues/schedule/workflow_dispatch only -- never on a pull request.
           Scripts/test-check-issue-format.sh
           Scripts/check-substrate.sh
+          # Refuses a `gh api` call whose exit status is masked into a
+          # fabricated answer -- the defect PR #66 and issue #68 each fixed one
+          # instance of. Pure text scan of Scripts/; no network, no token.
+          Scripts/check-masked-gh-status.sh
           # --sync-only, not the full check: this step runs before the toolchain
           # setup and the runner has neither uv nor potrace. It still catches the
           # drift that actually happens -- Design/ regenerated without the .icon

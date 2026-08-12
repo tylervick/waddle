@@ -9,7 +9,16 @@ struct LibraryView: View {
     @State private var groups: [LibraryGroup] = []
     @State private var showImporter = false
     @State private var lastOutcome: ImportOutcome?
-    @State private var deleteBlocked: [String] = []
+    @State private var deleteBlocked: [BlockedFile] = []
+
+    /// One file a delete refused, with the presets holding it. A batch blocks
+    /// on several files at once, and the alert has to say which file belongs to
+    /// which presets — a flat list of preset names cannot, because it does not
+    /// even record how many files are involved.
+    struct BlockedFile: Equatable {
+        let filename: String
+        var presets: [String]
+    }
 
     /// The Files app opens container paths handed to it under its own URL
     /// scheme; only file URLs have a Files-app location.
@@ -21,13 +30,46 @@ struct LibraryView: View {
         return components.url
     }
 
-    /// A multi-row delete blocks on each row separately, so the alert's names
-    /// accumulate across the whole batch; repeats are dropped because one
-    /// preset commonly holds several of the WADs being deleted.
+    /// Merges preset names, dropping repeats — one preset commonly holds
+    /// several of the WADs being deleted, and two loadouts may carry the same
+    /// name, so the same name can arrive more than once.
     static func blockedNames(_ existing: [String], adding names: [String]) -> [String] {
         var merged = existing
         for name in names where !merged.contains(name) { merged.append(name) }
         return merged
+    }
+
+    /// A multi-row delete blocks on each row separately, so blocked files
+    /// accumulate across the whole batch — one entry per file, keeping each
+    /// file's own presets with it rather than pooling them all together.
+    static func blockedFiles(_ existing: [BlockedFile],
+                             adding presets: [String],
+                             for filename: String) -> [BlockedFile] {
+        var merged = existing
+        if let index = merged.firstIndex(where: { $0.filename == filename }) {
+            merged[index].presets = blockedNames(merged[index].presets, adding: presets)
+        } else {
+            merged.append(BlockedFile(filename: filename,
+                                      presets: blockedNames([], adding: presets)))
+        }
+        return merged
+    }
+
+    /// The "File in use" alert's body: one line per blocked file, so the reader
+    /// can tell which file to remove from which presets, then a closing
+    /// instruction that agrees in number with what is actually listed.
+    static func blockedMessage(for files: [BlockedFile]) -> String {
+        guard let only = files.first else { return "" }
+        let lines = files.map { "\($0.filename) — used by \($0.presets.joined(separator: ", "))" }
+        let closing: String
+        if files.count > 1 {
+            closing = "Remove each file from those presets first."
+        } else if only.presets.count == 1 {
+            closing = "Remove it from that preset first."
+        } else {
+            closing = "Remove it from those presets first."
+        }
+        return (lines + [closing]).joined(separator: "\n")
     }
 
     var body: some View {
@@ -77,7 +119,7 @@ struct LibraryView: View {
             .alert("File in use", isPresented: deleteBlockedBinding) {
                 Button("OK") { deleteBlocked = [] }
             } message: {
-                Text("Used by: \(deleteBlocked.joined(separator: ", ")). Remove it from those presets first.")
+                Text(Self.blockedMessage(for: deleteBlocked))
             }
             .onAppear(perform: refresh)
             .onReceive(NotificationCenter.default.publisher(for: .libraryDidChange)) { _ in refresh() }
@@ -159,7 +201,7 @@ struct LibraryView: View {
         do {
             try library.deleteWAD(wad, force: false)
         } catch LibraryError.wadReferencedByLoadouts(let names) {
-            deleteBlocked = Self.blockedNames(deleteBlocked, adding: names)
+            deleteBlocked = Self.blockedFiles(deleteBlocked, adding: names, for: wad.filename)
         } catch {}
         refresh()
     }
