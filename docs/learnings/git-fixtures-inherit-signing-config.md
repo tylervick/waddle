@@ -41,6 +41,30 @@ Same shape as `Scripts/loop-prompt.md` section 0, one layer further in: a
 worktree-local intent silently served by repo-global — here machine-global —
 git state.
 
+## It is not only fixtures — any lightweight tag on this machine
+
+The title says "fixture" because that is where it was first paid for, but the
+cause is machine-global config and it applies to *any* `git tag` typed by hand
+in a real checkout. Creating `build-207` on `main` failed with the same
+`fatal: no tag message?` on the first attempt.
+
+Where that matters: **a documented recovery instruction that says `git tag`
+does not work as written.** `.github/workflows/testflight.yml`'s tag-push
+failure message tells the operator to create and push the tag by hand, and the
+obvious command fails on the machine they will run it from — with an error
+pointing at a missing annotation rather than at signing. The message now
+carries `-c tag.gpgSign=false` for that reason.
+
+The hermetic `GIT_CONFIG_GLOBAL=/dev/null` fix above is right for fixtures and
+wrong here: a real checkout needs its identity and its commit signing. For a
+one-off command, override only the setting in the way:
+
+```bash
+git -c tag.gpgSign=false tag build-207 <sha>
+```
+
 **Provenance:** issue #13's first attempt (PR #55, closed unmerged) paid for
 this; re-confirmed on the second attempt, where `git tag v1` in a scratch repo
-still printed `fatal: no tag message?`.
+still printed `fatal: no tag message?`. Hit a third time on 2026-08-12 tagging
+`build-207` by hand in the real checkout, which is what exposed the broken
+remedy in the release workflow.

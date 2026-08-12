@@ -200,7 +200,12 @@ jobs:
             echo "::error::this far again -- it would instead be rejected earlier,"
             echo "::error::at upload, since App Store Connect rejects a duplicate"
             echo "::error::build. Create and push the tag by hand instead:"
-            echo "::error::  git tag build-$N && git push origin build-$N"
+            echo "::error::  git -c tag.gpgSign=false tag build-$N \\"
+            echo "::error::    && git push origin build-$N"
+            echo "::error::(the -c is not optional on a machine with tag.gpgSign"
+            echo "::error::set: a lightweight tag then fails with the misleading"
+            echo "::error::'fatal: no tag message?' -- see"
+            echo "::error::docs/learnings/git-fixtures-inherit-signing-config.md)"
             exit 1
           fi
 
