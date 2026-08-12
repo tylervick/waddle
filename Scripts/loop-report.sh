@@ -171,7 +171,7 @@ echo
 echo "by prompt version:"
 if [ "${#rows[@]}" -gt 0 ]; then
     for sha in $(printf '%s\n' "${rows[@]}" | cut -d'|' -f1 | sort -u); do
-        n=0; merged=0; prs=0; findings=0; legacy=0; unavailable=0; reconciled=0; foreign=0
+        n=0; merged=0; prs=0; findings=0; legacy=0; legacy_failed=0; unavailable=0; reconciled=0; foreign=0
         proved=0; provedc=0; vac=0; notest=0; nap=0; errp=0
         for r in "${rows[@]}"; do
             [ "${r%%|*}" = "$sha" ] || continue
@@ -228,11 +228,36 @@ if [ "${#rows[@]}" -gt 0 ]; then
                     # section 4's intro) -- this is a public repo, and an
                     # unfiltered query would count any author's comment text,
                     # including a human contributor's or the owner's own.
-                    legacy=$((legacy + 1))
-                    c="$(gh api "repos/{owner}/{repo}/pulls/$pr/comments" --paginate \
-                          --jq '.[] | select(.user.login as $l | ["coderabbitai[bot]","renovate[bot]"] | index($l)) | .body' 2>/dev/null \
-                          | grep -c -E "$MARKERS" || true)"
-                    findings=$((findings + c))
+                    #
+                    # The exit status is tested directly on the command
+                    # substitution rather than masked, the same idiom the
+                    # reconciliation queries below use and for the same
+                    # reason. Piping straight into `grep -c ... || true`
+                    # collapses a FAILED call to a count of 0, which is then
+                    # added to the findings total and reported as an ordinary
+                    # scored legacy record -- indistinguishable in the output
+                    # from a PR CodeRabbit genuinely reviewed and found clean.
+                    # "Never successfully queried" and "queried, found
+                    # nothing" are different claims and only the second one
+                    # belongs in the total.
+                    if bodies="$(gh api "repos/{owner}/{repo}/pulls/$pr/comments" --paginate \
+                          --jq '.[] | select(.user.login as $l | ["coderabbitai[bot]","renovate[bot]"] | index($l)) | .body' 2>/dev/null)"; then
+                        legacy=$((legacy + 1))
+                        # `|| true` masks grep's own no-match exit 1, which is
+                        # the expected answer for a clean PR and carries no
+                        # failure information -- the `gh api` failure it used
+                        # to also swallow is ruled out above. Do not remove
+                        # it: without it a clean PR aborts the whole report
+                        # under `set -euo pipefail`.
+                        c="$(printf '%s' "$bodies" | grep -c -E "$MARKERS" || true)"
+                        findings=$((findings + c))
+                    else
+                        # Its own counter and its own reported line, the way
+                        # `reconciled` and `foreign` get theirs, rather than
+                        # being folded into the legacy count -- otherwise the
+                        # report still cannot distinguish the two claims above.
+                        legacy_failed=$((legacy_failed + 1))
+                    fi
                     ;;
                 none|unavailable|*[!0-9]*)
                     # The field is PRESENT but unusable: the literal `none`
@@ -380,6 +405,9 @@ if [ "${#rows[@]}" -gt 0 ]; then
         fi
         if [ "$legacy" -gt 0 ]; then
             echo "    ($legacy legacy record(s) predate coderabbit_findings_first entirely; scored by live query, which is post-fix and may understate)"
+        fi
+        if [ "$legacy_failed" -gt 0 ]; then
+            echo "    ($legacy_failed legacy record(s) predate coderabbit_findings_first entirely but could not be scored -- the live query itself failed, so they contribute nothing to the findings total above rather than a fabricated zero)"
         fi
         if [ "$unavailable" -gt 0 ]; then
             echo "    ($unavailable record(s) have an unavailable coderabbit_findings_first -- a 900s wait that expired with no review ('none'), an explicit refusal to review ('unavailable'), or a malformed value -- excluded from the findings total above, never queried live)"

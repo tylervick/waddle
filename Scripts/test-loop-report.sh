@@ -757,4 +757,32 @@ echo "$out" | grep -q "2 not measured (1 n/a, 1 error)" \
     || fail "folded absent measurements into a score; got: $out"
 pass "counts all six red-green verdicts distinctly and keeps n/a and error out of the scores"
 
+# 25. THE LEGACY LIVE QUERY, FAILED. The same masked-exit-status shape case 22
+#    pinned out of the reconciliation path survived in the legacy branch (the
+#    one taken when coderabbit_findings_first is absent entirely):
+#    `gh api ... 2>/dev/null | grep -c -E "$MARKERS" || true` collapses a
+#    failed call to a count of 0, which was then added to the findings total
+#    and the record counted as an ordinary scored legacy record. In the report
+#    that is indistinguishable from a PR CodeRabbit genuinely reviewed and
+#    found clean -- the exact fabrication PR #66 refused everywhere else.
+#
+#    The stub prints NOTHING and exits 1, which is the real network-failure
+#    shape and the only one that produces the fabricated *zero*; case 21's
+#    partial-output shape is a different bug and is pinned there. What
+#    discriminates fixed from broken here is not the findings total (0 either
+#    way) but which line the record is reported on: a failed query must not be
+#    described as "scored by live query", and must not vanish silently either.
+make_recon_fixture "$TMP/t25"
+printf '' > "$TMP/t25/review-body.txt"
+printf '1\n' > "$TMP/t25/comment-exit.txt"
+record "$TMP/t25" 66 pr-opened ce934c6 66
+out="$(report "$TMP/t25" 2>&1)" || fail "report failed when the legacy live query failed; got: $out"
+grep -q "pulls/66/comments" "$TMP/t25/gh-calls.log" \
+    || fail "the legacy live query must actually be attempted; calls were: $(cat "$TMP/t25/gh-calls.log")"
+echo "$out" | grep -q "scored by live query" \
+    && fail "a legacy record whose live query failed must not be counted as a scored legacy record; got: $out"
+echo "$out" | grep -qi "could not be scored" \
+    || fail "a failed legacy live query needs its own reported line, not silence; got: $out"
+pass "a failed legacy live query is reported on its own line instead of contributing a fabricated zero"
+
 echo "All loop-report tests passed."

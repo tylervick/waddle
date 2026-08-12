@@ -6,7 +6,7 @@ the command failed. When the command's *output* is then used to decide
 something, a failure stops looking like a failure and starts looking like an
 answer — usually the permissive one.
 
-This has bitten this repo three times, in two different scripts:
+This has bitten this repo four times, in two different scripts:
 
 1. **`loop-precheck.sh`, abandoned-worktree sweep.** `grep` with no match exits
    1; under `pipefail` inside `set -e` that aborted the entire precheck, with
@@ -25,6 +25,17 @@ This has bitten this repo three times, in two different scripts:
    comments query was worse: a failed call produced `0`, recording a fabricated
    measurement of zero findings — indistinguishable in the report from a PR
    that was genuinely reviewed and found clean.
+4. **`loop-report.sh`, the legacy live query (issue #68).** PR #66 fixed the
+   shape above in the reconciliation path and deliberately left the same
+   `gh api ... | grep -c ... || true` in the legacy branch — the one taken when
+   a record predates `coderabbit_findings_first` entirely — rather than widen
+   an unrelated PR. A failed call there still counted 0 and folded it into the
+   findings total as an ordinary *scored* legacy record. Fixed by testing the
+   status directly and giving a failed query its own counter and its own
+   reported line, so "never successfully queried" stops reading as "queried,
+   found clean". The lesson is about the leftover as much as the bug: a known
+   instance of a fixed pattern, left in place and recorded as tracked
+   separately, is one nobody is looking at.
 
 ## The rule
 
@@ -46,7 +57,7 @@ The status of an assignment is the status of its command substitution, and
 Keep `|| true` only where the non-zero status is itself the expected, meaningful
 answer and carries no failure information — `grep -c` returning 1 for "no
 matches" is the canonical case. `loop-report.sh` keeps exactly that one and no
-others in its reconciliation path.
+others, in both its reconciliation and its legacy paths.
 
 ## Empty output is not one thing
 
@@ -66,8 +77,8 @@ have discarded the only two working measurements the report has.
 
 A lint could flag `gh api` inside a command substitution whose status is masked.
 It is not written yet because the obvious `grep` also fires on the legitimate
-`grep -c ... || true` and on `loop-report.sh`'s legacy path, which still has
-this shape deliberately — that path is already reported as unreliable, and
-changing it is tracked separately rather than smuggled into an unrelated PR.
-Write the check when it can tell those apart; until then, this file is the
-check.
+`grep -c ... || true`, which both remaining call sites use correctly and which
+must not be flagged. The legacy path used to be the second reason this check
+could not be written; occurrence 4 above removed it, so telling the two apart is
+now the only thing standing in the way. Write the check when it can; until then,
+this file is the check.
