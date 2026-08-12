@@ -24,9 +24,6 @@ concurrency:
   group: testflight
   cancel-in-progress: false
 
-permissions:
-  contents: read
-
 env:
   XCODE_VERSION: "26.2"
   # Builds 1-6 are consumed. run_number starts at 1 for a new workflow, so
@@ -39,8 +36,26 @@ jobs:
     name: Archive and upload
     runs-on: macos-26
     timeout-minutes: 90
+    # Declared on the JOB, not the workflow: written at workflow level it
+    # would grant write access to every job added here later, which is not
+    # what the comment claims or what this needs. contents: write exists for
+    # the "Tag the shipped build" step's `git push origin build-<N>` and
+    # nothing else -- every other step here only reads.
+    permissions:
+      contents: write
     steps:
+      # fetch-depth: 0 (all history, all branches/tags), not the default
+      # shallow depth-1 clone: Scripts/whats-to-test.sh anchors its changelog
+      # on the newest build-* tag and walks `git log` over the range since
+      # it. A depth-1 checkout has neither the tag nor the history behind it,
+      # so the script would silently take its once-ever bootstrap fallback
+      # (last 20 commits) on every run instead of the true range -- a green
+      # run that quietly ships the wrong notes. Same reasoning as ci.yml's
+      # fetch-depth: 0 for `git merge-base`; this repo's history is small
+      # enough that the unshallow fetch costs well under a second.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
 
       # Fails in seconds. Without it a bad value costs a ~25 minute build
       # before App Store Connect rejects it.
@@ -159,6 +174,55 @@ jobs:
             Scripts/upload.sh --validate
           else
             Scripts/upload.sh
+          fi
+
+      # Tag BEFORE attaching notes, and only on a real upload. The tag records
+      # what shipped, and the NEXT release computes its changelog range from
+      # it. If the tag were gated on the notes succeeding, a notes failure
+      # would leave the next release anchored on an older build and silently
+      # re-list changes already delivered. A push failure here is at least as
+      # load-bearing as a notes failure below -- if the tag never lands, the
+      # NEXT release anchors on the previous or bootstrap tag and silently
+      # re-lists changes already shipped, so it fails loudly for the same
+      # reason the notes step does.
+      - name: Tag the shipped build
+        if: ${{ inputs.validate_only != true }}
+        env:
+          N: ${{ steps.buildnum.outputs.value }}
+        run: |
+          if ! git tag "build-$N" || ! git push origin "build-$N"; then
+            echo "::error::Build $N IS UPLOADED and the release did NOT fail --"
+            echo "::error::only the build-$N tag could not be recorded (a"
+            echo "::error::tag-protection ruleset or a transient push failure)."
+            echo "::error::Re-running this workflow will NOT fix this: a retry"
+            echo "::error::reuses the same run number, computes the same build"
+            echo "::error::number, and would tag the wrong build if it even got"
+            echo "::error::this far again -- it would instead be rejected earlier,"
+            echo "::error::at upload, since App Store Connect rejects a duplicate"
+            echo "::error::build. Create and push the tag by hand instead:"
+            echo "::error::  git tag build-$N && git push origin build-$N"
+            exit 1
+          fi
+
+      # Notes are metadata: a failure here does NOT mean the release failed.
+      # It fails the job anyway, loudly, because a silent warning is how the
+      # field ends up empty -- which is the entire reason this exists.
+      - name: Attach What to Test notes
+        if: ${{ inputs.validate_only != true }}
+        env:
+          ASC_KEY_PATH: ${{ runner.temp }}/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          N: ${{ steps.buildnum.outputs.value }}
+        run: |
+          if ! Scripts/whats-to-test.sh "$N"; then
+            echo "::error::Build $N IS UPLOADED and the release did NOT fail --"
+            echo "::error::only the What-to-Test notes could not be attached."
+            echo "::error::Re-running this workflow will REBUILD AND UPLOAD AGAIN,"
+            echo "::error::consuming another build number. The build_number input"
+            echo "::error::cannot avoid that: App Store Connect rejects a duplicate."
+            echo "::error::Set the notes by hand in App Store Connect instead."
+            exit 1
           fi
 
       # Raw xcodebuild (no fastlane) writes these into TMPDIR, NOT

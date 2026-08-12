@@ -49,9 +49,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Cheap (most ~0.1s; the three loop suites together are ~12s) and they
-      # guard the value both cache keys depend on, plus the check that stops a
-      # stale engine from being shipped.
+      # Cheap (most ~0.1s; the three loop suites together are ~12s, and
+      # test-whats-to-test.sh ~20s -- it builds a throwaway git repository per
+      # case) and they guard the value both cache keys depend on, plus the
+      # check that stops a stale engine from being shipped.
       #
       # This list must name EVERY Scripts/test-*.sh suite, not just the ones
       # that guard the build. Scripts/check-red-green.sh's shell domain reverts
@@ -80,6 +81,13 @@ jobs:
           Scripts/test-loop-report.sh
           Scripts/test-loop-precheck.sh
           Scripts/test-check-masked-gh-status.sh
+          # Both hermetic: test-asc-jwt.sh generates its own throwaway EC key
+          # and never reads the real App Store Connect key; test-whats-to-test.sh
+          # stubs git, curl and the token minter and never reaches the network.
+          # They guard the release path, which is the one place a green run
+          # that ships the wrong thing costs a build number to undo.
+          Scripts/test-asc-jwt.sh
+          Scripts/test-whats-to-test.sh
           # Hermetic: it clears GH_TOKEN/GITHUB_TOKEN and strips PATH itself,
           # so it needs no credentials here and never reaches real GitHub.
           # issue-format.yml runs it too, but that workflow fires on

@@ -1,0 +1,445 @@
+#!/bin/bash
+# Assembles TestFlight "What to Test" notes and attaches them to a build in
+# App Store Connect.
+#
+# Usage:
+#   Scripts/whats-to-test.sh --print            assemble and print, no network
+#   Scripts/whats-to-test.sh <build-number>      assemble and attach via ASC
+#
+# The notes are an optional hand-written preamble followed by a changelog
+# computed from git. The changelog is DERIVED, not stored, and that is the
+# point: a tracked notes file goes stale silently -- it is not empty, so an
+# empty-check passes, and the build ships the previous release's text. A
+# computed changelog cannot be stale. See
+# docs/superpowers/specs/2026-08-11-whats-to-test-design.md.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+PREAMBLE_FILE="docs/app-store/whats-to-test.md"
+
+API="https://api.appstoreconnect.apple.com"
+BUNDLE_ID="com.tylervick.waddle"
+# Overridable so the hermetic suite never really sleeps.
+POLL_ATTEMPTS="${WHATS_TO_TEST_POLL_ATTEMPTS:-30}"
+POLL_DELAY="${WHATS_TO_TEST_POLL_DELAY:-30}"
+ASC_JWT="${ASC_JWT:-$ROOT/Scripts/asc-jwt.sh}"
+
+# App Store Connect caps a build's whatsNew at about 4000 characters and
+# rejects an over-long value -- AFTER the upload has consumed a build number
+# and the tag has been pushed, which is the most expensive moment to find
+# out. At the two or three merged pull requests a day this repo lands, a few
+# weeks between releases is enough to overrun it. So the notes are trimmed on
+# a whole-bullet boundary below the cap and say how many changes were
+# dropped, rather than being sent for Apple to refuse.
+NOTES_MAX=3900
+
+# One bullet per change. For a GitHub merge commit the useful title is the
+# FIRST LINE OF THE BODY -- git's own subject is "Merge pull request #N from
+# owner/branch", which tells a tester nothing. Direct commits use their
+# subject. Both shapes occur in this repo.
+changelog() { # range (may be empty, meaning "recent history")
+    range="$1"
+    while IFS= read -r sha; do
+        [ -n "$sha" ] || continue
+        subj="$(git log -1 --format=%s "$sha")"
+        case "$subj" in
+            "Merge pull request #"*)
+                num="$(printf '%s' "$subj" | sed -n 's/^Merge pull request #\([0-9][0-9]*\).*/\1/p')"
+                title="$(git log -1 --format=%b "$sha" | sed -n '1p')"
+                [ -n "$title" ] || title="$subj"
+                printf -- '- %s (#%s)\n' "$title" "$num"
+                ;;
+            *) printf -- '- %s\n' "$subj" ;;
+        esac
+    done < <(git log --first-parent --format=%H $range)
+}
+
+# Picks the tag that anchors the changelog range: the newest `build-*` tag
+# STRICTLY BELOW the build being annotated, or -- when no build number is
+# given, i.e. `--print` -- the newest one there is.
+#
+# "Strictly below" is the whole feature, not a refinement. The workflow pushes
+# `build-<N>` at HEAD in the step immediately BEFORE the one that attaches the
+# notes, and that ordering is load-bearing and stays (the tag records what
+# shipped; gating it on notes would corrupt the NEXT release's anchor -- see
+# the spec). So at the moment the notes are assembled, the newest tag IS the
+# build being annotated and it sits on HEAD: anchoring on it makes the range
+# `build-N..HEAD`, which is empty on EVERY release. With no preamble that goes
+# red after a successful upload; with a preamble it goes GREEN and ships the
+# preamble alone with the changelog silently gone -- the confidently-wrong
+# outcome the derived changelog exists to prevent.
+#
+# TAG_LIST arrives sorted -v:refname, highest first, so the first entry below
+# the current number is the anchor. Version order, not tag date: build numbers
+# skip when a validate-only run consumes a run number, so lexical or
+# chronological ordering would both pick the wrong anchor.
+prev_tag() { # [current-build-number]
+    printf '%s\n' "$TAG_LIST" | awk -v n="${1:-}" '
+        { num = $0; sub(/^build-/, "", num) }
+        (n == "" || num + 0 < n + 0) { print; exit }'
+}
+
+# Assembles the preamble + derived changelog and prints the result to stdout.
+# Shared by --print (called directly, so its output goes straight to the
+# terminal) and the attach path below (captured via
+# `NOTES="$(assemble_notes "$BUILD")"` to build a request body).
+# assemble_notes has no side effects beyond writing stdout and its own exit
+# status, so capturing it this way is safe -- see
+# docs/learnings/command-substitution-discards-callee-state.md for the
+# failure mode this would otherwise risk (it applies to functions that need
+# their global writes or their `exit` to reach the caller; this one needs
+# neither).
+assemble_notes() { # [current-build-number]
+    PREAMBLE=""
+    if [ -f "$PREAMBLE_FILE" ]; then
+        PREAMBLE="$(sed -e 's/[[:space:]]*$//' "$PREAMBLE_FILE" | sed -e '/./,$!d')"
+    fi
+
+    # The list command's status is tested directly rather than masked with
+    # `2>/dev/null` and read as data: a genuine `git tag` failure (corrupt
+    # refs, a shallow or partial checkout) produces the same empty output as
+    # "no build tag yet", so masking it would silently route a broken
+    # repository into the once-ever bootstrap fallback below and compute the
+    # changelog from the last 20 commits instead of the true range -- without
+    # saying anything is wrong. See
+    # docs/learnings/masked-exit-status-fails-open.md. A real failure here is
+    # not the bootstrap condition the fallback exists for, so it fails the
+    # run rather than falling back. (Under `set -e` an unguarded assignment
+    # from a failing `git tag` would abort the script with a bare exit 128 and
+    # no diagnostic of our own -- it would NOT reach the fallback -- so this
+    # guard is what turns that silent death into a named failure, not what
+    # prevents a wrong fallback.)
+    #
+    # git's stderr goes to a FILE, never folded into the captured stdout with
+    # `2>&1`: git writes advisories to stderr while still exiting 0 (`warning:
+    # ignoring broken ref refs/tags/...` and friends), and with `2>&1` such a
+    # line becomes the first entry of TAG_LIST and therefore the anchor. The
+    # range is then `warning: ....HEAD`, `git log` fails inside changelog's
+    # process substitution -- which does NOT trip `set -e` -- and BODY comes
+    # back empty. With a preamble present that ships green with the changelog
+    # silently gone: the same confidently-wrong outcome as a bad anchor.
+    TAG_ERR="$(mktemp "${TMPDIR:-/tmp}/whats-to-test-tag.XXXXXX")"
+    if ! TAG_LIST="$(git tag --list 'build-*' --sort=-v:refname 2>"$TAG_ERR")"; then
+        echo "error: git tag --list failed; cannot determine the previous build tag." >&2
+        cat "$TAG_ERR" >&2
+        rm -f "$TAG_ERR"
+        exit 1
+    fi
+    rm -f "$TAG_ERR"
+    TAG="$(prev_tag "${1:-}")"
+
+    if [ -n "$TAG" ]; then
+        HEADING="Changes since build ${TAG#build-}:"
+        BODY="$(changelog "$TAG..HEAD")"
+    else
+        # Bootstrap: no release below this one has ever been tagged -- either
+        # no build-* tag exists at all, or the only one is the tag this very
+        # release just pushed. Failing here would block a release for a
+        # condition that is true exactly once, so fall back -- but disclose
+        # it, because the range is a guess rather than a fact.
+        HEADING="Recent changes (no previous build tag; showing the last 20 commits):"
+        BODY="$(changelog "--max-count=20")"
+    fi
+
+    if [ -z "$PREAMBLE" ] && [ -z "$BODY" ]; then
+        echo "error: no changes since ${TAG:-the start of history} and $PREAMBLE_FILE is empty." >&2
+        echo "       Nothing to tell a tester. Write a preamble or ship a build with changes in it." >&2
+        exit 1
+    fi
+
+    OUT=""
+    if [ -n "$PREAMBLE" ]; then
+        OUT="$PREAMBLE"
+        # A blank line between the preamble and the changelog.
+        if [ -n "$BODY" ]; then OUT="$OUT"$'\n\n'; fi
+    fi
+    if [ -n "$BODY" ]; then
+        OUT="$OUT$HEADING"$'\n'"$BODY"
+    fi
+    # Trimmed HERE rather than at the request body, so `--print` shows exactly
+    # what will be sent -- a preview that silently differs from the payload is
+    # the same class of lie as stale notes.
+    trim_notes "$OUT"
+    printf '\n'
+}
+
+# Keeps the notes under App Store Connect's whatsNew cap (see NOTES_MAX),
+# dropping WHOLE bullets from the end -- a body cut mid-line reads as
+# corruption, while "and N more changes" is a fact a tester can act on. Done
+# in python3 (already a dependency, see json_first) because the cap is in
+# characters and `${#var}` counts bytes under a C locale: counting bytes would
+# trim more aggressively than needed, and counting characters is what Apple
+# does.
+trim_notes() { # text
+    TRIM_TEXT="$1" TRIM_MAX="$NOTES_MAX" python3 -c '
+import os, sys
+
+# Written as UTF-8 BYTES rather than through sys.stdout: a commit subject can
+# carry any byte, os.environ decoded it with surrogateescape, and re-encoding
+# the same way round-trips it exactly. Going through sys.stdout would instead
+# raise UnicodeEncodeError under a non-UTF-8 locale -- aborting the release
+# over a name with an accent in it, after the upload.
+def emit(s):
+    sys.stdout.buffer.write(s.encode("utf-8", "surrogateescape"))
+
+text = os.environ["TRIM_TEXT"]
+limit = int(os.environ["TRIM_MAX"])
+if len(text) <= limit:
+    emit(text)
+    raise SystemExit(0)
+
+def tail(n):
+    return "\n… and %d more change%s" % (n, "" if n == 1 else "s")
+
+lines = text.split("\n")
+dropped = 0
+while len(lines) > 1 and len("\n".join(lines)) + len(tail(dropped + 1)) > limit:
+    lines.pop()
+    dropped += 1
+out = "\n".join(lines) + (tail(dropped) if dropped else "")
+# A preamble that is itself over the cap cannot be fixed by dropping bullets.
+# Clamp it rather than let App Store Connect reject the whole write after the
+# upload and the tag have already happened.
+emit(out[:limit])
+'
+}
+
+# Extracts a top-level JSON string field from the first element of `data`.
+# python3 stdlib rather than jq: jq is not guaranteed on a runner and this
+# script must add no dependencies.
+json_first() { # field-path e.g. "id" or "attributes.processingState"
+    python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+items = doc.get("data") or []
+if not items:
+    sys.exit(3)
+cur = items[0]
+for part in sys.argv[1].split("."):
+    cur = (cur or {}).get(part)
+print(cur if cur is not None else "")
+' "$1"
+}
+
+api_get() { # path
+    # Status tested directly, never masked: a failed call must not read as an
+    # empty result. See docs/learnings/masked-exit-status-fails-open.md.
+    curl -sS -f -H "Authorization: Bearer $TOKEN" "$API$1"
+}
+
+# Reads one field from a JSON response that has already been confirmed to
+# come from a successful call (i.e. the caller tested api_get's own status
+# first -- see api_get above). This function's only remaining job is to
+# distinguish json_first's own exit 3, "data is empty" -- the ONE legitimate
+# reading of "nothing here yet" -- from any other non-zero exit (malformed
+# JSON, an unexpected shape), which is a parse failure and must abort rather
+# than be folded into that same "empty" reading. Folding the two together is
+# exactly how a failed request reads as a successful empty one: see
+# docs/learnings/masked-exit-status-fails-open.md. Prints the field's value
+# and returns 0 on success, prints nothing and returns 3 on "no items",
+# prints nothing and returns 1 on anything else.
+read_json_field() { # response, field-path
+    local val rc
+    # rc is captured in an explicit `else`, not by reading $? after a
+    # bodyless `if`: with no `else` clause, POSIX defines a not-taken `if`'s
+    # own exit status as 0 regardless of the condition's real status, which
+    # would silently turn every failure here into a false "success".
+    #
+    # json_first's own stderr (a raw python traceback on malformed input) is
+    # discarded, not its exit status -- every caller of this function prints
+    # its own purpose-built diagnostic immediately on a non-3 return, so the
+    # traceback would only ever precede and obscure that message, never
+    # replace the failure signal itself.
+    if val="$(printf '%s' "$1" | json_first "$2" 2>/dev/null)"; then
+        printf '%s' "$val"
+        return 0
+    else
+        rc=$?
+    fi
+    [ "$rc" -eq 3 ] && return 3
+    return 1
+}
+
+# POSTs or PATCHes. `--fail-with-body` (not bare `-f`) so a non-2xx still
+# writes Apple's error body -- which explains *why* the write failed (a
+# validation error, a conflicting locale, ...) -- rather than throwing that
+# reason away and leaving the operator with only "it failed". The body is
+# captured rather than streamed straight out, specifically so it can be
+# withheld on success (never useful there) and shown only on failure. The
+# request body travels over stdin (`--data-binary @-`) rather than as a
+# command-line argument, so arbitrarily long or oddly-shaped JSON is never
+# reinterpreted by the shell.
+api_send() { # method, path, json-body
+    local resp
+    if resp="$(curl -sS --fail-with-body -X "$1" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @- \
+            "$API$2" <<< "$3")"; then
+        return 0
+    fi
+    printf '%s\n' "$resp" >&2
+    return 1
+}
+
+# Builds the JSON body for creating (no loc-id) or updating (loc-id given) the
+# en-US beta build localization. Built with python3's json.dumps rather than
+# shell string interpolation: NOTES is release-notes text that can contain
+# newlines, quotes, and backslashes verbatim, and passing it through
+# json.dumps is what guarantees both that those characters survive intact and
+# that the result is syntactically valid JSON -- a naive `"whatsNew": "$NOTES"`
+# would corrupt on the first embedded quote or literal newline. Values cross
+# into python via the environment (not as `-c` script text) for the same
+# reason asc-jwt.sh escapes its claims: nothing here is interpolated into code
+# python parses.
+loc_body() { # build-id, notes, [loc-id]
+    LOC_BUILD_ID="$1" LOC_NOTES="$2" LOC_LOC_ID="${3:-}" python3 -c '
+import json, os
+build_id = os.environ["LOC_BUILD_ID"]
+notes = os.environ["LOC_NOTES"]
+loc_id = os.environ.get("LOC_LOC_ID") or None
+data = {"type": "betaBuildLocalizations", "attributes": {"whatsNew": notes}}
+if loc_id:
+    data["id"] = loc_id
+else:
+    data["attributes"]["locale"] = "en-US"
+    data["relationships"] = {"build": {"data": {"type": "builds", "id": build_id}}}
+print(json.dumps({"data": data}))
+'
+}
+
+MODE="${1:---print}"
+
+if [ "$MODE" = "--print" ]; then
+    assemble_notes
+    exit 0
+fi
+
+BUILD="$MODE"
+case "$BUILD" in ''|*[!0-9]*) echo "usage: $0 --print | <build-number>" >&2; exit 2 ;; esac
+
+# The build number is passed in so the changelog anchors on the newest tag
+# BELOW it: build-$BUILD already exists at HEAD by the time this runs (the
+# workflow tags before attaching notes), so anchoring on the newest tag
+# overall would make every range empty. See prev_tag.
+NOTES="$(assemble_notes "$BUILD")" \
+  || { echo "error: could not assemble What-to-Test notes for build $BUILD" >&2; exit 1; }
+TOKEN="$("$ASC_JWT")" \
+  || { echo "error: could not mint an App Store Connect API token for build $BUILD" >&2; exit 1; }
+# Cheap insurance on a public repo: the token is never printed by this script,
+# but a stray `set -x`, a future `curl -v`, or a diagnostic added in haste
+# would put it in the log. Registering it means GitHub redacts it from every
+# subsequent line of this job. Guarded on GITHUB_ACTIONS so a local run does
+# not print a stray workflow command.
+if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::add-mask::$TOKEN"; fi
+
+# Two curl calls, not one piped into json_first, so a failed lookup is
+# diagnosed by our own clean message rather than by a python traceback from
+# json_first choking on the empty stdin a failed `-f` call leaves behind
+# (curl's status is tested and handled before json_first ever runs).
+APPS_RESP="$(api_get "/v1/apps?filter%5BbundleId%5D=$BUNDLE_ID")" \
+  || { echo "error: could not resolve the app id for $BUNDLE_ID (build $BUILD)" >&2; exit 1; }
+# read_json_field, not a bare json_first: "the API returned no app for this
+# bundle id" (its exit 3) is a different fact from "the response could not be
+# parsed", and they have different fixes -- a wrong bundle id or an API key
+# without access to the app, versus a broken response. Reporting the first as
+# the second sends the operator looking in the wrong place.
+if APP_ID="$(read_json_field "$APPS_RESP" id)"; then
+    :
+else
+    rc=$?
+    if [ "$rc" -eq 3 ]; then
+        echo "error: App Store Connect has no app matching bundle id $BUNDLE_ID (build $BUILD)." >&2
+        echo "       Check the bundle id and that the API key has access to the app." >&2
+    else
+        echo "error: could not parse App Store Connect's response resolving the app id for $BUNDLE_ID (build $BUILD)" >&2
+    fi
+    exit 1
+fi
+
+# Poll until the build is ADDRESSABLE, which is two conditions and not one.
+#
+# `data: []` -- no such build -- is the NORMAL answer for the first minute or
+# more after altool returns: App Store Connect creates the build resource when
+# ingestion begins, not when the upload completes. Treating an absent build as
+# an immediate failure fails a release that is merely early, at the one moment
+# retrying costs a whole build number. So an absent build is polled for, and
+# only running out of attempts is a failure. Once it does appear it then sits
+# in PROCESSING for minutes more (several, for build 205), so both conditions
+# have to clear before the localization write can land.
+#
+# STATE and BUILD_ID are both initialized before the loop: with `set -u`, a
+# WHATS_TO_TEST_POLL_ATTEMPTS of 0 or a negative/non-numeric override means
+# the loop body below never runs even once, and either variable being
+# referenced afterward while still unset would abort with a bare "unbound
+# variable" -- naming neither the build nor what went wrong.
+STATE=""
+BUILD_ID=""
+attempt=0
+while [ "$attempt" -lt "$POLL_ATTEMPTS" ]; do
+    attempt=$((attempt + 1))
+    RESP="$(api_get "/v1/builds?filter%5Bapp%5D=$APP_ID&filter%5Bversion%5D=$BUILD")" \
+      || { echo "error: could not query App Store Connect for build $BUILD" >&2; exit 1; }
+
+    if BUILD_ID="$(read_json_field "$RESP" id)"; then
+        :
+    else
+        rc=$?
+        [ "$rc" -eq 3 ] || { echo "error: could not parse App Store Connect's response while polling build $BUILD" >&2; exit 1; }
+    fi
+    if STATE="$(read_json_field "$RESP" attributes.processingState)"; then
+        :
+    else
+        rc=$?
+        [ "$rc" -eq 3 ] || { echo "error: could not parse App Store Connect's response while polling build $BUILD" >&2; exit 1; }
+    fi
+
+    if [ -n "$BUILD_ID" ] && [ "$STATE" != "PROCESSING" ]; then break; fi
+    if [ "$attempt" -lt "$POLL_ATTEMPTS" ]; then sleep "$POLL_DELAY"; fi
+done
+if [ "$attempt" -eq 0 ]; then
+    echo "error: build $BUILD was never polled -- WHATS_TO_TEST_POLL_ATTEMPTS must be at least 1." >&2
+    exit 1
+fi
+if [ -z "$BUILD_ID" ]; then
+    echo "error: build $BUILD never appeared in App Store Connect after $attempt attempts; notes not attached." >&2
+    echo "       Either it is still being ingested, or nothing was uploaded under that build number." >&2
+    exit 1
+fi
+if [ "$STATE" = "PROCESSING" ]; then
+    echo "error: build $BUILD is still PROCESSING after $POLL_ATTEMPTS attempts; notes not attached." >&2
+    exit 1
+fi
+
+# Find an existing en-US localization for this build. Filtered server-side by
+# both build and locale, so at most one result is possible and `data: []`
+# unambiguously means "none exists yet" -- once the call itself is confirmed
+# to have succeeded. That confirmation happens above, on api_get's own exit
+# status via `||`, before LOC_RESP is ever treated as data: a failed call
+# aborts right here and never reaches the "is it empty" question at all, so
+# "no existing localization" and "the request failed" cannot be confused with
+# each other. Nor can a malformed-but-200 body: read_json_field's own
+# distinction between exit 3 ("no items", benign) and anything else (a parse
+# failure) means a garbled response can't be misread as "no localization
+# yet" either. See docs/learnings/masked-exit-status-fails-open.md.
+LOC_RESP="$(api_get "/v1/betaBuildLocalizations?filter%5Bbuild%5D=$BUILD_ID&filter%5Blocale%5D=en-US")" \
+  || { echo "error: could not look up beta build localizations for build $BUILD" >&2; exit 1; }
+if LOC_ID="$(read_json_field "$LOC_RESP" id)"; then
+    :
+else
+    rc=$?
+    [ "$rc" -eq 3 ] || { echo "error: could not parse App Store Connect's beta build localization response for build $BUILD" >&2; exit 1; }
+fi
+
+BODY="$(loc_body "$BUILD_ID" "$NOTES" "$LOC_ID")" \
+  || { echo "error: could not build the request body for build $BUILD" >&2; exit 1; }
+if [ -n "$LOC_ID" ]; then
+    api_send PATCH "/v1/betaBuildLocalizations/$LOC_ID" "$BODY" \
+      || { echo "error: failed to update the What-to-Test localization for build $BUILD" >&2; exit 1; }
+else
+    api_send POST "/v1/betaBuildLocalizations" "$BODY" \
+      || { echo "error: failed to create the What-to-Test localization for build $BUILD" >&2; exit 1; }
+fi
+
+echo "Attached What-to-Test notes to build $BUILD."
