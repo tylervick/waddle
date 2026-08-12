@@ -6,7 +6,7 @@ the command failed. When the command's *output* is then used to decide
 something, a failure stops looking like a failure and starts looking like an
 answer — usually the permissive one.
 
-This has bitten this repo three times, in two different scripts:
+This has bitten this repo four times, in two different scripts:
 
 1. **`loop-precheck.sh`, abandoned-worktree sweep.** `grep` with no match exits
    1; under `pipefail` inside `set -e` that aborted the entire precheck, with
@@ -25,6 +25,17 @@ This has bitten this repo three times, in two different scripts:
    comments query was worse: a failed call produced `0`, recording a fabricated
    measurement of zero findings — indistinguishable in the report from a PR
    that was genuinely reviewed and found clean.
+4. **`loop-report.sh`, the legacy live query (issue #68).** PR #66 fixed the
+   shape above in the reconciliation path and deliberately left the same
+   `gh api ... | grep -c ... || true` in the legacy branch — the one taken when
+   a record predates `coderabbit_findings_first` entirely — rather than widen
+   an unrelated PR. A failed call there still counted 0 and folded it into the
+   findings total as an ordinary *scored* legacy record. Fixed by testing the
+   status directly and giving a failed query its own counter and its own
+   reported line, so "never successfully queried" stops reading as "queried,
+   found clean". The lesson is about the leftover as much as the bug: a known
+   instance of a fixed pattern, left in place and recorded as tracked
+   separately, is one nobody is looking at.
 
 ## The rule
 
@@ -46,7 +57,7 @@ The status of an assignment is the status of its command substitution, and
 Keep `|| true` only where the non-zero status is itself the expected, meaningful
 answer and carries no failure information — `grep -c` returning 1 for "no
 matches" is the canonical case. `loop-report.sh` keeps exactly that one and no
-others in its reconciliation path.
+others, in both its reconciliation and its legacy paths.
 
 ## Empty output is not one thing
 
@@ -62,12 +73,26 @@ Collapsing those two into one rule breaks the feature in one direction or the
 other. A reviewer asked for the strict version of both; the comments half would
 have discarded the only two working measurements the report has.
 
-## Not yet an executable check
+## The executable check
 
-A lint could flag `gh api` inside a command substitution whose status is masked.
-It is not written yet because the obvious `grep` also fires on the legitimate
-`grep -c ... || true` and on `loop-report.sh`'s legacy path, which still has
-this shape deliberately — that path is already reported as unreliable, and
-changing it is tracked separately rather than smuggled into an unrelated PR.
-Write the check when it can tell those apart; until then, this file is the
-check.
+`Scripts/check-masked-gh-status.sh` enforces this for `gh api`, and runs in
+`ci.yml`. It refuses `|| true` (discard) and `|| echo` (fabricate) on a command
+containing `gh api`, and accepts `|| skip` / `|| err`, which handle the failure
+instead of hiding it. Read that file for the exact rule and its limits rather
+than restating them here.
+
+Two things are worth knowing about why it took three occurrences to write it.
+
+It was blocked for months on a real ambiguity: a naive lint cannot tell the
+legitimate `grep -c ... || true` from the masked kind, and this file recorded
+that as the reason it could not be written. What actually removed the blocker
+was occurrence 4 — once no real `gh api` sat in a `grep -c` pipeline, "is `gh
+api` in this pipeline" became an exact discriminator. The check did not need a
+cleverer lint; it needed the code cleaned up first.
+
+And it is verifiably not vacuous. Pointed at the tree before PR #66 it reports
+three violations; pointed at the tree before issue #68's fix it reports the one
+at `loop-report.sh:232`; pointed at `Scripts/` today it reports none.
+`Scripts/test-check-masked-gh-status.sh` pins that last assertion against the
+real directory, so a new masked call fails CI rather than waiting for a fourth
+entry in the list above.

@@ -79,12 +79,17 @@ jobs:
           Scripts/test-check-icon-json.sh
           Scripts/test-loop-report.sh
           Scripts/test-loop-precheck.sh
+          Scripts/test-check-masked-gh-status.sh
           # Hermetic: it clears GH_TOKEN/GITHUB_TOKEN and strips PATH itself,
           # so it needs no credentials here and never reaches real GitHub.
           # issue-format.yml runs it too, but that workflow fires on
           # issues/schedule/workflow_dispatch only -- never on a pull request.
           Scripts/test-check-issue-format.sh
           Scripts/check-substrate.sh
+          # Refuses a `gh api` call whose exit status is masked into a
+          # fabricated answer -- the defect PR #66 and issue #68 each fixed one
+          # instance of. Pure text scan of Scripts/; no network, no token.
+          Scripts/check-masked-gh-status.sh
           # --sync-only, not the full check: this step runs before the toolchain
           # setup and the runner has neither uv nor potrace. It still catches the
           # drift that actually happens -- Design/ regenerated without the .icon
