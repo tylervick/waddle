@@ -47,6 +47,19 @@ final class EngineErrorAlertTests: XCTestCase {
         XCTAssertNotNil(alert?.hint)   // D_AddFile's "Failed to load" is a wrong-IWAD marker too
     }
 
+    func testFailedToLoadHintIgnoresFilenameCasing() {
+        // D_AddFile's "Failed to load %s" interpolates the user's own file
+        // path, so these two messages differ only in the incidental
+        // capitalization of a filename — nothing about the failure itself.
+        // The same failure must get the same hint either way.
+        let upper = EngineErrorAlert.from(exitCode: -1,
+                                          engineMessage: "Failed to load /path/IWAD.wad")
+        let lower = EngineErrorAlert.from(exitCode: -1,
+                                          engineMessage: "Failed to load /path/iwad.wad")
+        XCTAssertNotNil(upper?.hint)
+        XCTAssertEqual(upper?.hint, lower?.hint)
+    }
+
     func testReentrancyExitMapsToAccurateAlert() {
         let alert = EngineErrorAlert.from(exitCode: -102,
                                           engineMessage: "Another session is already running.")
