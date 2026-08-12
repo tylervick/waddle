@@ -1,0 +1,83 @@
+name: Cold build
+
+# ci.yml is aggressively cached: an engine-cache hit skips both build-deps.sh
+# and build-engine.sh, which is what takes a warm run from ~8m37s to ~4m14s.
+# The cost is that a break in either script is INVISIBLE on every warm run --
+# it surfaces only when a cache key changes or somebody clones cold, and on a
+# public repo the first person to hit it is likely to be a stranger.
+#
+# This job builds everything from source every week so that window is seven
+# days instead of unbounded. It is not a second CI run: it deliberately does
+# NOT run the test suites, because what is under test here is the build
+# scripts, and adding a simulator dependency would let an unrelated
+# CoreSimulator flake mask the signal this exists to produce.
+on:
+  schedule:
+    # Mondays 07:00 UTC, an hour after issue-format.yml's weekly sweep so the
+    # two do not contend for a runner.
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  XCODE_VERSION: "26.2"
+
+jobs:
+  cold-build:
+    name: Build deps and engine from source
+    runs-on: macos-26
+    # A cold build is ~9 minutes measured; 60 is headroom for a slow runner,
+    # not a figure derived from it.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # skip-cache: 'true' is what makes this cold, and it is load-bearing in
+      # BOTH directions. It stops the restore steps running, so build-deps.sh
+      # and build-engine.sh always execute -- and because actions/cache only
+      # saves in a post-step belonging to a restore that ran, nothing is
+      # written back either. A job that populated the normal cache keys would
+      # defeat its own purpose by handing ci.yml a blob this run produced.
+      #
+      # These are the only two caches in the build path; ci.yml itself defines
+      # none, and DerivedData is not cached anywhere.
+      - uses: ./.github/actions/setup-waddle-build
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+          skip-cache: 'true'
+
+      # The build succeeding is necessary but not sufficient: build-engine.sh
+      # could produce a framework that does not match the sources it was built
+      # from. This is the same guard archive.sh runs before shipping, and on a
+      # cold tree it can only pass if the framework was genuinely built here.
+      - name: Verify the freshly built engine matches its sources
+        run: Scripts/check-engine-fresh.sh
+
+      # fetch-freedoom.sh is checksum-verified and deliberately uncached, so
+      # the setup step above already exercised it. Assert the WADs actually
+      # landed rather than trusting that a silent no-op counts as success.
+      - name: Verify the Freedoom WADs landed
+        run: |
+          for w in freedoom1.wad freedoom2.wad; do
+            p="App/Resources/GameData/$w"
+            [ -s "$p" ] || { echo "::error::$p is missing or empty after a cold fetch"; exit 1; }
+            echo "$p $(wc -c < "$p") bytes"
+          done
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Cold build"
+            echo
+            echo "Built SDL3, OpenAL Soft and the Woof engine from source with"
+            echo "every cache bypassed, then verified the engine fingerprint and"
+            echo "the Freedoom fetch."
+            echo
+            echo "A failure here means \`Scripts/build-deps.sh\`,"
+            echo "\`Scripts/build-engine.sh\` or \`Scripts/fetch-freedoom.sh\` is"
+            echo "broken for a cold clone, even though ci.yml is green — that is"
+            echo "the whole point of this job."
+          } >> "$GITHUB_STEP_SUMMARY"
