@@ -102,6 +102,15 @@ change scores `proved` (or `proved-by-compile`) off a tree that never existed.
 cases already handle. Getting any of this wrong produces `error` at best and a
 false verdict at worst.
 
+That flag has a second-order consequence worth naming, because it caused a
+second wrong verdict on its own: the *departure* path of a rename now arrives
+in the changed-file list as a source file that **does not exist at HEAD**, and
+is indistinguishable from a plain deletion — that indistinguishability is the
+point of the flag, not an accident of it. Any per-path rule applied to that
+list must therefore ask whether the path still exists at HEAD before it demands
+anything of it. The shell domain's unmatched-source rule is the one that does;
+see below.
+
 **There is no restore-and-confirm-green step.** The preceding CI steps are what
 establish green: the helper-suite step runs every `Scripts/test-*.sh`, and the
 unit-test step's `-only-testing:WADdleTests` covers all of `App/Tests/`. The
@@ -174,11 +183,36 @@ it roughly doubles how much of the backlog gets measured. The domains are:
 | shell | `Scripts/*.sh` except `Scripts/test-*.sh` | `Scripts/test-*.sh` | the matching suite, by name |
 
 In the shell domain the test for `Scripts/foo.sh` is `Scripts/test-foo.sh`,
-by name and nothing cleverer. A changed script with no matching suite
-contributes `no-test`; only the suites matching the changed scripts are run,
-not all of them. Non-`.sh` files under `Scripts/` — `Scripts/loop-prompt.md`
-is the one that matters — are not source in either domain, so a change
-touching only those scores `n/a`.
+by name and nothing cleverer. A changed script **that exists at HEAD** with no
+matching suite contributes `no-test`; only the suites matching the changed
+scripts are run, not all of them. Non-`.sh` files under `Scripts/` —
+`Scripts/loop-prompt.md` is the one that matters — are not source in either
+domain, so a change touching only those scores `n/a`.
+
+A changed source path that does **not** exist at HEAD contributes nothing —
+neither a suite nor a `no-test`. There is nothing at HEAD for a suite to test,
+so demanding `Scripts/test-foo.sh` for a `Scripts/foo.sh` the change removed is
+demanding a test for code that no longer exists: unsatisfiable, which makes a
+`no-test` derived from it a wrong measurement rather than a cautious one. It is
+wrong in the expensive direction, too — `no-test` outranks `proved`, so
+renaming a script and its suite together, an ordinary refactor, would mask the
+real proof the moved suite earned. Two consequences of the rule are deliberate
+and bounded:
+
+- If a suite matching the departed name *does* still exist at HEAD, it is run.
+  It is real evidence about the deletion — the revert brings the script back,
+  and a suite that notices has genuinely proved the change.
+- A source that exists at HEAD still contributes `no-test` when nothing is
+  named for it, including the *arriving* half of a rename. Renaming
+  `Scripts/foo.sh` to `Scripts/bar.sh` without renaming the suite leaves a real
+  `Scripts/bar.sh` with no `Scripts/test-bar.sh`, and the naming convention is
+  the whole rule.
+
+The domain-level `no-test` — no suite matched anything at all — is unchanged by
+this. It reports that the domain ran nothing, which is true, and unlike the
+per-source contribution it has no rival verdict to override. A change that only
+deletes a script and its suite therefore still scores `no-test`; calling the
+domain absent instead would claim no source changed, which is false.
 
 **A pull request touching both domains is scored as the worst of the two**
 (`vacuous` worse than `no-test` worse than `proved-by-compile` worse than
@@ -234,6 +268,10 @@ sibling suites. It must cover each verdict in the vocabulary, and specifically:
 - source changed with no test touched → `no-test`
 - test-only change → `n/a`
 - a revert that cannot be constructed → `error`, never a verdict
+- a script and its suite renamed together → whatever verdict the moved suite
+  earns, never a `no-test` forced by the departed name
+- a script that exists at HEAD with no suite named for it → still `no-test`,
+  so the rule above cannot be widened into "renames are exempt"
 - the working tree is restored after every path, including the error paths
 
 Fixtures are throwaway git repositories built in the test, as

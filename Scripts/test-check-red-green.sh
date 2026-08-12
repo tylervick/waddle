@@ -677,4 +677,154 @@ fi
     || fail "tree left dirty after a post-revert command-not-found abort: $(cd "$r" && git status --porcelain)"
 pass "shell: a suite green at HEAD that dies 127 only after the revert aborts instead of fabricating proved"
 
+# 29. THE DEPARTURE HALF OF A RENAME IS NOT AN UNPROVEN SOURCE. `--no-renames`
+#     (case 25) expands `Scripts/foo.sh -> Scripts/bar.sh` into foo.sh deleted
+#     plus bar.sh added, so BOTH names land in the shell domain's source list --
+#     but only bar.sh exists at HEAD. Renaming a script and its suite together
+#     is an ordinary refactor, and matching `Scripts/test-foo.sh` for the
+#     departed foo.sh can never succeed: the suite moved with it. Counting that
+#     as an unmatched source forces `no-test`, which outranks `proved` in the
+#     worst-of, so the real proof earned by test-bar.sh is masked by a demand
+#     for a test of code that no longer exists.
+#
+#     The rename here carries a real behavioural change (echo old -> echo
+#     fixed) so the moved suite genuinely detects the revert -- that is what
+#     makes the case discriminate by two ranks: `proved` when the rule is
+#     right, `no-test` when the departed half is counted. Case 25's pure
+#     `git mv` cannot catch this: both of its names have a suite at HEAD, so
+#     nothing is ever unmatched there.
+mk_rename_pair_base='
+mkdir -p Scripts
+cat > Scripts/foo.sh <<"EOS"
+#!/bin/bash
+echo old
+EOS
+cat > Scripts/test-foo.sh <<"EOS"
+#!/bin/bash
+[ "$(./Scripts/foo.sh)" = "old" ] || exit 1
+exit 0
+EOS
+chmod +x Scripts/foo.sh Scripts/test-foo.sh'
+mk_rename_pair='
+git mv Scripts/foo.sh Scripts/bar.sh
+git mv Scripts/test-foo.sh Scripts/test-bar.sh
+cat > Scripts/bar.sh <<"EOS"
+#!/bin/bash
+echo fixed
+EOS
+cat > Scripts/test-bar.sh <<"EOS"
+#!/bin/bash
+[ "$(./Scripts/bar.sh)" = "fixed" ] || exit 1
+exit 0
+EOS
+chmod +x Scripts/bar.sh Scripts/test-bar.sh'
+r="$(make_repo sh_rename_pair "$mk_rename_pair" "$mk_rename_pair_base")"
+# The case only means anything if the departed name really is in the list the
+# guard consumes; assert that directly rather than trusting --no-renames to
+# keep behaving this way.
+[ "$(cd "$r" && git diff --no-renames --name-only base-ref HEAD -- Scripts/foo.sh)" = "Scripts/foo.sh" ] \
+    || fail "fixture does not put the deleted half of the rename in the guard's source list"
+out="$(cd "$r" && ./Scripts/check-red-green.sh base-ref)"
+[ "$(echo "$out" | head -1)" = "proved" ] \
+    || fail "renaming a script and its suite together must keep the proof the moved suite earned, got: $out"
+[ -z "$(cd "$r" && git status --porcelain)" ] \
+    || fail "tree left dirty after a script+suite rename: $(cd "$r" && git status --porcelain)"
+pass "shell: renaming a script and its suite together is proved, not a forced no-test"
+
+# 30. THE BOUNDARY case 29 must not overrun: a source that DOES exist at HEAD
+#     with no suite named for it still contributes `no-test`, even when the
+#     reason it exists is the same rename. Here only the script moves
+#     (foo.sh -> bar.sh) and the old suite name is kept and updated, so at HEAD
+#     there is a real `Scripts/bar.sh` with no `Scripts/test-bar.sh`. The
+#     naming convention is the whole rule -- "by name and nothing cleverer" --
+#     and test-foo.sh proving the change does not make bar.sh named-covered.
+#
+#     This case does not discriminate the case-29 fix on its own (before it,
+#     the departed foo.sh was unmatched too, and the verdict was already
+#     `no-test`). It is here to pin the boundary: a fix that skipped every
+#     source involved in a rename, rather than only the paths absent from
+#     HEAD, would turn this into `proved` and silently drop a genuinely
+#     unproven script.
+mk_rename_src_only='
+git mv Scripts/foo.sh Scripts/bar.sh
+cat > Scripts/bar.sh <<"EOS"
+#!/bin/bash
+echo fixed
+EOS
+cat > Scripts/test-foo.sh <<"EOS"
+#!/bin/bash
+[ "$(./Scripts/bar.sh)" = "fixed" ] || exit 1
+exit 0
+EOS
+chmod +x Scripts/bar.sh'
+r="$(make_repo sh_rename_src_only "$mk_rename_src_only" "$mk_rename_pair_base")"
+out="$(cd "$r" && ./Scripts/check-red-green.sh base-ref)"
+[ "$(echo "$out" | head -1)" = "no-test" ] \
+    || fail "a script that exists at HEAD with no suite named for it must still be no-test, got: $out"
+[ -z "$(cd "$r" && git status --porcelain)" ] \
+    || fail "tree left dirty: $(cd "$r" && git status --porcelain)"
+pass "shell: a renamed-to script with no suite of its own still contributes no-test"
+
+# 31. THE SAME RULE, REACHED BY A PLAIN DELETION rather than a rename --
+#     which is the point: `--no-renames` makes the two the same event, so the
+#     rule cannot be about renames. Scripts/gone.sh and its suite are deleted
+#     outright, with no arriving counterpart anywhere in the diff that rename
+#     detection could ever have paired it with, while a sibling script is
+#     genuinely proved. Demanding Scripts/test-gone.sh at HEAD is demanding a
+#     suite for code the change removed, so it must not mask the sibling's
+#     proof.
+mk_delete_sibling_base='
+mkdir -p Scripts
+cat > Scripts/foo.sh <<"EOS"
+#!/bin/bash
+echo old
+EOS
+cat > Scripts/test-foo.sh <<"EOS"
+#!/bin/bash
+[ "$(./Scripts/foo.sh)" = "fixed" ] || exit 1
+exit 0
+EOS
+cat > Scripts/gone.sh <<"EOS"
+#!/bin/bash
+echo gone
+EOS
+cat > Scripts/test-gone.sh <<"EOS"
+#!/bin/bash
+exit 0
+EOS
+chmod +x Scripts/foo.sh Scripts/test-foo.sh Scripts/gone.sh Scripts/test-gone.sh'
+mk_delete_sibling='
+cat > Scripts/foo.sh <<"EOS"
+#!/bin/bash
+echo fixed
+EOS
+git rm -q Scripts/gone.sh Scripts/test-gone.sh'
+r="$(make_repo sh_delete_sibling "$mk_delete_sibling" "$mk_delete_sibling_base")"
+out="$(cd "$r" && ./Scripts/check-red-green.sh base-ref)"
+[ "$(echo "$out" | head -1)" = "proved" ] \
+    || fail "a deleted script must not mask a sibling's proof with no-test, got: $out"
+[ ! -f "$r/Scripts/gone.sh" ] || fail "the deleted script reappeared after restore"
+[ -z "$(cd "$r" && git status --porcelain)" ] \
+    || fail "tree left dirty after reverting a deleted script: $(cd "$r" && git status --porcelain)"
+pass "shell: a deleted script and suite contribute nothing, not a no-test that masks a sibling"
+
+# 32. ...and the DOMAIN-LEVEL `no-test` is deliberately untouched by all of
+#     that. A change that only deletes a script and its suite matches no suite
+#     at all, so the domain ran nothing and reports `no-test`. That is an
+#     honest statement about an empty measurement, and unlike the per-source
+#     contribution above it overrides nothing: there is no rival verdict for it
+#     to mask. The alternative -- calling the domain absent and letting the
+#     pull request score `n/a` -- would claim no source changed, which is
+#     false, and would drop a real deletion out of the measurement entirely.
+#     Pinned so that a future widening of the rule has to argue with a test.
+mk_delete_only='git rm -q Scripts/foo.sh Scripts/test-foo.sh'
+r="$(make_repo sh_delete_only "$mk_delete_only" "$mk_rename_pair_base")"
+out="$(cd "$r" && ./Scripts/check-red-green.sh base-ref)"
+[ "$(echo "$out" | head -1)" = "no-test" ] \
+    || fail "a domain that matched no suite at all must still be no-test, got: $out"
+echo "$out" | grep -q "domains: shell" || fail "did not report the shell domain; got: $out"
+[ -z "$(cd "$r" && git status --porcelain)" ] \
+    || fail "tree left dirty: $(cd "$r" && git status --porcelain)"
+pass "shell: a change that only deletes a script and its suite is still no-test at the domain level"
+
 echo "All check-red-green tests passed."

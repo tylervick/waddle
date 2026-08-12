@@ -116,8 +116,10 @@ $p"
 }
 
 # The test for Scripts/foo.sh is Scripts/test-foo.sh, by name and nothing
-# cleverer. A changed script with no matching suite is unproven, which is
-# `no-test` -- not `error`, because nothing failed: the proof is simply absent.
+# cleverer. A changed script that exists at HEAD with no matching suite is
+# unproven, which is `no-test` -- not `error`, because nothing failed: the
+# proof is simply absent. A changed source path that does NOT exist at HEAD is
+# neither matched nor unmatched; see THE RULE below.
 #
 # Returns `proved` | `vacuous` | `no-test` | `error`. The `error` is narrow and
 # has exactly one cause: a matching suite that is already failing at HEAD,
@@ -139,9 +141,37 @@ run_shell_domain() { # src, test
         # Both lists are appended to files rather than accumulated in
         # variables for the same subshell reason: an assignment made here
         # would vanish the instant the pipeline stage exits.
+        #
+        # THE RULE: only a source path that still EXISTS AT HEAD can be
+        # unmatched. A path absent from HEAD is the departure half of a move
+        # or a plain deletion -- and `--no-renames` above makes those the same
+        # event by construction, so no rule can tell them apart without
+        # re-enabling the rename heuristic that fix exists to remove. Neither
+        # leaves anything at HEAD for a suite to test, so demanding
+        # `Scripts/test-foo.sh` for a `Scripts/foo.sh` HEAD no longer has is
+        # demanding a test for code the change removed: unsatisfiable, which
+        # makes a `no-test` derived from it a wrong measurement rather than a
+        # cautious one. It would force `no-test` -- which outranks `proved` in
+        # the worst-of -- over the real proof earned by an ordinary refactor
+        # that renames a script and its suite together. See test case 29.
+        #
+        # The suite branch is deliberately NOT gated the same way: a
+        # `Scripts/test-foo.sh` that does exist at HEAD while `Scripts/foo.sh`
+        # was deleted is real evidence about that deletion (the revert brings
+        # foo.sh back, and a suite that notices has genuinely proved the
+        # change), so it is still run. The domain-level `no-test` for an empty
+        # `suites` list below is likewise untouched: it reports that this
+        # domain ran nothing, which is true, and unlike the per-source
+        # contribution it has no rival verdict to override. Case 32 pins it.
+        #
+        # `[ -f "$s" ]` reads the working tree, which IS HEAD here: the script
+        # refuses to start against a dirty tree, and the only other domain
+        # restores its revert before this one begins (case 23). An `elif` with
+        # no `else` also keeps this loop body's status 0 when neither test
+        # holds -- the same errexit hazard the paragraph above describes.
         if [ -f "$t" ]; then
             echo "$t" >> "$TMPDIR_RG/suites"
-        else
+        elif [ -f "$s" ]; then
             echo "$s" >> "$TMPDIR_RG/unmatched"
         fi
     done
@@ -228,8 +258,10 @@ run_shell_domain() { # src, test
 
     # Non-zero means at least one suite noticed the revert. That is the proof.
     if [ "$rc" -eq 1 ]; then v="proved"; else v="vacuous"; fi
-    # A changed script with no matching suite CONTRIBUTES `no-test`, per
-    # source -- it is not dropped just because a sibling script did have one.
+    # A changed script that exists at HEAD with no matching suite CONTRIBUTES
+    # `no-test`, per source -- it is not dropped just because a sibling script
+    # did have one. (Sources absent from HEAD never reach this list at all --
+    # see THE RULE above.)
     # `revert_src` reverts every changed script, the unmatched one included,
     # so the unmatched script can be exactly what made the sibling's suite
     # fail while the sibling collects the credit. Worst-of, not an override:
