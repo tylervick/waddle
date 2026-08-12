@@ -140,16 +140,53 @@ echo "$out" | grep -q -- "- Merge pull request #99 from tylervick/pr-99 (#99)" \
 pass "falls back to the raw merge subject when a merge commit's body is empty"
 
 # A curl stub driven by files, so each case chooses its own responses. It
-# records every invocation so the tests can assert what was sent.
+# records every invocation so the tests can assert what was sent, and
+# captures any --data-binary request body to body.json so a case can assert
+# on the JSON that was actually going to reach App Store Connect, not just
+# infer it from the HTTP method used.
 stub_curl() { # dir
     mkdir -p "$1/bin"
     cat > "$1/bin/curl" <<'STUB'
 #!/bin/bash
 echo "$*" >> "$STUBDIR/curl.log"
+# FAILSTAGE/MALFORMED, if set, name a URL substring at which this stub
+# simulates a real API problem at that one call site while every other call
+# still succeeds normally:
+#   FAILSTAGE  a hard failure -- but only if the invocation actually carries
+#              -f or --fail-with-body, exactly as real curl requires: with
+#              neither flag present, curl exits 0 on a non-2xx and simply
+#              writes the error page as the body instead of failing. So this
+#              stub does the same, falling through to the "not valid JSON"
+#              response below -- which makes an accidental `-f` deletion
+#              from the real script produce exactly what it would in
+#              production (a false "success" with a garbage body), not a
+#              behavior the mock stub can't express.
+#   MALFORMED  a malformed-but-200 response regardless of flags: exit 0, but
+#              a body that is not valid JSON (a proxy interstitial, a
+#              truncated gateway response). Deliberately distinct from a
+#              genuine `{"data":[]}`, which needs neither of these -- it's
+#              simulated by simply writing an empty-data fixture file.
+if [ -n "${FAILSTAGE:-}" ]; then
+    for a in "$@"; do case "$a" in *"$FAILSTAGE"*)
+        has_fail_flag=0
+        for b in "$@"; do case "$b" in -f|--fail-with-body) has_fail_flag=1 ;; esac; done
+        if [ "$has_fail_flag" -eq 1 ]; then
+            exit 22
+        else
+            echo 'not-json-at-all'
+            exit 0
+        fi
+    ;; esac; done
+fi
+if [ -n "${MALFORMED:-}" ]; then
+    for a in "$@"; do case "$a" in *"$MALFORMED"*) echo 'not-json-at-all'; exit 0 ;; esac; done
+fi
 for a in "$@"; do case "$a" in
     *"/v1/apps"*)                 cat "$STUBDIR/apps.json"; exit 0 ;;
     *"/v1/builds?"*)              cat "$STUBDIR/builds.json"; exit 0 ;;
-    *"betaBuildLocalizations"*)   cat "$STUBDIR/loc.json"; exit 0 ;;
+    *"betaBuildLocalizations"*)
+        case "$*" in *"--data-binary"*) cat > "$STUBDIR/body.json" ;; esac
+        cat "$STUBDIR/loc.json"; exit 0 ;;
 esac; done
 echo '{}'
 STUB
@@ -166,6 +203,13 @@ STUB
     chmod +x "$1/bin/asc-jwt.sh"
 }
 
+# Extracts attributes.whatsNew from a captured request body, so a case can
+# assert the exact assembled notes text reached App Store Connect rather
+# than merely that some POST or PATCH happened.
+whats_new() { # body.json path
+    python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["attributes"]["whatsNew"])' "$1"
+}
+
 attach() { # dir, build-number
     (cd "$1" && env PATH="$1/bin:$PATH" STUBDIR="$1" ASC_JWT="$1/bin/asc-jwt.sh" \
         ASC_KEY_ID=K ASC_ISSUER_ID=I ASC_KEY_PATH=/dev/null \
@@ -173,19 +217,32 @@ attach() { # dir, build-number
         ./Scripts/whats-to-test.sh "$2" 2>&1)
 }
 
-# 10. No existing localization -> POST, and the notes text is sent.
+# 10. No existing localization -> POST, and the exact assembled notes text
+#     is what's sent -- captured from the real --data-binary stdin body via
+#     the stub, then round-tripped back out through json.load, not merely
+#     inferred from the HTTP method (the body can never appear in the stub's
+#     `$*` arg log, since it travels over stdin).
 r="$(make_repo attach_post 'merge_pr 90 "fix: a thing"')"; stub_curl "$r"
+expected_notes="$(notes "$r")"
 out="$(attach "$r" 207)" || fail "attach failed: $out"
 grep -q "POST" "$r/curl.log" || fail "did not POST a new localization; log: $(cat "$r/curl.log")"
-pass "creates a localization when none exists"
+got_notes="$(whats_new "$r/body.json")" || fail "POSTed body is not valid JSON with a whatsNew field"
+[ "$got_notes" = "$expected_notes" ] \
+    || fail "POSTed whatsNew does not match the assembled notes; expected: $expected_notes; got: $got_notes"
+pass "creates a localization when none exists, carrying the assembled notes"
 
-# 11. An existing en-US localization -> PATCH, never a duplicate POST.
+# 11. An existing en-US localization -> PATCH, never a duplicate POST, and
+#     the PATCHed body also carries the exact assembled notes text.
 r="$(make_repo attach_patch 'merge_pr 91 "fix: a thing"')"; stub_curl "$r"
 printf '%s' '{"data":[{"id":"loc-1","attributes":{"locale":"en-US"}}]}' > "$r/loc.json"
+expected_notes="$(notes "$r")"
 out="$(attach "$r" 207)" || fail "attach failed: $out"
 grep -q "PATCH" "$r/curl.log" || fail "did not PATCH the existing localization"
 grep -q "POST" "$r/curl.log" && fail "POSTed a duplicate localization"
-pass "patches an existing en-US localization instead of duplicating it"
+got_notes="$(whats_new "$r/body.json")" || fail "PATCHed body is not valid JSON with a whatsNew field"
+[ "$got_notes" = "$expected_notes" ] \
+    || fail "PATCHed whatsNew does not match the assembled notes; expected: $expected_notes; got: $got_notes"
+pass "patches an existing en-US localization instead of duplicating it, carrying the assembled notes"
 
 # 12. A build stuck in PROCESSING past the cap fails, and the message names
 #     the build number so the operator knows which build is affected.
@@ -209,5 +266,70 @@ printf '%s' '{"data":[]}' > "$r/builds.json"
 if attach "$r" 207 >"$TMP/o11" 2>&1; then fail "should fail when the build is not found"; fi
 grep -q "207" "$TMP/o11" || fail "error does not name the build; got: $(cat "$TMP/o11")"
 pass "fails when App Store Connect does not have the build"
+
+# 14. A failed call to resolve the app id aborts loudly, names the build,
+#     attempts no write, and does not leak a raw python traceback -- curl's
+#     own failure is tested before ever piping into json_first. Asserts the
+#     exact clean-message wording, not just "some failure happened": a
+#     downstream parse-failure catch (added for case 17/18) would also make
+#     this fail closed, so without pinning the wording, deleting THIS guard
+#     specifically wouldn't be provable -- see the task report's break/
+#     restore proof for why the wording assertion is what makes it provable.
+r="$(make_repo attach_appid_fails 'merge_pr 100 "fix: a thing"')"; stub_curl "$r"
+if out="$(FAILSTAGE=/v1/apps attach "$r" 207)"; then fail "should fail when the app id lookup fails"; fi
+case "$out" in *207*) ;; *) fail "error does not name the build number; got: $out" ;; esac
+case "$out" in *Traceback*) fail "leaked a raw python traceback instead of a clean diagnostic; got: $out" ;; esac
+echo "$out" | grep -qi "could not resolve the app id" || fail "did not produce the app-id-lookup diagnostic; got: $out"
+grep -Eq "POST|PATCH" "$r/curl.log" && fail "attempted a write after the app id lookup failed"
+pass "fails without a write when the app id lookup fails, naming the build"
+
+# 15. A failed call while polling builds aborts loudly rather than being
+#     read as "no build found" or falling through to a write. Wording
+#     pinned for the same reason as case 14.
+r="$(make_repo attach_builds_fail 'merge_pr 101 "fix: a thing"')"; stub_curl "$r"
+if out="$(FAILSTAGE="/v1/builds?" attach "$r" 207)"; then fail "should fail when the builds poll fails"; fi
+case "$out" in *207*) ;; *) fail "error does not name the build number; got: $out" ;; esac
+echo "$out" | grep -qi "could not query App Store Connect" || fail "did not produce the builds-poll diagnostic; got: $out"
+grep -Eq "POST|PATCH" "$r/curl.log" && fail "attempted a write after the builds poll failed"
+pass "fails without a write when the builds poll fails, naming the build"
+
+# 16. A failed localization lookup aborts loudly rather than being read as
+#     "no existing localization" and posting a duplicate -- the exact defect
+#     this branch exists to rule out. Wording pinned for the same reason as
+#     case 14.
+r="$(make_repo attach_loc_fails 'merge_pr 102 "fix: a thing"')"; stub_curl "$r"
+if out="$(FAILSTAGE=betaBuildLocalizations attach "$r" 207)"; then fail "should fail when the localization lookup fails"; fi
+case "$out" in *207*) ;; *) fail "error does not name the build number; got: $out" ;; esac
+echo "$out" | grep -qi "could not look up beta build localizations" || fail "did not produce the localization-lookup diagnostic; got: $out"
+grep -Eq "POST|PATCH" "$r/curl.log" && fail "attempted a write after the localization lookup failed"
+pass "fails without a write when the localization lookup fails, naming the build"
+
+# 17. A malformed-but-200 builds response aborts loudly and distinctly from
+#     "build not found" -- an unparseable body must not be misdiagnosed as an
+#     absent build.
+r="$(make_repo attach_builds_malformed 'merge_pr 103 "fix: a thing"')"; stub_curl "$r"
+if out="$(MALFORMED="/v1/builds?" attach "$r" 207)"; then fail "should fail on a malformed builds response"; fi
+case "$out" in *207*) ;; *) fail "error does not name the build number; got: $out" ;; esac
+case "$out" in *Traceback*) fail "leaked a raw python traceback instead of a clean diagnostic; got: $out" ;; esac
+echo "$out" | grep -qi "has no build" && fail "a malformed body was misdiagnosed as an absent build; got: $out"
+pass "fails distinctly on a malformed builds response, not as a false 'build not found'"
+
+# 18. A malformed-but-200 localization response aborts loudly rather than
+#     being read as "no existing localization" and posting a duplicate.
+r="$(make_repo attach_loc_malformed 'merge_pr 104 "fix: a thing"')"; stub_curl "$r"
+if out="$(MALFORMED=betaBuildLocalizations attach "$r" 207)"; then fail "should fail on a malformed localization response"; fi
+case "$out" in *207*) ;; *) fail "error does not name the build number; got: $out" ;; esac
+case "$out" in *Traceback*) fail "leaked a raw python traceback instead of a clean diagnostic; got: $out" ;; esac
+grep -Eq "POST|PATCH" "$r/curl.log" && fail "attempted a write after a malformed localization lookup"
+pass "fails on a malformed localization response rather than posting a duplicate"
+
+# 19. POLL_ATTEMPTS <= 0 fails cleanly, naming the build, rather than
+#     crashing on a STATE or BUILD_ID that was never initialized (`set -u`
+#     would otherwise kill the script with a bare "unbound variable").
+r="$(make_repo attach_zero_attempts 'merge_pr 105 "fix: a thing"')"; stub_curl "$r"
+if out="$(WHATS_TO_TEST_POLL_ATTEMPTS=0 attach "$r" 207)"; then fail "should fail when POLL_ATTEMPTS is 0"; fi
+case "$out" in *207*) ;; *) fail "error does not name the build number; got: $out" ;; esac
+echo "$out" | grep -qi "unbound variable" && fail "crashed on an unbound variable instead of failing cleanly; got: $out"
+pass "fails cleanly, naming the build, when POLL_ATTEMPTS is zero"
 
 echo "All whats-to-test tests passed."

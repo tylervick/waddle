@@ -133,17 +133,59 @@ api_get() { # path
     curl -sS -f -H "Authorization: Bearer $TOKEN" "$API$1"
 }
 
-# POSTs or PATCHes and discards the response body -- neither call's response
-# is ever inspected, only whether it succeeded. `-f` makes curl fail (and
-# this function exit non-zero) on any non-2xx status, and the body travels
-# over stdin (`--data-binary @-`) rather than as a command-line argument, so
-# arbitrarily long or oddly-shaped JSON is never reinterpreted by the shell.
+# Reads one field from a JSON response that has already been confirmed to
+# come from a successful call (i.e. the caller tested api_get's own status
+# first -- see api_get above). This function's only remaining job is to
+# distinguish json_first's own exit 3, "data is empty" -- the ONE legitimate
+# reading of "nothing here yet" -- from any other non-zero exit (malformed
+# JSON, an unexpected shape), which is a parse failure and must abort rather
+# than be folded into that same "empty" reading. Folding the two together is
+# exactly how a failed request reads as a successful empty one: see
+# docs/learnings/masked-exit-status-fails-open.md. Prints the field's value
+# and returns 0 on success, prints nothing and returns 3 on "no items",
+# prints nothing and returns 1 on anything else.
+read_json_field() { # response, field-path
+    local val rc
+    # rc is captured in an explicit `else`, not by reading $? after a
+    # bodyless `if`: with no `else` clause, POSIX defines a not-taken `if`'s
+    # own exit status as 0 regardless of the condition's real status, which
+    # would silently turn every failure here into a false "success".
+    #
+    # json_first's own stderr (a raw python traceback on malformed input) is
+    # discarded, not its exit status -- every caller of this function prints
+    # its own purpose-built diagnostic immediately on a non-3 return, so the
+    # traceback would only ever precede and obscure that message, never
+    # replace the failure signal itself.
+    if val="$(printf '%s' "$1" | json_first "$2" 2>/dev/null)"; then
+        printf '%s' "$val"
+        return 0
+    else
+        rc=$?
+    fi
+    [ "$rc" -eq 3 ] && return 3
+    return 1
+}
+
+# POSTs or PATCHes. `--fail-with-body` (not bare `-f`) so a non-2xx still
+# writes Apple's error body -- which explains *why* the write failed (a
+# validation error, a conflicting locale, ...) -- rather than throwing that
+# reason away and leaving the operator with only "it failed". The body is
+# captured rather than streamed straight out, specifically so it can be
+# withheld on success (never useful there) and shown only on failure. The
+# request body travels over stdin (`--data-binary @-`) rather than as a
+# command-line argument, so arbitrarily long or oddly-shaped JSON is never
+# reinterpreted by the shell.
 api_send() { # method, path, json-body
-    curl -sS -f -X "$1" \
-        -H "Authorization: Bearer $TOKEN" \
-        -H "Content-Type: application/json" \
-        --data-binary @- \
-        "$API$2" <<< "$3" >/dev/null
+    local resp
+    if resp="$(curl -sS --fail-with-body -X "$1" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @- \
+            "$API$2" <<< "$3")"; then
+        return 0
+    fi
+    printf '%s\n' "$resp" >&2
+    return 1
 }
 
 # Builds the JSON body for creating (no loc-id) or updating (loc-id given) the
@@ -187,20 +229,49 @@ NOTES="$(assemble_notes)" \
 TOKEN="$("$ASC_JWT")" \
   || { echo "error: could not mint an App Store Connect API token for build $BUILD" >&2; exit 1; }
 
-APP_ID="$(api_get "/v1/apps?filter%5BbundleId%5D=$BUNDLE_ID" | json_first id)" \
+# Two curl calls, not one piped into json_first, so a failed lookup is
+# diagnosed by our own clean message rather than by a python traceback from
+# json_first choking on the empty stdin a failed `-f` call leaves behind
+# (curl's status is tested and handled before json_first ever runs).
+APPS_RESP="$(api_get "/v1/apps?filter%5BbundleId%5D=$BUNDLE_ID")" \
   || { echo "error: could not resolve the app id for $BUNDLE_ID (build $BUILD)" >&2; exit 1; }
+APP_ID="$(printf '%s' "$APPS_RESP" | json_first id)" \
+  || { echo "error: could not parse App Store Connect's response resolving the app id for $BUNDLE_ID (build $BUILD)" >&2; exit 1; }
 
+# Both initialized before the loop, not just STATE: with `set -u`, a
+# WHATS_TO_TEST_POLL_ATTEMPTS of 0 or a negative/non-numeric override means
+# the loop body below never runs even once, and either variable being
+# referenced afterward while still unset would abort with a bare "unbound
+# variable" -- naming neither the build nor what went wrong.
+STATE=""
+BUILD_ID=""
 attempt=1
 while [ "$attempt" -le "$POLL_ATTEMPTS" ]; do
     RESP="$(api_get "/v1/builds?filter%5Bapp%5D=$APP_ID&filter%5Bversion%5D=$BUILD")" \
       || { echo "error: could not query App Store Connect for build $BUILD" >&2; exit 1; }
-    BUILD_ID="$(printf '%s' "$RESP" | json_first id || true)"
-    STATE="$(printf '%s' "$RESP" | json_first attributes.processingState || true)"
+
+    if BUILD_ID="$(read_json_field "$RESP" id)"; then
+        :
+    else
+        rc=$?
+        [ "$rc" -eq 3 ] || { echo "error: could not parse App Store Connect's response while polling build $BUILD" >&2; exit 1; }
+    fi
+    if STATE="$(read_json_field "$RESP" attributes.processingState)"; then
+        :
+    else
+        rc=$?
+        [ "$rc" -eq 3 ] || { echo "error: could not parse App Store Connect's response while polling build $BUILD" >&2; exit 1; }
+    fi
+
     [ -n "$BUILD_ID" ] || { echo "error: App Store Connect has no build $BUILD for $BUNDLE_ID" >&2; exit 1; }
     [ "$STATE" = "PROCESSING" ] || break
     attempt=$((attempt + 1))
     [ "$attempt" -le "$POLL_ATTEMPTS" ] && sleep "$POLL_DELAY"
 done
+if [ -z "$BUILD_ID" ]; then
+    echo "error: build $BUILD was never polled -- WHATS_TO_TEST_POLL_ATTEMPTS must be at least 1." >&2
+    exit 1
+fi
 if [ "$STATE" = "PROCESSING" ]; then
     echo "error: build $BUILD is still PROCESSING after $POLL_ATTEMPTS attempts; notes not attached." >&2
     exit 1
@@ -213,12 +284,21 @@ fi
 # status via `||`, before LOC_RESP is ever treated as data: a failed call
 # aborts right here and never reaches the "is it empty" question at all, so
 # "no existing localization" and "the request failed" cannot be confused with
-# each other. See docs/learnings/masked-exit-status-fails-open.md.
+# each other. Nor can a malformed-but-200 body: read_json_field's own
+# distinction between exit 3 ("no items", benign) and anything else (a parse
+# failure) means a garbled response can't be misread as "no localization
+# yet" either. See docs/learnings/masked-exit-status-fails-open.md.
 LOC_RESP="$(api_get "/v1/betaBuildLocalizations?filter%5Bbuild%5D=$BUILD_ID&filter%5Blocale%5D=en-US")" \
   || { echo "error: could not look up beta build localizations for build $BUILD" >&2; exit 1; }
-LOC_ID="$(printf '%s' "$LOC_RESP" | json_first id || true)"
+if LOC_ID="$(read_json_field "$LOC_RESP" id)"; then
+    :
+else
+    rc=$?
+    [ "$rc" -eq 3 ] || { echo "error: could not parse App Store Connect's beta build localization response for build $BUILD" >&2; exit 1; }
+fi
 
-BODY="$(loc_body "$BUILD_ID" "$NOTES" "$LOC_ID")"
+BODY="$(loc_body "$BUILD_ID" "$NOTES" "$LOC_ID")" \
+  || { echo "error: could not build the request body for build $BUILD" >&2; exit 1; }
 if [ -n "$LOC_ID" ]; then
     api_send PATCH "/v1/betaBuildLocalizations/$LOC_ID" "$BODY" \
       || { echo "error: failed to update the What-to-Test localization for build $BUILD" >&2; exit 1; }
