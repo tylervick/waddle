@@ -17,29 +17,19 @@
 # Store Connect answers a malformed signature with a bare 401 and no
 # diagnostic -- which is why Scripts/test-asc-jwt.sh asserts the length is
 # exactly 64 rather than merely that a token was produced.
+#
+# Also supports a `--der-to-jose` mode: reads a raw DER ECDSA signature on
+# stdin and writes base64url(r||s), no padding, to stdout, then exits. This
+# lets Scripts/test-asc-jwt.sh drive the exact conversion function used by
+# the real signing path below with hand-crafted DER fixtures (a short r, an
+# r carrying DER's leading 0x00 sign byte, ...) instead of relying on enough
+# random mints happening to produce a short integer -- which they usually
+# don't: a deleted padding step still yields a correct 64-byte signature
+# well over 99% of the time.
 set -euo pipefail
 
-: "${ASC_KEY_ID:?set ASC_KEY_ID}"
-: "${ASC_ISSUER_ID:?set ASC_ISSUER_ID}"
-: "${ASC_KEY_PATH:?set ASC_KEY_PATH}"
-[ -f "$ASC_KEY_PATH" ] || { echo "error: private key not found: $ASC_KEY_PATH" >&2; exit 1; }
-
-b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
-
-NOW="$(date -u +%s)"
-# 20 minutes. App Store Connect rejects a token whose lifetime exceeds 20
-# minutes outright, so this is a ceiling, not a tuning choice.
-EXP=$((NOW + 1200))
-
-HEADER="$(printf '{"alg":"ES256","kid":"%s","typ":"JWT"}' "$ASC_KEY_ID" | b64url)"
-PAYLOAD="$(printf '{"iss":"%s","iat":%s,"exp":%s,"aud":"appstoreconnect-v1"}' \
-             "$ASC_ISSUER_ID" "$NOW" "$EXP" | b64url)"
-SIGNING_INPUT="$HEADER.$PAYLOAD"
-
-# Sign, then convert DER to JOSE. The python3 step is stdlib only.
-SIG="$(printf '%s' "$SIGNING_INPUT" \
-        | openssl dgst -sha256 -sign "$ASC_KEY_PATH" \
-        | python3 -c '
+der_to_jose() {
+    python3 -c '
 import sys, base64
 der = sys.stdin.buffer.read()
 if not der or der[0] != 0x30:
@@ -66,6 +56,43 @@ def take_int(buf, pos):
 r, i = take_int(der, i)
 s, _ = take_int(der, i)
 sys.stdout.write(base64.urlsafe_b64encode(r + s).decode().rstrip("="))
-')"
+'
+}
+
+if [ "${1:-}" = "--der-to-jose" ]; then
+    der_to_jose
+    exit 0
+fi
+
+: "${ASC_KEY_ID:?set ASC_KEY_ID}"
+: "${ASC_ISSUER_ID:?set ASC_ISSUER_ID}"
+: "${ASC_KEY_PATH:?set ASC_KEY_PATH}"
+[ -f "$ASC_KEY_PATH" ] || { echo "error: private key not found: $ASC_KEY_PATH" >&2; exit 1; }
+
+b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+
+# ASC_KEY_ID and ASC_ISSUER_ID are interpolated into JSON below; escape the
+# two characters that would otherwise break it. (Apple issues both as
+# fixed-format identifiers, so this is defense in depth rather than a fix
+# for an observed value.)
+json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
+NOW="$(date -u +%s)"
+# 20 minutes. App Store Connect rejects a token whose lifetime exceeds 20
+# minutes outright, so this is a ceiling, not a tuning choice.
+EXP=$((NOW + 1200))
+
+KID_ESC="$(json_escape "$ASC_KEY_ID")"
+ISS_ESC="$(json_escape "$ASC_ISSUER_ID")"
+
+HEADER="$(printf '{"alg":"ES256","kid":"%s","typ":"JWT"}' "$KID_ESC" | b64url)"
+PAYLOAD="$(printf '{"iss":"%s","iat":%s,"exp":%s,"aud":"appstoreconnect-v1"}' \
+             "$ISS_ESC" "$NOW" "$EXP" | b64url)"
+SIGNING_INPUT="$HEADER.$PAYLOAD"
+
+# Sign, then convert DER to JOSE via the same function --der-to-jose drives.
+SIG="$(printf '%s' "$SIGNING_INPUT" \
+        | openssl dgst -sha256 -sign "$ASC_KEY_PATH" \
+        | der_to_jose)"
 
 printf '%s.%s\n' "$SIGNING_INPUT" "$SIG"

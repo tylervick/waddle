@@ -6,6 +6,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
+export TMP
 trap 'rm -rf "$TMP"' EXIT
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
@@ -71,5 +72,120 @@ if env ASC_KEY_ID=ABC123 ASC_ISSUER_ID=iss ASC_KEY_PATH="$TMP/nope.p8" \
 fi
 grep -q "key" "$TMP/out6" || fail "error did not mention the key; got: $(cat "$TMP/out6")"
 pass "fails loudly when the key file is missing"
+
+# 7-8. Deterministic DER->JOSE fixtures, byte-for-byte.
+#
+# Case 5 above only exercises the left-pad/strip branches by hoping 20
+# random signatures happen to produce a short r or s -- deleting the pad
+# step still yields a correct 64-byte signature ~99% of the time, so that
+# case is nearly useless as a regression guard. These two cases instead
+# hand-craft DER containing every shape that needs converting and drive
+# `asc-jwt.sh --der-to-jose` directly (see comment there), so the result is
+# either exactly right or wrong every single time, never by chance.
+#
+# The raw signature bytes deliberately contain 0x00 (that's the whole point
+# of testing padding), so they are written to files, never captured in a
+# shell variable -- bash command substitution truncates at the first NUL.
+b64url_decode_to_file() { # $1 = base64url string, $2 = output file
+    s="$1"; while [ $(( ${#s} % 4 )) -ne 0 ]; do s="$s="; done
+    printf '%s' "$s" | tr '_-' '/+' | openssl base64 -d -A > "$2"
+}
+
+python3 <<'PY'
+import os
+tmp = os.environ["TMP"]
+
+def der_int(content):
+    return bytes([0x02, len(content)]) + content
+
+def der_seq(r_content, s_content):
+    body = der_int(r_content) + der_int(s_content)
+    return bytes([0x30, len(body)]) + body
+
+# Fixture A: r is DER-short (31 bytes -- a real leading zero byte of the
+# canonical 32-byte value was dropped because the next byte's top bit is
+# clear); s carries DER's leading 0x00 sign-disambiguation byte (33 bytes)
+# because its top bit is set.
+r_a_canonical = b"\x00" + b"\x11" * 31
+r_a_der = b"\x11" * 31
+s_a_canonical = b"\xee" * 32
+s_a_der = b"\x00" + b"\xee" * 32
+
+with open(os.path.join(tmp, "der_a.bin"), "wb") as f:
+    f.write(der_seq(r_a_der, s_a_der))
+with open(os.path.join(tmp, "expected_a.bin"), "wb") as f:
+    f.write(r_a_canonical + s_a_canonical)
+
+# Fixture B: the mirror image -- r carries the leading zero, s is short.
+r_b_canonical = b"\xff" * 32
+r_b_der = b"\x00" + b"\xff" * 32
+s_b_canonical = b"\x00" + b"\x22" * 31
+s_b_der = b"\x22" * 31
+
+with open(os.path.join(tmp, "der_b.bin"), "wb") as f:
+    f.write(der_seq(r_b_der, s_b_der))
+with open(os.path.join(tmp, "expected_b.bin"), "wb") as f:
+    f.write(r_b_canonical + s_b_canonical)
+PY
+
+sig_a="$("$ROOT/Scripts/asc-jwt.sh" --der-to-jose < "$TMP/der_a.bin")"
+b64url_decode_to_file "$sig_a" "$TMP/sig_a.bin"
+cmp -s "$TMP/sig_a.bin" "$TMP/expected_a.bin" \
+    || fail "DER->JOSE mismatch: short r / leading-zero s not converted correctly"
+pass "a short r is left-padded and a leading-zero s is stripped, byte-for-byte"
+
+sig_b="$("$ROOT/Scripts/asc-jwt.sh" --der-to-jose < "$TMP/der_b.bin")"
+b64url_decode_to_file "$sig_b" "$TMP/sig_b.bin"
+cmp -s "$TMP/sig_b.bin" "$TMP/expected_b.bin" \
+    || fail "DER->JOSE mismatch: leading-zero r / short s not converted correctly"
+pass "a leading-zero r is stripped and a short s is left-padded, byte-for-byte"
+
+# 9. A corrupted key file fails loudly rather than emitting a malformed
+# token (openssl fails to sign; der_to_jose then also refuses empty input).
+printf 'not a real private key' > "$TMP/corrupt.p8"
+if env ASC_KEY_ID=ABC123 ASC_ISSUER_ID=iss ASC_KEY_PATH="$TMP/corrupt.p8" \
+       "$ROOT/Scripts/asc-jwt.sh" >"$TMP/out9" 2>"$TMP/err9"; then
+    fail "minted a JWT with a corrupted key file"
+fi
+pass "fails loudly when the key file is corrupted"
+
+# 10. An unreadable key file fails loudly too. Skipped when running as
+# root, since root ignores permission bits and the check would be moot.
+if [ "$(id -u)" != "0" ]; then
+    printf 'irrelevant' > "$TMP/noperm.p8"
+    chmod 000 "$TMP/noperm.p8"
+    if env ASC_KEY_ID=ABC123 ASC_ISSUER_ID=iss ASC_KEY_PATH="$TMP/noperm.p8" \
+           "$ROOT/Scripts/asc-jwt.sh" >"$TMP/out10" 2>"$TMP/err10"; then
+        chmod 600 "$TMP/noperm.p8"
+        fail "minted a JWT with an unreadable key file"
+    fi
+    chmod 600 "$TMP/noperm.p8"
+    pass "fails loudly when the key file is unreadable"
+else
+    pass "skipped unreadable-key check (running as root)"
+fi
+
+# 11. ASC_KEY_ID / ASC_ISSUER_ID containing a quote and a backslash must not
+# break the header/payload JSON. Round-trip through python3's json module
+# (stdlib only) to confirm both the JSON stays well-formed and the escaped
+# value decodes back to exactly what was passed in.
+weird_id='AB"C\D'
+weird_iss='iss"uer\backslash'
+jwt_weird="$(env ASC_KEY_ID="$weird_id" ASC_ISSUER_ID="$weird_iss" \
+                 ASC_KEY_PATH="$TMP/key.p8" "$ROOT/Scripts/asc-jwt.sh")"
+hdr_weird="$(b64url_decode "$(printf '%s' "$jwt_weird" | cut -d. -f1)")"
+pay_weird="$(b64url_decode "$(printf '%s' "$jwt_weird" | cut -d. -f2)")"
+
+if ! kid_ok="$(printf '%s' "$hdr_weird" \
+        | python3 -c 'import json,sys; sys.stdout.write(json.load(sys.stdin)["kid"])' 2>"$TMP/err11a")"; then
+    fail "header is not valid JSON with a quote/backslash in kid: $(cat "$TMP/err11a")"
+fi
+if ! iss_ok="$(printf '%s' "$pay_weird" \
+        | python3 -c 'import json,sys; sys.stdout.write(json.load(sys.stdin)["iss"])' 2>"$TMP/err11b")"; then
+    fail "payload is not valid JSON with a quote/backslash in iss: $(cat "$TMP/err11b")"
+fi
+[ "$kid_ok" = "$weird_id" ] || fail "kid did not round-trip through JSON: got '$kid_ok'"
+[ "$iss_ok" = "$weird_iss" ] || fail "iss did not round-trip through JSON: got '$iss_ok'"
+pass "escapes a quote and a backslash in kid/iss so the header and payload stay valid JSON"
 
 echo "All asc-jwt tests passed."
