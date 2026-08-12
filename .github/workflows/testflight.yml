@@ -24,12 +24,6 @@ concurrency:
   group: testflight
   cancel-in-progress: false
 
-# contents: write is scoped to this one job for the "Tag the shipped build"
-# step's `git push origin build-<N>` below, and nothing else -- every other
-# step here only reads.
-permissions:
-  contents: write
-
 env:
   XCODE_VERSION: "26.2"
   # Builds 1-6 are consumed. run_number starts at 1 for a new workflow, so
@@ -42,6 +36,13 @@ jobs:
     name: Archive and upload
     runs-on: macos-26
     timeout-minutes: 90
+    # Declared on the JOB, not the workflow: written at workflow level it
+    # would grant write access to every job added here later, which is not
+    # what the comment claims or what this needs. contents: write exists for
+    # the "Tag the shipped build" step's `git push origin build-<N>` and
+    # nothing else -- every other step here only reads.
+    permissions:
+      contents: write
     steps:
       # fetch-depth: 0 (all history, all branches/tags), not the default
       # shallow depth-1 clone: Scripts/whats-to-test.sh anchors its changelog

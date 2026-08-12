@@ -78,9 +78,14 @@ b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
 NOW="$(date -u +%s)"
-# 20 minutes. App Store Connect rejects a token whose lifetime exceeds 20
-# minutes outright, so this is a ceiling, not a tuning choice.
-EXP=$((NOW + 1200))
+# 19 minutes, deliberately UNDER App Store Connect's hard 20-minute (1200s)
+# ceiling rather than exactly at it. Apple rejects an over-long lifetime with
+# a bare 401 and no diagnostic, and `iat` comes from this runner's clock: sit
+# on the ceiling and a few seconds of clock skew between the runner and
+# Apple turns every request 401, at the one point in the release where that
+# happens AFTER the upload has consumed a build number. A minute of headroom
+# costs nothing -- the attach finishes in seconds even after a full poll.
+EXP=$((NOW + 1140))
 
 KID_ESC="$(json_escape "$ASC_KEY_ID")"
 ISS_ESC="$(json_escape "$ASC_ISSUER_ID")"

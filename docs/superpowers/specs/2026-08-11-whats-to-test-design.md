@@ -57,6 +57,17 @@ The tag records what shipped. A notes failure does not unship a build, and if
 the tag were gated on notes succeeding, the *next* release would compute its
 range from the wrong anchor and silently re-list changes already delivered.
 
+**That ordering dictates the anchor rule: the range starts at the newest
+`build-*` tag STRICTLY BELOW the build being annotated, not at the newest tag
+there is.** By the time the notes step runs, `build-<N>` already exists and
+points at HEAD, so "newest tag" means the current build and every range is
+`build-N..HEAD` — empty, on every release. With no preamble the run goes red
+after a successful upload; with a preamble it goes *green* and ships the
+preamble alone, the changelog silently gone. Anchoring below the current build
+is what makes the tag-before-notes ordering and a derived changelog coexist.
+`--print` takes no build number and keeps anchoring on the newest tag, since
+there is no current build to exclude.
+
 The job needs `contents: write` for the tag push, narrowly; it is `contents:
 read` today. Nothing else in the workflow gains write access.
 
@@ -93,11 +104,16 @@ Then:
    `<N>` is the build number, passed as the script's argument — in the workflow
    that is the existing `buildnum` step's output, so the notes and the upload
    can never disagree about which build they mean.
-3. Poll until it leaves `PROCESSING`, for at most **15 minutes at 30-second
-   intervals**. **This is required, not defensive** — the build is not
-   addressable until processing finishes, which took several minutes for build
-   205. The cap exists so a build stuck in processing fails the job rather than
-   holding the 90-minute workflow timeout.
+3. Poll until the build is addressable, for at most **15 minutes at 30-second
+   intervals**. **This is required, not defensive**, and it is *two* states to
+   wait out, not one. First the build resource does not exist at all —
+   `data: []` — because App Store Connect creates it when ingestion begins,
+   not when the upload returns; that is the normal answer for the first minute
+   or more, so an absent build is polled for rather than failed on. Then it
+   sits in `PROCESSING` for minutes more (several, for build 205). The cap
+   exists so a build stuck in either state fails the job rather than holding
+   the 90-minute workflow timeout, and the failure says which of the two it
+   was.
 4. `GET /v1/builds/<id>/betaBuildLocalizations` to find an existing `en-US`
    entry.
 5. `PATCH` it if present, `POST` a new one if not. Both shapes occur: a
@@ -146,9 +162,18 @@ say about it. Shipping it with an empty field is the status quo this exists to
 end, so it stops the release instead.
 
 **A missing `build-<N-1>` tag is not an error on first use.** No tags exist
-yet. When the previous tag is absent the changelog falls back to the last 20
+yet — or the only one is the tag this very release just pushed. When no tag
+below the current build is found, the changelog falls back to the last 20
 first-parent commits and says so in the notes, rather than failing a release
 for a bootstrap condition that occurs exactly once.
+
+**Over-long notes are trimmed, not sent.** `whatsNew` caps at about 4000
+characters and App Store Connect rejects an over-long value — after the upload
+has consumed a build number and the tag has been pushed. At two or three
+merged pull requests a day, a few weeks between releases overruns it. The
+notes are therefore trimmed to whole bullets below the cap with a trailing
+"… and N more changes", and `--print` shows the trimmed text, since a preview
+that differs from the payload is the same class of lie as stale notes.
 
 ## Testing
 
@@ -166,6 +191,20 @@ Cases:
 - build stuck in `PROCESSING` past the cap → fails, and the message names the
   build number
 - existing `en-US` localization → `PATCH`; none → `POST`
+- **two build tags, the higher one at HEAD** → the changelog anchors on the
+  lower. A single-tag fixture cannot see the anchor rule at all, because
+  "newest tag" and "newest tag below N" then name the same commit — so this
+  fixture is what makes the release-path behaviour provable rather than
+  assumed
+- absent build, then absent, then `VALID` → attaches (an early poll is not a
+  failure); `PROCESSING`, `PROCESSING`, then `VALID` → attaches, having
+  queried the build more than once
+- the `POST`/`PATCH` itself rejected → non-zero exit, and Apple's error body
+  reaches stderr. The lookup `GET` and the write share a URL, so a
+  failure injected by URL alone only ever hits the lookup: the write has to
+  be failed by method or it is never covered
+- notes longer than the cap → trimmed, under the cap, and saying how many
+  changes were dropped
 
 **What cannot be tested hermetically:** the real API contract. Stubs assert
 what this script sends, not what App Store Connect accepts. The first live run

@@ -188,4 +188,23 @@ fi
 [ "$iss_ok" = "$weird_iss" ] || fail "iss did not round-trip through JSON: got '$iss_ok'"
 pass "escapes a quote and a backslash in kid/iss so the header and payload stay valid JSON"
 
+# 12. The token's lifetime is inside App Store Connect's hard 20-minute
+#     (1200s) ceiling AND not sitting exactly on it. Apple rejects an
+#     over-long lifetime with a bare 401 and no diagnostic, `iat` comes from
+#     this machine's clock, and the request that would 401 is the one that
+#     runs AFTER the upload has already consumed a build number -- so a
+#     ceiling-hugging lifetime is a release failure waiting on a few seconds
+#     of clock skew. Asserted from the decoded payload, so widening EXP
+#     (1200, 3600, ...) cannot pass unnoticed.
+iat_v="$(printf '%s' "$pay" | python3 -c 'import json,sys; print(json.load(sys.stdin)["iat"])')"
+exp_v="$(printf '%s' "$pay" | python3 -c 'import json,sys; print(json.load(sys.stdin)["exp"])')"
+life=$((exp_v - iat_v))
+[ "$life" -le 1200 ] \
+    || fail "token lifetime is ${life}s, over App Store Connect's 1200s ceiling: every request 401s"
+[ "$life" -lt 1200 ] \
+    || fail "token lifetime is exactly the 1200s ceiling; a few seconds of clock skew makes App Store Connect answer a bare 401 after the upload"
+[ "$life" -ge 60 ] \
+    || fail "token lifetime is only ${life}s, too short to survive a poll-and-attach run"
+pass "token lifetime is under the 20-minute ceiling with headroom for clock skew"
+
 echo "All asc-jwt tests passed."

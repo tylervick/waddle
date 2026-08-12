@@ -181,9 +181,46 @@ fi
 if [ -n "${MALFORMED:-}" ]; then
     for a in "$@"; do case "$a" in *"$MALFORMED"*) echo 'not-json-at-all'; exit 0 ;; esac; done
 fi
+# FAILWRITE, if set, rejects only the WRITE -- the invocation carrying
+# `-X POST` or `-X PATCH` -- the way App Store Connect rejects a malformed or
+# conflicting localization, while every GET still succeeds. FAILSTAGE cannot
+# express this: its URL substring for the write is `betaBuildLocalizations`,
+# which matches the lookup GET first, so the write itself never sees the
+# injected failure. Flag handling mirrors real curl exactly, and that is the
+# point of the case:
+#   --fail-with-body  non-zero exit AND Apple's error body on stdout
+#   -f                non-zero exit, body thrown away
+#   neither           EXIT 0 with the error body returned as the response --
+#                     a rejected write read as success, which ships a green
+#                     release with an empty What-to-Test field
+if [ -n "${FAILWRITE:-}" ]; then
+    case "$*" in *"-X POST"*|*"-X PATCH"*)
+        err_body='{"errors":[{"status":"409","code":"ENTITY_ERROR.ATTRIBUTE.INVALID","detail":"WHATSNEW_REJECTED_BY_APPLE"}]}'
+        for b in "$@"; do case "$b" in
+            --fail-with-body) printf '%s\n' "$err_body"; exit 22 ;;
+            -f) exit 22 ;;
+        esac; done
+        printf '%s\n' "$err_body"
+        exit 0
+    ;; esac
+fi
 for a in "$@"; do case "$a" in
     *"/v1/apps"*)                 cat "$STUBDIR/apps.json"; exit 0 ;;
-    *"/v1/builds?"*)              cat "$STUBDIR/builds.json"; exit 0 ;;
+    *"/v1/builds?"*)
+        # Successive polls can be served DIFFERENT fixtures: builds.<n>.json
+        # for the nth query when that file exists, builds.json otherwise.
+        # Without this a case can only pin how one fixed answer is handled,
+        # never that the script polls at all -- and "polls" is the property
+        # that matters, since a real build is absent, then PROCESSING, then
+        # VALID.
+        n=$(( $(cat "$STUBDIR/builds.count" 2>/dev/null || echo 0) + 1 ))
+        echo "$n" > "$STUBDIR/builds.count"
+        if [ -f "$STUBDIR/builds.$n.json" ]; then
+            cat "$STUBDIR/builds.$n.json"
+        else
+            cat "$STUBDIR/builds.json"
+        fi
+        exit 0 ;;
     *"betaBuildLocalizations"*)
         case "$*" in *"--data-binary"*) cat > "$STUBDIR/body.json" ;; esac
         cat "$STUBDIR/loc.json"; exit 0 ;;
@@ -210,6 +247,13 @@ whats_new() { # body.json path
     python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["attributes"]["whatsNew"])' "$1"
 }
 
+# Extracts data.id from a captured request body. A PATCH without it is
+# rejected by App Store Connect, and nothing else in the body would show its
+# absence -- the method alone cannot.
+body_id() { # body.json path
+    python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"].get("id",""))' "$1"
+}
+
 attach() { # dir, build-number
     (cd "$1" && env PATH="$1/bin:$PATH" STUBDIR="$1" ASC_JWT="$1/bin/asc-jwt.sh" \
         ASC_KEY_ID=K ASC_ISSUER_ID=I ASC_KEY_PATH=/dev/null \
@@ -232,7 +276,10 @@ got_notes="$(whats_new "$r/body.json")" || fail "POSTed body is not valid JSON w
 pass "creates a localization when none exists, carrying the assembled notes"
 
 # 11. An existing en-US localization -> PATCH, never a duplicate POST, and
-#     the PATCHed body also carries the exact assembled notes text.
+#     the PATCHed body also carries the exact assembled notes text AND the
+#     localization's own id. App Store Connect rejects a PATCH whose
+#     `data.id` is missing or disagrees with the URL, and no other assertion
+#     here would notice its absence.
 r="$(make_repo attach_patch 'merge_pr 91 "fix: a thing"')"; stub_curl "$r"
 printf '%s' '{"data":[{"id":"loc-1","attributes":{"locale":"en-US"}}]}' > "$r/loc.json"
 expected_notes="$(notes "$r")"
@@ -242,7 +289,9 @@ grep -q "POST" "$r/curl.log" && fail "POSTed a duplicate localization"
 got_notes="$(whats_new "$r/body.json")" || fail "PATCHed body is not valid JSON with a whatsNew field"
 [ "$got_notes" = "$expected_notes" ] \
     || fail "PATCHed whatsNew does not match the assembled notes; expected: $expected_notes; got: $got_notes"
-pass "patches an existing en-US localization instead of duplicating it, carrying the assembled notes"
+[ "$(body_id "$r/body.json")" = "loc-1" ] \
+    || fail "PATCHed body does not carry data.id = loc-1; App Store Connect rejects that write"
+pass "patches an existing en-US localization instead of duplicating it, carrying the assembled notes and its id"
 
 # 12. A build stuck in PROCESSING past the cap fails, and the message names
 #     the build number so the operator knows which build is affected.
@@ -259,12 +308,16 @@ fi
 case "$out" in *207*) ;; *) fail "error does not name the build number; got: $out" ;; esac
 pass "fails when the build never leaves PROCESSING, naming the build"
 
-# 13. A build the API does not know about fails rather than attaching to
-#     nothing.
+# 13. A build the API NEVER knows about -- absent on every attempt, not just
+#     the first -- fails rather than attaching to nothing, and says it never
+#     appeared rather than blaming a parse. (Absent on the FIRST attempt is a
+#     different thing entirely and must NOT fail: see case 22.)
 r="$(make_repo attach_missing 'merge_pr 93 "fix: a thing"')"; stub_curl "$r"
 printf '%s' '{"data":[]}' > "$r/builds.json"
-if attach "$r" 207 >"$TMP/o11" 2>&1; then fail "should fail when the build is not found"; fi
-grep -q "207" "$TMP/o11" || fail "error does not name the build; got: $(cat "$TMP/o11")"
+if out="$(WHATS_TO_TEST_POLL_ATTEMPTS=2 attach "$r" 207)"; then fail "should fail when the build is not found"; fi
+case "$out" in *207*) ;; *) fail "error does not name the build; got: $out" ;; esac
+echo "$out" | grep -qi "never appeared" || fail "did not report the build as never appearing; got: $out"
+grep -Eq "POST|PATCH" "$r/curl.log" && fail "attempted a write for a build that never appeared"
 pass "fails when App Store Connect does not have the build"
 
 # 14. A failed call to resolve the app id aborts loudly, names the build,
@@ -331,5 +384,132 @@ if out="$(WHATS_TO_TEST_POLL_ATTEMPTS=0 attach "$r" 207)"; then fail "should fai
 case "$out" in *207*) ;; *) fail "error does not name the build number; got: $out" ;; esac
 echo "$out" | grep -qi "unbound variable" && fail "crashed on an unbound variable instead of failing cleanly; got: $out"
 pass "fails cleanly, naming the build, when POLL_ATTEMPTS is zero"
+
+# 20. THE RELEASE-PATH CASE: the tag for the build being annotated already
+#     exists, at HEAD, because the workflow pushes it in the step immediately
+#     before this script runs. The changelog must anchor on the newest tag
+#     BELOW that build (build-206), not on the newest tag overall (build-207,
+#     which is HEAD and would make every range empty on every release).
+#
+#     This is the only fixture with two build tags, and it is what makes the
+#     anchor selection provable: with a single tag, "newest tag" and "newest
+#     tag below N" name the same commit, so every other case here passes
+#     either way. Asserted on the captured request body rather than on
+#     `--print`, because `--print` has no build number and deliberately keeps
+#     anchoring on the newest tag.
+r="$(make_repo attach_two_tags 'merge_pr 88 "fix(ui): the shipped change"; git tag build-207')"; stub_curl "$r"
+out="$(attach "$r" 207)" || fail "attach failed with the current build already tagged: $out"
+sent="$(whats_new "$r/body.json")" || fail "no valid request body was sent"
+echo "$sent" | grep -q "Changes since build 206" \
+    || fail "did not anchor on build-206, the newest tag below the build being annotated; sent: $sent"
+echo "$sent" | grep -q "since build 207" \
+    && fail "anchored on build-207 -- the tag for THIS build, at HEAD -- so the range is empty on every release; sent: $sent"
+echo "$sent" | grep -q -- "- fix(ui): the shipped change (#88)" \
+    || fail "the changelog bullets are missing; sent: $sent"
+pass "anchors the changelog on the newest build tag BELOW the build being annotated"
+
+# 21. `git tag --list` can write an advisory to stderr and still exit 0 (a
+#     broken ref it skipped, for instance). Folding that into the captured
+#     stdout makes the warning line the newest "tag" and therefore the
+#     anchor: the range becomes `warning: ....HEAD`, `git log` fails inside
+#     changelog's process substitution WITHOUT tripping `set -e`, and the
+#     changelog silently vanishes.
+r="$(make_repo tagwarns 'merge_pr 96 "fix: survives a git advisory"')"
+mkdir -p "$r/stubbin"
+REALGIT="$(command -v git)"
+cat > "$r/stubbin/git" <<STUB
+#!/bin/bash
+if [ "\$1" = "tag" ] && [ "\$2" = "--list" ]; then
+    echo "warning: ignoring broken ref refs/tags/build-bogus" >&2
+fi
+exec "$REALGIT" "\$@"
+STUB
+chmod +x "$r/stubbin/git"
+out="$(cd "$r" && env PATH="$r/stubbin:$PATH" ./Scripts/whats-to-test.sh --print 2>/dev/null)" \
+    || fail "a git advisory on stderr should not fail the run"
+echo "$out" | grep -qi "since build 206" \
+    || fail "a stderr advisory displaced the real tag as the changelog anchor; got: $out"
+echo "$out" | grep -q -- "- fix: survives a git advisory (#96)" \
+    || fail "the changelog vanished after a git advisory on stderr; got: $out"
+pass "a git advisory on stderr does not become the changelog anchor"
+
+# 22. A build App Store Connect has not indexed YET is polled for, not failed
+#     on. `data: []` is the normal answer for the first minute or more after
+#     altool returns -- the build resource appears when ingestion begins, not
+#     when the upload completes -- so treating the first empty answer as
+#     fatal fails a release that is merely early, at the one moment a retry
+#     costs another build number.
+r="$(make_repo attach_late 'merge_pr 106 "fix: a thing"')"; stub_curl "$r"
+printf '%s' '{"data":[]}' > "$r/builds.1.json"
+printf '%s' '{"data":[]}' > "$r/builds.2.json"
+out="$(attach "$r" 207)" || fail "a build not yet indexed should be polled for, not failed on; got: $out"
+grep -q "POST" "$r/curl.log" || fail "no localization was written after the build appeared"
+queries="$(grep -c -- "/v1/builds?" "$r/curl.log" || true)"
+[ "${queries:-0}" -ge 3 ] \
+    || fail "polled the builds endpoint $queries time(s); an absent build was not retried"
+pass "polls for a build App Store Connect has not indexed yet, instead of failing"
+
+# 23. A build in PROCESSING is waited out. Every real build is PROCESSING on
+#     the first response, so a script that breaks out of the poll
+#     immediately would fail EVERY release -- and case 12 alone cannot see
+#     that, since an unconditional break still produces its post-cap message.
+r="$(make_repo attach_waits 'merge_pr 107 "fix: a thing"')"; stub_curl "$r"
+printf '%s' '{"data":[{"id":"build-1","attributes":{"processingState":"PROCESSING"}}]}' > "$r/builds.1.json"
+printf '%s' '{"data":[{"id":"build-1","attributes":{"processingState":"PROCESSING"}}]}' > "$r/builds.2.json"
+out="$(attach "$r" 207)" || fail "should attach once the build leaves PROCESSING; got: $out"
+grep -q "POST" "$r/curl.log" || fail "no localization was written after the build went VALID"
+queries="$(grep -c -- "/v1/builds?" "$r/curl.log" || true)"
+[ "${queries:-0}" -ge 3 ] \
+    || fail "polled the builds endpoint $queries time(s); PROCESSING was not waited out"
+pass "waits out PROCESSING and attaches once the build goes VALID"
+
+# 24. A REJECTED WRITE fails the run, loudly, carrying Apple's own reason.
+#     Only the POST/PATCH invocation is failed here -- FAILSTAGE's URL
+#     substring matches the lookup GET first, so case 16 never exercises the
+#     write at all. Deleting `--fail-with-body` from api_send makes real curl
+#     exit 0 on a 4xx and hand back the error page as the response: the
+#     script would print "Attached What-to-Test notes to build 207" and exit
+#     0 while the field stayed empty. Downgrading it to bare `-f` still
+#     fails, but throws away the only text that says WHY -- so both the exit
+#     status and the presence of Apple's body are asserted.
+r="$(make_repo attach_write_rejected 'merge_pr 108 "fix: a thing"')"; stub_curl "$r"
+if out="$(FAILWRITE=1 attach "$r" 207)"; then
+    fail "a rejected POST must not report success; got: $out"
+fi
+echo "$out" | grep -qi "failed to create the What-to-Test localization for build 207" \
+    || fail "did not produce the create-failed diagnostic naming the build; got: $out"
+echo "$out" | grep -q "WHATSNEW_REJECTED_BY_APPLE" \
+    || fail "discarded Apple's error body, leaving only 'it failed'; got: $out"
+echo "$out" | grep -qi "Attached What-to-Test notes" \
+    && fail "claimed the notes were attached after the write was rejected; got: $out"
+
+r="$(make_repo attach_patch_rejected 'merge_pr 109 "fix: a thing"')"; stub_curl "$r"
+printf '%s' '{"data":[{"id":"loc-1","attributes":{"locale":"en-US"}}]}' > "$r/loc.json"
+if out="$(FAILWRITE=1 attach "$r" 207)"; then
+    fail "a rejected PATCH must not report success; got: $out"
+fi
+echo "$out" | grep -qi "failed to update the What-to-Test localization for build 207" \
+    || fail "did not produce the update-failed diagnostic naming the build; got: $out"
+echo "$out" | grep -q "WHATSNEW_REJECTED_BY_APPLE" \
+    || fail "discarded Apple's error body on the PATCH path; got: $out"
+pass "fails loudly with Apple's reason when the localization write is rejected"
+
+# 25. App Store Connect caps whatsNew at about 4000 characters and rejects an
+#     over-long value AFTER the upload and the tag -- so the notes are
+#     trimmed to whole bullets below the cap, with a count of what was
+#     dropped. Enough real commits are generated to overrun the cap, so this
+#     pins the SHIPPED constant, not a test-only override.
+LONGPAD="$(python3 -c 'print("x" * 100)')"
+r="$(make_repo longnotes "for i in \$(seq 1 40); do git commit -q --allow-empty -m \"fix(engine): change \$i $LONGPAD\"; done")"
+out="$(notes "$r")" || fail "long notes should not fail the run; got the first line: $(echo "$out" | head -1)"
+chars="$(printf '%s' "$out" | python3 -c 'import sys; print(len(sys.stdin.read()))')"
+[ "$chars" -le 4000 ] \
+    || fail "assembled notes are $chars characters; App Store Connect rejects that AFTER the upload"
+echo "$out" | grep -qE "… and [0-9]+ more changes" \
+    || fail "trimmed the notes without saying how many changes were dropped; got the tail: $(echo "$out" | tail -2)"
+echo "$out" | grep -qi "since build 206" || fail "trimming dropped the heading; got: $(echo "$out" | head -2)"
+echo "$out" | grep -q -- "- fix(engine): change 40" \
+    || fail "trimming dropped the newest bullets instead of the oldest; got: $(echo "$out" | head -3)"
+pass "trims over-long notes to whole bullets under the cap and says how many were dropped"
 
 echo "All whats-to-test tests passed."

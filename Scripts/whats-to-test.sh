@@ -25,6 +25,15 @@ POLL_ATTEMPTS="${WHATS_TO_TEST_POLL_ATTEMPTS:-30}"
 POLL_DELAY="${WHATS_TO_TEST_POLL_DELAY:-30}"
 ASC_JWT="${ASC_JWT:-$ROOT/Scripts/asc-jwt.sh}"
 
+# App Store Connect caps a build's whatsNew at about 4000 characters and
+# rejects an over-long value -- AFTER the upload has consumed a build number
+# and the tag has been pushed, which is the most expensive moment to find
+# out. At the two or three merged pull requests a day this repo lands, a few
+# weeks between releases is enough to overrun it. So the notes are trimmed on
+# a whole-bullet boundary below the cap and say how many changes were
+# dropped, rather than being sent for Apple to refuse.
+NOTES_MAX=3900
+
 # One bullet per change. For a GitHub merge commit the useful title is the
 # FIRST LINE OF THE BODY -- git's own subject is "Merge pull request #N from
 # owner/branch", which tells a tester nothing. Direct commits use their
@@ -46,25 +55,47 @@ changelog() { # range (may be empty, meaning "recent history")
     done < <(git log --first-parent --format=%H $range)
 }
 
+# Picks the tag that anchors the changelog range: the newest `build-*` tag
+# STRICTLY BELOW the build being annotated, or -- when no build number is
+# given, i.e. `--print` -- the newest one there is.
+#
+# "Strictly below" is the whole feature, not a refinement. The workflow pushes
+# `build-<N>` at HEAD in the step immediately BEFORE the one that attaches the
+# notes, and that ordering is load-bearing and stays (the tag records what
+# shipped; gating it on notes would corrupt the NEXT release's anchor -- see
+# the spec). So at the moment the notes are assembled, the newest tag IS the
+# build being annotated and it sits on HEAD: anchoring on it makes the range
+# `build-N..HEAD`, which is empty on EVERY release. With no preamble that goes
+# red after a successful upload; with a preamble it goes GREEN and ships the
+# preamble alone with the changelog silently gone -- the confidently-wrong
+# outcome the derived changelog exists to prevent.
+#
+# TAG_LIST arrives sorted -v:refname, highest first, so the first entry below
+# the current number is the anchor. Version order, not tag date: build numbers
+# skip when a validate-only run consumes a run number, so lexical or
+# chronological ordering would both pick the wrong anchor.
+prev_tag() { # [current-build-number]
+    printf '%s\n' "$TAG_LIST" | awk -v n="${1:-}" '
+        { num = $0; sub(/^build-/, "", num) }
+        (n == "" || num + 0 < n + 0) { print; exit }'
+}
+
 # Assembles the preamble + derived changelog and prints the result to stdout.
 # Shared by --print (called directly, so its output goes straight to the
-# terminal) and the attach path below (captured via `NOTES="$(assemble_notes)"`
-# to build a request body). assemble_notes has no side effects beyond writing
-# stdout and its own exit status, so capturing it this way is safe -- see
+# terminal) and the attach path below (captured via
+# `NOTES="$(assemble_notes "$BUILD")"` to build a request body).
+# assemble_notes has no side effects beyond writing stdout and its own exit
+# status, so capturing it this way is safe -- see
 # docs/learnings/command-substitution-discards-callee-state.md for the
 # failure mode this would otherwise risk (it applies to functions that need
 # their global writes or their `exit` to reach the caller; this one needs
 # neither).
-assemble_notes() {
+assemble_notes() { # [current-build-number]
     PREAMBLE=""
     if [ -f "$PREAMBLE_FILE" ]; then
         PREAMBLE="$(sed -e 's/[[:space:]]*$//' "$PREAMBLE_FILE" | sed -e '/./,$!d')"
     fi
 
-    # The most recent build-* tag by version order, not by tag date: build
-    # numbers skip when a validate-only run consumes a run number, so lexical
-    # or chronological ordering would both pick the wrong anchor.
-    #
     # The list command's status is tested directly rather than masked with
     # `2>/dev/null` and read as data: a genuine `git tag` failure (corrupt
     # refs, a shallow or partial checkout) produces the same empty output as
@@ -74,22 +105,39 @@ assemble_notes() {
     # saying anything is wrong. See
     # docs/learnings/masked-exit-status-fails-open.md. A real failure here is
     # not the bootstrap condition the fallback exists for, so it fails the
-    # run rather than falling back.
-    if ! TAG_LIST="$(git tag --list 'build-*' --sort=-v:refname 2>&1)"; then
+    # run rather than falling back. (Under `set -e` an unguarded assignment
+    # from a failing `git tag` would abort the script with a bare exit 128 and
+    # no diagnostic of our own -- it would NOT reach the fallback -- so this
+    # guard is what turns that silent death into a named failure, not what
+    # prevents a wrong fallback.)
+    #
+    # git's stderr goes to a FILE, never folded into the captured stdout with
+    # `2>&1`: git writes advisories to stderr while still exiting 0 (`warning:
+    # ignoring broken ref refs/tags/...` and friends), and with `2>&1` such a
+    # line becomes the first entry of TAG_LIST and therefore the anchor. The
+    # range is then `warning: ....HEAD`, `git log` fails inside changelog's
+    # process substitution -- which does NOT trip `set -e` -- and BODY comes
+    # back empty. With a preamble present that ships green with the changelog
+    # silently gone: the same confidently-wrong outcome as a bad anchor.
+    TAG_ERR="$(mktemp "${TMPDIR:-/tmp}/whats-to-test-tag.XXXXXX")"
+    if ! TAG_LIST="$(git tag --list 'build-*' --sort=-v:refname 2>"$TAG_ERR")"; then
         echo "error: git tag --list failed; cannot determine the previous build tag." >&2
-        printf '%s\n' "$TAG_LIST" >&2
+        cat "$TAG_ERR" >&2
+        rm -f "$TAG_ERR"
         exit 1
     fi
-    TAG="$(printf '%s\n' "$TAG_LIST" | head -1)"
+    rm -f "$TAG_ERR"
+    TAG="$(prev_tag "${1:-}")"
 
     if [ -n "$TAG" ]; then
         HEADING="Changes since build ${TAG#build-}:"
         BODY="$(changelog "$TAG..HEAD")"
     else
-        # Bootstrap: no release has ever been tagged. Failing here would
-        # block a release for a condition that is true exactly once, so fall
-        # back -- but disclose it, because the range is a guess rather than a
-        # fact.
+        # Bootstrap: no release below this one has ever been tagged -- either
+        # no build-* tag exists at all, or the only one is the tag this very
+        # release just pushed. Failing here would block a release for a
+        # condition that is true exactly once, so fall back -- but disclose
+        # it, because the range is a guess rather than a fact.
         HEADING="Recent changes (no previous build tag; showing the last 20 commits):"
         BODY="$(changelog "--max-count=20")"
     fi
@@ -100,14 +148,61 @@ assemble_notes() {
         exit 1
     fi
 
+    OUT=""
     if [ -n "$PREAMBLE" ]; then
-        printf '%s\n' "$PREAMBLE"
-        [ -n "$BODY" ] && printf '\n'
+        OUT="$PREAMBLE"
+        # A blank line between the preamble and the changelog.
+        if [ -n "$BODY" ]; then OUT="$OUT"$'\n\n'; fi
     fi
     if [ -n "$BODY" ]; then
-        printf '%s\n' "$HEADING"
-        printf '%s\n' "$BODY"
+        OUT="$OUT$HEADING"$'\n'"$BODY"
     fi
+    # Trimmed HERE rather than at the request body, so `--print` shows exactly
+    # what will be sent -- a preview that silently differs from the payload is
+    # the same class of lie as stale notes.
+    trim_notes "$OUT"
+    printf '\n'
+}
+
+# Keeps the notes under App Store Connect's whatsNew cap (see NOTES_MAX),
+# dropping WHOLE bullets from the end -- a body cut mid-line reads as
+# corruption, while "and N more changes" is a fact a tester can act on. Done
+# in python3 (already a dependency, see json_first) because the cap is in
+# characters and `${#var}` counts bytes under a C locale: counting bytes would
+# trim more aggressively than needed, and counting characters is what Apple
+# does.
+trim_notes() { # text
+    TRIM_TEXT="$1" TRIM_MAX="$NOTES_MAX" python3 -c '
+import os, sys
+
+# Written as UTF-8 BYTES rather than through sys.stdout: a commit subject can
+# carry any byte, os.environ decoded it with surrogateescape, and re-encoding
+# the same way round-trips it exactly. Going through sys.stdout would instead
+# raise UnicodeEncodeError under a non-UTF-8 locale -- aborting the release
+# over a name with an accent in it, after the upload.
+def emit(s):
+    sys.stdout.buffer.write(s.encode("utf-8", "surrogateescape"))
+
+text = os.environ["TRIM_TEXT"]
+limit = int(os.environ["TRIM_MAX"])
+if len(text) <= limit:
+    emit(text)
+    raise SystemExit(0)
+
+def tail(n):
+    return "\n… and %d more change%s" % (n, "" if n == 1 else "s")
+
+lines = text.split("\n")
+dropped = 0
+while len(lines) > 1 and len("\n".join(lines)) + len(tail(dropped + 1)) > limit:
+    lines.pop()
+    dropped += 1
+out = "\n".join(lines) + (tail(dropped) if dropped else "")
+# A preamble that is itself over the cap cannot be fixed by dropping bullets.
+# Clamp it rather than let App Store Connect reject the whole write after the
+# upload and the tag have already happened.
+emit(out[:limit])
+'
 }
 
 # Extracts a top-level JSON string field from the first element of `data`.
@@ -224,10 +319,20 @@ fi
 BUILD="$MODE"
 case "$BUILD" in ''|*[!0-9]*) echo "usage: $0 --print | <build-number>" >&2; exit 2 ;; esac
 
-NOTES="$(assemble_notes)" \
+# The build number is passed in so the changelog anchors on the newest tag
+# BELOW it: build-$BUILD already exists at HEAD by the time this runs (the
+# workflow tags before attaching notes), so anchoring on the newest tag
+# overall would make every range empty. See prev_tag.
+NOTES="$(assemble_notes "$BUILD")" \
   || { echo "error: could not assemble What-to-Test notes for build $BUILD" >&2; exit 1; }
 TOKEN="$("$ASC_JWT")" \
   || { echo "error: could not mint an App Store Connect API token for build $BUILD" >&2; exit 1; }
+# Cheap insurance on a public repo: the token is never printed by this script,
+# but a stray `set -x`, a future `curl -v`, or a diagnostic added in haste
+# would put it in the log. Registering it means GitHub redacts it from every
+# subsequent line of this job. Guarded on GITHUB_ACTIONS so a local run does
+# not print a stray workflow command.
+if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::add-mask::$TOKEN"; fi
 
 # Two curl calls, not one piped into json_first, so a failed lookup is
 # diagnosed by our own clean message rather than by a python traceback from
@@ -235,18 +340,45 @@ TOKEN="$("$ASC_JWT")" \
 # (curl's status is tested and handled before json_first ever runs).
 APPS_RESP="$(api_get "/v1/apps?filter%5BbundleId%5D=$BUNDLE_ID")" \
   || { echo "error: could not resolve the app id for $BUNDLE_ID (build $BUILD)" >&2; exit 1; }
-APP_ID="$(printf '%s' "$APPS_RESP" | json_first id)" \
-  || { echo "error: could not parse App Store Connect's response resolving the app id for $BUNDLE_ID (build $BUILD)" >&2; exit 1; }
+# read_json_field, not a bare json_first: "the API returned no app for this
+# bundle id" (its exit 3) is a different fact from "the response could not be
+# parsed", and they have different fixes -- a wrong bundle id or an API key
+# without access to the app, versus a broken response. Reporting the first as
+# the second sends the operator looking in the wrong place.
+if APP_ID="$(read_json_field "$APPS_RESP" id)"; then
+    :
+else
+    rc=$?
+    if [ "$rc" -eq 3 ]; then
+        echo "error: App Store Connect has no app matching bundle id $BUNDLE_ID (build $BUILD)." >&2
+        echo "       Check the bundle id and that the API key has access to the app." >&2
+    else
+        echo "error: could not parse App Store Connect's response resolving the app id for $BUNDLE_ID (build $BUILD)" >&2
+    fi
+    exit 1
+fi
 
-# Both initialized before the loop, not just STATE: with `set -u`, a
+# Poll until the build is ADDRESSABLE, which is two conditions and not one.
+#
+# `data: []` -- no such build -- is the NORMAL answer for the first minute or
+# more after altool returns: App Store Connect creates the build resource when
+# ingestion begins, not when the upload completes. Treating an absent build as
+# an immediate failure fails a release that is merely early, at the one moment
+# retrying costs a whole build number. So an absent build is polled for, and
+# only running out of attempts is a failure. Once it does appear it then sits
+# in PROCESSING for minutes more (several, for build 205), so both conditions
+# have to clear before the localization write can land.
+#
+# STATE and BUILD_ID are both initialized before the loop: with `set -u`, a
 # WHATS_TO_TEST_POLL_ATTEMPTS of 0 or a negative/non-numeric override means
 # the loop body below never runs even once, and either variable being
 # referenced afterward while still unset would abort with a bare "unbound
 # variable" -- naming neither the build nor what went wrong.
 STATE=""
 BUILD_ID=""
-attempt=1
-while [ "$attempt" -le "$POLL_ATTEMPTS" ]; do
+attempt=0
+while [ "$attempt" -lt "$POLL_ATTEMPTS" ]; do
+    attempt=$((attempt + 1))
     RESP="$(api_get "/v1/builds?filter%5Bapp%5D=$APP_ID&filter%5Bversion%5D=$BUILD")" \
       || { echo "error: could not query App Store Connect for build $BUILD" >&2; exit 1; }
 
@@ -263,13 +395,16 @@ while [ "$attempt" -le "$POLL_ATTEMPTS" ]; do
         [ "$rc" -eq 3 ] || { echo "error: could not parse App Store Connect's response while polling build $BUILD" >&2; exit 1; }
     fi
 
-    [ -n "$BUILD_ID" ] || { echo "error: App Store Connect has no build $BUILD for $BUNDLE_ID" >&2; exit 1; }
-    [ "$STATE" = "PROCESSING" ] || break
-    attempt=$((attempt + 1))
-    [ "$attempt" -le "$POLL_ATTEMPTS" ] && sleep "$POLL_DELAY"
+    if [ -n "$BUILD_ID" ] && [ "$STATE" != "PROCESSING" ]; then break; fi
+    if [ "$attempt" -lt "$POLL_ATTEMPTS" ]; then sleep "$POLL_DELAY"; fi
 done
-if [ -z "$BUILD_ID" ]; then
+if [ "$attempt" -eq 0 ]; then
     echo "error: build $BUILD was never polled -- WHATS_TO_TEST_POLL_ATTEMPTS must be at least 1." >&2
+    exit 1
+fi
+if [ -z "$BUILD_ID" ]; then
+    echo "error: build $BUILD never appeared in App Store Connect after $attempt attempts; notes not attached." >&2
+    echo "       Either it is still being ingested, or nothing was uploaded under that build number." >&2
     exit 1
 fi
 if [ "$STATE" = "PROCESSING" ]; then
