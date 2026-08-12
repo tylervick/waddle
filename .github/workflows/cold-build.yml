@@ -41,8 +41,24 @@ jobs:
       # written back either. A job that populated the normal cache keys would
       # defeat its own purpose by handing ci.yml a blob this run produced.
       #
-      # These are the only two caches in the build path; ci.yml itself defines
-      # none, and DerivedData is not cached anywhere.
+      # Those two are the only EXPLICIT caches in the build path: ci.yml
+      # defines none itself, and DerivedData is not cached anywhere.
+      #
+      # One cache is deliberately NOT bypassed. `jdx/mise-action` maintains its
+      # own tool cache internally (it does not go through actions/cache, which
+      # is why grepping for that misses it), and a hit on it is visible in this
+      # job's log. That is intentional: it caches the toolchain — cmake, ninja,
+      # xcodegen at the versions mise.toml pins — not any build output, so a
+      # break in build-deps.sh, build-engine.sh or fetch-freedoom.sh still
+      # surfaces here exactly as designed. Re-resolving toolchains weekly would
+      # cost minutes on every run to catch a failure mode that has never
+      # occurred, and mise.toml is already part of both cache keys above, so a
+      # pin change invalidates the things that matter.
+      #
+      # The consequence, stated plainly rather than left implied: a break in
+      # mise tool resolution for a genuinely cold clone is NOT covered by this
+      # job. Issue 14 asked for "every cache" bypassed; this is the one that
+      # is not, and why.
       - uses: ./.github/actions/setup-waddle-build
         with:
           xcode-version: ${{ env.XCODE_VERSION }}
@@ -73,8 +89,9 @@ jobs:
             echo "### Cold build"
             echo
             echo "Built SDL3, OpenAL Soft and the Woof engine from source with"
-            echo "every cache bypassed, then verified the engine fingerprint and"
-            echo "the Freedoom fetch."
+            echo "the engine and deps caches bypassed, then verified the engine"
+            echo "fingerprint and the Freedoom fetch. The mise toolchain cache is"
+            echo "deliberately left in place — see the comment on the setup step."
             echo
             echo "A failure here means \`Scripts/build-deps.sh\`,"
             echo "\`Scripts/build-engine.sh\` or \`Scripts/fetch-freedoom.sh\` is"
