@@ -143,6 +143,23 @@ fill in rather than variables to expand:
   (`not-run`). Carried unchanged into section 5 exactly like `<CR_FIRST>`.
   `<CI_RESULT>` reflects CI and only CI — a stalled, absent, or rate-limited
   review never sets it, and never turns a real CI conclusion into `timeout`.
+- **`<TEST_PROOF>`** and **`<TEST_PROOF_DOMAINS>`** — not available yet, for
+  the same reason, and captured together, always as a pair, at exactly one of
+  three places: 4.1's read of the **first** CI run's log, the moment CI
+  concludes, which is the only place a real measurement can come from; the
+  literals `error` and `none` from any 4.1 exit where CI never concluded (the
+  plain timeout, the terminal-review detection whose cap expired first, the
+  review-landed-but-CI-slow path) — no CI conclusion means the proof was never
+  computed; or the same two literals from the no-PR exit at the top of section
+  4. These are the leading signal and they carry the strictest snapshot rule in
+  this document: **once recorded they are never re-derived**, not in 4.2, not
+  in 4.3, not in section 5. A later `gh run list … -L 1` returns the *post-fix*
+  run, so re-reading the log at any later point silently replaces a pre-fix
+  measurement with a post-fix one — the exact substitution `_first` exists to
+  prevent. They go into the trial record as `test_proof_first` and
+  `test_proof_domains`, whose vocabularies are closed to `proved` /
+  `proved-by-compile` / `vacuous` / `no-test` / `n/a` / `error` and to `swift`
+  / `shell` / `swift+shell` / `none` respectively.
 
 From here on, `<ISSUE>`, `<START>`, `<PROMPT_SHA>`, `<RUN_TS>`, and
 `<WAIT_TOTAL>` each mean "the literal value you recorded in this section" —
@@ -150,9 +167,10 @@ substitute the actual value directly into every command below that names it.
 For `<WAIT_TOTAL>` specifically, that means whichever value you most recently
 recorded, not the section-1 starting point of `0`, once section 4.1 has
 updated it at least once. `<PR>` means the same thing from the moment section
-3 records it onward, and `<CR_FIRST>` / `<CI_RESULT>` mean the same thing from
-the moment whichever of 4.1's timeout, 4.1's terminal-review detection, 4.2,
-or section 4's no-PR exit records them, onward.
+3 records it onward, and `<CR_FIRST>` / `<CI_RESULT>` / `<TEST_PROOF>` /
+`<TEST_PROOF_DOMAINS>` mean the same thing from the moment whichever of 4.1's
+read, 4.1's timeout, 4.1's terminal-review detection, 4.2, or section 4's
+no-PR exit records them, onward.
 
 ## 2. Claim, and write the failure marker
 
@@ -262,10 +280,12 @@ review from silently eating into it.
 **If no pull request was opened** — section 3's `no-repro`, `failed-verification`,
 and 45-minute `stuck` paths all end this way — skip this entire section.
 Record `ci_result: not-run` and `coderabbit_findings_first: none` (these become
-the literals `<CI_RESULT>` and `<CR_FIRST>` from section 1) and go straight to
-section 5. There is nothing here to wait for, and polling `gh pr checks` against
-a `<PR>` that was never recorded would burn the full 900-second cap for
-nothing.
+the literals `<CI_RESULT>` and `<CR_FIRST>` from section 1), and also
+`test_proof_first: error` and `test_proof_domains: none` — no pull request
+means no CI run, so the proof was never computed, the same sense of `error`
+used below for a crashed job — and go straight to section 5. There is nothing
+here to wait for, and polling `gh pr checks` against a `<PR>` that was never
+recorded would burn the full 900-second cap for nothing.
 
 Your pull request is open but the run is not over. Two things now judge it: CI,
 and CodeRabbit's review. You will respond to both — but the **order below is not
@@ -319,6 +339,34 @@ Read the two checks for two independent answers:
   CodeRabbit's row — see immediately below — meaning no review is coming,
   ever; or (3) the 900-second cap expires with neither of the above.
 
+When CI concludes, read the red-green proof from the same run — it is the
+leading signal and replaces `coderabbit_findings_first` in that role:
+
+```bash
+RUN_ID="$(gh run list --branch "$(git branch --show-current)" \
+    --json databaseId -L 1 --jq '.[0].databaseId')"
+gh run view "$RUN_ID" --log | grep -oE 'TEST_PROOF(_DOMAINS)?: .*' | tail -2
+```
+
+Record both as literals — `<TEST_PROOF>` and `<TEST_PROOF_DOMAINS>` from
+section 1 — from the **first** CI run only. If a later fix round triggers
+another run, its proof is post-fix and must not overwrite these — the
+same rule, and the same reason, as `coderabbit_findings_first`. If the grep
+matches nothing at all, record `test_proof_first: error`: the proof was not
+computed, which is not the same as the change failing to prove anything. A
+crashed job has its own shape, confirmed against
+`.github/workflows/ci.yml`: `TEST_PROOF: error` prints normally, but
+`TEST_PROOF_DOMAINS:` prints with nothing after the colon rather than the
+word `none`. Record that empty capture as `test_proof_domains: none` anyway —
+nothing was evaluated, which is what `none` means — never a blank: the
+field's vocabulary is closed to exactly `swift`, `shell`, `swift+shell`, and
+`none`.
+
+**Never act on this verdict.** A `vacuous` result is a real defect and you will
+be standing next to it, but section 4's fix phase covers red CI and trusted-app
+review findings only. A measurement you are instructed to improve stops being a
+measurement.
+
 **Recognise a terminal non-review state and stop waiting for it at once.**
 CodeRabbit's row in `gh pr checks <PR>` carries its own description,
 separate from CI's rows. Read it on every poll. If it reads `Review rate
@@ -338,10 +386,11 @@ this same wait, not in 4.3. The instant you see it:
   `none`: `none` means the wait ended with no review having landed and no
   terminal non-review state seen, regardless of CI's outcome; `unavailable`
   means the reviewer told you outright it would not review. Both mean this
-  trial has no leading signal, but the reason differs and the record should
-  say which. A rate-limited review is *not* a reason to discard the rest of
-  the run's work — the pull request is open, and if CI passes this is still a
-  legitimate `pr-opened` outcome; only its leading signal is missing.
+  trial has no `coderabbit_findings_first`, but the reason differs and the
+  record should say which. A rate-limited review is *not* a reason to discard
+  the rest of the run's work — the pull request is open, and if CI passes
+  this is still a legitimate `pr-opened` outcome; only its
+  `coderabbit_findings_first` is missing.
 - Stop checking the review from here on. Keep polling for CI alone, on the
   same interval, against the same `<WAIT_START>` and the same 900-second cap,
   if CI has not concluded yet — CI is unaffected by CodeRabbit's rate limit
@@ -351,6 +400,11 @@ this same wait, not in 4.3. The instant you see it:
   below, then **skip 4.2 and 4.3 entirely** and go to section 5, with
   `ci_result` set from CI's own conclusion (or `timeout` if the cap expired
   first) and `coderabbit_findings_first` already fixed at `unavailable` above.
+  If CI concluded, the read instruction above already set
+  `test_proof_first`/`test_proof_domains`. If instead the cap expired with CI
+  still unconcluded, that read never fired — record `test_proof_first: error`
+  and `test_proof_domains: none` here: CI never concluded, so the proof was
+  never computed.
 
 **The instant the wait ends** — whether because CI and the review both
 resolved (a real review, or CodeRabbit's terminal non-review state above), or
@@ -368,15 +422,20 @@ must not be discarded just because CI is slow to conclude:
 
 - **The review has genuinely landed** (a real CodeRabbit review count of at
   least 1, not the terminal non-review state — that case already went to
-  `unavailable` and section 5 above) **but CI has not concluded.** The
-  leading signal exists and is countable; losing it here would be exactly
-  the asymmetry this section exists to prevent. Record `ci_result: timeout`
+  `unavailable` and section 5 above) **but CI has not concluded.** This
+  count is real and usable; losing it here would be exactly the asymmetry
+  this section exists to prevent. Record `ci_result: timeout`
   (`<CI_RESULT>`) right now — CI itself never concluded, so this is the
-  honest value no matter what the review found — then proceed to 4.2 to run
+  honest value no matter what the review found — and record
+  `test_proof_first: error` and `test_proof_domains: none` alongside it: CI
+  never concluded, so 4.1's read instruction above never fired and there is
+  nothing to read. Then proceed to 4.2 to run
   its grep and push the real count as `coderabbit_findings_first`
   (`<CR_FIRST>`). 4.2's own instruction to "set `ci_result` to `pass` or
-  `fail`" does not apply here: `ci_result` is already fixed at `timeout`
-  from this paragraph, and 4.2 must leave it exactly as recorded. Once that
+  `fail`" does not apply here: `ci_result`, `test_proof_first`, and
+  `test_proof_domains` are already fixed exactly as recorded in this
+  paragraph, and 4.2 must carry all three in unchanged rather than
+  overwriting or re-deriving them. Once that
   snapshot is pushed, **skip 4.3** — you cannot sensibly fix a CI run that
   has not concluded — and go straight to section 5.
 - **CI has concluded, but the review neither landed nor showed a terminal
@@ -384,8 +443,10 @@ must not be discarded just because CI is slow to conclude:
   `fail`) and `coderabbit_findings_first: none` — there is nothing to
   snapshot; the review simply never answered in time. **Skip 4.2 and 4.3
   entirely** and go to section 5.
-- **Neither resolved.** Record `ci_result: timeout` and
-  `coderabbit_findings_first: none`. **Skip 4.2 and 4.3 entirely** and go to
+- **Neither resolved.** Record `ci_result: timeout`,
+  `coderabbit_findings_first: none`, `test_proof_first: error`, and
+  `test_proof_domains: none` — CI never concluded, so 4.1's read instruction
+  above never fired. **Skip 4.2 and 4.3 entirely** and go to
   section 5.
 
 These are the literals `<CI_RESULT>` and `<CR_FIRST>` from section 1 in every
@@ -429,18 +490,27 @@ an inconsistency to fix).
 
 Write that number into your trial record as `coderabbit_findings_first`
 (the literal `<CR_FIRST>` from section 1), set `ci_result` (`<CI_RESULT>`) to
-`pass` or `fail`, and **push the record now** — before any fix. **Exception:**
-if you arrived here from 4.1's cap-exceeded paragraph because the review
-landed while CI was still unresolved, `ci_result` is already fixed at
-`timeout` — leave it exactly as recorded there, do not overwrite it with
-`pass` or `fail`, and after pushing this snapshot skip straight to section 5
-instead of continuing into 4.3, per that paragraph's instruction.
+`pass` or `fail`, carry in `test_proof_first` and `test_proof_domains` exactly
+as 4.1 already set them, and **push the record now** — before any fix.
+**Exception:** if you arrived here from 4.1's cap-exceeded paragraph because
+the review landed while CI was still unresolved, `ci_result`,
+`test_proof_first`, and `test_proof_domains` are already fixed there —
+`timeout`, `error`, and `none` respectively, since CI never concluded and
+4.1's read never fired. Carry all three through exactly as recorded: do not
+overwrite `ci_result` with `pass` or `fail`, and do not re-derive the other
+two from a log that was never read. After pushing this snapshot skip
+straight to section 5 instead of continuing into 4.3, per that paragraph's
+instruction.
 
-This is the experiment's leading signal. Once you start fixing, the count on
+This was the experiment's leading signal; `test_proof_first` (set in section
+4.1) now leads, and this is secondary. Once you start fixing, the count on
 GitHub measures your ability to satisfy CodeRabbit rather than the quality of
 what you originally produced, and the number is gone for good. Pushing it as its
 own write also means a run that dies mid-fix still leaves the measurement
-behind, exactly as the `started` marker does.
+behind, exactly as the `started` marker does — and carrying `test_proof_first`
+/ `test_proof_domains` into this same write protects the new leading signal
+for the identical reason: fixed in 4.1 but left unpushed until here, a crash
+during 4.3 would otherwise lose it while this demoted signal survived.
 
 ### 4.3 Respond
 
@@ -501,11 +571,20 @@ correct just to clear a comment.
 After pushing a round's fixes, re-run 4.1's polling mechanic — the interval of
 `gh pr checks <PR>` and `gh pr view <PR>` checks against a freshly captured
 `<WAIT_START>` literal, up to the same 900-second cap — but not 4.1's timeout
-instruction. That instruction was written for the first wait, before 4.2 has
-run: `ci_result` and `coderabbit_findings_first`, once written in 4.2, are
-**never overwritten** — they are the measurement this whole section exists to
-protect, and a later-round timeout is a fact about the fix phase, not about
-the original work. This recheck wait updates `<WAIT_TOTAL>` exactly as 4.1's
+instruction, and **not 4.1's red-green read.** That instruction was written for
+the first wait, before 4.2 has run: `ci_result` and
+`coderabbit_findings_first`, once written in 4.2, are **never overwritten** —
+they are the measurement this whole section exists to protect, and a
+later-round timeout is a fact about the fix phase, not about the original work.
+`test_proof_first` and `test_proof_domains` — the literals `<TEST_PROOF>` and
+`<TEST_PROOF_DOMAINS>` — are never overwritten here either, and the pressure
+to is stronger, because this round produced a brand-new CI run whose log is
+sitting right there. Running 4.1's `gh run list … -L 1` again now returns
+**that** run, not the first one: it is a post-fix verdict, and writing it over
+the pre-fix one destroys the leading signal while looking like diligence. This
+recheck reads CI's conclusion and the review count only.
+
+This recheck wait updates `<WAIT_TOTAL>` exactly as 4.1's
 first wait does — the instant it ends, add its own elapsed seconds to
 `<WAIT_TOTAL>`'s previous value, before anything else, including the timeout
 handling below. If a round's recheck exceeds 900 seconds: stop fixing, leave
@@ -540,7 +619,11 @@ wrote them. **Do not re-run 4.2's grep here.** By this point any fixes from
 4.3 are already pushed to the pull request, so re-deriving the count now
 would measure your fixes instead of the original work — silently
 overwriting, one commit later, the exact number section 4.2 pushed early
-specifically to protect from this. The same applies to
+specifically to protect from this. `test_proof_first` and `test_proof_domains`
+carry through unchanged for the same reason: whichever exit from section 4
+this run took already fixed them exactly once — never re-derive them here,
+regardless of which exit that was, since a later run's log is always
+post-fix. The same applies to
 `coderabbit_findings_after` and `fix_rounds`: whatever 4.3 (or its absence,
 for a run that skipped section 4 entirely) already produced, copied through,
 not recomputed.
@@ -577,10 +660,18 @@ rewrite. Each write happens in its own tool invocation, in its own temporary
 worktree, and none of them can rely on anything from section 0 or from any
 other write *except* `<ISSUE>`, `<PROMPT_SHA>`, and `<RUN_TS>` — carried
 forward from section 1 only because you wrote them down — and, once they
-exist, `<PR>` from section 3 and `<CI_RESULT>` / `<CR_FIRST>` from section
-4.1's timeout, section 4.1's terminal-review detection, section 4.2, or
-section 4's no-PR exit. Section 5's rewrite copies that last pair through
-exactly as recorded; it never re-derives them. (Section 2 interleaves the
+exist, `<PR>` from section 3 and `<CI_RESULT>` / `<CR_FIRST>` /
+`<TEST_PROOF>` / `<TEST_PROOF_DOMAINS>` from section 4.1's read, section 4.1's
+timeout, section 4.1's terminal-review detection, section 4.2, or section 4's
+no-PR exit. Section 5's rewrite copies **all four** of those through exactly as
+recorded; it never re-derives any of them. All four are named here on purpose:
+this list is the whole set of values a later write is allowed to lean on, so a
+field missing from it has no sanctioned source, and an agent that reaches
+section 5's rewrite and finds none will either drop the field (which
+`Scripts/loop-report.sh` counts as `error`) or re-derive it from a log that is
+post-fix by then.
+
+(Section 2 interleaves the
 `agent:in-progress` claim between this commit and its push, for the first
 write only, to shrink the window in "Known gaps" below; section 4.2's and
 section 5's writes run this block straight through.)
@@ -622,6 +713,8 @@ verification_result: pass|fail|not-run
 ci_result: pass|fail|timeout|not-run
 coderabbit_findings_first: <integer, none if no review landed before the wait ended or there was no pull request at all (independent of CI's own state), or unavailable if CodeRabbit reported it would not review>
 coderabbit_findings_after: <integer, or none if no fixes were attempted>
+test_proof_first: <proved|proved-by-compile|vacuous|no-test|n/a|error — from the FIRST CI run, before any fix round>
+test_proof_domains: <swift|shell|swift+shell|none>
 fix_rounds: <integer, 0 if none>
 pr: <number or none>
 learning_added: <path or none>
@@ -631,10 +724,17 @@ What happened, what surprised you, what a human reading this in six weeks
 would want to know.
 ```
 
-`coderabbit_findings_first` is the experiment's leading signal and is written in
-section 4.2 *before* any fix. `Scripts/loop-report.sh` reads it from this record
-and never queries GitHub for it — a live query would return post-fix counts and
-silently report zero findings for every run.
+`test_proof_first` is the experiment's leading signal. When CI concluded, it is
+read in section 4.1 from the **first** CI run's log, before any fix round; when
+CI never concluded — the no-PR exit at the top of section 4, and every 4.1 exit
+where the cap expired with CI unresolved — it is the literal `error`, set at
+that exit, alongside `test_proof_domains: none`. `error` there means the proof
+was never computed, which is not the same as the change proving nothing.
+`coderabbit_findings_first` is a secondary signal, written in section 4.2
+*before* any fix. `Scripts/loop-report.sh` reads both from this record and
+never queries GitHub for the CodeRabbit count —
+a live query would return post-fix counts and silently report zero findings for
+every run.
 
 ## Known gaps
 
@@ -667,10 +767,12 @@ owner and you close a work pull request without merging it, label its issue
 approach indefinitely.
 
 **A run that dies during section 4.3 leaves a pull request half-fixed.** The
-`coderabbit_findings_first` snapshot survives, so the measurement is intact,
-but the record still reads `started` and the pull request carries partial fix
-commits. Treat it like any other lost trial: the record is the evidence, and
-the pull request needs a human read.
+`coderabbit_findings_first`, `test_proof_first`, and `test_proof_domains`
+snapshots all survive — 4.2 pushes all three before any fix, precisely
+because 4.3 never runs without 4.2 having run first — so the measurement is
+intact, but the record still reads `started` and the pull request carries
+partial fix commits. Treat it like any other lost trial: the record is the
+evidence, and the pull request needs a human read.
 
 **A pull request that leaves section 4 without an addressed review has no
 later run that can ever pick it up.** Section 4's fix phase is intra-run

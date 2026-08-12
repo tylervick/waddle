@@ -9,3 +9,4 @@ App/Sources/Generated/
 build/
 DerivedData/
 Scripts/.appstore.env
+TestResults.xcresult
