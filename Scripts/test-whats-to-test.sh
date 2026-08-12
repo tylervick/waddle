@@ -139,4 +139,75 @@ echo "$out" | grep -q -- "- Merge pull request #99 from tylervick/pr-99 (#99)" \
   || fail "did not fall back to the raw merge subject for an empty PR title; got: $out"
 pass "falls back to the raw merge subject when a merge commit's body is empty"
 
+# A curl stub driven by files, so each case chooses its own responses. It
+# records every invocation so the tests can assert what was sent.
+stub_curl() { # dir
+    mkdir -p "$1/bin"
+    cat > "$1/bin/curl" <<'STUB'
+#!/bin/bash
+echo "$*" >> "$STUBDIR/curl.log"
+for a in "$@"; do case "$a" in
+    *"/v1/apps"*)                 cat "$STUBDIR/apps.json"; exit 0 ;;
+    *"/v1/builds?"*)              cat "$STUBDIR/builds.json"; exit 0 ;;
+    *"betaBuildLocalizations"*)   cat "$STUBDIR/loc.json"; exit 0 ;;
+esac; done
+echo '{}'
+STUB
+    chmod +x "$1/bin/curl"
+    printf '%s' '{"data":[{"id":"app-1"}]}' > "$1/apps.json"
+    printf '%s' '{"data":[{"id":"build-1","attributes":{"processingState":"VALID"}}]}' > "$1/builds.json"
+    printf '%s' '{"data":[]}' > "$1/loc.json"
+    # asc-jwt.sh is stubbed too: minting a real token needs a real key, and
+    # Scripts/test-asc-jwt.sh already covers the token itself.
+    cat > "$1/bin/asc-jwt.sh" <<'STUB'
+#!/bin/bash
+echo "stub.jwt.token"
+STUB
+    chmod +x "$1/bin/asc-jwt.sh"
+}
+
+attach() { # dir, build-number
+    (cd "$1" && env PATH="$1/bin:$PATH" STUBDIR="$1" ASC_JWT="$1/bin/asc-jwt.sh" \
+        ASC_KEY_ID=K ASC_ISSUER_ID=I ASC_KEY_PATH=/dev/null \
+        WHATS_TO_TEST_POLL_DELAY=0 \
+        ./Scripts/whats-to-test.sh "$2" 2>&1)
+}
+
+# 10. No existing localization -> POST, and the notes text is sent.
+r="$(make_repo attach_post 'merge_pr 90 "fix: a thing"')"; stub_curl "$r"
+out="$(attach "$r" 207)" || fail "attach failed: $out"
+grep -q "POST" "$r/curl.log" || fail "did not POST a new localization; log: $(cat "$r/curl.log")"
+pass "creates a localization when none exists"
+
+# 11. An existing en-US localization -> PATCH, never a duplicate POST.
+r="$(make_repo attach_patch 'merge_pr 91 "fix: a thing"')"; stub_curl "$r"
+printf '%s' '{"data":[{"id":"loc-1","attributes":{"locale":"en-US"}}]}' > "$r/loc.json"
+out="$(attach "$r" 207)" || fail "attach failed: $out"
+grep -q "PATCH" "$r/curl.log" || fail "did not PATCH the existing localization"
+grep -q "POST" "$r/curl.log" && fail "POSTed a duplicate localization"
+pass "patches an existing en-US localization instead of duplicating it"
+
+# 12. A build stuck in PROCESSING past the cap fails, and the message names
+#     the build number so the operator knows which build is affected.
+# (WHATS_TO_TEST_POLL_ATTEMPTS is set as a plain assignment prefix on `attach`
+# itself, not via `env attach ...` -- `attach` is a shell function, and `env`
+# execs a binary by that name from PATH, which does not exist. A prefix
+# assignment on a function call sets the variable for that call only, without
+# leaking it back into this script, which is exactly what's needed here.)
+r="$(make_repo attach_processing 'merge_pr 92 "fix: a thing"')"; stub_curl "$r"
+printf '%s' '{"data":[{"id":"build-1","attributes":{"processingState":"PROCESSING"}}]}' > "$r/builds.json"
+if out="$(WHATS_TO_TEST_POLL_ATTEMPTS=2 attach "$r" 207)"; then
+    fail "a build stuck in PROCESSING should fail"
+fi
+case "$out" in *207*) ;; *) fail "error does not name the build number; got: $out" ;; esac
+pass "fails when the build never leaves PROCESSING, naming the build"
+
+# 13. A build the API does not know about fails rather than attaching to
+#     nothing.
+r="$(make_repo attach_missing 'merge_pr 93 "fix: a thing"')"; stub_curl "$r"
+printf '%s' '{"data":[]}' > "$r/builds.json"
+if attach "$r" 207 >"$TMP/o11" 2>&1; then fail "should fail when the build is not found"; fi
+grep -q "207" "$TMP/o11" || fail "error does not name the build; got: $(cat "$TMP/o11")"
+pass "fails when App Store Connect does not have the build"
+
 echo "All whats-to-test tests passed."
