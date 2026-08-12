@@ -73,12 +73,26 @@ Collapsing those two into one rule breaks the feature in one direction or the
 other. A reviewer asked for the strict version of both; the comments half would
 have discarded the only two working measurements the report has.
 
-## Not yet an executable check
+## The executable check
 
-A lint could flag `gh api` inside a command substitution whose status is masked.
-It is not written yet because the obvious `grep` also fires on the legitimate
-`grep -c ... || true`, which both remaining call sites use correctly and which
-must not be flagged. The legacy path used to be the second reason this check
-could not be written; occurrence 4 above removed it, so telling the two apart is
-now the only thing standing in the way. Write the check when it can; until then,
-this file is the check.
+`Scripts/check-masked-gh-status.sh` enforces this for `gh api`, and runs in
+`ci.yml`. It refuses `|| true` (discard) and `|| echo` (fabricate) on a command
+containing `gh api`, and accepts `|| skip` / `|| err`, which handle the failure
+instead of hiding it. Read that file for the exact rule and its limits rather
+than restating them here.
+
+Two things are worth knowing about why it took three occurrences to write it.
+
+It was blocked for months on a real ambiguity: a naive lint cannot tell the
+legitimate `grep -c ... || true` from the masked kind, and this file recorded
+that as the reason it could not be written. What actually removed the blocker
+was occurrence 4 — once no real `gh api` sat in a `grep -c` pipeline, "is `gh
+api` in this pipeline" became an exact discriminator. The check did not need a
+cleverer lint; it needed the code cleaned up first.
+
+And it is verifiably not vacuous. Pointed at the tree before PR #66 it reports
+three violations; pointed at the tree before issue #68's fix it reports the one
+at `loop-report.sh:232`; pointed at `Scripts/` today it reports none.
+`Scripts/test-check-masked-gh-status.sh` pins that last assertion against the
+real directory, so a new masked call fails CI rather than waiting for a fourth
+entry in the list above.
