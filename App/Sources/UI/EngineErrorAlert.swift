@@ -21,7 +21,10 @@ struct EngineErrorAlert: Equatable {
     private static func hint(for message: String) -> String? {
         let wrongIWADMarkers = ["W_GetNumForName", "Unknown or invalid IWAD", "Failed to load"]
         if wrongIWADMarkers.contains(where: message.contains) {
-            if message.contains("IWAD") {
+            // Case-insensitive: D_AddFile's "Failed to load %s" interpolates
+            // the user's own file path, so a case-sensitive check would pick
+            // the hint from incidental filename capitalization.
+            if message.range(of: "IWAD", options: .caseInsensitive) != nil {
                 return "The base game file wasn't recognized. Pick a supported IWAD (Doom, Doom II, Freedoom…) for this preset."
             }
             return "This usually means the WAD needs a different base game (IWAD). Try pairing it with Doom II / Freedoom Phase 2."
