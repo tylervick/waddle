@@ -21,7 +21,7 @@ mise run check-icons   verify the committed assets match the source
 | --- | --- |
 | App icon | `App/AppIcon.icon` — do not hand-edit; regenerate |
 | Anything dimensional at ≤1024 | `waddle-mark.png` |
-| Tinted/Mono, small sizes, favicon, README, print | `waddle-mark-flat.svg` |
+| Small sizes, favicon, README, print | `waddle-mark-flat.svg` |
 
 `waddle-mark-flat.svg` fills with `currentColor`, so it inherits colour from its
 context rather than carrying its own.

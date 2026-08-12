@@ -13,11 +13,13 @@ import WoofEngine
 /// `input_use = GAMEPAD_SOUTH` (Engine/woof/src/m_input.c:654-658). We were
 /// sending SOUTH for our FIRE button (which Woof reads as USE) and EAST for
 /// USE (unbound by default, so it did nothing). SOUTH now drives USE; EAST
-/// is unused. FIRE is handled separately below -- GAMEPAD_RIGHT_TRIGGER in
-/// Woof's bindings is not a real SDL button at all, it's a *virtual* button
-/// Woof synthesizes from the RIGHT_TRIGGER axis crossing a threshold
-/// (TriggerToButton/TriggerToButtons, Engine/woof/src/i_input.c:106-138), so
-/// it must be driven via the axis, not SetTouchButton.
+/// is unused, and no longer has a case below -- its ordinal lives in the
+/// wiring audit table instead. FIRE is handled separately below --
+/// GAMEPAD_RIGHT_TRIGGER in Woof's bindings is not a real SDL button at
+/// all, it's a *virtual* button Woof synthesizes from the RIGHT_TRIGGER
+/// axis crossing a threshold (TriggerToButton/TriggerToButtons,
+/// Engine/woof/src/i_input.c:106-138), so it must be driven via the axis,
+/// not SetTouchButton.
 ///
 /// Fixed again (second device-testing round: MAP did nothing): automap was
 /// wired to BACK, which -- like the original FIRE/USE mixup -- was guessed,
@@ -31,7 +33,6 @@ import WoofEngine
 /// button instead of guessing.
 enum TouchButton: Int32 {
     case south = 0           // SDL_GAMEPAD_BUTTON_SOUTH  -> use (Woof default)
-    case east = 1            // SDL_GAMEPAD_BUTTON_EAST   -> unused (no Woof default binding)
     case north = 3           // SDL_GAMEPAD_BUTTON_NORTH  -> automap (Woof default)
     case back = 4            // SDL_GAMEPAD_BUTTON_BACK   -> unused (no Woof default binding)
     case start = 6           // SDL_GAMEPAD_BUTTON_START  -> menu

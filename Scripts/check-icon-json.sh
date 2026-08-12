@@ -34,15 +34,19 @@ if not isinstance(icon, dict):
     sys.exit(f"error: {pkg.name}/icon.json must be a JSON object")
 
 # 1. Root-level fill-specializations is accepted by actool and then discarded.
-#    It is the obvious way to give the icon a dark background, it compiles
-#    clean, and it does nothing -- proven by the compiled renditions being
-#    byte-identical in size with and without it. Only a LAYER honours the key.
+#    It reads as the way to give the icon a dark background, it compiles clean,
+#    and it does nothing -- the compiled renditions come out the same SizeOnDisk
+#    with and without it, for every appearance value tried. Only a LAYER
+#    honours the key. It is also unnecessary: actool generates a correct Dark
+#    appearance on its own.
 if "fill-specializations" in icon:
     problems.append(
         "root-level 'fill-specializations' is silently ignored by actool.\n"
         "       It compiles without error and has no effect on the output.\n"
-        "       Per-appearance fills are only honoured on a layer; a different\n"
-        "       background per appearance must be authored in Icon Composer.app."
+        "       It is also unnecessary: actool generates the Dark and Tinted\n"
+        "       appearances from the layer artwork already. 'fill' sets the\n"
+        "       default appearance only. Per-appearance fills are honoured on a\n"
+        "       layer, not here."
     )
 
 # 2. A layer pointing at artwork that is not there also builds green -- the
