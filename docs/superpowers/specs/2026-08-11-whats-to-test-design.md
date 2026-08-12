@@ -105,6 +105,25 @@ Then:
 
 ## Error handling
 
+**A tag-push failure fails the job loudly, for the same reason a notes
+failure does below.** If the tag never lands, the *next* release computes
+its changelog range from the previous or bootstrap tag and silently re-lists
+changes already shipped — the exact failure the tag-before-notes ordering
+above exists to prevent, so a quiet failure here is at least as damaging as
+a quiet notes failure. The realistic causes are a tag-protection ruleset on
+`build-*` or a transient push rejection, not a duplicate tag name: a retry
+recomputes the same build number from `run_number`, so it would fail earlier,
+at upload, on App Store Connect's duplicate-build rejection, before ever
+reaching this step again.
+
+The failure message states the same two facts a notes failure does — the
+build IS uploaded, the release did NOT fail — plus that the tag specifically
+was NOT recorded. The recovery differs from a notes failure, though:
+**re-running does not fix this and should not be attempted.** It recomputes
+the same build number and would tag the wrong build if it got this far again,
+and as above it will not even get that far. The fix is to create and push
+the tag by hand: `git tag build-<N> && git push origin build-<N>`.
+
 **A notes failure fails the job loudly.** The run goes red so it cannot be
 missed.
 
