@@ -94,7 +94,7 @@ chars).
 
 ## 3. Promotional text (170 chars max)
 
-> Freedoom out of the box — or import your own WADs. A faithful
+> Freedoom out of the box - or import your own WADs. A faithful
 > Boom/MBF21 source port with touch controls, game controllers, and
 > keyboard support. *(151 chars)*
 
@@ -103,25 +103,25 @@ chars).
 > **Play the classic-Doom-engine games you own, anywhere.**
 >
 > WADdle is a source port of the classic Doom engine for iPhone and iPad,
-> built on Woof! — the modern continuation of the Boom and MBF ports that
+> built on Woof! - the modern continuation of the Boom and MBF ports that
 > faithfully preserves original gameplay while supporting today's mods, up
 > through the MBF21 standard.
 >
 > **Ready to play out of the box.** WADdle bundles Freedoom Phase 1 and
 > Phase 2: two complete, freely licensed games built by the Freedoom
-> project for this engine family. Tap and play — nothing to configure.
+> project for this engine family. Tap and play - nothing to configure.
 >
 > **Bring your own WADs.** Import WAD files you own from the Files app,
-> iCloud Drive, or the share sheet — commercial IWADs you've purchased, or
+> iCloud Drive, or the share sheet - commercial IWADs you've purchased, or
 > any of thousands of community-made maps and megawads. Zip archives and
 > DeHackEd patches are supported.
 >
 > **Presets.** Combine a base game with mods and patches, set the load
-> order and compatibility level (vanilla, Boom, MBF, MBF21 — or auto), and
+> order and compatibility level (vanilla, Boom, MBF, MBF21 - or auto), and
 > save the combination as a one-tap preset. Saves are kept per preset.
 >
 > **Play your way.** Touch controls with two schemes (classic twin-stick
-> and modern drag-to-turn) and adjustable feel — plus full support for
+> and modern drag-to-turn) and adjustable feel - plus full support for
 > game controllers and hardware keyboards.
 >
 > **Open source.** WADdle is free software under the GPL-2.0, like the
@@ -353,15 +353,51 @@ and the repo's COPYING.)
 ## 11. App Review notes
 
 > This app is a GPL source port of the classic Doom engine (Woof!/Boom
-> lineage). It includes ONLY the freely-licensed Freedoom game data —
+> lineage). It includes ONLY the freely-licensed Freedoom game data -
 > no copyrighted commercial game content is bundled. Users may import WAD
 > files they own via the Files app; these stay on device. The app makes no
 > network requests. Comparable approved apps: GenZD, RetroArch.
 >
 > On iPad the app supports all orientations and windowed multitasking.
 >
-> To demo: no account or setup needed — tap the "Freedoom Phase 1" tile on
+> To demo: no account or setup needed - tap the "Freedoom Phase 1" tile on
 > the Play tab.
+>
+> WAD files are game data, not executable code: they contain maps, sprites,
+> sounds and music. DeHackEd patches are data tables the engine interprets.
+> Nothing is compiled or executed, and no code is loaded at runtime.
+>
+> Importing is optional for review - both bundled base games (Freedoom
+> Phase 1 and Phase 2) play immediately with no setup. To exercise import,
+> any .wad or .zip added via the Files app works.
+>
+> One non-obvious control: a four-finger tap during gameplay summons the
+> iOS keyboard for classic cheat codes and save-name entry. It is
+> intentionally undiscoverable in the UI, matching the original games.
+
+**Entered in App Store Connect 2026-08-13** (1113 chars). The three closing
+paragraphs were added then; the original three are unchanged from the
+2026-07-18 approval. Each addition closes a gap a reviewer would otherwise
+have to resolve by guessing:
+
+- **Data, not code.** A source port that loads user files sits near
+  Guidelines 4.7 and 2.5.2. Saying plainly that WADs and DeHackEd patches
+  are interpreted data pre-empts the question rather than waiting for a
+  rejection to raise it.
+- **Import is not exercisable.** "Bring your own WADs" is a headline claim
+  in §4, but a reviewer has no `.wad` on the device. The note makes clear
+  the app is fully evaluable without one. If a sample is ever wanted,
+  App Store Connect supports review attachments
+  (`appStoreReviewAttachments`); none is attached today.
+- **The cheat keyboard is invisible.** The four-finger tap is documented
+  only in source comments — there is no in-app hint surface — so a
+  reviewer who found it by accident would be looking at an undisclosed
+  hidden gesture.
+
+The diagnostics export deliberately gets no paragraph here: `AboutView`
+already discloses it in-app ("Nothing leaves your device unless you share
+this file"), which is stronger than a note, and the app links no networking
+APIs at all.
 
 ## 12. Screenshots
 
