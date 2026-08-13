@@ -12,3 +12,4 @@ DerivedData/
 Scripts/.appstore.env
 TestResults.xcresult
 .testflight-feedback-seen
+.superpowers/
