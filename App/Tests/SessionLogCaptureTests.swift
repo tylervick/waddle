@@ -81,8 +81,8 @@ final class SessionLogCaptureTests: XCTestCase {
 
         let logSize = try FileManager.default
             .attributesOfItem(atPath: tmp.appendingPathComponent("session-t3.log").path)[.size] as! Int
-        XCTAssertLessThanOrEqual(logSize, 100 + 64,
-            "log may overshoot by at most one read chunk boundary, never unbounded")
+        XCTAssertLessThanOrEqual(logSize, 100,
+            "the cap is exact -- `allowed = min(n, maxFileBytes - logBytesWritten)` never overshoots")
         let originalSize = try FileManager.default
             .attributesOfItem(atPath: original.path)[.size] as! Int
         XCTAssertEqual(originalSize, 300, "pass-through must not be capped")
