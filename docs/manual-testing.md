@@ -106,6 +106,40 @@ persisted across relaunch).
 ## Keyboard & mouse (iPad)
 - [ ] WASD + mouse look; overlay hidden while keyboard is connected
 
+## Audio
+Physical device only: the simulator's audio path is not the device's, and
+interruptions (phone call, Siri) cannot be reproduced there. Nothing in CI or
+the unit/UI suites covers any of this, and the app configures no
+`AVAudioSession` of its own — sound effects come from OpenAL Soft and music
+from OPL3 emulation inside the engine (`Engine/woof/src/i_oalsound.c`,
+`i_oplmusic.c`), so what you hear is the system's default session behavior
+rather than behavior the app asked for. Record what actually happens,
+including the failures.
+- [ ] Sound effects play during gameplay: firing, weapon switching, doors
+      opening, monsters reacting, pain/death — checked with the silent
+      switch (or Focus/ringer setting) both on and off, noting which one
+      silences the game
+- [ ] Title-screen music plays on the attract/demo loop, the level's own
+      music starts on entering a level, and it differs between two levels
+      (e.g. E1M1 vs E1M2)
+- [ ] ≡ → Options → Sound Volume: the SFX and Music Volume thermometers
+      change what you hear immediately, and both persist across app relaunch
+- [ ] Opening and closing the ≡ menu mid-level leaves music intact — it
+      neither restarts from the top nor ends up playing over a second copy
+      of itself (record which of "keeps playing" or "stops and resumes
+      cleanly" you observe)
+- [ ] Backgrounding mid-session (home gesture / app switcher) stops audio,
+      and returning to the foreground resumes both music and sound effects
+      with no stuck, looping, or dead channel; locking and unlocking the
+      screen behaves the same way
+- [ ] Audio interruption recovery: take a phone call (or trigger Siri)
+      mid-session, then end it — music *and* sound effects both come back.
+      The predecessor app handled this explicitly with an interruption
+      listener and this app has no equivalent, so permanent silence here is
+      a plausible outcome to record, not a surprise
+- [ ] Connecting or removing wired/Bluetooth headphones mid-session moves
+      the audio to the new route without killing it
+
 ## Orientation & iPad multitasking
 - [ ] iPhone: launcher and a session render upright in portrait (game
       letterboxed); rotating mid-session both directions re-letterboxes,
