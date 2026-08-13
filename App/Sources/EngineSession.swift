@@ -6,6 +6,10 @@ import WoofEngine
 /// pumps UIKit events internally, so the app stays responsive to the system).
 @MainActor
 enum EngineSession {
+    /// Shared capture over the app's diagnostics directory. One session log per
+    /// engine run; the exporter bundles whatever this leaves behind.
+    static let sessionLogCapture = SessionLogCapture(directory: DiagnosticsPaths.directory)
+
     /// Swift-side-only sentinel exit codes for app-layer failures that never
     /// reach the engine at all, so they can still flow through the same
     /// `EngineErrorAlert.from(exitCode:engineMessage:)` path as a real
@@ -89,9 +93,19 @@ enum EngineSession {
         #endif
 
         isRunning = true
+        // Session log names are wall-clock timestamps, not the generation counter:
+        // the counter restarts at 1 every launch, so generation-named files would
+        // overwrite the previous launch's logs -- exactly the ones a crash report
+        // needs. The random suffix keeps two sessions within the same second from
+        // colliding. Failure to start capture never blocks gameplay (spec).
+        let logStamp = ISO8601DateFormatter().string(from: .now)
+            .replacingOccurrences(of: ":", with: "-")
+            + "-" + String(UUID().uuidString.prefix(4))
+        try? sessionLogCapture.begin(name: logStamp)
         OverlayPresenter.shared.begin(scheme: scheme)
         defer {
             OverlayPresenter.shared.end()
+            sessionLogCapture.end()
             isRunning = false
         }
 

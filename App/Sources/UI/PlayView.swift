@@ -67,7 +67,7 @@ struct PlayView: View {
                 ControlFeelView()
             }
             .sheet(isPresented: $showAbout) {
-                NavigationStack { AboutView() }
+                NavigationStack { AboutView(library: library) }
             }
             .sheet(isPresented: $showCreationFlow, onDismiss: refresh) {
                 PresetCreationFlow(library: library)
