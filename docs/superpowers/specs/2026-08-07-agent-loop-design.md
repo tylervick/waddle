@@ -91,9 +91,18 @@ Four tracked artifacts and one Orca object.
    and nothing further is spent. On success it prints one issue number.
 3. **Selection**, inside the precheck. From open `agent:eligible` issues,
    excluding any labelled `agent:in-progress` or `agent:stuck` and any with a
-   linked open pull request. Ordered `size:xs`, then `size:s`, then `size:m`,
-   tie-broken by ascending issue number. Deterministic, so a trial can be
-   reproduced.
+   linked open pull request — where "linked" means any of GitHub's nine closing
+   keywords, not just `closes`/`fixes`/`resolves`, since `Fixed #41` closes an
+   issue as hard as `Closes #41` and matching only three left an issue with an
+   open pull request looking unclaimed. Ordered `agent:next` first, then
+   `size:xs`, `size:s`, `size:m`, tie-broken by ascending issue number.
+   Deterministic, so a trial can be reproduced.
+
+   `agent:next` exists because size ordering is a throughput heuristic with no
+   way to say "this one matters now". Without it the only ways to steer were
+   relabelling the size — which lies about the work and corrupts the `size`
+   field trial records carry — or making every competing issue ineligible,
+   which was 17 label edits the first time it was wanted.
 4. **The agent claims the issue** with `agent:in-progress`, then immediately
    writes and pushes a trial record with `outcome: started`. This is the failure
    marker — see below.
