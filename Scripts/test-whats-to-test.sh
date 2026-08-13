@@ -48,11 +48,13 @@ $2"
 notes() { (cd "$1" && ./Scripts/whats-to-test.sh --print 2>&1); }
 
 # 1. Merged PRs since the tag become one bullet each, titled by the PR title
-#    rather than git's "Merge pull request" subject.
+#    rather than git's "Merge pull request" subject -- with the
+#    conventional-commit prefix consumed for grouping rather than shown
+#    (issue #93; cases 26-27 pin the grouping and stripping themselves).
 r="$(make_repo derived 'merge_pr 78 "fix(ui): plural alert copy"; merge_pr 79 "chore: tidy"')"
 out="$(notes "$r")" || fail "exited non-zero: $out"
-echo "$out" | grep -q -- "- fix(ui): plural alert copy (#78)" || fail "missing PR 78 bullet; got: $out"
-echo "$out" | grep -q -- "- chore: tidy (#79)" || fail "missing PR 79 bullet; got: $out"
+echo "$out" | grep -q -- "- Plural alert copy" || fail "missing PR 78 bullet; got: $out"
+echo "$out" | grep -q -- "- Tidy" || fail "missing PR 79 bullet; got: $out"
 echo "$out" | grep -qi "since build 206" || fail "does not name the previous build; got: $out"
 pass "derives one bullet per merged PR since the last build tag"
 
@@ -101,7 +103,7 @@ pass "falls back to recent history when no build tag exists, and says so"
 # 7. Direct commits to the branch (no merge commit) still appear.
 r="$(make_repo direct 'git commit -q --allow-empty -m "fix(engine): direct commit"')"
 out="$(notes "$r")"
-echo "$out" | grep -q -- "- fix(engine): direct commit" || fail "direct commit missing; got: $out"
+echo "$out" | grep -q -- "- Direct commit" || fail "direct commit missing; got: $out"
 pass "includes direct commits, not only merges"
 
 # 8. A genuine `git tag --list` failure (corrupt refs, a shallow or partial
@@ -132,10 +134,11 @@ pass "fails loudly, not via the bootstrap fallback, when git tag --list itself f
 
 # 9. A merge commit whose body is empty (no PR title line) falls back to the
 #    raw "Merge pull request #N ..." subject rather than crashing or emitting
-#    a blank bullet.
+#    a blank bullet. The $-anchor pins that no "(#N)" is appended to it
+#    either -- the number a tester cannot follow stays out of the text.
 r="$(make_repo emptytitle 'merge_pr 99 ""')"
 out="$(notes "$r")" || fail "an empty-body merge commit should not fail the run: $out"
-echo "$out" | grep -q -- "- Merge pull request #99 from tylervick/pr-99 (#99)" \
+echo "$out" | grep -q -- "- Merge pull request #99 from tylervick/pr-99$" \
   || fail "did not fall back to the raw merge subject for an empty PR title; got: $out"
 pass "falls back to the raw merge subject when a merge commit's body is empty"
 
@@ -224,6 +227,13 @@ for a in "$@"; do case "$a" in
     *"betaBuildLocalizations"*)
         case "$*" in *"--data-binary"*) cat > "$STUBDIR/body.json" ;; esac
         cat "$STUBDIR/loc.json"; exit 0 ;;
+    *"api.github.com/repos/"*)
+        # Pull-request body lookups: serve pr.<n>.json when the case provides
+        # it, otherwise refuse the way real `curl -f` does on a 403/404 --
+        # the fetch is best-effort and the script must fall back to subjects.
+        n="${a##*/}"
+        if [ -f "$STUBDIR/pr.$n.json" ]; then cat "$STUBDIR/pr.$n.json"; exit 0; fi
+        exit 22 ;;
 esac; done
 echo '{}'
 STUB
@@ -259,6 +269,15 @@ attach() { # dir, build-number
         ASC_KEY_ID=K ASC_ISSUER_ID=I ASC_KEY_PATH=/dev/null \
         WHATS_TO_TEST_POLL_DELAY=0 \
         ./Scripts/whats-to-test.sh "$2" 2>&1)
+}
+
+# --print with the stubbed curl on PATH, for the pull-request-summary cases:
+# unlike notes(), the fetch path needs STUBDIR so the curl stub can serve
+# pr.<n>.json fixtures (or refuse, for the fallback case). Tokens cleared so
+# a developer's or a CI step's GH_TOKEN never alters the invocation shape.
+print_stubbed() { # dir
+    (cd "$1" && env PATH="$1/bin:$PATH" STUBDIR="$1" GH_TOKEN= GITHUB_TOKEN= \
+        ./Scripts/whats-to-test.sh --print 2>&1)
 }
 
 # 10. No existing localization -> POST, and the exact assembled notes text
@@ -404,7 +423,7 @@ echo "$sent" | grep -q "Changes since build 206" \
     || fail "did not anchor on build-206, the newest tag below the build being annotated; sent: $sent"
 echo "$sent" | grep -q "since build 207" \
     && fail "anchored on build-207 -- the tag for THIS build, at HEAD -- so the range is empty on every release; sent: $sent"
-echo "$sent" | grep -q -- "- fix(ui): the shipped change (#88)" \
+echo "$sent" | grep -q -- "- The shipped change" \
     || fail "the changelog bullets are missing; sent: $sent"
 pass "anchors the changelog on the newest build tag BELOW the build being annotated"
 
@@ -429,7 +448,7 @@ out="$(cd "$r" && env PATH="$r/stubbin:$PATH" ./Scripts/whats-to-test.sh --print
     || fail "a git advisory on stderr should not fail the run"
 echo "$out" | grep -qi "since build 206" \
     || fail "a stderr advisory displaced the real tag as the changelog anchor; got: $out"
-echo "$out" | grep -q -- "- fix: survives a git advisory (#96)" \
+echo "$out" | grep -q -- "- Survives a git advisory" \
     || fail "the changelog vanished after a git advisory on stderr; got: $out"
 pass "a git advisory on stderr does not become the changelog anchor"
 
@@ -508,8 +527,82 @@ chars="$(printf '%s' "$out" | python3 -c 'import sys; print(len(sys.stdin.read()
 echo "$out" | grep -qE "… and [0-9]+ more changes" \
     || fail "trimmed the notes without saying how many changes were dropped; got the tail: $(echo "$out" | tail -2)"
 echo "$out" | grep -qi "since build 206" || fail "trimming dropped the heading; got: $(echo "$out" | head -2)"
-echo "$out" | grep -q -- "- fix(engine): change 40" \
+echo "$out" | grep -q -- "- Change 40" \
     || fail "trimming dropped the newest bullets instead of the oldest; got: $(echo "$out" | head -3)"
 pass "trims over-long notes to whole bullets under the cap and says how many were dropped"
+
+# 26. THE GROUPING CASE (issue #93): a mix of app and non-app commits all
+#     still appear, each under the right heading, newest first within its
+#     group. feat(loop) is the discriminating entry: its TYPE says
+#     app-facing but its SCOPE is tooling, so type-only grouping fails this
+#     case -- and so does dropping any commit on the floor, since everything
+#     stays in the notes by the owner's ruling.
+r="$(make_repo grouped 'merge_pr 110 "docs(learnings): write down a trap"; merge_pr 111 "fix(ui): straighten the alert copy"; merge_pr 112 "feat(loop): tune the loop protocol"; merge_pr 113 "feat(library): add a sort toggle"')"
+out="$(notes "$r")" || fail "grouped case exited non-zero: $out"
+for want in "- Write down a trap" "- Straighten the alert copy" "- Tune the loop protocol" "- Add a sort toggle"; do
+    echo "$out" | grep -qF -- "$want" || fail "missing bullet '$want'; got: $out"
+done
+app_h="$(echo "$out" | grep -n "^In the app:" | cut -d: -f1)"
+oth_h="$(echo "$out" | grep -n "^Behind the scenes:" | cut -d: -f1)"
+[ -n "$app_h" ] || fail "no 'In the app:' heading; got: $out"
+[ -n "$oth_h" ] || fail "no 'Behind the scenes:' heading; got: $out"
+l_sort="$(echo "$out" | grep -nF -- "- Add a sort toggle" | cut -d: -f1)"
+l_alert="$(echo "$out" | grep -nF -- "- Straighten the alert copy" | cut -d: -f1)"
+l_loop="$(echo "$out" | grep -nF -- "- Tune the loop protocol" | cut -d: -f1)"
+l_trap="$(echo "$out" | grep -nF -- "- Write down a trap" | cut -d: -f1)"
+[ "$app_h" -lt "$l_sort" ] && [ "$l_sort" -lt "$l_alert" ] && [ "$l_alert" -lt "$oth_h" ] \
+    || fail "app bullets are not under 'In the app:' newest-first; got: $out"
+[ "$oth_h" -lt "$l_loop" ] && [ "$l_loop" -lt "$l_trap" ] \
+    || fail "tooling bullets are not under 'Behind the scenes:' newest-first; got: $out"
+pass "groups a mixed range under the right headings, keeping every commit, newest first"
+
+# 27. The conventional-commit prefix and the PR number are consumed, never
+#     shown: they are the grouping signal and a link a tester cannot follow,
+#     not tester vocabulary (issue #93).
+r="$(make_repo stripped 'merge_pr 114 "fix(ui): polish the import alert"')"
+out="$(notes "$r")" || fail "stripped case exited non-zero: $out"
+echo "$out" | grep -qF -- "- Polish the import alert" || fail "stripped subject missing; got: $out"
+echo "$out" | grep -qF "fix(ui)" && fail "conventional-commit prefix leaked into the visible text; got: $out"
+echo "$out" | grep -qE '\(#[0-9]+\)' && fail "a PR number leaked into the visible text; got: $out"
+pass "strips the conventional-commit prefix and PR number from the visible text"
+
+# 28. A pull request body is available: the bullet uses its first prose
+#     sentence -- the body is where a change is explained in plain language
+#     -- instead of the commit subject. Headings are skipped and emphasis
+#     unwrapped. Hermetic: the origin remote plus the stubbed curl serve the
+#     body from pr.120.json; nothing touches the network.
+r="$(make_repo prbody 'merge_pr 120 "fix(ui): terse reviewer-facing subject"')"
+stub_curl "$r"
+(cd "$r" && git remote add origin https://github.com/tylervick/waddle.git)
+printf '%s' '{"body":"## What\n\nThe **File in use** alert now names every blocked file, so a tester can see which import is stuck.\n\nMore reviewer detail follows."}' > "$r/pr.120.json"
+out="$(print_stubbed "$r")" || fail "prbody case exited non-zero: $out"
+echo "$out" | grep -qF -- "- The File in use alert now names every blocked file, so a tester can see which import is stuck." \
+    || fail "did not use the PR body's first sentence; got: $out"
+echo "$out" | grep -qF "terse reviewer-facing subject" && fail "kept the commit subject despite a usable PR body; got: $out"
+pass "uses the first prose sentence of the PR body when one is available"
+
+# 29. The body is UNAVAILABLE -- the API refuses, as under a rate limit, a
+#     deleted PR, or a token without pull-requests: read -- and the run
+#     still succeeds, with the stripped commit subject as the bullet. This
+#     is the fail-soft the release path requires: prose is decoration, and a
+#     rate limit must never fail a release after the upload and the tag. No
+#     pr.<n>.json exists, so the stub refuses exactly like real `curl -f`
+#     on a 403.
+r="$(make_repo prfallback 'merge_pr 121 "fix(ui): survive an api outage"')"
+stub_curl "$r"
+(cd "$r" && git remote add origin git@github.com:tylervick/waddle.git)
+out="$(print_stubbed "$r")" || fail "an unavailable PR body must not fail the run; got: $out"
+echo "$out" | grep -qF -- "- Survive an api outage" || fail "did not fall back to the commit subject; got: $out"
+pass "falls back to the commit subject, still succeeding, when the PR body is unavailable"
+
+# 30. Nothing app-facing in the range: the notes say so outright instead of
+#     leaving a bare tooling section to imply it -- "nothing to retest" is
+#     the most useful fact those notes can carry.
+r="$(make_repo onlytooling 'merge_pr 122 "chore: tidy the scripts"')"
+out="$(notes "$r")" || fail "onlytooling case exited non-zero: $out"
+echo "$out" | grep -qF "Nothing in the app itself changed in this build." || fail "missing the nothing-changed line; got: $out"
+echo "$out" | grep -q "^In the app:" && fail "an empty 'In the app:' section was emitted; got: $out"
+echo "$out" | grep -qF -- "- Tidy the scripts" || fail "the tooling bullet vanished; got: $out"
+pass "states outright when nothing in the app itself changed"
 
 echo "All whats-to-test tests passed."

@@ -3,7 +3,9 @@
 # App Store Connect.
 #
 # Usage:
-#   Scripts/whats-to-test.sh --print            assemble and print, no network
+#   Scripts/whats-to-test.sh --print            assemble and print (no App
+#                                               Store Connect; pull-request
+#                                               summaries best-effort)
 #   Scripts/whats-to-test.sh <build-number>      assemble and attach via ASC
 #
 # The notes are an optional hand-written preamble followed by a changelog
@@ -12,6 +14,16 @@
 # empty-check passes, and the build ships the previous release's text. A
 # computed changelog cannot be stale. See
 # docs/superpowers/specs/2026-08-11-whats-to-test-design.md.
+#
+# The changelog is written for a TESTER, not a reviewer (issue #93): changes
+# are grouped into "In the app" and "Behind the scenes" -- everything stays,
+# nothing is filtered -- with the conventional-commit prefix consumed as the
+# grouping signal and dropped from the visible text along with PR numbers.
+# When a change came through a pull request whose body yields a usable first
+# sentence, that plain-language sentence replaces the commit subject; every
+# fetch failure falls back to the subject (see pr_summary). --print and the
+# attach path share this code exactly, so the preview never differs from the
+# payload.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -34,25 +46,208 @@ ASC_JWT="${ASC_JWT:-$ROOT/Scripts/asc-jwt.sh}"
 # dropped, rather than being sent for Apple to refuse.
 NOTES_MAX=3900
 
-# One bullet per change. For a GitHub merge commit the useful title is the
+# Owner/repo for pull-request lookups, derived from the origin remote rather
+# than hard-coded, so the hermetic test fixtures -- throwaway repos with no
+# origin remote at all -- never see a reason to touch the network. Anything
+# that is not a github.com remote reads as "no slug", which disables the
+# fetch entirely; pr_summary then never runs and every bullet keeps its
+# commit subject.
+repo_slug() {
+    local url slug
+    url="$(git remote get-url origin 2>/dev/null)" || return 1
+    case "$url" in
+        git@github.com:*)       slug="${url#git@github.com:}" ;;
+        ssh://git@github.com/*) slug="${url#ssh://git@github.com/}" ;;
+        https://github.com/*)   slug="${url#https://github.com/}" ;;
+        http://github.com/*)    slug="${url#http://github.com/}" ;;
+        *) return 1 ;;
+    esac
+    slug="${slug%.git}"
+    case "$slug" in
+        */*) printf '%s' "$slug" ;;
+        *) return 1 ;;
+    esac
+}
+
+# First usable sentence of a pull request's body, from the GitHub API. This
+# is BEST-EFFORT decoration and every failure -- offline, rate limited (the
+# anonymous limit is easy to hit from a shared CI IP), a token without
+# pull-requests: read, a deleted PR, an empty or unusable body -- returns
+# non-zero and the caller keeps the commit subject it already has. A release
+# must never fail, and never stall longer than --max-time, because prose was
+# unavailable (issue #93). curl's exit status IS tested, per
+# docs/learnings/masked-exit-status-fails-open.md; its stderr is suppressed
+# because falling back is the designed answer here, and changelog prints one
+# aggregate note instead of per-PR noise. GH_TOKEN/GITHUB_TOKEN is attached
+# when present so a runner that grants pull-requests: read authenticates;
+# absent, the fetch is anonymous, which works for a public repository
+# outside rate-limit windows.
+pr_summary() { # owner/repo, pr-number
+    local resp token
+    token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+    if [ -n "$token" ]; then
+        resp="$(curl -s -f --max-time 10 -H "Authorization: Bearer $token" \
+            "https://api.github.com/repos/$1/pulls/$2")" || return 1
+    else
+        resp="$(curl -s -f --max-time 10 \
+            "https://api.github.com/repos/$1/pulls/$2")" || return 1
+    fi
+    printf '%s' "$resp" | python3 -c '
+import json, re, sys
+
+# The body arrives as markdown written for reviewers. The first sentence of
+# its first prose paragraph is the part that explains the change in plain
+# language, so that becomes the bullet: headings, HTML comments (PR
+# templates), code fences, list items, quotes, tables and images are
+# skipped; emphasis and links are unwrapped. Anything outside 15..240
+# characters is rejected -- too short to inform, or long enough to crowd
+# the whole notes field -- and the caller falls back to the subject. The
+# sentence terminator set is "." and "?" only: this project ships an engine
+# literally named "Woof!", so "!" would cut mid-name.
+try:
+    doc = json.loads(sys.stdin.buffer.read().decode("utf-8"))
+    body = doc.get("body") or ""
+except Exception:
+    sys.exit(1)
+body = re.sub(r"<!--.*?-->", "", body, flags=re.S)
+para = []
+in_code = False
+for raw in body.splitlines():
+    line = raw.strip()
+    if line.startswith("```") or line.startswith("~~~"):
+        in_code = not in_code
+        continue
+    if in_code:
+        continue
+    if not line or line[0] in "#-*+>|!" or re.match(r"\d+[.)] ", line):
+        if para:
+            break
+        continue
+    para.append(line)
+text = " ".join(para)
+text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
+text = re.sub(r"[`*_]", "", text)
+text = re.sub(r"\s+", " ", text).strip()
+m = re.match(r"(.+?[.?])(\s|$)", text)
+sentence = (m.group(1) if m else text).strip()
+if not 15 <= len(sentence) <= 240:
+    sys.exit(1)
+sys.stdout.buffer.write(sentence.encode("utf-8"))
+'
+}
+
+# One bullet per change, tagged app<TAB>text or other<TAB>text for
+# format_groups below. For a GitHub merge commit the useful title is the
 # FIRST LINE OF THE BODY -- git's own subject is "Merge pull request #N from
 # owner/branch", which tells a tester nothing. Direct commits use their
 # subject. Both shapes occur in this repo.
+#
+# The conventional-commit prefix is CONSUMED here, never shown: its type and
+# scope decide the group, and the visible text is the subject with the
+# prefix and any trailing "(#N)" dropped -- both are this repo's
+# conventions, not a tester's vocabulary, and the PR numbers point at a
+# repository most testers cannot see (issue #93).
 changelog() { # range (may be empty, meaning "recent history")
     range="$1"
+    FETCH_TRIED=0
+    FETCH_FALLBACK=0
     while IFS= read -r sha; do
         [ -n "$sha" ] || continue
         subj="$(git log -1 --format=%s "$sha")"
+        num=""
         case "$subj" in
             "Merge pull request #"*)
                 num="$(printf '%s' "$subj" | sed -n 's/^Merge pull request #\([0-9][0-9]*\).*/\1/p')"
                 title="$(git log -1 --format=%b "$sha" | sed -n '1p')"
                 [ -n "$title" ] || title="$subj"
-                printf -- '- %s (#%s)\n' "$title" "$num"
                 ;;
-            *) printf -- '- %s\n' "$subj" ;;
+            *) title="$subj" ;;
         esac
+
+        # A squash-merge subject carries its PR number as a trailing " (#N)".
+        # Consume it for the summary fetch and drop it from the visible text.
+        case "$title" in
+            *" (#"*")")
+                tail_num="${title##* (#}"; tail_num="${tail_num%)}"
+                case "$tail_num" in
+                    ''|*[!0-9]*) ;;
+                    *)
+                        [ -n "$num" ] || num="$tail_num"
+                        title="${title% (#*}"
+                        ;;
+                esac
+                ;;
+        esac
+
+        # Prefix -> group. Types that cannot change what a tester is holding
+        # go behind the scenes outright; behaviour-changing types (fix, feat,
+        # perf -- plus this repo's occasional bare "engine:" / "app:") stay
+        # in the app group UNLESS the scope names tooling or process.
+        # Anything unparseable defaults to the app group: a stray tooling
+        # note at the top costs a tester one glance, but an app change buried
+        # under tooling is exactly the failure issue #93 exists to fix.
+        ctype="$(printf '%s' "$title" | sed -nE 's/^([a-z]+)(\([^)]*\))?!?: .*/\1/p')"
+        cscope="$(printf '%s' "$title" | sed -nE 's/^[a-z]+\(([^)]*)\)!?: .*/\1/p')"
+        text="$title"
+        if [ -n "$ctype" ]; then
+            text="$(printf '%s' "$title" | sed -E 's/^[a-z]+(\([^)]*\))?!?: //')"
+        fi
+        group="app"
+        case "$ctype" in
+            docs|test|chore|ci|build|refactor|style|rename|deps|revert) group="other" ;;
+            *)
+                case "$cscope" in
+                    loop|loop-report|loop-trials|agent-loop|release|ci|scripts|docs|learnings|app-store|substrate|spec|specs|plan|plans|build|signing|deps|repo|readme|workflow) group="other" ;;
+                esac
+                ;;
+        esac
+
+        if [ -n "$num" ] && [ -n "$REPO_SLUG" ]; then
+            FETCH_TRIED=$((FETCH_TRIED + 1))
+            if summary="$(pr_summary "$REPO_SLUG" "$num")" && [ -n "$summary" ]; then
+                text="$summary"
+            else
+                FETCH_FALLBACK=$((FETCH_FALLBACK + 1))
+            fi
+        fi
+        printf '%s\t%s\n' "$group" "$text"
     done < <(git log --first-parent --format=%H $range)
+    if [ "$FETCH_FALLBACK" -gt 0 ]; then
+        echo "note: pull request summaries unavailable for $FETCH_FALLBACK of $FETCH_TRIED changes; using their commit subjects." >&2
+    fi
+}
+
+# Folds changelog's group-tagged lines into the two tester-facing sections.
+# "In the app" leads because finding the part that concerns a tester at a
+# glance is the point (issue #93); everything else still appears, under
+# "Behind the scenes", so the whole picture of what moved stays visible.
+# When nothing app-facing changed, that is stated outright rather than
+# implied by an absent section -- "nothing to retest" is itself the most
+# useful fact the notes can carry that week. python3 (already a dependency)
+# for the same surrogateescape reason as trim_notes: a commit subject can
+# carry any byte and must round-trip exactly.
+format_groups() {
+    python3 -c '
+import sys
+
+app, other = [], []
+data = sys.stdin.buffer.read().decode("utf-8", "surrogateescape")
+for line in data.splitlines():
+    group, sep, text = line.partition("\t")
+    text = text.strip()
+    if not sep or not text:
+        continue
+    text = text[0].upper() + text[1:]
+    (app if group == "app" else other).append("- " + text)
+sections = []
+if app:
+    sections.append("In the app:\n" + "\n".join(app))
+elif other:
+    sections.append("Nothing in the app itself changed in this build.")
+if other:
+    sections.append("Behind the scenes:\n" + "\n".join(other))
+sys.stdout.buffer.write("\n\n".join(sections).encode("utf-8", "surrogateescape"))
+'
 }
 
 # Picks the tag that anchors the changelog range: the newest `build-*` tag
@@ -129,9 +324,17 @@ assemble_notes() { # [current-build-number]
     rm -f "$TAG_ERR"
     TAG="$(prev_tag "${1:-}")"
 
+    # Resolved once per assembly. Empty means "no pull-request fetches at
+    # all" -- no origin remote (every hermetic fixture), or not GitHub.
+    REPO_SLUG="$(repo_slug)" || REPO_SLUG=""
+
+    # The heading keeps the build number on purpose (issue #93 left it open):
+    # TestFlight shows the number on the build a tester is holding and on the
+    # previous one, so it is the one piece of bookkeeping a tester can
+    # actually cross-reference, and it anchors "worked in 207" bug reports.
     if [ -n "$TAG" ]; then
         HEADING="Changes since build ${TAG#build-}:"
-        BODY="$(changelog "$TAG..HEAD")"
+        BODY="$(changelog "$TAG..HEAD" | format_groups)"
     else
         # Bootstrap: no release below this one has ever been tagged -- either
         # no build-* tag exists at all, or the only one is the tag this very
@@ -139,7 +342,7 @@ assemble_notes() { # [current-build-number]
         # condition that is true exactly once, so fall back -- but disclose
         # it, because the range is a guess rather than a fact.
         HEADING="Recent changes (no previous build tag; showing the last 20 commits):"
-        BODY="$(changelog "--max-count=20")"
+        BODY="$(changelog "--max-count=20" | format_groups)"
     fi
 
     if [ -z "$PREAMBLE" ] && [ -z "$BODY" ]; then
@@ -155,7 +358,7 @@ assemble_notes() { # [current-build-number]
         if [ -n "$BODY" ]; then OUT="$OUT"$'\n\n'; fi
     fi
     if [ -n "$BODY" ]; then
-        OUT="$OUT$HEADING"$'\n'"$BODY"
+        OUT="$OUT$HEADING"$'\n\n'"$BODY"
     fi
     # Trimmed HERE rather than at the request body, so `--print` shows exactly
     # what will be sent -- a preview that silently differs from the payload is
@@ -195,8 +398,15 @@ def tail(n):
 lines = text.split("\n")
 dropped = 0
 while len(lines) > 1 and len("\n".join(lines)) + len(tail(dropped + 1)) > limit:
-    lines.pop()
-    dropped += 1
+    # Only a bullet is a dropped CHANGE: the body carries group headings and
+    # blank lines too, and counting those would inflate "and N more changes".
+    if lines.pop().startswith("- "):
+        dropped += 1
+if dropped:
+    # Trimming can leave a section heading or a blank line dangling at the
+    # cut; sweep those so the tail never follows a heading with no bullets.
+    while len(lines) > 1 and not lines[-1].startswith("- "):
+        lines.pop()
 out = "\n".join(lines) + (tail(dropped) if dropped else "")
 # A preamble that is itself over the cap cannot be fixed by dropping bullets.
 # Clamp it rather than let App Store Connect reject the whole write after the
