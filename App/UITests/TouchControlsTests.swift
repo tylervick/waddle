@@ -152,6 +152,64 @@ final class TouchControlsTests: XCTestCase {
             "FIRE trigger still reads \(residue) after release -- autofire regression")
     }
 
+    /// touch_event_count (woof_ios.c) is a process-lifetime static fed by
+    /// all four touch-shim entry points, and the debug HUD reads it after
+    /// each session. It must be reset at session *start* -- near the
+    /// I_ResetErrorMessages call, not in the setjmp-unwind branch, which
+    /// runs at session exit before ContentView reads the count and would
+    /// make the count > 0 assertions in the tests above impossible -- so a
+    /// fresh session's count reflects only its own input, not a running
+    /// total carried over from every earlier session in the process.
+    @MainActor
+    func testTouchEventCountResetsForFreshSession() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "14"
+        app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        play.tap()
+
+        let fire = app.buttons["fireButton"]
+        XCTAssertTrue(fire.waitForExistence(timeout: 20), "overlay never installed")
+
+        // First session: feed the shim some real input so the counter is
+        // provably nonzero when this session ends.
+        fire.tap()
+        app.buttons["useButton"].tap()
+
+        let exitLabel = app.staticTexts["engineExitLabel"]
+        XCTAssertTrue(exitLabel.waitForExistence(timeout: 90))
+        XCTAssertEqual(exitLabel.label, "Engine exited: 0")
+
+        let countLabel = app.staticTexts["touchEventCountLabel"]
+        XCTAssertTrue(countLabel.waitForExistence(timeout: 5))
+        let firstCount = Int(countLabel.label.replacingOccurrences(
+            of: "touchEvents: ", with: "")) ?? 0
+        XCTAssertGreaterThan(firstCount, 0,
+            "first session saw no touch input; the zero-count assertion below would be vacuous")
+
+        // Second session in the same process: start it and touch nothing.
+        // Tapping the launcher tile is SwiftUI-side input; it never reaches
+        // the shim's counter. The overlay appearing proves the session is
+        // live (and that the HUD labels from session one are gone).
+        play.tap()
+        XCTAssertTrue(fire.waitForExistence(timeout: 20),
+                      "overlay never installed for the second session")
+
+        XCTAssertTrue(exitLabel.waitForExistence(timeout: 90))
+        XCTAssertEqual(exitLabel.label, "Engine exited: 0")
+        XCTAssertFalse(fire.exists, "overlay not torn down after second session")
+
+        XCTAssertTrue(countLabel.waitForExistence(timeout: 5))
+        let secondCount = Int(countLabel.label.replacingOccurrences(
+            of: "touchEvents: ", with: "")) ?? -1
+        XCTAssertEqual(secondCount, 0,
+            "second session performed zero touches but reports \(secondCount) touch events -- touch_event_count leaked across sessions")
+    }
+
     /// Regression test: `weaponPrevButton` is placed at
     /// `x: safeArea.left + 40` (TouchOverlayView.layoutSubviews), squarely
     /// inside the movement stick's own capture column (`touchesBegan`'s
