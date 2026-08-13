@@ -173,6 +173,13 @@ int WoofIOS_Run(int argc, char **argv)
     extern void I_ResetErrorMessages(void);
     I_ResetErrorMessages();
 
+    // Same fresh-session hygiene for the touch shim's event counter: it
+    // backs WoofIOS_DebugTouchEventCount(), which the app reads *after* a
+    // session ends, so the reset must happen here at session start -- not
+    // in the unwind branch above, which runs before that post-session read
+    // and would zero out the count the ended session just produced.
+    touch_event_count = 0;
+
     myargc = argc;
     myargv = argv;
 
