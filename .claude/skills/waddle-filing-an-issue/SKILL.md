@@ -1,5 +1,5 @@
 ---
-name: filing-an-issue
+name: waddle-filing-an-issue
 description: Use when filing, drafting, revising, or reviewing a GitHub issue in the WADdle repo — including choosing between agent:eligible and agent:blocked, picking a size label, writing the Definition of done or Verification section, or fixing a red "Issue Format" workflow run.
 ---
 
@@ -20,7 +20,7 @@ Read live examples before writing — they are the house style, not this file:
 `gh issue view 84` and `gh issue view 93` (blocked, with the block justified).
 
 If the issue is about adding or changing a `Scripts/check-*.sh` guard, the
-`writing-a-guard-script` skill covers what the work itself must look like.
+`waddle-writing-a-guard-script` skill covers what the work itself must look like.
 
 ## The three required sections
 

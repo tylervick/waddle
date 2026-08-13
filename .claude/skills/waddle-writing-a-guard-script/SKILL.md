@@ -1,5 +1,5 @@
 ---
-name: writing-a-guard-script
+name: waddle-writing-a-guard-script
 description: Use when adding or changing a Scripts/check-*.sh guard or its Scripts/test-*.sh suite in the WADdle repo, when turning a docs/learnings/ trap into an executable check, or when debugging bash in Scripts/ that fails open, aborts silently under set -e, or behaves differently on another machine or in CI.
 ---
 
