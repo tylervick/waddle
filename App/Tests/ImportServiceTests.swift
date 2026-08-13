@@ -309,6 +309,44 @@ final class ImportServiceTests: XCTestCase {
                            .map { library.fileStatus(for: $0) }, .imported)
     }
 
+    /// `Task.detached` deliberately does not inherit the caller's
+    /// cancellation, so adoptLooseFiles's detached hashing and copying used
+    /// to run to completion no matter what the awaiting task did. Cancelling
+    /// that task must now stop the scan at the top of the next candidate,
+    /// before that candidate's detached work starts, returning whatever the
+    /// scan had already accumulated.
+    ///
+    /// Deterministic without racing in-flight work: the Task below inherits
+    /// this test's MainActor, so its body cannot begin until this method
+    /// suspends at an `await` — cancelling on the line straight after
+    /// creating it guarantees adoptLooseFiles sees cancellation before it
+    /// touches the first candidate, so the expected outcome is empty rather
+    /// than "empty or partial".
+    func testAdoptLooseFilesStopsWhenTheCallingTaskIsCancelled() async throws {
+        let docs = URL.documentsDirectory
+        let name = "cancelled-\(UUID().uuidString).wad"
+        let loose = docs.appendingPathComponent(name)
+        let importFailedURL = docs.appendingPathComponent("Import Failed").appendingPathComponent(name)
+        try makeWAD(magic: "PWAD", lumps: ["MAP01"]).write(to: loose)
+        defer {
+            try? FileManager.default.removeItem(at: loose)
+            try? FileManager.default.removeItem(at: importFailedURL)
+        }
+
+        let task = Task { await importer.adoptLooseFiles() }
+        task.cancel()
+        let outcome = await task.value
+
+        XCTAssertEqual(outcome, ImportOutcome(),
+                       "a cancelled scan returns what it accumulated before stopping — here, nothing")
+        XCTAssertTrue(try library.allWADs().isEmpty,
+                      "a cancelled scan must not register anything in the library")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: loose.path),
+                      "the loose file must be left in place for a later scan, not consumed")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: importFailedURL.path),
+                       "a cancelled scan must not quarantine anything either")
+    }
+
     // MARK: dedupe ordering
 
     func testDuplicateImportDoesNotWriteNewStoreFile() throws {
