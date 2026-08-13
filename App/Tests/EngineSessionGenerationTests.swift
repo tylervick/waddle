@@ -46,4 +46,9 @@ final class EngineSessionGenerationTests: XCTestCase {
         XCTAssertEqual(OverlayPresenter.shared.installSchemeForTesting, .classic)
         OverlayPresenter.shared.end()
     }
+
+    func testSessionLogCaptureUsesTheDiagnosticsDirectory() {
+        XCTAssertEqual(EngineSession.sessionLogCapture.directory,
+                       DiagnosticsPaths.directory)
+    }
 }
