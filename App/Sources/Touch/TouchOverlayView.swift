@@ -30,6 +30,7 @@ final class TouchOverlayView: UIView {
     private let keyboardActiveMarker = UIView()
     private var summonTouches = Set<UITouch>()
     private var summonArmed = true
+    private let stickEngagedMarker = UIView()
 
     init(gamepad: TouchGamepad, scheme: TouchControlScheme,
          tuning: TouchTuning, debugHUDEnabled: Bool) {
@@ -160,6 +161,19 @@ final class TouchOverlayView: UIView {
         keyboardActiveMarker.isUserInteractionEnabled = false
         keyboardActiveMarker.isHidden = true
         addSubview(keyboardActiveMarker)
+
+        // Same corner-marker pattern, carrying one latching bit: "a
+        // movement-stick track engaged at some point this session". It
+        // latches instead of mirroring `stickTouch` live because a tap's
+        // stick track is created and torn down in milliseconds -- far
+        // faster than XCUITest can query the tree -- so a live mirror would
+        // read "off" whether or not a track had engaged, and prove nothing.
+        stickEngagedMarker.frame = CGRect(x: 6, y: 2, width: 2, height: 2)
+        stickEngagedMarker.accessibilityIdentifier = "stickEngaged"
+        stickEngagedMarker.isAccessibilityElement = true
+        stickEngagedMarker.isUserInteractionEnabled = false
+        stickEngagedMarker.isHidden = true
+        addSubview(stickEngagedMarker)
 
         if debugHUDEnabled {
             let label = UILabel()
@@ -358,6 +372,30 @@ final class TouchOverlayView: UIView {
         buttons.first { $0.accessibilityIdentifier == id }?.center = CGPoint(x: x, y: y)
     }
 
+    /// How far past a button's edge still counts as "aimed at that button",
+    /// in points. weaponPrevButton is placed at `x: minX + inset.left + 40`
+    /// above -- squarely inside the movement stick's own capture column
+    /// (`point.x < bounds.width * 0.4` in touchesBegan) -- so a fingertip
+    /// that misses the 48pt button by a few points lands on bare overlay.
+    /// Without a cushion that miss silently starts a stick track: the
+    /// player asks for "previous weapon" and gets a movement input instead.
+    /// 20pt puts the cushion just past a fingertip's radius beyond the
+    /// button's edge, which is the size of the miss this is about.
+    private static let buttonNearMissMargin: CGFloat = 20
+
+    /// True when `point` falls inside a visible button's frame grown by
+    /// `buttonNearMissMargin`. Hidden buttons are deliberately excluded:
+    /// updateAutomapAvailability() hides MAP whenever a menu is on screen,
+    /// and a hidden button accepts no touches, so the space it vacated is
+    /// ordinary overlay again and should behave like it.
+    private func nearButton(_ point: CGPoint) -> Bool {
+        let margin = Self.buttonNearMissMargin
+        return buttons.contains { button in
+            !button.isHidden
+                && button.frame.insetBy(dx: -margin, dy: -margin).contains(point)
+        }
+    }
+
     // MARK: Touches (stick + turn; buttons handle their own)
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -373,11 +411,18 @@ final class TouchOverlayView: UIView {
         if wasKeyboardActive || keyboardActive { return }
         for touch in touches {
             let point = touch.location(in: self)
-            if stickTouch == nil && point.x < bounds.width * 0.4 {
+            // nearButton() keeps a near-miss on a button that sits inside
+            // the stick column (weaponPrevButton does) from being claimed
+            // as a stick touch. A rejected touch falls through both
+            // branches -- the turn branch below requires the opposite half
+            // of the screen -- so it does nothing at all, which is what a
+            // miss should do.
+            if stickTouch == nil && point.x < bounds.width * 0.4 && !nearButton(point) {
                 stickTouch = touch
                 stickModel = TouchStickModel(center: point, radius: 60,
                                              deadZone: CGFloat(tuning.stickDeadZone))
                 drawStick(at: point)
+                stickEngagedMarker.isHidden = false
             } else if scheme.usesDragTurn && turnTouch == nil && point.x >= bounds.width * 0.4 {
                 turnTouch = touch
                 lastTurnX = point.x

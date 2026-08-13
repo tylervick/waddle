@@ -152,6 +152,62 @@ final class TouchControlsTests: XCTestCase {
             "FIRE trigger still reads \(residue) after release -- autofire regression")
     }
 
+    /// Regression test: `weaponPrevButton` is placed at
+    /// `x: safeArea.left + 40` (TouchOverlayView.layoutSubviews), squarely
+    /// inside the movement stick's own capture column (`touchesBegan`'s
+    /// `point.x < bounds.width * 0.4`). A fingertip that missed the 48pt
+    /// button by a few points used to fall through onto bare overlay and
+    /// silently start a stick track -- a mis-tap on "previous weapon"
+    /// became a movement input.
+    ///
+    /// Asserted on the app-owned `stickEngaged` marker rather than on any
+    /// visible effect: a tap's stick track begins and ends in
+    /// milliseconds, so a marker mirroring `stickTouch` live would read
+    /// "off" either way. It latches instead, and the second half of this
+    /// test taps clean overlay in the same column and requires it to
+    /// appear -- otherwise a marker that never latched at all would make
+    /// the near-miss assertion pass for entirely the wrong reason.
+    @MainActor
+    func testNearMissBesideWeaponPrevDoesNotStartStick() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "25"
+        app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        play.tap()
+
+        let prev = app.buttons["weaponPrevButton"]
+        XCTAssertTrue(prev.waitForExistence(timeout: 20), "overlay never installed")
+
+        let stickEngaged = app.otherElements["stickEngaged"]
+        XCTAssertFalse(stickEngaged.exists, "stick engaged before any overlay touch")
+
+        // Straight below the button's center: 34pt clears the 48pt button's
+        // own frame by ~10pt, and holds the same x -- still well inside the
+        // stick's capture column, which is the whole point of the miss.
+        prev.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .withOffset(CGVector(dx: 0, dy: 34))
+            .press(forDuration: 0.3)
+
+        XCTAssertFalse(stickEngaged.waitForExistence(timeout: 3),
+            "a near-miss beside weaponPrevButton started a movement-stick track")
+
+        // Control: clean overlay in that same column must still engage the
+        // stick, so the assertion above cannot pass by the marker simply
+        // never latching, or by the fix having swallowed the stick whole.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.7))
+            .press(forDuration: 0.3)
+        XCTAssertTrue(stickEngaged.waitForExistence(timeout: 3),
+            "stick never engaged on clean overlay -- the exclusion is too wide")
+
+        let exitLabel = app.staticTexts["engineExitLabel"]
+        XCTAssertTrue(exitLabel.waitForExistence(timeout: 90))
+        XCTAssertEqual(exitLabel.label, "Engine exited: 0")
+    }
+
     /// All-orientations support (Plan 4 Task 7b): a session started in
     /// portrait must survive rotating to landscape and back. SDL's iOS
     /// backend forwards rotations to Woof! as window-resize events (Woof
