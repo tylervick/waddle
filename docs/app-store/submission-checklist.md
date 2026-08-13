@@ -129,11 +129,41 @@ and pick a value above the highest already in App Store Connect.
 - [ ] **Screenshots:** upload from `docs/app-store/screenshots/` in the
       slot order of §12 (6.9" iPhone set + 13" iPad set, six shots each).
 
-## 4. App Privacy + age rating questionnaires
+## 4. App Privacy + age rating + content rights
+
+- [ ] **Content rights — a hard submission gate.** Submission is blocked
+      until `contentRightsDeclaration` is answered; it starts `null` and
+      nothing prompts for it until the submit flow refuses with *"Apps that
+      contain, show, or access third-party content must have all the
+      necessary rights to that content…"*. The API accepts exactly
+      `DOES_NOT_USE_THIRD_PARTY_CONTENT` or `USES_THIRD_PARTY_CONTENT`.
+
+      **Answer: `USES_THIRD_PARTY_CONTENT`** (set 2026-08-13). Three
+      counts, all with rights in hand — declaring otherwise would be false
+      for an app that ships Freedoom and is a GPL source port:
+
+      | Content | Rights basis |
+      |---|---|
+      | Freedoom Phase 1 + 2 (bundled) | BSD, redistribution permitted; `FREEDOOM-COPYING.txt` ships in the bundle |
+      | Woof! engine (Boom/MBF lineage) | GPL-2.0, redistribution permitted; `COPYING` at repo root, source public |
+      | User-imported WADs | Accessed, never distributed — user-supplied, stays on device |
+
+      This is an attestation that the *owner* holds those rights, so it is
+      the owner's to make, not an agent's.
 
 - [ ] **App Privacy:** "Data Not Collected" across the board — the app
       makes no network requests and collects nothing (matches
-      `App/PrivacyInfo.xcprivacy`: UserDefaults reason CA92.1 only).
+      `App/PrivacyInfo.xcprivacy`: `NSPrivacyCollectedDataTypes` empty,
+      `NSPrivacyTracking` false, UserDefaults reason CA92.1 and
+      FileTimestamp only). The answer never changes, but the questionnaire
+      must still be **completed and published once** — that is the gate,
+      not the value. Web UI only: App Privacy is absent from the REST API
+      entirely (`appDataUsages` and friends 404 at the resource level), so
+      it cannot be scripted or even inspected from a tool.
+
+      The on-device diagnostics export does not change this. Nothing is
+      transmitted — the app links no networking APIs at all — and
+      `AboutView` discloses the behaviour in-app.
 - [ ] **Age rating:** answer the questionnaire exactly per the §8 table,
       which covers all 29 `ageRatingDeclaration` fields. Three answers are
       non-None — Cartoon/Fantasy Violence: Frequent/Intense; **Guns or
