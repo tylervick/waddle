@@ -362,6 +362,42 @@ and the repo's COPYING.)
 >
 > To demo: no account or setup needed — tap the "Freedoom Phase 1" tile on
 > the Play tab.
+>
+> WAD files are game data, not executable code: they contain maps, sprites,
+> sounds and music. DeHackEd patches are data tables the engine interprets.
+> Nothing is compiled or executed, and no code is loaded at runtime.
+>
+> Importing is optional for review — both bundled base games (Freedoom
+> Phase 1 and Phase 2) play immediately with no setup. To exercise import,
+> any .wad or .zip added via the Files app works.
+>
+> One non-obvious control: a four-finger tap during gameplay summons the
+> iOS keyboard for classic cheat codes and save-name entry. It is
+> intentionally undiscoverable in the UI, matching the original games.
+
+**Entered in App Store Connect 2026-08-13** (1113 chars). The three closing
+paragraphs were added then; the original three are unchanged from the
+2026-07-18 approval. Each addition closes a gap a reviewer would otherwise
+have to resolve by guessing:
+
+- **Data, not code.** A source port that loads user files sits near
+  Guidelines 4.7 and 2.5.2. Saying plainly that WADs and DeHackEd patches
+  are interpreted data pre-empts the question rather than waiting for a
+  rejection to raise it.
+- **Import is not exercisable.** "Bring your own WADs" is a headline claim
+  in §4, but a reviewer has no `.wad` on the device. The note makes clear
+  the app is fully evaluable without one. If a sample is ever wanted,
+  App Store Connect supports review attachments
+  (`appStoreReviewAttachments`); none is attached today.
+- **The cheat keyboard is invisible.** The four-finger tap is documented
+  only in source comments — there is no in-app hint surface — so a
+  reviewer who found it by accident would be looking at an undisclosed
+  hidden gesture.
+
+The diagnostics export deliberately gets no paragraph here: `AboutView`
+already discloses it in-app ("Nothing leaves your device unless you share
+this file"), which is stronger than a note, and the app links no networking
+APIs at all.
 
 ## 12. Screenshots
 
