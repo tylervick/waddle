@@ -21,9 +21,11 @@
 # grouping signal and dropped from the visible text along with PR numbers.
 # When a change came through a pull request whose body yields a usable first
 # sentence, that plain-language sentence replaces the commit subject; every
-# fetch failure falls back to the subject (see pr_summary). --print and the
-# attach path share this code exactly, so the preview never differs from the
-# payload.
+# fetch failure falls back to the subject (see pr_fetch/pr_summary). A merge
+# commit whose body is empty recovers its title from the PR, or from the
+# merged branch's tip commit, never from git's own "Merge pull request"
+# subject (issue #102; see changelog). --print and the attach path share this
+# code exactly, so the preview never differs from the payload.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -69,12 +71,12 @@ repo_slug() {
     esac
 }
 
-# First usable sentence of a pull request's body, from the GitHub API. This
-# is BEST-EFFORT decoration and every failure -- offline, rate limited (the
-# anonymous limit is easy to hit from a shared CI IP), a token without
-# pull-requests: read, a deleted PR, an empty or unusable body -- returns
-# non-zero and the caller keeps the commit subject it already has. A release
-# must never fail, and never stall longer than --max-time, because prose was
+# One GET of a pull request, shared by pr_title and pr_summary below so a
+# change never costs two fetches. This is BEST-EFFORT and every failure --
+# offline, rate limited (the anonymous limit is easy to hit from a shared CI
+# IP), a token without pull-requests: read, a deleted PR -- returns non-zero
+# and the caller falls back to what git already gave it. A release must never
+# fail, and never stall longer than --max-time, because the API was
 # unavailable (issue #93). curl's exit status IS tested, per
 # docs/learnings/masked-exit-status-fails-open.md; its stderr is suppressed
 # because falling back is the designed answer here, and changelog prints one
@@ -82,17 +84,43 @@ repo_slug() {
 # when present so a runner that grants pull-requests: read authenticates;
 # absent, the fetch is anonymous, which works for a public repository
 # outside rate-limit windows.
-pr_summary() { # owner/repo, pr-number
-    local resp token
+pr_fetch() { # owner/repo, pr-number
+    local token
     token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
     if [ -n "$token" ]; then
-        resp="$(curl -s -f --max-time 10 -H "Authorization: Bearer $token" \
-            "https://api.github.com/repos/$1/pulls/$2")" || return 1
+        curl -s -f --max-time 10 -H "Authorization: Bearer $token" \
+            "https://api.github.com/repos/$1/pulls/$2"
     else
-        resp="$(curl -s -f --max-time 10 \
-            "https://api.github.com/repos/$1/pulls/$2")" || return 1
+        curl -s -f --max-time 10 \
+            "https://api.github.com/repos/$1/pulls/$2"
     fi
-    printf '%s' "$resp" | python3 -c '
+}
+
+# The pull request's title, from a pr_fetch response on stdin. This is the
+# recovery path for a merge commit whose body carries no title line (issue
+# #102): the title field arrives in the same response pr_summary reads, and
+# it is the PR title -- exactly the line GitHub would have written into the
+# merge body had the merge gone through the other path. Non-zero on any
+# parse failure or an empty title, and the caller falls back further.
+pr_title() { # reads the pr_fetch response on stdin
+    python3 -c '
+import json, sys
+try:
+    doc = json.loads(sys.stdin.buffer.read().decode("utf-8"))
+    title = (doc.get("title") or "").strip()
+except Exception:
+    sys.exit(1)
+if not title:
+    sys.exit(1)
+sys.stdout.buffer.write(title.encode("utf-8"))
+'
+}
+
+# First usable sentence of a pull request's body, from a pr_fetch response on
+# stdin. Best-effort decoration: an empty or unusable body returns non-zero
+# and the caller keeps the visible text it already has.
+pr_summary() { # reads the pr_fetch response on stdin
+    python3 -c '
 import json, re, sys
 
 # The body arrives as markdown written for reviewers. The first sentence of
@@ -142,6 +170,18 @@ sys.stdout.buffer.write(sentence.encode("utf-8"))
 # owner/branch", which tells a tester nothing. Direct commits use their
 # subject. Both shapes occur in this repo.
 #
+# Some merge paths write NO body at all (observed on #100 and #101), and
+# whether a bullet reads as a change or as a branch name must not depend on
+# how the merge was performed (issue #102). So an empty body recovers a real
+# title instead of degrading to git's subject: the pull request's title when
+# the API is reachable -- the same response the prose summary rides on -- and
+# otherwise the merged branch's tip commit subject (the merge's second
+# parent). The tip subject is local and free, it IS the PR title for the
+# single-commit branches this repo's flow produces, and it is a conventional
+# commit, so the grouping below still reads a real prefix instead of
+# defaulting a docs merge into the app section. Grouping runs on the
+# recovered title, never on "Merge pull request #N ...".
+#
 # The conventional-commit prefix is CONSUMED here, never shown: its type and
 # scope decide the group, and the visible text is the subject with the
 # prefix and any trailing "(#N)" dropped -- both are this repo's
@@ -155,10 +195,27 @@ changelog() { # range (may be empty, meaning "recent history")
         [ -n "$sha" ] || continue
         subj="$(git log -1 --format=%s "$sha")"
         num=""
+        resp=""
+        fetch_done=0
         case "$subj" in
             "Merge pull request #"*)
                 num="$(printf '%s' "$subj" | sed -n 's/^Merge pull request #\([0-9][0-9]*\).*/\1/p')"
                 title="$(git log -1 --format=%b "$sha" | sed -n '1p')"
+                if [ -z "$title" ] && [ -n "$num" ] && [ -n "$REPO_SLUG" ]; then
+                    # Empty body: recover the title from the PR itself. The
+                    # response is kept for the summary step below, so the
+                    # recovery never costs a second fetch.
+                    fetch_done=1
+                    resp="$(pr_fetch "$REPO_SLUG" "$num")" || resp=""
+                    if [ -n "$resp" ]; then
+                        title="$(printf '%s' "$resp" | pr_title)" || title=""
+                    fi
+                fi
+                if [ -z "$title" ]; then
+                    # Unreachable API (or no slug at all): the merged
+                    # branch's tip commit subject, never the merge subject.
+                    title="$(git log -1 --format=%s "$sha^2" 2>/dev/null)" || title=""
+                fi
                 [ -n "$title" ] || title="$subj"
                 ;;
             *) title="$subj" ;;
@@ -204,7 +261,10 @@ changelog() { # range (may be empty, meaning "recent history")
 
         if [ -n "$num" ] && [ -n "$REPO_SLUG" ]; then
             FETCH_TRIED=$((FETCH_TRIED + 1))
-            if summary="$(pr_summary "$REPO_SLUG" "$num")" && [ -n "$summary" ]; then
+            if [ "$fetch_done" -eq 0 ]; then
+                resp="$(pr_fetch "$REPO_SLUG" "$num")" || resp=""
+            fi
+            if [ -n "$resp" ] && summary="$(printf '%s' "$resp" | pr_summary)" && [ -n "$summary" ]; then
                 text="$summary"
             else
                 FETCH_FALLBACK=$((FETCH_FALLBACK + 1))
