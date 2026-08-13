@@ -353,21 +353,21 @@ and the repo's COPYING.)
 ## 11. App Review notes
 
 > This app is a GPL source port of the classic Doom engine (Woof!/Boom
-> lineage). It includes ONLY the freely-licensed Freedoom game data —
+> lineage). It includes ONLY the freely-licensed Freedoom game data -
 > no copyrighted commercial game content is bundled. Users may import WAD
 > files they own via the Files app; these stay on device. The app makes no
 > network requests. Comparable approved apps: GenZD, RetroArch.
 >
 > On iPad the app supports all orientations and windowed multitasking.
 >
-> To demo: no account or setup needed — tap the "Freedoom Phase 1" tile on
+> To demo: no account or setup needed - tap the "Freedoom Phase 1" tile on
 > the Play tab.
 >
 > WAD files are game data, not executable code: they contain maps, sprites,
 > sounds and music. DeHackEd patches are data tables the engine interprets.
 > Nothing is compiled or executed, and no code is loaded at runtime.
 >
-> Importing is optional for review — both bundled base games (Freedoom
+> Importing is optional for review - both bundled base games (Freedoom
 > Phase 1 and Phase 2) play immediately with no setup. To exercise import,
 > any .wad or .zip added via the Files app works.
 >
