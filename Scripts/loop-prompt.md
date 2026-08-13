@@ -823,8 +823,31 @@ returns its issue to the pool for a future run to reattempt from scratch.
   an issue outright is not part of this protocol.
 - **Never publish a release.**
 - **Never edit `mise.toml` or add a dependency.**
-- **Never touch** signing configuration beyond section 0, the release path,
-  `Engine/woof`'s vendor pin, or App Store metadata.
+- **Never touch** signing configuration beyond section 0, `Engine/woof`'s vendor
+  pin, or App Store metadata.
+- **The release path is split, not blanket-forbidden.** It used to read "the
+  release path" as one undifferentiated blob, which bundled a wrong *word* with
+  a wrong *binary*. The line is drawn at whether a pull request can verify the
+  change before it merges:
+  - **Never modify** `Scripts/upload.sh`, `Scripts/archive.sh`,
+    `Scripts/asc-jwt.sh`, or `Scripts/release-args.sh`. These sign, authenticate
+    and upload. Nothing on a pull request exercises them — `testflight.yml` is
+    `workflow_dispatch`-only and never runs on one — so the first real test of a
+    change here is a live release, where a mistake ships an unverifiable binary
+    or burns a build number that cannot be reclaimed. `.github/workflows/` is
+    already forbidden above, which covers `testflight.yml` itself.
+  - **You may modify** `Scripts/whats-to-test.sh` and
+    `Scripts/test-whats-to-test.sh` — the release *notes* assembly. It touches no
+    credential, signs nothing, uploads nothing, and produces text. It is covered
+    by a hermetic suite CI runs on every pull request, plus a `--print` smoke in
+    `ci.yml` that fails the build if the assembler stops producing well-formed
+    output. The worst case is wrong words in a field the owner reads before
+    merging, and the owner is always the merge gate.
+
+  Do not read this as licence to widen it further. The distinction is
+  verifiability, not importance: if you find yourself wanting to change a file
+  in the first list because the second one's work led you there, that is the
+  moment to stop and record it as `stuck` instead.
 - No Claude/AI attribution in commit messages, PR bodies, or issue comments.
 - Read `CLAUDE.md` — its rules apply to you in full.
 
