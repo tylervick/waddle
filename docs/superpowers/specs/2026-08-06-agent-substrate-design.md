@@ -120,6 +120,7 @@ stay. Added:
 | --- | --- |
 | `agent:eligible` | May be claimed by an unattended run |
 | `agent:blocked` | May not, with the reason stated in the issue |
+| `agent:next` | Picked before anything else; outranks size, never overrides `agent:stuck` |
 | `test`, `chore`, `deps` | Kinds not covered by the existing three |
 | `size:xs` | One file plus one test |
 | `size:s` | One module, no cross-cutting change |
