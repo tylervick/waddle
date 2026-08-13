@@ -6,8 +6,9 @@
 # Usage:
 #   Scripts/fetch-testflight-feedback.sh                 print new feedback
 #   Scripts/fetch-testflight-feedback.sh --download DIR  also save each new
-#       submission's raw JSON to DIR/<id>.json and download any screenshot
-#       images to DIR/<id>-<n>.png
+#       submission's raw JSON to DIR/<id>.json, download any screenshot
+#       images to DIR/<id>-<n>.png, and fetch each crash submission's
+#       crash report (the crashLog relationship's logText) to DIR/<id>.crash
 #
 # Env:
 #   ASC_KEY_ID / ASC_ISSUER_ID / ASC_KEY_PATH   for Scripts/asc-jwt.sh
@@ -89,13 +90,14 @@ fetch_all "$API/v1/apps/$APP_ID/betaFeedbackCrashSubmissions?limit=50" crash \
 
 # One python pass renders the markdown for every UNSEEN submission, writes
 # per-submission JSON into DOWNLOAD_DIR when set, emits the list of image
-# URLs to fetch on fd 3, and the list of newly-seen ids on fd 4. Ids only
-# reach the state file after this whole pipeline has succeeded.
-RENDER_OUT="$(mktemp)"; URLS_OUT="$(mktemp)"; IDS_OUT="$(mktemp)"
-trap 'rm -f "$RENDER_OUT" "$URLS_OUT" "$IDS_OUT"; rm -rf "$PAGES_DIR"' EXIT
+# URLs to fetch on fd 3, the list of newly-seen ids on fd 4, and (when
+# downloading) the crash-submission ids whose crashLog to fetch on fd 5.
+# Ids only reach the state file after this whole pipeline has succeeded.
+RENDER_OUT="$(mktemp)"; URLS_OUT="$(mktemp)"; IDS_OUT="$(mktemp)"; CRASH_IDS_OUT="$(mktemp)"
+trap 'rm -f "$RENDER_OUT" "$URLS_OUT" "$IDS_OUT" "$CRASH_IDS_OUT"; rm -rf "$PAGES_DIR"' EXIT
 
 PAGES="$PAGES_DIR" STATE_PATH="$STATE_FILE" DL_DIR="$DOWNLOAD_DIR" \
-python3 - 3>"$URLS_OUT" 4>"$IDS_OUT" >"$RENDER_OUT" <<'PY'
+python3 - 3>"$URLS_OUT" 4>"$IDS_OUT" 5>"$CRASH_IDS_OUT" >"$RENDER_OUT" <<'PY'
 import glob, json, os, sys
 
 seen = set()
@@ -105,6 +107,7 @@ with open(os.environ["STATE_PATH"]) as f:
 dl_dir = os.environ.get("DL_DIR") or None
 urls = os.fdopen(3, "w")
 ids = os.fdopen(4, "w")
+crash_ids = os.fdopen(5, "w")
 
 def field(attrs, name):
     v = attrs.get(name)
@@ -135,6 +138,12 @@ def render(kind, pattern):
                     url = (img or {}).get("url")
                     if url:
                         urls.write(f"{dl_dir}/{sid}-{n}.png\t{url}\n")
+                # The crash report itself is NOT in the submission's
+                # attributes -- it hangs off the crashLog relationship and
+                # needs an authenticated follow-up fetch (done in bash below,
+                # where the token lives).
+                if item.get("type") == "betaFeedbackCrashSubmissions":
+                    crash_ids.write(sid + "\n")
             ids.write(sid + "\n")
 
 pages = os.environ["PAGES"]
@@ -154,6 +163,24 @@ while IFS=$'\t' read -r dest url; do
     curl -sS -f --connect-timeout 10 --max-time 120 -o "$dest" "$url" \
       || { echo "error: could not download $url" >&2; exit 1; }
 done < "$URLS_OUT"
+
+# Crash logs: an authenticated resource (unlike the pre-signed image URLs),
+# JSON-wrapped with the raw report text in data.attributes.logText. A failed
+# fetch or a response with no logText aborts BEFORE the state write below, so
+# the submission re-surfaces on the next run rather than being half-saved.
+while IFS= read -r sid; do
+    [ -n "$sid" ] || continue
+    CRASH_RESP="$(api_get "$API/v1/betaFeedbackCrashSubmissions/$sid/crashLog")" \
+      || { echo "error: could not fetch the crash log for $sid" >&2; exit 1; }
+    printf '%s' "$CRASH_RESP" | python3 -c '
+import json, sys
+text = ((json.load(sys.stdin).get("data") or {}).get("attributes") or {}).get("logText")
+if not text:
+    sys.exit("error: crash log response carried no logText")
+sys.stdout.write(text)
+' > "$DOWNLOAD_DIR/$sid.crash" \
+      || { echo "error: unparseable crash log for $sid" >&2; exit 1; }
+done < "$CRASH_IDS_OUT"
 
 # Everything succeeded -- only now do the new ids become "seen".
 cat "$IDS_OUT" >> "$STATE_FILE"

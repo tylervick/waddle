@@ -46,6 +46,13 @@ cat > "$TMP/fixtures/crashes.json" <<'JSON'
 ]}
 JSON
 
+# The crash log itself lives behind the submission's crashLog relationship,
+# as a JSON resource whose attributes carry the raw report in logText.
+cat > "$TMP/fixtures/crashlog.json" <<'JSON'
+{"data":{"type":"betaCrashLogs","id":"log-1",
+ "attributes":{"logText":"Incident Identifier: TEST-123\nThread 0 Crashed:\n0  WADdle  I_CacheRumble + 1344\n"}}}
+JSON
+
 # curl stub: routes by URL substring, appends each URL to curl.log. `-o FILE`
 # (used by --download for screenshot images) writes a marker file instead of
 # printing to stdout.
@@ -60,10 +67,14 @@ for a in "\$@"; do
 done
 echo "\$url" >> "$TMP/curl.log"
 if [ -f "$TMP/fail-marker" ]; then exit 22; fi
+# Targeted failure for the crash-log fetch alone, so its
+# state-file-untouched discipline is testable without failing everything.
+case "\$url" in *"/crashLog"*) if [ -f "$TMP/fail-crashlog" ]; then exit 22; fi ;; esac
 body=""
 # Specific routes before the generic /v1/apps lookup: the app-scoped
 # feedback URLs contain "/v1/apps" too.
 case "\$url" in
+    *"/v1/betaFeedbackCrashSubmissions/crash-1/crashLog"*) body="\$(cat "$TMP/fixtures/crashlog.json")" ;;
     *betaFeedbackScreenshotSubmissions*cursor=page2*)      body="\$(cat "$TMP/fixtures/screenshots-page2.json")" ;;
     *"/v1/apps/APP123/betaFeedbackScreenshotSubmissions"*) body="\$(cat "$TMP/fixtures/screenshots-page1.json")" ;;
     *"/v1/apps/APP123/betaFeedbackCrashSubmissions"*)      body="\$(cat "$TMP/fixtures/crashes.json")" ;;
@@ -96,6 +107,7 @@ echo "$out" | grep -q "shot-2" || fail "missing shot-2; got: $out"
 echo "$out" | grep -q "crash-1" || fail "missing crash-1; got: $out"
 echo "$out" | grep -q "Died loading my WAD" || fail "missing crash comment; got: $out"
 grep -q "cursor=page2" "$TMP/curl.log" || fail "did not follow links.next to page 2"
+grep -q "/crashLog" "$TMP/curl.log" && fail "a plain run must not fetch crash logs (that is --download's job)"
 pass "prints screenshot and crash submissions as markdown, across pages"
 
 # 2. All three ids are now in the state file.
@@ -135,13 +147,27 @@ cat > "$TMP/fixtures/screenshots-page1.json" <<'JSON'
    "screenshots":[{"url":"https://example.invalid/shot-1.png"}]}}]}
 JSON
 
-# 6. --download DIR saves each new submission's JSON and fetches image URLs.
+# 6. --download DIR saves each new submission's JSON, fetches image URLs, and
+#    follows each crash submission's crashLog relationship into <id>.crash.
 rm -f "$TMP/state"
 mkdir -p "$TMP/dl"
 out="$(run_fetch --download "$TMP/dl")" || fail "--download run failed: $out"
 [ -f "$TMP/dl/shot-1.json" ] || fail "shot-1.json not saved"
 [ -f "$TMP/dl/crash-1.json" ] || fail "crash-1.json not saved"
 ls "$TMP/dl"/shot-1*.png >/dev/null 2>&1 || fail "screenshot image not downloaded"
-pass "--download saves submission JSON and screenshot images"
+[ -f "$TMP/dl/crash-1.crash" ] || fail "crash-1.crash not saved from the crashLog relationship"
+grep -q "Thread 0 Crashed" "$TMP/dl/crash-1.crash" || fail "crash log text not extracted from logText"
+pass "--download saves submission JSON, screenshot images, and crash logs"
+
+# 7. A failed crash-log fetch exits non-zero and does NOT update the state
+#    file -- the submissions must re-surface on the next run.
+rm -f "$TMP/state" "$TMP/dl"/*
+touch "$TMP/fail-crashlog"
+if out="$(run_fetch --download "$TMP/dl" 2>&1)"; then
+    fail "succeeded despite the crash-log fetch failing: $out"
+fi
+[ ! -s "$TMP/state" ] || fail "state file was written when the crash-log fetch failed"
+rm -f "$TMP/fail-crashlog"
+pass "a failed crash-log fetch exits non-zero and leaves the state file alone"
 
 echo "All fetch-testflight-feedback tests passed."
