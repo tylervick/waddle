@@ -284,4 +284,54 @@ grep -qi "calendar-invalid" "$TMP/err" || fail "calendar-invalid timestamp was n
 grep -q "worktree rm" "$TMP/m/orca-calls.log" && fail "removed a worktree with a calendar-invalid timestamp"
 pass "reports a calendar-invalid worktree timestamp instead of sweeping it"
 
+# 15. agent:next outranks size entirely. Without it the only ways to steer the
+#     loop are lying about the size label -- which corrupts the `size` field
+#     trial records carry -- or making every competing issue ineligible.
+make_fixture "$TMP/o"
+cat > "$TMP/o/issues.json" <<'J'
+[{"number":10,"labels":[{"name":"agent:eligible"},{"name":"size:xs"}]},
+ {"number":11,"labels":[{"name":"agent:eligible"},{"name":"size:s"}]},
+ {"number":93,"labels":[{"name":"agent:eligible"},{"name":"size:m"},{"name":"agent:next"}]}]
+J
+out=$(run_precheck "$TMP/o") || fail "refused a valid backlog"
+[ "$out" = "93" ] || fail "picked $out; expected 93 (agent:next beats a lower size and a lower number)"
+pass "agent:next outranks size and issue number"
+
+# 16. Two agent:next issues still tie-break on the lowest number, so the
+#     override narrows the field rather than making the choice arbitrary.
+make_fixture "$TMP/p"
+cat > "$TMP/p/issues.json" <<'J'
+[{"number":93,"labels":[{"name":"agent:eligible"},{"name":"size:m"},{"name":"agent:next"}]},
+ {"number":84,"labels":[{"name":"agent:eligible"},{"name":"size:m"},{"name":"agent:next"}]}]
+J
+out=$(run_precheck "$TMP/p") || fail "refused a valid backlog"
+[ "$out" = "84" ] || fail "picked $out; expected 84 (lowest among agent:next)"
+pass "agent:next still tie-breaks on ascending issue number"
+
+# 17. agent:next does not override the exclusions. A stuck issue stays out even
+#     when it is flagged -- otherwise the flag could resurrect work that
+#     already defeated a run.
+make_fixture "$TMP/q"
+cat > "$TMP/q/issues.json" <<'J'
+[{"number":93,"labels":[{"name":"agent:eligible"},{"name":"size:m"},{"name":"agent:next"},{"name":"agent:stuck"}]},
+ {"number":11,"labels":[{"name":"agent:eligible"},{"name":"size:s"}]}]
+J
+out=$(run_precheck "$TMP/q") || fail "refused a valid backlog"
+[ "$out" = "11" ] || fail "picked $out; expected 11 (agent:next must not override agent:stuck)"
+pass "agent:next does not override agent:stuck"
+
+# 18. GitHub honours nine closing keywords, not three. An open pull request
+#     saying "Fixed #41" must exclude 41, or the loop redoes finished work.
+make_fixture "$TMP/r"
+cat > "$TMP/r/issues.json" <<'J'
+[{"number":41,"labels":[{"name":"agent:eligible"},{"name":"size:xs"}]},
+ {"number":42,"labels":[{"name":"agent:eligible"},{"name":"size:m"}]}]
+J
+cat > "$TMP/r/prs.json" <<'J'
+[{"number":900,"body":"Fixed #41 by not swallowing the error."}]
+J
+out=$(run_precheck "$TMP/r") || fail "refused a valid backlog"
+[ "$out" = "42" ] || fail "picked $out; expected 42 (41 is linked by 'Fixed #41')"
+pass "excludes an issue linked by any of the nine closing keywords"
+
 echo "All loop-precheck tests passed."
