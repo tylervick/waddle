@@ -94,7 +94,7 @@ chars).
 
 ## 3. Promotional text (170 chars max)
 
-> Freedoom out of the box — or import your own WADs. A faithful
+> Freedoom out of the box - or import your own WADs. A faithful
 > Boom/MBF21 source port with touch controls, game controllers, and
 > keyboard support. *(151 chars)*
 
@@ -103,25 +103,25 @@ chars).
 > **Play the classic-Doom-engine games you own, anywhere.**
 >
 > WADdle is a source port of the classic Doom engine for iPhone and iPad,
-> built on Woof! — the modern continuation of the Boom and MBF ports that
+> built on Woof! - the modern continuation of the Boom and MBF ports that
 > faithfully preserves original gameplay while supporting today's mods, up
 > through the MBF21 standard.
 >
 > **Ready to play out of the box.** WADdle bundles Freedoom Phase 1 and
 > Phase 2: two complete, freely licensed games built by the Freedoom
-> project for this engine family. Tap and play — nothing to configure.
+> project for this engine family. Tap and play - nothing to configure.
 >
 > **Bring your own WADs.** Import WAD files you own from the Files app,
-> iCloud Drive, or the share sheet — commercial IWADs you've purchased, or
+> iCloud Drive, or the share sheet - commercial IWADs you've purchased, or
 > any of thousands of community-made maps and megawads. Zip archives and
 > DeHackEd patches are supported.
 >
 > **Presets.** Combine a base game with mods and patches, set the load
-> order and compatibility level (vanilla, Boom, MBF, MBF21 — or auto), and
+> order and compatibility level (vanilla, Boom, MBF, MBF21 - or auto), and
 > save the combination as a one-tap preset. Saves are kept per preset.
 >
 > **Play your way.** Touch controls with two schemes (classic twin-stick
-> and modern drag-to-turn) and adjustable feel — plus full support for
+> and modern drag-to-turn) and adjustable feel - plus full support for
 > game controllers and hardware keyboards.
 >
 > **Open source.** WADdle is free software under the GPL-2.0, like the
