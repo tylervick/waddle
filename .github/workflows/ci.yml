@@ -98,6 +98,43 @@ jobs:
           # fabricated answer -- the defect PR #66 and issue #68 each fixed one
           # instance of. Pure text scan of Scripts/; no network, no token.
           Scripts/check-masked-gh-status.sh
+
+      # The hermetic suite above proves whats-to-test.sh against fixtures. This
+      # runs it against THIS repository, on this pull request's own range, so a
+      # change that passes its fixtures and still cannot assemble real notes is
+      # caught here rather than during a release -- where the failure lands
+      # after the build is uploaded and tagged, and costs a build number.
+      #
+      # --print only: no token, no network, no App Store Connect. It is also
+      # what makes Scripts/whats-to-test.sh loop-eligible under "Rules that are
+      # absolute" in Scripts/loop-prompt.md, which draws its line at whether a
+      # pull request can verify a change before merge.
+      #
+      # Gating on purpose, unlike the red-green proof below: this asserts
+      # correctness, not a measurement, so a failure should stop the merge.
+      # Two outcomes are correct here, and conflating them is the trap this
+      # step already fell into once: assembling notes, and REFUSING because
+      # there is genuinely nothing to say. The second is a documented, deliberate
+      # refusal -- right for a release, not a defect in the assembler -- and it
+      # is reachable whenever a branch sits at or behind the newest build tag.
+      # Only a crash, or output that is neither of those shapes, is a failure.
+      - name: Smoke the release-notes assembler on this branch
+        run: |
+          set +e
+          out="$(Scripts/whats-to-test.sh --print 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$rc" -eq 0 ]; then
+            printf '%s\n' "$out" | grep -q '^- ' \
+              || { echo "::error::--print exited 0 but produced no changelog bullets"; exit 1; }
+            echo "assembler produced notes"
+          elif printf '%s\n' "$out" | grep -q 'Nothing to tell a tester'; then
+            echo "assembler correctly refused: nothing to report since the last build"
+          else
+            echo "::error::--print failed for a reason other than having nothing to report"
+            exit 1
+          fi
           # --sync-only, not the full check: this step runs before the toolchain
           # setup and the runner has neither uv nor potrace. It still catches the
           # drift that actually happens -- Design/ regenerated without the .icon
