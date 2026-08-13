@@ -104,6 +104,22 @@ final class ImportService {
             candidates += looseFiles(in: inbox)
         }
         for url in candidates {
+            // Task.detached deliberately does NOT inherit the caller's
+            // cancellation, so once one of the detached hash/copy tasks
+            // below is running, nothing can interrupt it — without this
+            // check, cancelling the task awaiting adoptLooseFiles() has no
+            // effect at all and the whole scan runs to completion.
+            //
+            // Check between candidates rather than mid-candidate: a
+            // candidate that has already started is left to finish so its
+            // store write and its keep/quarantine/delete decision stay
+            // consistent (a half-adopted file deleted from Documents but
+            // never registered would be lost), and a fixed, well-defined
+            // stopping point is deterministically testable without racing
+            // in-flight work. Return what the scan accumulated so far;
+            // whatever is left on disk is picked up by the next launch or
+            // foreground scan.
+            guard !Task.isCancelled else { return outcome }
             // A single candidate (e.g. a zip) can fan out into many inner
             // importOneAsync calls, each recording its own imported/
             // duplicate/rejected entry under its own inner filename — not
