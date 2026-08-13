@@ -1,3 +1,4 @@
+import MetricKit
 import SwiftData
 import SwiftUI
 
@@ -39,6 +40,7 @@ struct WADdleApp: App {
         } catch {
             fatalError("SwiftData container failed: \(error)")
         }
+        MXMetricManager.shared.add(DiagnosticsMetricSubscriber.shared)
     }
 
     var body: some Scene {
