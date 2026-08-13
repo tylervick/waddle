@@ -208,8 +208,14 @@ prs = json.loads("[" + prs_txt)
 swept = {int(n) for n in os.environ.get("SWEPT", "").split()}
 linked = set()
 for p in prs:
-    linked.update(int(m) for m in re.findall(r"(?:closes|fixes|resolves)\s+#(\d+)",
-                                             p.get("body") or "", re.I))
+    # GitHub honours NINE closing keywords, not three. `Fixed #41` closes an
+    # issue exactly as hard as `Closes #41`, and `GH-41` is an accepted
+    # reference form. Matching only closes/fixes/resolves left an issue with an
+    # open pull request looking unclaimed, so the loop could pick it up and do
+    # the work a second time.
+    linked.update(int(m) for m in re.findall(
+        r"(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+(?:#|GH-)(\d+)",
+        p.get("body") or "", re.I))
 rank = {"size:xs": 0, "size:s": 1, "size:m": 2}
 best = None
 for i in issues:
@@ -221,7 +227,13 @@ for i in issues:
     if i["number"] in linked:
         continue
     r = min((rank[n] for n in names if n in rank), default=3)
-    key = (r, i["number"])
+    # agent:next outranks size entirely. Size ordering is a throughput
+    # heuristic -- finish the cheap things first -- and it has no way to say
+    # "this specific one matters now". Without an override the only ways to
+    # steer are relabelling the size, which lies about the work and corrupts
+    # the `size` field trial records carry as experiment data, or making every
+    # competing issue ineligible, which was 17 label edits when this was added.
+    key = (0 if "agent:next" in names else 1, r, i["number"])
     if best is None or key < best[0]:
         best = (key, i["number"])
 print(best[1] if best else "")
