@@ -1,3 +1,4 @@
+import SwiftData
 import XCTest
 import ZIPFoundation
 @testable import WADdle
@@ -57,5 +58,65 @@ final class DiagnosticsExporterTests: XCTestCase {
                                                  libraryLines: [])
         XCTAssertFalse(try zipEntryNames(zip).contains("stray.wad"),
             "only session logs, payloads, and info.txt may be bundled")
+    }
+
+    func testReclaimStaleExportsRemovesOnlyOldDirectories() throws {
+        let old = tmp.appendingPathComponent("diagnostics-export-old", isDirectory: true)
+        let fresh = tmp.appendingPathComponent("diagnostics-export-fresh", isDirectory: true)
+        try FileManager.default.createDirectory(at: old, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: fresh, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-7200)], ofItemAtPath: old.path)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date()], ofItemAtPath: fresh.path)
+
+        DiagnosticsExporter.reclaimStaleExports(in: tmp, olderThan: 3600, now: .now)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: old.path),
+            "hour-old export directories should be swept")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fresh.path),
+            "recent export directories must survive -- they could still be mid-share")
+    }
+}
+
+@MainActor
+final class DiagnosticsLibraryLinesTests: XCTestCase {
+    var service: LibraryService!
+    var context: ModelContext!
+    var tmp: URL!
+
+    // Same rationale as LibraryServiceTests: async setUp()/tearDown() keep
+    // the MainActor-isolated ModelContext construction properly isolated,
+    // avoiding the Swift 6 "sending" diagnostic that setUpWithError()'s
+    // nonisolated override would trigger when handing the context into
+    // LibraryService's @MainActor init.
+    override func setUp() async throws {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: WADFile.self, Loadout.self, configurations: config)
+        context = ModelContext(container)
+        tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        service = LibraryService(context: context, store: WADStore(directory: tmp))
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tmp)
+    }
+
+    func testLibraryLinesNameWADsAndLoadoutsOnly() throws {
+        let wad = try service.registerImported(filename: "gothic.wad", sha1: "abc123",
+                                     kind: "pwad", family: GameFamily.doom2.rawValue)
+        try service.createLoadout(name: "Gothic Run", iwadID: wad.id,
+                                  pwadIDs: [wad.id], dehIDs: [])
+        let lines = DiagnosticsExporter.libraryLines(from: service)
+        XCTAssertTrue(lines.contains { $0.contains("gothic.wad") })
+        XCTAssertTrue(lines.contains { $0.contains("loadout: Gothic Run") })
+        XCTAssertFalse(lines.joined().contains("abc123"),
+            "hashes and paths stay out; names only")
+    }
+
+    func testLibraryLinesWithNilServiceIsEmpty() {
+        XCTAssertEqual(DiagnosticsExporter.libraryLines(from: nil), [])
     }
 }

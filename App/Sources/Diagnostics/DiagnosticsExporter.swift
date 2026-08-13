@@ -40,6 +40,41 @@ enum DiagnosticsExporter {
         return zipURL
     }
 
+    /// Names-only library summary for info.txt. Best-effort: a SwiftData read
+    /// failure yields fewer lines, never a failed export.
+    @MainActor
+    static func libraryLines(from library: LibraryService?) -> [String] {
+        guard let library else { return [] }
+        let wads = ((try? library.allWADs()) ?? []).map { "wad: \($0.filename)" }
+        let loadouts = ((try? library.allLoadouts()) ?? []).map { "loadout: \($0.name)" }
+        return wads + loadouts
+    }
+
+    /// Sweeps abandoned export staging directories from prior runs. Age-gated
+    /// rather than "delete the immediately-previous export": share sheets
+    /// (AirDrop, Save to Files) can signal sheet dismissal before the
+    /// receiving side has finished reading the source file, so deleting the
+    /// previous export on every new one can race an in-flight share and
+    /// silently corrupt it. An hour-old export directory cannot plausibly
+    /// still be streaming, and anything fresher is left for the OS's own
+    /// temp-directory sweeper.
+    static func reclaimStaleExports(in tempDirectory: URL = FileManager.default.temporaryDirectory,
+                                    olderThan age: TimeInterval = 3600,
+                                    now: Date = .now) {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(
+            at: tempDirectory, includingPropertiesForKeys: [.contentModificationDateKey])
+        else { return }
+        for entry in entries where entry.lastPathComponent.hasPrefix("diagnostics-export-") {
+            guard let modified = (try? entry.resourceValues(
+                forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            else { continue }
+            if now.timeIntervalSince(modified) > age {
+                try? fm.removeItem(at: entry)
+            }
+        }
+    }
+
     static func infoText(libraryLines: [String]) -> String {
         var model = utsname()
         uname(&model)
