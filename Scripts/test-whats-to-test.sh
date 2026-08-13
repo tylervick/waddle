@@ -132,15 +132,20 @@ echo "$out" | grep -qi "git tag" || fail "error did not name git tag as the poin
 echo "$out" | grep -qi "no previous build tag" && fail "a real git failure must not read as the bootstrap fallback; got: $out"
 pass "fails loudly, not via the bootstrap fallback, when git tag --list itself fails"
 
-# 9. A merge commit whose body is empty (no PR title line) falls back to the
-#    raw "Merge pull request #N ..." subject rather than crashing or emitting
-#    a blank bullet. The $-anchor pins that no "(#N)" is appended to it
-#    either -- the number a tester cannot follow stays out of the text.
+# 9. A merge commit whose body is empty (no PR title line) recovers a real
+#    title rather than degrading to git's own "Merge pull request #N ..."
+#    subject -- a branch name is not a change (issue #102; the original form
+#    of this case pinned the degraded subject as intended behaviour). With no
+#    origin remote there is nothing to fetch, so the recovery here is the
+#    merged branch's tip commit subject -- merge_pr's fixture commit, "wip".
+#    The $-anchor pins that no "(#N)" is appended to it either.
 r="$(make_repo emptytitle 'merge_pr 99 ""')"
 out="$(notes "$r")" || fail "an empty-body merge commit should not fail the run: $out"
-echo "$out" | grep -q -- "- Merge pull request #99 from tylervick/pr-99$" \
-  || fail "did not fall back to the raw merge subject for an empty PR title; got: $out"
-pass "falls back to the raw merge subject when a merge commit's body is empty"
+echo "$out" | grep -q -- "- Wip$" \
+  || fail "did not recover the merged branch's tip subject for an empty PR title; got: $out"
+echo "$out" | grep -q "Merge pull request" \
+  && fail "the raw merge subject leaked into the notes; got: $out"
+pass "recovers the merged branch's tip subject when a merge commit's body is empty"
 
 # A curl stub driven by files, so each case chooses its own responses. It
 # records every invocation so the tests can assert what was sent, and
@@ -604,5 +609,68 @@ echo "$out" | grep -qF "Nothing in the app itself changed in this build." || fai
 echo "$out" | grep -q "^In the app:" && fail "an empty 'In the app:' section was emitted; got: $out"
 echo "$out" | grep -qF -- "- Tidy the scripts" || fail "the tooling bullet vanished; got: $out"
 pass "states outright when nothing in the app itself changed"
+
+# 31. An empty-body merge commit WITH the pull request reachable (issue
+#     #102): the title is recovered from the PR -- the same response the
+#     prose summary rides on -- so the bullet is the body's first sentence,
+#     grouped by the RECOVERED title's prefix. That title is tooling-scoped
+#     (feat(loop) -> behind the scenes) ON PURPOSE: the old code grouped an
+#     empty-body merge by its unparseable merge subject, which defaults to
+#     "In the app:", and the tip-subject fallback here is "wip", which also
+#     defaults there -- so this case fails both if recovery never runs and
+#     if it settles for the tip subject without trying the API. Grouping is
+#     the discriminator; the body sentence alone cannot be, because the old
+#     code already decorated reachable PRs with it.
+r="$(make_repo emptyrecovered 'merge_pr 130 ""')"
+stub_curl "$r"
+(cd "$r" && git remote add origin https://github.com/tylervick/waddle.git)
+printf '%s' '{"title":"feat(loop): retune the trial cadence","body":"The loop now waits out CI before fixing anything."}' > "$r/pr.130.json"
+out="$(print_stubbed "$r")" || fail "emptyrecovered case exited non-zero: $out"
+echo "$out" | grep -qF -- "- The loop now waits out CI before fixing anything." \
+    || fail "did not use the PR body sentence after recovering the title; got: $out"
+echo "$out" | grep -q "^Behind the scenes:" \
+    || fail "grouped by the merge subject or the tip fallback, not the recovered PR title; got: $out"
+echo "$out" | grep -qF "Nothing in the app itself changed in this build." \
+    || fail "the recovered feat(loop) change leaked into 'In the app:'; got: $out"
+echo "$out" | grep -q "Merge pull request" \
+    && fail "the raw merge subject leaked despite a reachable PR; got: $out"
+pass "recovers an empty-body merge's title from the reachable PR and groups by it"
+
+# 32. An empty-body merge commit with the fetch UNAVAILABLE (issue #102): the
+#     chosen fallback -- the merged branch's tip commit subject -- appears,
+#     stripped and grouped by its own prefix, the run still exits 0, and
+#     nothing reads as a branch name. No pr.132.json exists, so the stub
+#     refuses exactly like real `curl -f` under a rate limit.
+r="$(make_repo emptyoffline 'git checkout -q -b topic-132; git commit -q --allow-empty -m "fix(ui): steady the import alert"; git checkout -q -; git merge -q --no-ff topic-132 -m "Merge pull request #132 from tylervick/topic-132"')"
+stub_curl "$r"
+(cd "$r" && git remote add origin https://github.com/tylervick/waddle.git)
+out="$(print_stubbed "$r")" || fail "an unreachable PR must not fail an empty-body merge; got: $out"
+echo "$out" | grep -qF -- "- Steady the import alert" \
+    || fail "did not fall back to the merged branch's tip subject; got: $out"
+echo "$out" | grep -q "Merge pull request" \
+    && fail "the raw merge subject leaked when the fetch was unavailable; got: $out"
+echo "$out" | grep -q "topic-132" \
+    && fail "a branch name leaked into the notes; got: $out"
+pass "falls back to the tip commit subject, still exiting 0, when the fetch is unavailable"
+
+# 33. THE MEASURED MISGROUPING (issue #102): a docs-prefixed empty-body merge
+#     -- #100's exact shape -- lands under "Behind the scenes:", not in "In
+#     the app:" where the unparseable merge subject used to default it. The
+#     PR is reachable with a docs title and no usable body, so the visible
+#     text is the recovered, stripped title itself.
+r="$(make_repo emptydocs 'merge_pr 133 ""; merge_pr 134 "fix(ui): keep one app-facing change"')"
+stub_curl "$r"
+(cd "$r" && git remote add origin https://github.com/tylervick/waddle.git)
+printf '%s' '{"title":"docs(spec): record the loop keyword exclusions","body":""}' > "$r/pr.133.json"
+printf '%s' '{"body":""}' > "$r/pr.134.json"
+out="$(print_stubbed "$r")" || fail "emptydocs case exited non-zero: $out"
+echo "$out" | grep -qF -- "- Record the loop keyword exclusions" \
+    || fail "missing the recovered docs bullet; got: $out"
+oth_h="$(echo "$out" | grep -n "^Behind the scenes:" | cut -d: -f1)"
+l_docs="$(echo "$out" | grep -nF -- "- Record the loop keyword exclusions" | cut -d: -f1)"
+[ -n "$oth_h" ] || fail "no 'Behind the scenes:' heading; got: $out"
+[ "$oth_h" -lt "$l_docs" ] \
+    || fail "the docs-prefixed empty-body merge was not grouped behind the scenes; got: $out"
+pass "groups a docs-prefixed empty-body merge behind the scenes via its recovered title"
 
 echo "All whats-to-test tests passed."
