@@ -466,6 +466,15 @@ final class TouchOverlayView: UIView {
 final class OverlayButton: UIView {
     private let onPress: (Bool) -> Void
 
+    /// Debug/test telemetry only (WADDLE_DEBUG_INPUT_COUNTS): how many
+    /// press-downs have been delivered to any overlay button in this
+    /// process. ContentView shows it post-session for the same reason it
+    /// shows TouchGamepad.lastFireReleaseTriggerResidue -- the overlay is
+    /// torn down the instant the session ends, so a UITest cannot read
+    /// anything off it live. See
+    /// TouchControlsTests.testCornerTapMissesCircularButton.
+    static var debugPressCount = 0
+
     init(title: String, size: CGFloat, onPress: @escaping (Bool) -> Void) {
         self.onPress = onPress
         super.init(frame: CGRect(x: 0, y: 0, width: size, height: size))
@@ -490,7 +499,27 @@ final class OverlayButton: UIView {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
+    /// The control is drawn as a circle (`cornerRadius = size / 2` above) but
+    /// is a square `UIView`, and UIKit's default hit-testing accepts the whole
+    /// frame -- so the four corners, which are visually off the button, used
+    /// to fire it anyway. Restricting delivery to the drawn circle makes a
+    /// corner touch miss entirely (`hitTest` returns nil, so touchesBegan and
+    /// touchesEnded never fire for it) and fall through to the overlay
+    /// underneath, exactly as it would for a genuinely circular control.
+    ///
+    /// `min(width, height)` rather than `width`: it is the same value the
+    /// corner radius is derived from for a square frame, and it degrades to
+    /// the inscribed circle rather than an overshooting one if the button is
+    /// ever laid out non-square.
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        let radius = min(bounds.width, bounds.height) / 2
+        let dx = point.x - bounds.midX
+        let dy = point.y - bounds.midY
+        return dx * dx + dy * dy <= radius * radius
+    }
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        Self.debugPressCount += 1
         backgroundColor = UIColor.white.withAlphaComponent(0.3)
         onPress(true)
     }

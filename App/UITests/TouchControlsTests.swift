@@ -232,6 +232,60 @@ final class TouchControlsTests: XCTestCase {
         XCTAssertGreaterThan(count, 0, "post-rotation touches never reached the SDL shim")
     }
 
+    /// `OverlayButton` is a square `UIView` drawn as a circle
+    /// (`layer.cornerRadius = size / 2`), so UIKit's default rectangular
+    /// hit-testing used to fire it from any of the four frame corners --
+    /// points that are visually off the control. This performs exactly two
+    /// taps on FIRE, one in a corner and one dead centre, and reads the
+    /// post-session press counter: with a circular hit area only the centre
+    /// tap counts, so the total is 1. Before the fix both taps landed and it
+    /// was 2.
+    ///
+    /// The counter (OverlayButton.debugPressCount, surfaced by ContentView
+    /// under WADDLE_DEBUG_INPUT_COUNTS) is read post-session for the same
+    /// reason triggerResidueLabel is: the overlay is gone by the time the
+    /// launcher is back on screen, so the value has to be cached rather than
+    /// queried live. `OverlayButtonHitAreaTests` pins the same geometry
+    /// directly in the unit suite.
+    @MainActor
+    func testCornerTapMissesCircularButton() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "14"
+        app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        play.tap()
+
+        let fire = app.buttons["fireButton"]
+        XCTAssertTrue(fire.waitForExistence(timeout: 20), "overlay never installed")
+
+        // FIRE is 84pt. (0.08, 0.08) sits ~6.7pt inside the frame's top-left
+        // corner and ~50pt from centre -- comfortably outside the 42pt drawn
+        // circle, and comfortably inside the square frame the accessibility
+        // element still reports, which is what makes this coordinate
+        // addressable at all.
+        fire.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.08)).tap()
+
+        // Dead centre: unambiguously inside the circle.
+        fire.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+
+        let exitLabel = app.staticTexts["engineExitLabel"]
+        XCTAssertTrue(exitLabel.waitForExistence(timeout: 90))
+        XCTAssertEqual(exitLabel.label, "Engine exited: 0")
+
+        let pressLabel = app.staticTexts["buttonPressCountLabel"]
+        XCTAssertTrue(pressLabel.waitForExistence(timeout: 5),
+                      "no overlay-button press telemetry")
+        let presses = Int(pressLabel.label.replacingOccurrences(
+            of: "buttonPresses: ", with: "")) ?? -1
+        XCTAssertEqual(presses, 1,
+            "expected only the centre tap to press FIRE, got \(presses) presses "
+            + "-- a corner tap outside the circular visual still reached the button")
+    }
+
     @MainActor
     private func attachScreenshot(named name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
