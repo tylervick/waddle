@@ -39,6 +39,17 @@ final class LibraryServiceTests: XCTestCase {
         XCTAssertTrue(try service.allLoadouts().isEmpty)
     }
 
+    func testSeedStoresRealContentHashForBundledIWADs() throws {
+        try service.seedBundledContentIfNeeded()
+        let bundled = try service.allWADs().filter(\.isBundled)
+        XCTAssertEqual(bundled.count, 2)
+        for wad in bundled {
+            XCTAssertEqual(wad.sha1, try WADStore.sha1(ofFileAt: service.fileURL(for: wad)),
+                           "\(wad.filename) must carry its real content hash so " +
+                           "imports of identical content dedupe against it")
+        }
+    }
+
     func testReconcileRemovesPhantomBaseGameLoadoutAndMigratesSaves() throws {
         // Arrange an old-install shape: a bundled Freedoom IWAD + a phantom
         // "Freedoom Phase 1" loadout (no PWAD/DEH) that accumulated a save.
