@@ -35,7 +35,11 @@ final class LibraryService {
     // MARK: Seeding
 
     /// Registers the bundled Freedoom IWADs (read-only, live in the bundle's
-    /// GameData/) as directly-playable base games. Safe to call every launch.
+    /// GameData/) as directly-playable base games. Safe to call every launch:
+    /// each row stores its real content SHA-1 (so imports of byte-identical
+    /// files dedupe against it), but the hash is computed only the one time
+    /// the row is created — steady-state launches skip straight past the
+    /// existence check and never re-hash the ~30MB bundle files.
     func seedBundledContentIfNeeded() throws {
         let bundled: [(file: String, title: String, family: GameFamily)] = [
             ("freedoom1.wad", "Freedoom Phase 1", .doom1),
@@ -44,7 +48,8 @@ final class LibraryService {
         for entry in bundled {
             if try wadByFilename(entry.file, bundled: true) != nil { continue }
             let wad = WADFile(filename: entry.file, displayName: entry.title,
-                              kindRaw: WADKind.iwad.rawValue, sha1: "bundled:\(entry.file)",
+                              kindRaw: WADKind.iwad.rawValue,
+                              sha1: try WADStore.sha1(ofFileAt: Self.bundledURL(forFilename: entry.file)),
                               gameFamilyRaw: entry.family.rawValue, isBundled: true)
             context.insert(wad)
         }
@@ -336,11 +341,15 @@ final class LibraryService {
 
     func fileURL(for wad: WADFile) -> URL {
         if wad.isBundled {
-            return Bundle.main.resourceURL!
-                .appendingPathComponent("GameData", isDirectory: true)
-                .appendingPathComponent(wad.filename)
+            return Self.bundledURL(forFilename: wad.filename)
         }
         return store.url(forFilename: wad.filename)
+    }
+
+    private static func bundledURL(forFilename filename: String) -> URL {
+        Bundle.main.resourceURL!
+            .appendingPathComponent("GameData", isDirectory: true)
+            .appendingPathComponent(filename)
     }
 
     nonisolated static func savesDirectory(forLoadoutID id: UUID) -> URL {

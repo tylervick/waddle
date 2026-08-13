@@ -54,6 +54,21 @@ final class ImportServiceTests: XCTestCase {
         XCTAssertEqual(try library.allWADs().count, 1)
     }
 
+    func testImportingByteIdenticalCopyOfBundledIWADIsDuplicate() throws {
+        try library.seedBundledContentIfNeeded()
+        let freedoom = try XCTUnwrap(
+            library.allWADs().first { $0.isBundled && $0.filename == "freedoom1.wad" })
+        let copy = tmp.appendingPathComponent("my-freedoom.wad")
+        try FileManager.default.copyItem(at: library.fileURL(for: freedoom), to: copy)
+
+        let outcome = importer.importFiles(at: [copy])
+
+        XCTAssertEqual(outcome.duplicates, ["my-freedoom"])
+        XCTAssertTrue(outcome.imported.isEmpty)
+        XCTAssertEqual(try library.allWADs().count, 2,
+                       "a byte-identical copy of bundled content must not create a second entry")
+    }
+
     func testImportsDEHByExtension() throws {
         let url = try write("tweaks.deh", Data("Patch File for DeHackEd 3.0".utf8))
         let outcome = importer.importFiles(at: [url])
