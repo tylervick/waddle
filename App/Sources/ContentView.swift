@@ -69,6 +69,14 @@ struct ContentView: View {
                         .accessibilityIdentifier("triggerResidueLabel")
                         .padding(.bottom, 130)
                 }
+                // Cached for the same reason as the residue above: the
+                // overlay is gone by the time this is on screen, so the
+                // count has to survive the session rather than be queried
+                // from it.
+                Text("buttonPresses: \(OverlayButton.debugPressCount)")
+                    .font(.footnote.monospaced())
+                    .accessibilityIdentifier("buttonPressCountLabel")
+                    .padding(.bottom, 160)
             }
             #endif
         }
