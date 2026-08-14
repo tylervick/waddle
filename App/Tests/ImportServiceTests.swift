@@ -30,6 +30,19 @@ final class ImportServiceTests: XCTestCase {
         return url
     }
 
+    /// A second, independent library+importer over its own in-memory store, for
+    /// the tests that must import the same bytes twice without the hash dedupe
+    /// collapsing the second import into a duplicate. Its store directory sits
+    /// under `tmp`, so tearDown removes it with everything else.
+    private func freshStack() throws -> (LibraryService, ImportService) {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: WADFile.self, Loadout.self, configurations: config)
+        let store = WADStore(directory: tmp.appendingPathComponent(UUID().uuidString,
+                                                                   isDirectory: true))
+        let library = LibraryService(context: ModelContext(container), store: store)
+        return (library, ImportService(library: library, store: store))
+    }
+
     func testImportsValidPWAD() throws {
         let url = try write("sunlust.wad", makeWAD(magic: "PWAD", lumps: ["MAP01"]))
         let outcome = importer.importFiles(at: [url])
@@ -345,6 +358,78 @@ final class ImportServiceTests: XCTestCase {
                       "the loose file must be left in place for a later scan, not consumed")
         XCTAssertFalse(FileManager.default.fileExists(atPath: importFailedURL.path),
                        "a cancelled scan must not quarantine anything either")
+    }
+
+    // MARK: recognized IWAD titles (#118)
+
+    /// The import path must title a recognized file from its *content*. Driven
+    /// through `LibraryService.recognizedTitle` rather than a real doom2.wad:
+    /// the repository ships no commercial WAD content, so a synthetic fixture
+    /// registers its own hash and stands in for one.
+    ///
+    /// The filename here is deliberately nothing like the game's name, so the
+    /// assertion can only pass by way of the hash — and the second assertion
+    /// pins that explicitly, since "whatever-i-called-it" is exactly what the
+    /// old filename-derived behavior would have produced.
+    func testImportAppliesRecognizedTitleFromContentHash() throws {
+        let data = makeWAD(magic: "IWAD", lumps: ["MAP01"])
+        let sha1 = WADStore.sha1(of: data)
+        library.recognizedTitle = { $0 == sha1 ? "DOOM II: Hell on Earth" : nil }
+
+        let outcome = importer.importFiles(at: [try write("whatever-i-called-it.wad", data)])
+
+        XCTAssertEqual(outcome.imported.count, 1)
+        let wad = try XCTUnwrap(library.allWADs().first)
+        XCTAssertEqual(wad.displayName, "DOOM II: Hell on Earth")
+        XCTAssertNotEqual(wad.displayName, "whatever-i-called-it",
+                          "a recognized IWAD must not be titled from its filename")
+    }
+
+    /// The parity requirement itself: renaming the file before importing it
+    /// cannot change a recognized title. Two independent libraries, because the
+    /// content hash would otherwise dedupe the second import away.
+    func testRecognizedTitleIsUnchangedByRenamingTheFileBeforeImport() throws {
+        let data = makeWAD(magic: "IWAD", lumps: ["MAP01"])
+        let sha1 = WADStore.sha1(of: data)
+
+        var titles: [String] = []
+        for name in ["doom2.wad", "renamed-by-the-user.wad"] {
+            let (library, importer) = try freshStack()
+            library.recognizedTitle = { $0 == sha1 ? "DOOM II: Hell on Earth" : nil }
+            _ = importer.importFiles(at: [try write(name, data)])
+            titles.append(try XCTUnwrap(library.allWADs().first?.displayName))
+        }
+
+        XCTAssertEqual(titles, ["DOOM II: Hell on Earth", "DOOM II: Hell on Earth"])
+    }
+
+    /// The unknown-hash case, which is every PWAD and every mod, forever: the
+    /// filename-derived name this line has always produced must survive.
+    func testUnrecognizedImportKeepsTheFilenameDerivedTitle() throws {
+        let data = makeWAD(magic: "PWAD", lumps: ["MAP01"])
+        // Recognizes something, just not this file — so a pass here means the
+        // fallback ran, not that recognition was switched off wholesale.
+        library.recognizedTitle = { $0 == "not-this-files-hash" ? "Some Other Game" : nil }
+
+        _ = importer.importFiles(at: [try write("sunlust.wad", data)])
+
+        XCTAssertEqual(try library.allWADs().first?.displayName, "sunlust")
+    }
+
+    /// Production wiring: with no seam set, a real import resolves against the
+    /// shipped catalog. A synthetic fixture can't match a published hash, so
+    /// the observable end of this is the fallback — which is what proves the
+    /// default is a live lookup and not a stub that returns nil unconditionally
+    /// (the published-hash side of that same default is covered directly in
+    /// IWADCatalogTests).
+    func testDefaultRecognizerIsTheShippedCatalog() throws {
+        let data = makeWAD(magic: "IWAD", lumps: ["MAP01"])
+        XCTAssertNil(IWADCatalog.title(forSHA1: WADStore.sha1(of: data)),
+                     "a synthetic fixture must not collide with a published IWAD hash")
+
+        _ = importer.importFiles(at: [try write("mystery.wad", data)])
+
+        XCTAssertEqual(try library.allWADs().first?.displayName, "mystery")
     }
 
     // MARK: dedupe ordering
