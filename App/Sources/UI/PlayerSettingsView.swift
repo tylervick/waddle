@@ -5,10 +5,12 @@ import SwiftUI
 /// sheet. Deliberately player-facing only; nothing about managing files lives
 /// here, that is Manage's job.
 ///
-/// Control Feel and About are pushed rather than presented: a `Menu` could not
+/// Both of its destinations were rows in the old gear `Menu`, which could not
 /// host the Control Feel sliders at all (see
-/// `docs/learnings/swiftui-menu-cannot-host-sliders.md`), and pushing them
-/// inside this sheet's own stack avoids stacking a second sheet on a sheet.
+/// `docs/learnings/swiftui-menu-cannot-host-sliders.md`). They arrive
+/// differently here: About is pushed into this sheet's own `NavigationStack`,
+/// while Control Feel is presented as a sheet, because `ControlFeelView`
+/// carries its own stack and Done button — see the comment on its row.
 struct PlayerSettingsView: View {
     let library: LibraryService
 

@@ -113,12 +113,29 @@ final class DemoLoopReplayTests: XCTestCase {
         if !doom2Tile.exists {
             openManage(app)
             app.buttons["newLoadoutButton"].tap()
+
+            // `newLoadoutButton` opens `PresetCreationFlow`, which picks the
+            // base game *first* and only then pushes the editor pre-seeded
+            // with it — there is no in-editor `iwadPicker` step on this path
+            // (Plan B Task 4). The row is identified by the WAD's display
+            // name, which #118 derives from content: a recognized DOOM II
+            // hashes to "DOOM II: Hell on Earth", any other release keeps its
+            // filename stem. Match on either rather than hardcoding one, so
+            // this works with whichever copy of DOOM2.WAD was provisioned.
+            let baseRow = app.buttons.matching(NSPredicate(format:
+                "identifier BEGINSWITH 'createPresetBase-' AND "
+                + "(identifier CONTAINS[c] 'doom2' OR identifier CONTAINS 'DOOM II')"))
+                .firstMatch
+            XCTAssertTrue(baseRow.waitForExistence(timeout: 5),
+                          "DOOM2 base-game row missing from the preset picker")
+            baseRow.tap()
+
+            // The editor arrives pre-named from the base game; replace that
+            // with the name this test's tile lookup uses.
             let nameField = app.textFields["loadoutNameField"]
-            XCTAssertTrue(nameField.waitForExistence(timeout: 5))
-            nameField.tap()
-            nameField.typeText("DoomII")
-            app.buttons["iwadPicker"].tap()
-            app.buttons["DOOM2"].tap()
+            XCTAssertTrue(nameField.waitForExistence(timeout: 5), "seeded editor never appeared")
+            clearAndType(nameField, "DoomII")
+
             app.buttons["saveLoadoutButton"].tap()
             returnToShelf(app)
             XCTAssertTrue(doom2Tile.waitForExistence(timeout: 5),
