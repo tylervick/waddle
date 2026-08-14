@@ -160,6 +160,45 @@ something `agent:eligible`: what lands, that none of it is a protected path, and
 that a pull request verifies it before merge. It is one sentence, and it is what
 lets a reviewer check the call instead of re-deriving it.
 
+### If it is blocked, say what would unblock it
+
+`agent:blocked` covers two states that look identical in `gh issue list` and are
+not remotely the same thing:
+
+- **Permanently owner-only.** #28 (App Store Connect), #107 (age rating), #51
+  (on-device touch feel). No merge changes these; they are your work, not
+  backlog debt.
+- **Blocked in sequence.** #125, #126 and #127 are each ordinary `App/Sources/`
+  work with hermetic tests, decisions already made, and full Verification
+  sections. They are blocked only because they build on the shelf from #124,
+  which is not on `main` yet. Theming a shell that is about to be replaced would
+  be discarded work.
+
+Counted together they read as a growing wall. Counted apart, three of those
+expire the moment one *eligible* issue merges.
+
+**So when a blocker will lift on its own, name it and name the trigger.** The
+form those three use, verbatim:
+
+> Blocked for the loop — sequencing only: this styles the shelf from the shelf
+> issue #124, which is not yet on `main`; theming today's two-tab shell would be
+> discarded work. **Flip to agent:eligible when #124 merges.** No other blocker:
+> the work is `App/Sources/` + asset catalog, PR-verifiable.
+
+Three things that sentence does. It says the block is temporary. It names the
+exact event that ends it, so the flip is a mechanical check rather than a
+judgement call re-made months later. And it states there is no *second* blocker
+hiding behind the first — without that, whoever revisits it has to re-derive the
+whole eligibility question anyway.
+
+For a permanent block, say that too, in as many words: *"No merge unblocks this;
+it needs a physical device."* An issue that just says "blocked" leaves a reader
+unable to tell which pile it is in.
+
+A practical consequence worth knowing: a keystone issue can gate several others.
+#124 gates three. When that is true, the useful move is usually not to work the
+blocked items but to put `agent:next` on the keystone.
+
 ## Size labels change what the loop attempts first
 
 `size:xs` (one file plus one test) · `size:s` (one module, no cross-cutting
@@ -319,6 +358,7 @@ number — `issue 42`, `#42`, `per #42`. None of those is a keyword.
 | Verification says "run the tests" | Give the exact command, unmodified-runnable, plus what the new cases must cover. |
 | New test demanded with no discrimination proof | Name the thing to break, and the expected fail-then-pass. |
 | Blocked with no reason | The label means "reason stated in the issue". Write the "Blocked for the loop: …" paragraph. |
+| Blocked with no unblock condition | If a merge or decision would lift it, name that event so the flip is mechanical. If nothing will, say so outright. |
 | Blocked because "an agent might get it wrong" | Not a reason — the owner is the merge gate on every run. |
 | `Fixed #13` assumed safe because the rule names three verbs | Nine keywords close, in any case, anywhere in the message. |
 | No size label | Sorts behind every labelled issue in `loop-precheck.sh`. |
