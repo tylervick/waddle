@@ -262,6 +262,30 @@ happened — it is what makes a lost trial visible instead of silent.
    separate tool invocations and needs this literal three times; a `$PR`
    shell variable will not survive to get there.
 
+   Then label the Orca workspace this run is executing in, so the owner can
+   get from a workspace card to its output without hunting for the branch:
+
+   ```bash
+   orca worktree set --worktree active \
+       --issue <ISSUE> \
+       --workspace-status in-review \
+       --comment "PR #<PR> — <one line: what changed, and anything the owner
+       should look at first>" || true
+   ```
+
+   `--worktree active` resolves from the current directory, which is this
+   run's own worktree, so no path or id is needed. The comment is the only
+   place a pull request number can go — there is no `--pr` field — so put it
+   first in the text where a truncated card still shows it.
+
+   **The `|| true` is deliberate and is the one place in this protocol where
+   masking a failure is correct.** This is metadata for a human, not part of
+   the work: `orca` may be absent from `PATH`, the runtime may be unreachable,
+   and none of that says anything about whether the change is good. A run that
+   failed here after opening a sound pull request would be reported as broken
+   when it is not. The same reasoning governs the worktree sweep in
+   `Scripts/loop-precheck.sh` — hygiene failing must never stop the real job.
+
 **Watch your own clock.** Nothing will stop you. Run `date -u +%s`, subtract
 the literal `<START>` value you recorded in section 1, then subtract the
 literal `<WAIT_TOTAL>` value most recently recorded (still `0` at this point
@@ -647,6 +671,20 @@ a closed issue it does nothing until someone reopens it, then jumps the queue.
 Note this removes the label; it does not move it to some next issue. Nothing in
 the label vocabulary expresses "this comes after that", so there is no next to
 compute. Choosing what to steer at is the owner's, not yours.
+
+On any outcome other than `pr-opened` there is no pull request to point at, so
+label the workspace with the outcome instead — same masking, same reason:
+
+```bash
+orca worktree set --worktree active \
+    --issue <ISSUE> \
+    --comment "<outcome> — <one line on where it stopped>" || true
+```
+
+Leave `--workspace-status` alone here. The board's default statuses are `todo`,
+`in-progress`, `in-review` and `completed`, and none of them means "stopped, and
+the issue needs a human" — setting `todo` would claim the run never started.
+The comment carries the outcome; do not invent a status that misstates it.
 
 On any outcome other than `pr-opened`, also `gh issue edit <ISSUE> --add-label
 agent:stuck` and comment on the issue stating what you attempted and exactly
