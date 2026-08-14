@@ -12,6 +12,8 @@ final class TouchOverlayView: UIView {
     private let debugHUDEnabled: Bool
 
     private var stickTouch: UITouch?
+    // Placeholders only: both are rebuilt at the touch point, with the
+    // device-scaled `layout.stickRadius`, on every touch-begin.
     private var stickModel = TouchStickModel(center: .zero, radius: 60)
     private var turnTouch: UITouch?
     private var turnModel = TouchStickModel(center: .zero, radius: 60)
@@ -109,22 +111,22 @@ final class TouchOverlayView: UIView {
         // WoofIOS_IsMenuActive() reports a menu on screen so the overlay
         // can't trigger this. A future button add must check *both*
         // tables, not just the gameplay one.
-        addButton("FIRE", id: "fireButton", size: 84) { [weak self] down in
+        addButton("FIRE", control: .fire) { [weak self] down in
             self?.gamepad.setFireTrigger(down: down)
         }
-        addButton("USE", id: "useButton", size: 64) { [weak self] down in
+        addButton("USE", control: .use) { [weak self] down in
             self?.gamepad.setButton(.south, down: down)
         }
-        addButton("◀", id: "weaponPrevButton", size: 48) { [weak self] down in
+        addButton("◀", control: .weaponPrev) { [weak self] down in
             self?.gamepad.setButton(.leftShoulder, down: down)
         }
-        addButton("▶", id: "weaponNextButton", size: 48) { [weak self] down in
+        addButton("▶", control: .weaponNext) { [weak self] down in
             self?.gamepad.setButton(.rightShoulder, down: down)
         }
-        addButton("MAP", id: "automapButton", size: 48) { [weak self] down in
+        addButton("MAP", control: .automap) { [weak self] down in
             self?.gamepad.setButton(.north, down: down)
         }
-        addButton("≡", id: "menuButton", size: 48) { [weak self] down in
+        addButton("≡", control: .menu) { [weak self] down in
             self?.gamepad.setButton(.start, down: down)
         }
 
@@ -335,52 +337,69 @@ final class TouchOverlayView: UIView {
 
     private var buttons: [OverlayButton] = []
 
-    private func addButton(_ title: String, id: String, size: CGFloat,
+    private func addButton(_ title: String, control: TouchOverlayControl,
                            onPress: @escaping (Bool) -> Void) {
-        let control = OverlayButton(title: title, size: size, onPress: onPress)
-        control.accessibilityIdentifier = id
-        buttons.append(control)
-        addSubview(control)
+        // baseDiameter is the starting size only; layoutSubviews resizes it
+        // per device via TouchOverlayLayout.
+        let button = OverlayButton(title: title, size: control.baseDiameter, onPress: onPress)
+        button.accessibilityIdentifier = control.rawValue
+        buttons.append(button)
+        addSubview(button)
+    }
+
+    /// Height of the strip the debug HUD claims along the top edge (only
+    /// when the "Show Debug Info" toggle is on).
+    private static let debugHUDStripHeight: CGFloat = 22
+
+    /// Live geometry for the current bounds. Recomputed rather than cached:
+    /// it is a handful of arithmetic ops, and iPadOS windowed multitasking
+    /// resizes the window continuously during a drag, so a cached copy would
+    /// be stale exactly when it matters.
+    private var layout: TouchOverlayLayout {
+        TouchOverlayLayout(bounds: bounds, safeAreaInsets: safeAreaInsets,
+                           hudReserve: debugHUDEnabled ? Self.debugHUDStripHeight : 0)
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         let inset = safeAreaInsets
         let b = bounds
-        // The debug HUD claims a thin strip at the very top edge; push the
-        // top button row down to clear it so the HUD never overlaps them
-        // (only takes effect when the "Show Debug Info" toggle is on --
-        // zero layout change otherwise).
-        let hudReservedHeight: CGFloat = debugHUDEnabled ? 22 : 0
         if let debugHUDLabel {
             debugHUDLabel.frame = CGRect(x: b.minX + inset.left, y: b.minY + inset.top,
                                          width: b.width - inset.left - inset.right,
-                                         height: hudReservedHeight)
+                                         height: Self.debugHUDStripHeight)
         }
-        let topRowY = b.minY + inset.top + hudReservedHeight
-        // Right-hand cluster: FIRE big, USE above it, shoulders top corners,
-        // MAP + MENU at top edge.
-        place("fireButton", x: b.maxX - inset.right - 70, y: b.maxY - inset.bottom - 90)
-        place("useButton", x: b.maxX - inset.right - 160, y: b.maxY - inset.bottom - 60)
-        place("weaponPrevButton", x: b.minX + inset.left + 40, y: topRowY + 40)
-        place("weaponNextButton", x: b.maxX - inset.right - 40, y: topRowY + 40)
-        place("automapButton", x: b.midX - 40, y: topRowY + 32)
-        place("menuButton", x: b.midX + 40, y: topRowY + 32)
-    }
-
-    private func place(_ id: String, x: CGFloat, y: CGFloat) {
-        buttons.first { $0.accessibilityIdentifier == id }?.center = CGPoint(x: x, y: y)
+        // Position *and* size come from TouchOverlayLayout -- see its doc
+        // comment for the arrangement and why the offsets scale. Buttons the
+        // layout does not know about are left alone rather than stacked at
+        // the origin.
+        let layout = self.layout
+        for button in buttons {
+            guard let id = button.accessibilityIdentifier,
+                  let control = TouchOverlayControl(rawValue: id) else { continue }
+            button.frame = layout.frame(for: control)
+        }
     }
 
     /// How far past a button's edge still counts as "aimed at that button",
-    /// in points. weaponPrevButton is placed at `x: minX + inset.left + 40`
-    /// above -- squarely inside the movement stick's own capture column
-    /// (`point.x < bounds.width * 0.4` in touchesBegan) -- so a fingertip
-    /// that misses the 48pt button by a few points lands on bare overlay.
-    /// Without a cushion that miss silently starts a stick track: the
-    /// player asks for "previous weapon" and gets a movement input instead.
+    /// in points, so a near-miss does nothing instead of being claimed as a
+    /// stick or turn track.
+    ///
+    /// This used to be justified by weaponPrevButton sitting at
+    /// `x: minX + inset.left + 40`, inside the movement stick's own capture
+    /// column (`point.x < bounds.width * 0.4`), where a missed tap started a
+    /// stick track and the player got movement instead of a weapon switch.
+    /// TouchOverlayLayout has since moved both weapon buttons into the
+    /// right-hand cluster, so nothing is left in the stick column and that
+    /// specific collision is gone. The cushion still earns its place on the
+    /// other side: in the `modern` scheme the whole right region is a
+    /// drag-to-turn surface, so a near-miss on FIRE, USE or a weapon button
+    /// would otherwise start a turn track and swing the view.
+    ///
     /// 20pt puts the cushion just past a fingertip's radius beyond the
-    /// button's edge, which is the size of the miss this is about.
+    /// button's edge, which is the size of the miss this is about. It is
+    /// deliberately *not* scaled: it models a fingertip, and fingers are the
+    /// same size on an iPad.
     private static let buttonNearMissMargin: CGFloat = 20
 
     /// True when `point` falls inside a visible button's frame grown by
@@ -419,14 +438,14 @@ final class TouchOverlayView: UIView {
             // miss should do.
             if stickTouch == nil && point.x < bounds.width * 0.4 && !nearButton(point) {
                 stickTouch = touch
-                stickModel = TouchStickModel(center: point, radius: 60,
+                stickModel = TouchStickModel(center: point, radius: layout.stickRadius,
                                              deadZone: CGFloat(tuning.stickDeadZone))
                 drawStick(at: point)
                 stickEngagedMarker.isHidden = false
             } else if scheme.usesDragTurn && turnTouch == nil && point.x >= bounds.width * 0.4 {
                 turnTouch = touch
                 lastTurnX = point.x
-                turnModel = TouchStickModel(center: point, radius: 60)
+                turnModel = TouchStickModel(center: point, radius: layout.stickRadius)
                 drawTurnStick(at: point)
             }
         }
@@ -477,7 +496,7 @@ final class TouchOverlayView: UIView {
 
     private func drawStick(at center: CGPoint) {
         stickBase.path = UIBezierPath(
-            arcCenter: center, radius: 60, startAngle: 0,
+            arcCenter: center, radius: layout.stickRadius, startAngle: 0,
             endAngle: .pi * 2, clockwise: true).cgPath
         moveKnob(stickKnob, to: center)
         stickBase.isHidden = false
@@ -492,7 +511,7 @@ final class TouchOverlayView: UIView {
     /// gives it a place to visually clamp to, matching the movement stick.
     private func drawTurnStick(at center: CGPoint) {
         turnBase.path = UIBezierPath(
-            arcCenter: center, radius: 60, startAngle: 0,
+            arcCenter: center, radius: layout.stickRadius, startAngle: 0,
             endAngle: .pi * 2, clockwise: true).cgPath
         moveKnob(turnKnob, to: center)
         turnBase.isHidden = false
@@ -501,7 +520,7 @@ final class TouchOverlayView: UIView {
 
     private func moveKnob(_ knob: CAShapeLayer, to point: CGPoint) {
         knob.path = UIBezierPath(
-            arcCenter: point, radius: 26, startAngle: 0,
+            arcCenter: point, radius: layout.knobRadius, startAngle: 0,
             endAngle: .pi * 2, clockwise: true).cgPath
     }
 }
@@ -510,6 +529,7 @@ final class TouchOverlayView: UIView {
 /// must be press=down / release=up).
 final class OverlayButton: UIView {
     private let onPress: (Bool) -> Void
+    private let label = UILabel()
 
     /// Debug/test telemetry only (WADDLE_DEBUG_INPUT_COUNTS): how many
     /// press-downs have been delivered to any overlay button in this
@@ -528,21 +548,41 @@ final class OverlayButton: UIView {
         accessibilityTraits = .button
         accessibilityLabel = title
 
-        layer.cornerRadius = size / 2
         backgroundColor = UIColor.white.withAlphaComponent(0.12)
         layer.borderWidth = 2
         layer.borderColor = UIColor.white.withAlphaComponent(0.35).cgColor
 
-        let label = UILabel(frame: bounds)
+        label.frame = bounds
         label.text = title
-        label.font = .systemFont(ofSize: size * 0.28, weight: .bold)
         label.textColor = UIColor.white.withAlphaComponent(0.7)
         label.textAlignment = .center
         label.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         addSubview(label)
+        // `size` is only the starting diameter: TouchOverlayLayout resizes
+        // every button per device, so the round corner and the label size
+        // are derived from the live bounds below rather than pinned here.
+        applyDiameterDerivedStyle()
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
+
+    /// Corner radius and label size follow the frame, not the constructor
+    /// argument. Without this a button resized by the layout (roughly 1.57x
+    /// on a 13" iPad, smaller than 1x in a small iPadOS window) would keep
+    /// its original 42pt corner radius on a 132pt box — a square with dented
+    /// corners — and a phone-sized label rattling around inside it.
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        applyDiameterDerivedStyle()
+    }
+
+    private func applyDiameterDerivedStyle() {
+        // min(): the same inscribed-circle rule `point(inside:)` uses, so the
+        // drawn shape and the hit area cannot disagree on a non-square frame.
+        let diameter = min(bounds.width, bounds.height)
+        layer.cornerRadius = diameter / 2
+        label.font = .systemFont(ofSize: diameter * 0.28, weight: .bold)
+    }
 
     /// The control is drawn as a circle (`cornerRadius = size / 2` above) but
     /// is a square `UIView`, and UIKit's default hit-testing accepts the whole

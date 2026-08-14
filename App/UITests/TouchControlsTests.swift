@@ -210,13 +210,27 @@ final class TouchControlsTests: XCTestCase {
             "second session performed zero touches but reports \(secondCount) touch events -- touch_event_count leaked across sessions")
     }
 
-    /// Regression test: `weaponPrevButton` is placed at
-    /// `x: safeArea.left + 40` (TouchOverlayView.layoutSubviews), squarely
-    /// inside the movement stick's own capture column (`touchesBegan`'s
-    /// `point.x < bounds.width * 0.4`). A fingertip that missed the 48pt
-    /// button by a few points used to fall through onto bare overlay and
-    /// silently start a stick track -- a mis-tap on "previous weapon"
-    /// became a movement input.
+    /// Regression test: a fingertip that misses `weaponPrevButton` by a few
+    /// points must not silently start a movement-stick track -- a mis-tap on
+    /// "previous weapon" becoming a movement input.
+    ///
+    /// The hazard this was originally written for is now gone by
+    /// construction, and that is worth stating rather than leaving the old
+    /// rationale to rot. `weaponPrevButton` used to sit at
+    /// `x: safeArea.left + 40`, squarely inside the movement stick's own
+    /// capture column (`touchesBegan`'s `point.x < bounds.width * 0.4`), so
+    /// a near-miss landed on bare overlay *inside the stick's own region*
+    /// and only `nearButton`'s cushion kept it from steering.
+    /// `TouchOverlayLayout` has since moved both weapon buttons into the
+    /// right-hand cluster, well outside that column, so the near-miss half
+    /// below now holds geometrically as well as by the cushion.
+    ///
+    /// It is kept because the property is still the one that matters and
+    /// still regresses if the arrangement moves back; the control half below
+    /// is what carries the discriminating power today. The surviving live
+    /// hazard is the `modern` scheme, where the whole right region is a
+    /// drag-to-turn surface and a near-miss beside FIRE can start a turn
+    /// track -- that case is not covered here.
     ///
     /// Asserted on the app-owned `stickEngaged` marker rather than on any
     /// visible effect: a tap's stick track begins and ends in
