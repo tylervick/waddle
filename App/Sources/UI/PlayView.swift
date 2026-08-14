@@ -233,6 +233,6 @@ struct PlayView: View {
     private func refresh() {
         recent = (try? library.recentlyPlayed(limit: 6)) ?? []
         baseGames = (try? library.baseGames().map(PlayableItem.baseGame)) ?? []
-        presets = (try? library.allLoadouts().map(PlayableItem.preset)) ?? []
+        presets = (try? library.presets().map(PlayableItem.preset)) ?? []
     }
 }
