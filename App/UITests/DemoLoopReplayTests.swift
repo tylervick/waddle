@@ -42,28 +42,24 @@ final class DemoLoopReplayTests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Play"].waitForExistence(timeout: 90),
+        XCTAssertTrue(app.navigationBars["WADdle"].waitForExistence(timeout: 90),
                       "launcher UI never appeared")
         let ok = app.alerts.buttons["OK"]
         if ok.waitForExistence(timeout: 3) { ok.tap() }
         return app
     }
 
-    /// Polls the Library tab for `name` (async loose-file adoption may take a
-    /// few seconds after launch). Returns whether it ever showed up — the
-    /// caller decides skip vs. fail, since the required IWAD is copyrighted.
+    /// Polls Manage for `name` (async loose-file adoption may take a few
+    /// seconds after launch). Returns whether it ever showed up — the caller
+    /// decides skip vs. fail, since the required IWAD is copyrighted.
     private func wadAppears(app: XCUIApplication, name: String,
                             timeout: TimeInterval = 30) -> Bool {
-        let libraryTab = app.tabBars.buttons["Library"]
-        let playTab = app.tabBars.buttons["Play"]
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            libraryTab.tap()
-            if app.staticTexts[name].waitForExistence(timeout: 2) {
-                playTab.tap()
-                return true
-            }
-            playTab.tap()
+            openManage(app)
+            let found = app.staticTexts[name].waitForExistence(timeout: 2)
+            returnToShelf(app)
+            if found { return true }
         } while Date() < deadline
         return false
     }
@@ -115,14 +111,33 @@ final class DemoLoopReplayTests: XCTestCase {
         // Create the DOOM2 loadout (commercial IWAD, no DEMO4 lump).
         let doom2Tile = app.buttons["loadout-DoomII"]
         if !doom2Tile.exists {
+            openManage(app)
             app.buttons["newLoadoutButton"].tap()
+
+            // `newLoadoutButton` opens `PresetCreationFlow`, which picks the
+            // base game *first* and only then pushes the editor pre-seeded
+            // with it — there is no in-editor `iwadPicker` step on this path
+            // (Plan B Task 4). The row is identified by the WAD's display
+            // name, which #118 derives from content: a recognized DOOM II
+            // hashes to "DOOM II: Hell on Earth", any other release keeps its
+            // filename stem. Match on either rather than hardcoding one, so
+            // this works with whichever copy of DOOM2.WAD was provisioned.
+            let baseRow = app.buttons.matching(NSPredicate(format:
+                "identifier BEGINSWITH 'createPresetBase-' AND "
+                + "(identifier CONTAINS[c] 'doom2' OR identifier CONTAINS 'DOOM II')"))
+                .firstMatch
+            XCTAssertTrue(baseRow.waitForExistence(timeout: 5),
+                          "DOOM2 base-game row missing from the preset picker")
+            baseRow.tap()
+
+            // The editor arrives pre-named from the base game; replace that
+            // with the name this test's tile lookup uses.
             let nameField = app.textFields["loadoutNameField"]
-            XCTAssertTrue(nameField.waitForExistence(timeout: 5))
-            nameField.tap()
-            nameField.typeText("DoomII")
-            app.buttons["iwadPicker"].tap()
-            app.buttons["DOOM2"].tap()
+            XCTAssertTrue(nameField.waitForExistence(timeout: 5), "seeded editor never appeared")
+            clearAndType(nameField, "DoomII")
+
             app.buttons["saveLoadoutButton"].tap()
+            returnToShelf(app)
             XCTAssertTrue(doom2Tile.waitForExistence(timeout: 5),
                           "DOOM2 loadout tile missing after save")
         }

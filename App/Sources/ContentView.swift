@@ -7,31 +7,12 @@ struct ContentView: View {
     @State private var lastExitCode: Int32?
 
     var body: some View {
-        TabView {
-            // NOTE on tab-bar accessibility identifiers (iOS 26 "Liquid
-            // Glass" TabView): the native tab bar button is reconstructed by
-            // the system from the tabItem's icon/title; it does NOT inherit
-            // SwiftUI identifiers/modifiers set on the tabItem content
-            // (verified empirically — neither `.tabItem { Label(...)
-            // .accessibilityIdentifier(...) }` nor `Tab(...)
-            // .accessibilityIdentifier(...)` reach the rendered button). The
-            // identifiers below land on each tab's content-pane container
-            // instead, which IS reachable once that tab is showing. UI tests
-            // must switch tabs by the button's label text
-            // (`app.tabBars.buttons["Play"].tap()` / `["Library"].tap()`);
-            // use `app.otherElements["playTab"]` / `["libraryTab"]` to assert
-            // which tab's content is now on screen.
-            PlayView(library: library, lastExitCode: $lastExitCode)
-                .tabItem {
-                    Label("Play", systemImage: "play.circle.fill")
-                }
-                .accessibilityIdentifier("playTab")
-
-            LibraryView(library: library, importer: importer)
-                .tabItem {
-                    Label("Library", systemImage: "books.vertical")
-                }
-                .accessibilityIdentifier("libraryTab")
+        // One stack, one screen: the shelf is the app's home, and management is
+        // a door off it rather than a co-equal tab (spec §§2–3). The former
+        // two-tab `TabView` and its iOS 26 tab-bar identifier workaround are
+        // gone with it — nothing addresses a tab bar any more.
+        NavigationStack {
+            ShelfView(library: library, importer: importer, lastExitCode: $lastExitCode)
         }
         .overlay(alignment: .bottom) {
             if let notice = ImportNotices.shared.current {

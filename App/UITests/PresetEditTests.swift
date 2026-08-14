@@ -19,7 +19,8 @@ final class PresetEditTests: XCTestCase {
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launch()
 
-        // Create a preset to edit.
+        // Create a preset to edit — creation lives behind Manage now (spec §3).
+        openManage(app)
         app.buttons["newLoadoutButton"].tap()
 
         let baseRow = app.buttons["createPresetBase-Freedoom Phase 1"]
@@ -31,9 +32,10 @@ final class PresetEditTests: XCTestCase {
         clearAndType(nameField, "Edit Target")
 
         app.buttons["saveLoadoutButton"].tap()
+        returnToShelf(app)
 
         let tile = app.buttons["loadout-Edit Target"]
-        XCTAssertTrue(tile.waitForExistence(timeout: 5), "new preset tile never appeared on Play")
+        XCTAssertTrue(tile.waitForExistence(timeout: 5), "new preset tile never appeared on the shelf")
 
         // Open the detail page and tap Edit there -- this is the path under
         // test, distinct from the tile's own context-menu "Edit" shortcut.

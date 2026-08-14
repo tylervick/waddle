@@ -11,7 +11,7 @@ struct LoadoutEditorView: View {
     /// as a sheet's direct root, so this view's own `dismiss()` only pops back
     /// to the base-game picker -- it does not close the enclosing sheet. When
     /// set, `onComplete` is the outer flow's `dismiss()` instead, closing the
-    /// whole sheet so `PlayView`'s `.sheet(..., onDismiss: refresh)` fires.
+    /// whole sheet so the presenter's `.sheet(..., onDismiss: refresh)` fires.
     /// `nil` when editing an existing loadout, where this view IS the sheet's
     /// direct root and its own `dismiss()` is already correct.
     var onComplete: (() -> Void)? = nil
