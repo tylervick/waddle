@@ -15,6 +15,12 @@ final class WADFile {
     /// Optional per-item touch-scheme override (TouchControlScheme raw value);
     /// nil = use the global default. Only meaningful for playable IWADs.
     var schemeOverrideRaw: String?
+    /// Removed from the Play shelf, reversibly (spec §4). The row, its backing
+    /// file and its saves all persist — this is deliberately not a delete,
+    /// because `seedBundledContentIfNeeded()` re-inserts a *missing* bundled row
+    /// under a fresh UUID and would orphan `Documents/Saves/<id>/`.
+    /// Defaulted in place so existing stores migrate lightweight.
+    var isHidden: Bool = false
 
     init(id: UUID = UUID(), filename: String, displayName: String, kindRaw: String,
          sha1: String, gameFamilyRaw: String, isBundled: Bool = false,

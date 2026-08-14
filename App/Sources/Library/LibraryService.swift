@@ -46,6 +46,11 @@ final class LibraryService {
             ("freedoom2.wad", "Freedoom Phase 2", .doom2),
         ]
         for entry in bundled {
+            // Presence only — never filter this on `isHidden`. A hidden row is
+            // present, just off the shelf; treating it as missing would insert a
+            // duplicate under a fresh UUID and orphan Documents/Saves/<id>/,
+            // which is exactly what spec §4 made hiding reversible to avoid.
+            // Pinned by `testSeederTreatsHiddenBundledRowAsPresent`.
             if try wadByFilename(entry.file, bundled: true) != nil { continue }
             let wad = WADFile(filename: entry.file, displayName: entry.title,
                               kindRaw: WADKind.iwad.rawValue,
@@ -139,22 +144,44 @@ final class LibraryService {
 
     // MARK: Queries
 
-    /// Base games (IWADs) for the Play grid — bundled first, then by title.
+    /// Base games (IWADs) on the Play shelf — bundled first, then by title.
+    /// Excludes hidden rows, so a base game the player removed from the shelf
+    /// is offered nowhere it could be started from (this feeds the preset
+    /// builder's IWAD picker too). Presets already built on a hidden base game
+    /// keep working: the launcher resolves their IWAD by id, not through here.
     func baseGames() throws -> [WADFile] {
+        try baseGames(hidden: false)
+    }
+
+    private func baseGames(hidden: Bool) throws -> [WADFile] {
         try allWADs()
-            .filter { $0.kindRaw == WADKind.iwad.rawValue }
+            .filter { $0.kindRaw == WADKind.iwad.rawValue && $0.isHidden == hidden }
             .sorted { ($0.isBundled ? 0 : 1, $0.displayName) < ($1.isBundled ? 0 : 1, $1.displayName) }
     }
 
     /// Base games + presets that have been played, most-recent-first, capped.
     func recentlyPlayed(limit: Int) throws -> [PlayableItem] {
         let items = try baseGames().map(PlayableItem.baseGame)
-            + allLoadouts().map(PlayableItem.preset)
+            + presets().map(PlayableItem.preset)
         return items
             .filter { $0.lastPlayed != nil }
             .sorted { ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }
             .prefix(limit)
             .map { $0 }
+    }
+
+    /// Presets on the Play shelf, in `allLoadouts()`' order minus hidden rows.
+    /// `allLoadouts()` deliberately still reports every preset — it backs the
+    /// Library inventory and the diagnostics dump, neither of which is a shelf.
+    func presets() throws -> [Loadout] {
+        try allLoadouts().filter { !$0.isHidden }
+    }
+
+    /// Everything the player has taken off the shelf, for Manage → Hidden from
+    /// Shelf. Base games first, then presets, each in its shelf order.
+    func hiddenItems() throws -> [PlayableItem] {
+        try baseGames(hidden: true).map(PlayableItem.baseGame)
+            + allLoadouts().filter(\.isHidden).map(PlayableItem.preset)
     }
 
     func allWADs() throws -> [WADFile] {
@@ -284,6 +311,26 @@ final class LibraryService {
                 at: Self.savesDirectory(forLoadoutID: loadout.id))
         }
         context.delete(loadout)
+        try context.save()
+    }
+
+    /// Removes a playable item from the shelf without destroying anything:
+    /// the row, its backing file and its saves all stay put. Reversible with
+    /// `restore(_:)`; hidden items are enumerated by `hiddenItems()`.
+    func hide(_ item: PlayableItem) throws {
+        try setHidden(true, on: item)
+    }
+
+    /// Puts a hidden item back on the shelf.
+    func restore(_ item: PlayableItem) throws {
+        try setHidden(false, on: item)
+    }
+
+    private func setHidden(_ hidden: Bool, on item: PlayableItem) throws {
+        switch item {
+        case .baseGame(let wad): wad.isHidden = hidden
+        case .preset(let loadout): loadout.isHidden = hidden
+        }
         try context.save()
     }
 

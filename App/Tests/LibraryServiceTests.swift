@@ -312,4 +312,101 @@ final class LibraryServiceTests: XCTestCase {
                                                  family: GameFamily.unknown.rawValue)
         XCTAssertNil(service.fileSize(for: ghost))
     }
+
+    // MARK: Hide / restore (spec §4: reversible "Remove from Shelf")
+
+    func testHideRemovesBaseGameFromPlayableListingsButKeepsTheRow() throws {
+        let iwad = try registerWithBacking("doom2.wad", kind: .iwad)
+        try service.markPlayed(iwad, at: Date(timeIntervalSince1970: 1_000))
+        XCTAssertFalse(iwad.isHidden, "rows are visible by default")
+
+        try service.hide(.baseGame(iwad))
+
+        XCTAssertFalse(try service.baseGames().contains { $0.id == iwad.id })
+        XCTAssertFalse(try service.recentlyPlayed(limit: 6).contains { $0.id == "wad-\(iwad.id)" })
+        // Hidden is not deleted: the row, its id and its backing file all persist,
+        // so Documents/Saves/<id>/ stays attached (spec §4).
+        XCTAssertNotNil(try service.wad(id: iwad.id))
+        XCTAssertEqual(service.fileStatus(for: iwad), .imported)
+    }
+
+    func testRestoreReturnsBaseGameToPlayableListings() throws {
+        let iwad = try registerWithBacking("doom2.wad", kind: .iwad)
+        try service.hide(.baseGame(iwad))
+        try service.restore(.baseGame(iwad))
+        XCTAssertTrue(try service.baseGames().contains { $0.id == iwad.id })
+        XCTAssertTrue(try service.hiddenItems().isEmpty)
+    }
+
+    func testHideRemovesPresetFromPlayableListingsButKeepsTheRow() throws {
+        let iwad = try registerWithBacking("doom2.wad", kind: .iwad)
+        let preset = try service.createLoadout(name: "Sunlust", iwadID: iwad.id,
+                                               pwadIDs: [], dehIDs: [])
+        preset.lastPlayed = Date(timeIntervalSince1970: 2_000)
+        try service.saveChanges()
+        XCTAssertFalse(preset.isHidden, "presets are visible by default")
+
+        try service.hide(.preset(preset))
+
+        XCTAssertFalse(try service.presets().contains { $0.id == preset.id })
+        XCTAssertFalse(try service.recentlyPlayed(limit: 6)
+            .contains { $0.id == "loadout-\(preset.id)" })
+        XCTAssertEqual(try service.allLoadouts().map(\.name), ["Sunlust"],
+                       "the row itself persists — hide is not delete")
+    }
+
+    func testRestoreReturnsPresetToPlayableListings() throws {
+        let iwad = try registerWithBacking("doom2.wad", kind: .iwad)
+        let preset = try service.createLoadout(name: "Sunlust", iwadID: iwad.id,
+                                               pwadIDs: [], dehIDs: [])
+        try service.hide(.preset(preset))
+        try service.restore(.preset(preset))
+        XCTAssertEqual(try service.presets().map(\.name), ["Sunlust"])
+        XCTAssertTrue(try service.hiddenItems().isEmpty)
+    }
+
+    func testHiddenItemsEnumeratesBothKinds() throws {
+        let iwad = try registerWithBacking("doom2.wad", kind: .iwad)
+        let hiddenPreset = try service.createLoadout(name: "Hidden", iwadID: iwad.id,
+                                                     pwadIDs: [], dehIDs: [])
+        let visiblePreset = try service.createLoadout(name: "Visible", iwadID: iwad.id,
+                                                      pwadIDs: [], dehIDs: [])
+        try service.hide(.baseGame(iwad))
+        try service.hide(.preset(hiddenPreset))
+
+        XCTAssertEqual(try service.hiddenItems().map(\.title).sorted(), ["Hidden", "doom2"])
+        _ = visiblePreset
+    }
+
+    func testHiddenWADStillListedInLibraryInventory() throws {
+        let iwad = try registerWithBacking("doom2.wad", kind: .iwad)
+        try service.hide(.baseGame(iwad))
+        // The Library tab is the file inventory, not the shelf: a hidden file is
+        // still on disk and must stay visible (and manageable) there.
+        XCTAssertTrue(try service.allWADs().contains { $0.id == iwad.id })
+        XCTAssertTrue(try service.libraryGroups()
+            .flatMap(\.wads).contains { $0.id == iwad.id })
+    }
+
+    /// The load-bearing case from spec §4: `seedBundledContentIfNeeded()` re-inserts
+    /// *missing* bundled rows under fresh UUIDs, which would orphan
+    /// `Documents/Saves/<WADFile.id>/`. A hidden row is not missing, so the seeder
+    /// must leave it exactly as it found it — same id, still hidden, no duplicate.
+    func testSeederTreatsHiddenBundledRowAsPresent() throws {
+        try service.seedBundledContentIfNeeded()
+        let freedoom1 = try XCTUnwrap(try service.allWADs()
+            .first { $0.filename == "freedoom1.wad" && $0.isBundled })
+        let originalID = freedoom1.id
+        try service.hide(.baseGame(freedoom1))
+
+        try service.seedBundledContentIfNeeded()
+
+        let bundled = try service.allWADs().filter(\.isBundled)
+        XCTAssertEqual(bundled.map(\.filename).sorted(), ["freedoom1.wad", "freedoom2.wad"],
+                       "a hidden bundled row must not be re-seeded as a duplicate")
+        let after = try XCTUnwrap(bundled.first { $0.filename == "freedoom1.wad" })
+        XCTAssertEqual(after.id, originalID, "a fresh UUID would orphan the item's saves")
+        XCTAssertTrue(after.isHidden, "the seeder must not unhide what the player hid")
+        XCTAssertFalse(try service.baseGames().contains { $0.id == originalID })
+    }
 }
