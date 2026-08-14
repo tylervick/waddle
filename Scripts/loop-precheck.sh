@@ -52,8 +52,23 @@ NOW_EPOCH="$(to_epoch "$NOW_ISO")"
 skip() { echo "skip: $*" >&2; exit 1; }
 
 # 1. Engine freshness in THIS checkout.
-if ! "$ROOT/Scripts/check-engine-fresh.sh" >/dev/null 2>&1; then
-    skip "root checkout's engine is stale; every worktree would inherit it and rebuild"
+#
+# check-engine-fresh.sh already prints the command that clears this. Passing its
+# output through rather than composing a second copy here is deliberate: two
+# hand-maintained copies of a fix instruction drift, and a message that names a
+# stale remedy is worse than one that names none.
+#
+# Its wording says "before archiving" because archive.sh is its other caller, so
+# the loop's own reason is stated separately rather than restating either. That
+# reason is the part an operator needs: this is a state the loop CANNOT clear
+# itself -- Engine/woof and the engine build are on its never-touch list -- so
+# unlike every other skip here, this one is addressed to a human who has to act.
+if ! engine_msg="$("$ROOT/Scripts/check-engine-fresh.sh" 2>&1)"; then
+    skip "root checkout's engine is stale; every worktree would inherit it and rebuild.
+       The loop cannot clear this itself, and will refuse every run until someone
+       rebuilds in the ROOT checkout (not in a worktree):
+
+$engine_msg"
 fi
 
 # 2. Sweep abandoned per-run worktrees.

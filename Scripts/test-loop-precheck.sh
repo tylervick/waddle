@@ -133,10 +133,20 @@ make_fixture "$TMP/h"
 cat > "$TMP/h/issues.json" <<'J'
 [{"number":42,"labels":[{"name":"agent:eligible"},{"name":"size:xs"}]}]
 J
-printf '#!/bin/bash\nexit 1\n' > "$TMP/h/Scripts/check-engine-fresh.sh"
+# The stub emits a remedy on stderr the way the real check-engine-fresh.sh
+# does. Asserting only that the word "engine" appears -- which this case did
+# originally -- passes while the precheck discards that remedy with 2>&1, so
+# the operator is told the symptom and not the fix. This is a state the loop
+# cannot clear itself, so the message is the entire interface a human gets.
+printf '#!/bin/bash\necho "rebuild it with: Scripts/build-engine.sh" >&2\nexit 1\n' \
+    > "$TMP/h/Scripts/check-engine-fresh.sh"
 if out=$(run_precheck "$TMP/h" 2>"$TMP/err"); then fail "proceeded with a stale engine"; fi
 grep -q "engine" "$TMP/err" || fail "refusal does not name the engine: $(cat "$TMP/err")"
-pass "refuses when the root checkout's engine is stale"
+grep -q "Scripts/build-engine.sh" "$TMP/err" \
+  || fail "refusal discarded check-engine-fresh's remedy; got: $(cat "$TMP/err")"
+grep -q "ROOT checkout" "$TMP/err" \
+  || fail "refusal does not say where to run it; got: $(cat "$TMP/err")"
+pass "refuses when the engine is stale, and passes the remedy through"
 
 # 9. An eligible issue with no size label is still reachable, after sized ones.
 make_fixture "$TMP/i"
