@@ -628,11 +628,25 @@ post-fix. The same applies to
 for a run that skipped section 4 entirely) already produced, copied through,
 not recomputed.
 
-Then:
+Then release the claim, and drop the priority steer if this issue carried one:
 
 ```bash
 gh issue edit <ISSUE> --remove-label agent:in-progress
+gh issue edit <ISSUE> --remove-label agent:next   # no-op when it was not set
 ```
+
+`agent:next` is an owner steer meaning "take this one before anything else"
+(`Scripts/loop-precheck.sh` ranks it above size). It is spent the moment you
+reach this point, on **every** outcome — including `stuck`, where the issue is
+already excluded from selection and a steer left behind is a rule with no
+visible effect, which is how it misleads. Removing it here is deliberate:
+whoever set it is not watching the run, and a steer that outlives the work it
+was aimed at silently re-prioritises whatever it is still attached to. Left on
+a closed issue it does nothing until someone reopens it, then jumps the queue.
+
+Note this removes the label; it does not move it to some next issue. Nothing in
+the label vocabulary expresses "this comes after that", so there is no next to
+compute. Choosing what to steer at is the owner's, not yours.
 
 On any outcome other than `pr-opened`, also `gh issue edit <ISSUE> --add-label
 agent:stuck` and comment on the issue stating what you attempted and exactly
