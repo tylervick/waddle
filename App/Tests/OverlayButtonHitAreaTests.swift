@@ -82,3 +82,47 @@ final class OverlayButtonHitAreaTests: XCTestCase {
         XCTAssertTrue(small.hitTest(CGPoint(x: 24, y: 24), with: nil) === small)
     }
 }
+
+/// `TouchOverlayLayout` sizes the buttons per device, so a button is no
+/// longer the size it was constructed at — on a 13" iPad it is resized to
+/// roughly 1.57x. Everything derived from `size` at init has to follow the
+/// frame instead, or the iPad gets square buttons with phone-sized labels.
+@MainActor
+final class OverlayButtonResizeTests: XCTestCase {
+    private func resized(to diameter: CGFloat) -> OverlayButton {
+        let button = OverlayButton(title: "FIRE", size: 84) { _ in }
+        button.frame = CGRect(x: 0, y: 0, width: diameter, height: diameter)
+        button.layoutIfNeeded()
+        return button
+    }
+
+    func testGrownButtonStaysCircular() {
+        let button = resized(to: 132)
+        XCTAssertEqual(button.layer.cornerRadius, 66, accuracy: 0.001)
+    }
+
+    func testShrunkButtonStaysCircular() {
+        let button = resized(to: 55)
+        XCTAssertEqual(button.layer.cornerRadius, 27.5, accuracy: 0.001)
+    }
+
+    func testGrownButtonHitAreaFollowsTheNewRadius() {
+        let button = resized(to: 132)
+        XCTAssertTrue(button.hitTest(CGPoint(x: 66, y: 66), with: nil) === button,
+                      "centre of the grown button no longer hits")
+        // Inside the grown square, outside the grown circle.
+        XCTAssertNil(button.hitTest(CGPoint(x: 10, y: 10), with: nil),
+                     "corner of the grown button was still delivered")
+    }
+
+    func testLabelScalesWithTheButton() {
+        let phone = resized(to: 84)
+        let iPad = resized(to: 132)
+        let phoneFont = phone.subviews.compactMap { $0 as? UILabel }.first?.font.pointSize
+        let iPadFont = iPad.subviews.compactMap { $0 as? UILabel }.first?.font.pointSize
+        XCTAssertNotNil(phoneFont)
+        XCTAssertNotNil(iPadFont)
+        XCTAssertGreaterThan(iPadFont ?? 0, phoneFont ?? 0,
+                             "the iPad button kept a phone-sized label")
+    }
+}
