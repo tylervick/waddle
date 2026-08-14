@@ -51,6 +51,14 @@ make_recon_fixture() { # dest
     printf 'agent-loop@tylervick.com\n' > "$1/commit-emails.txt"
     printf '0\n' > "$1/commit-exit.txt"
     printf '0\n' > "$1/comment-exit.txt"
+    # Reconciliation's THIRD gate reads pulls/<pr>/reviews to prove a review
+    # actually happened. The default is one CodeRabbit review, because that is
+    # the scenario the pre-existing reconciliation cases were written to
+    # describe -- "a PR CodeRabbit reviewed", whose live count is therefore
+    # meaningful. Cases 24-26 override it to model the shapes that must NOT
+    # reconcile: a PR nobody reviewed, and a reviews query that failed.
+    printf 'coderabbitai[bot]\n' > "$1/reviewers.txt"
+    printf '0\n' > "$1/reviews-exit.txt"
     cat > "$1/review-body.txt" <<'BODY'
 _🗄️ Data Integrity & Integration_ | _🟠 Major_ | _🏗️ Heavy lift_
 BODY
@@ -62,6 +70,10 @@ case "$*" in
   *"pulls/"*"/commits"*)
     cat "$FIX/commit-emails.txt"
     exit "$(cat "$FIX/commit-exit.txt")"
+    ;;
+  *"pulls/"*"/reviews"*)
+    cat "$FIX/reviewers.txt"
+    exit "$(cat "$FIX/reviews-exit.txt")"
     ;;
   *"pulls/"*"/comments"*)
     cat "$FIX/review-body.txt"
@@ -784,5 +796,129 @@ echo "$out" | grep -q "scored by live query" \
 echo "$out" | grep -qi "could not be scored" \
     || fail "a failed legacy live query needs its own reported line, not silence; got: $out"
 pass "a failed legacy live query is reported on its own line instead of contributing a fabricated zero"
+
+# 26. THE THIRD GATE: a pull request nobody reviewed must never reconcile.
+#    The first two gates prove a live query reads the same code the run
+#    produced; neither proves anyone looked at it. Without this gate the
+#    comments query returns no Major/Critical lines -- which is exactly what an
+#    UNREVIEWED pull request returns -- and that empty result was counted as a
+#    measured zero.
+#
+#    This is not hypothetical. CodeRabbit stopped auto-reviewing repositories
+#    under 10 stars; this one has 1. On 2026-08-14 all 14 reconciliation-
+#    eligible records were for pull requests with zero reviews of any kind, so
+#    every reconciled figure the report produced was fabricated from absence.
+#
+#    The stub answers the reviews endpoint with nobody. What discriminates
+#    fixed from broken is not the findings total (0 either way, which is the
+#    whole trap) but that the record is NOT described as reconciled and is
+#    called out on its own line.
+make_recon_fixture "$TMP/t26"
+printf '' > "$TMP/t26/reviewers.txt"
+cat > "$TMP/t26/trials/2026-08-08T000000Z-issue-71.md" <<'EOF'
+---
+run_id: r-71
+timestamp: 2026-08-08T00:00:00Z
+prompt_sha: ce934c6
+issue: 71
+kind: bug
+size: size:s
+outcome: pr-opened
+wall_clock_seconds: 500
+verification_result: pass
+ci_result: pass
+coderabbit_findings_first: unavailable
+coderabbit_findings_after: none
+fix_rounds: 0
+pr: 71
+learning_added: none
+---
+prose
+EOF
+out="$(report "$TMP/t26" 2>&1)" || fail "report failed on the never-reviewed case; got: $out"
+grep -q "pulls/71/reviews" "$TMP/t26/gh-calls.log" \
+    || fail "the reviews gate must actually query for reviews; calls were: $(cat "$TMP/t26/gh-calls.log")"
+echo "$out" | grep -q "record(s) reconciled" \
+    && fail "a pull request with no CodeRabbit review must not reconcile; got: $out"
+echo "$out" | grep -q "0 CodeRabbit" \
+    || fail "an unreviewed pull request must contribute nothing to the findings total; got: $out"
+echo "$out" | grep -qi "no CodeRabbit review at all" \
+    || fail "the never-reviewed refusal needs its own reported line, not silence; got: $out"
+grep -q "pulls/71/comments" "$TMP/t26/gh-calls.log" \
+    && fail "comments must not be queried once the reviews gate has refused; calls were: $(cat "$TMP/t26/gh-calls.log")"
+pass "refuses reconciliation for a pull request with no CodeRabbit review, and says so"
+
+# 27. THE THIRD GATE, FAILING CLOSED. Same exit-status-first discipline the
+#    commits query already follows (cases 20-21): a reviews query that FAILS
+#    must not read as "no reviews". Both refusals land outside reconciliation,
+#    but they are different facts -- "nobody reviewed it" versus "could not
+#    find out" -- and collapsing them would hide a broken token or a network
+#    fault behind a confident claim about CodeRabbit.
+make_recon_fixture "$TMP/t27"
+printf 'coderabbitai[bot]\n' > "$TMP/t27/reviewers.txt"
+printf '1\n' > "$TMP/t27/reviews-exit.txt"
+cat > "$TMP/t27/trials/2026-08-08T000000Z-issue-72.md" <<'EOF'
+---
+run_id: r-72
+timestamp: 2026-08-08T00:00:00Z
+prompt_sha: ce934c6
+issue: 72
+kind: bug
+size: size:s
+outcome: pr-opened
+wall_clock_seconds: 500
+verification_result: pass
+ci_result: pass
+coderabbit_findings_first: unavailable
+coderabbit_findings_after: none
+fix_rounds: 0
+pr: 72
+learning_added: none
+---
+prose
+EOF
+out="$(report "$TMP/t27" 2>&1)" || fail "report failed when the reviews query failed; got: $out"
+echo "$out" | grep -q "record(s) reconciled" \
+    && fail "a failed reviews query must never reconcile; got: $out"
+echo "$out" | grep -qi "reviews query itself failed" \
+    || fail "a failed reviews query needs its own line, distinct from 'nobody reviewed it'; got: $out"
+echo "$out" | grep -qi "no CodeRabbit review at all" \
+    && fail "a failed reviews query must not be reported as a confirmed absence of reviews; got: $out"
+pass "refuses reconciliation when the reviews query itself fails, without claiming nobody reviewed"
+
+# 28. THE GATE DISCRIMINATES, IN THE OTHER DIRECTION. Cases 26-27 prove the
+#    gate refuses; this proves it does not refuse EVERYTHING, which is the
+#    failure mode a too-strict gate would have -- reconciliation silently dead
+#    for every record, with the report looking tidier for it. A pull request
+#    CodeRabbit genuinely reviewed still reconciles, and its live Major
+#    finding still reaches the total.
+make_recon_fixture "$TMP/t28"
+printf 'someone-else\ncoderabbitai[bot]\n' > "$TMP/t28/reviewers.txt"
+cat > "$TMP/t28/trials/2026-08-08T000000Z-issue-73.md" <<'EOF'
+---
+run_id: r-73
+timestamp: 2026-08-08T00:00:00Z
+prompt_sha: ce934c6
+issue: 73
+kind: bug
+size: size:s
+outcome: pr-opened
+wall_clock_seconds: 500
+verification_result: pass
+ci_result: pass
+coderabbit_findings_first: unavailable
+coderabbit_findings_after: none
+fix_rounds: 0
+pr: 73
+learning_added: none
+---
+prose
+EOF
+out="$(report "$TMP/t28" 2>&1)" || fail "report failed on the genuinely-reviewed case; got: $out"
+echo "$out" | grep -q "1 record(s) reconciled" \
+    || fail "a genuinely reviewed pull request must still reconcile; got: $out"
+echo "$out" | grep -q "1 CodeRabbit" \
+    || fail "the reconciled record's live Major finding must reach the findings total; got: $out"
+pass "still reconciles a pull request CodeRabbit genuinely reviewed, among other reviewers"
 
 echo "All loop-report tests passed."
