@@ -632,9 +632,49 @@ are going to resolve unattended. Then re-read the finding count into
 
 Rewrite your trial record with the real outcome and push it again — the exact
 same file as section 2's write, same `<RUN_TS>`-based path (section 6 has the
-git mechanics; if the exact filename slipped your notes, it is the only file
-matching `docs/loop-trials/*-issue-<ISSUE>.md` on `origin/loop-trials` whose
-frontmatter still reads `outcome: started`).
+git mechanics).
+
+**If the exact filename slipped your notes, recover it carefully — the obvious
+rule is wrong.** It is tempting to say "the only file matching
+`docs/loop-trials/*-issue-<ISSUE>.md` whose frontmatter still reads
+`outcome: started`", and this document said exactly that until it was found to
+be false. A run that dies between section 2 and section 5 leaves its record at
+`started` **permanently**, so the moment the loop re-attempts that issue there
+are two matches and no tie-break. `docs/loop-trials/2026-08-13T051601Z-issue-41.md`
+has been in that state since 2026-08-13.
+
+Getting it wrong is silent and destroys evidence in both directions: you
+overwrite the dead run's record with your outcome — erasing the only trace that
+a run ever died, and back-dating your trial onto its timestamp — while your own
+record stays at `started`, manufacturing a fresh phantom lost trial in the same
+move. Nothing detects either half.
+
+So, in order:
+
+1. Match `docs/loop-trials/*-issue-<ISSUE>.md` on `origin/loop-trials` and take
+   **the newest by filename**. `<RUN_TS>` is `%Y-%m-%dT%H%M%SZ`, so these sort
+   lexicographically in chronological order, and yours is necessarily the most
+   recent — `Scripts/loop-precheck.sh` will not hand the same issue to two runs
+   at once, so nothing newer than yours can exist.
+2. Before writing, confirm that file's frontmatter reads `outcome: started`
+   **and** that its `timestamp` is at or after the literal `<START>` you
+   recorded in section 1. That second check is the one that actually
+   discriminates: a record left behind by an earlier run necessarily predates
+   this run's start, and `<START>` is a literal you still hold even when
+   `<RUN_TS>` is the thing you lost. `<START>` is epoch seconds and `timestamp`
+   is ISO 8601, so convert before comparing — this runs on macOS, where `-r`
+   takes an epoch value:
+
+   ```bash
+   date -u -r <START> +%Y-%m-%dT%H:%M:%SZ
+   ```
+3. If step 2 does not hold, do **not** rewrite that file. Capture a fresh
+   `%Y-%m-%dT%H%M%SZ` timestamp, write a new record at that path with
+   `outcome: stuck`, and say in the narrative that the original record could
+   not be identified and why. That leaves the stranded record to be reported as
+   the lost trial it is, and adds an honest account beside it — two records,
+   both true. Rewriting the wrong file instead produces one record that lies
+   and one phantom, and nothing will ever flag either.
 
 Carry `ci_result` and `coderabbit_findings_first` through **unchanged** — the
 literals `<CI_RESULT>` and `<CR_FIRST>` you recorded at whichever of 4.1's
