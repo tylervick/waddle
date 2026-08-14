@@ -55,6 +55,27 @@ struct LibraryView: View {
         return merged
     }
 
+    /// Runs a whole delete batch, accumulating one entry per row the library
+    /// refused. This lives here — static, taking the service — rather than
+    /// inline in the view because `deleteBlocked` is `@State` and the repo has
+    /// no view-testing harness: with the loop inside the view, reverting the
+    /// accumulation to a plain overwrite left the entire suite green, so the
+    /// only thing pinned was the helper it happened to call.
+    @MainActor
+    static func deleting(_ wads: [WADFile],
+                         from library: LibraryService,
+                         blocked existing: [BlockedFile]) -> [BlockedFile] {
+        var blocked = existing
+        for wad in wads {
+            do {
+                try library.deleteWAD(wad, force: false)
+            } catch LibraryError.wadReferencedByLoadouts(let names) {
+                blocked = blockedFiles(blocked, adding: names, for: wad.filename)
+            } catch {}
+        }
+        return blocked
+    }
+
     /// The "File in use" alert's body: one line per blocked file, so the reader
     /// can tell which file to remove from which presets, then a closing
     /// instruction that agrees in number with what is actually listed.
@@ -81,7 +102,7 @@ struct LibraryView: View {
                             row(for: wad)
                         }
                         .onDelete { offsets in
-                            for index in offsets { delete(group.wads[index]) }
+                            delete(offsets.map { group.wads[$0] })
                         }
                     } header: {
                         Text(group.title)
@@ -157,7 +178,7 @@ struct LibraryView: View {
             }
             if !wad.isBundled {
                 Button(role: .destructive) {
-                    delete(wad)
+                    delete([wad])
                 } label: {
                     Label("Delete", systemImage: "trash")
                 }
@@ -197,12 +218,8 @@ struct LibraryView: View {
         return lines.isEmpty ? "Nothing imported." : lines.joined(separator: "\n")
     }
 
-    private func delete(_ wad: WADFile) {
-        do {
-            try library.deleteWAD(wad, force: false)
-        } catch LibraryError.wadReferencedByLoadouts(let names) {
-            deleteBlocked = Self.blockedFiles(deleteBlocked, adding: names, for: wad.filename)
-        } catch {}
+    private func delete(_ wads: [WADFile]) {
+        deleteBlocked = Self.deleting(wads, from: library, blocked: deleteBlocked)
         refresh()
     }
 
