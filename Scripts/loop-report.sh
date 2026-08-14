@@ -495,10 +495,55 @@ if [ "${#rows[@]}" -gt 0 ]; then
 fi
 echo
 
+# A record reading `started` says the run had not finished when the record was
+# last written. It does NOT say the run died: `outcome: started` is what
+# section 2 writes and section 5 rewrites, so a run still working right now is
+# byte-identical to one that died an hour ago. Reporting both as "died" is not
+# a cosmetic problem -- this section's entire value is that nothing else
+# detects a lost trial, and a category that also fires on healthy runs teaches
+# its reader to skim past it, which is how a real one gets missed.
+#
+# Measured 2026-08-14T18:31:39Z: issue 124 was listed here as dead while run 34
+# held a live claim on it and was minutes from opening PR #144.
+#
+# The evidence that separates them lives outside the record: a live
+# `agent:in-progress` claim, the same signal Scripts/loop-precheck.sh treats as
+# authoritative when deciding an issue is already being worked.
+#
+# Exit-status-first, as everywhere else here, but note which way this one fails.
+# A failed query must not silently promote a record out of LOST TRIALS: an
+# undetected dead run is worse than a noisy line, since nothing else will ever
+# surface it. So an unconfirmable record stays listed, flagged as unconfirmed
+# rather than asserted as dead.
 if [ ${#lost[@]} -gt 0 ]; then
-    echo "LOST TRIALS (run died before recording an outcome): ${lost[*]}"
-    echo "  These are runs that started and never finished. Nothing else detects them."
-    echo
+    declare -a inflight=(); declare -a died=(); declare -a unconfirmed=()
+    for i in "${lost[@]}"; do
+        if labels="$(gh issue view "$i" --json labels --jq '.labels[].name' 2>/dev/null)"; then
+            if printf '%s\n' "$labels" | grep -qx 'agent:in-progress'; then
+                inflight+=("$i")
+            else
+                died+=("$i")
+            fi
+        else
+            unconfirmed+=("$i")
+        fi
+    done
+    if [ ${#died[@]} -gt 0 ] || [ ${#unconfirmed[@]} -gt 0 ]; then
+        all_lost=""
+        [ ${#died[@]} -gt 0 ] && all_lost="${died[*]}"
+        [ ${#unconfirmed[@]} -gt 0 ] && all_lost="$all_lost ${unconfirmed[*]}"
+        echo "LOST TRIALS (run died before recording an outcome):${all_lost:+ }${all_lost# }"
+        echo "  These are runs that started and never finished. Nothing else detects them."
+        if [ ${#unconfirmed[@]} -gt 0 ]; then
+            echo "  (${#unconfirmed[@]} of these unconfirmed: the claim query failed, so whether a run is still live could not be checked. Listed rather than dropped -- an undetected dead run is the costlier error: ${unconfirmed[*]})"
+        fi
+        echo
+    fi
+    if [ ${#inflight[@]} -gt 0 ]; then
+        echo "IN FLIGHT (started, and still claimed -- not lost): ${inflight[*]}"
+        echo "  A run is working on each of these right now. They will read as a real outcome once it finishes."
+        echo
+    fi
 fi
 if [ ${#stuck[@]} -gt 0 ]; then
     echo "stuck pile (needs human triage): ${stuck[*]}"

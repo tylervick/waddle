@@ -14,10 +14,24 @@ pass() { echo "ok - $1"; }
 
 make_fixture() { # dest
     mkdir -p "$1/trials" "$1/bin"
+    # `issue view` answers the lost-trial claim check. Default: no labels at
+    # all, so a `started` record reads as a run that died -- which is what the
+    # pre-existing cases (4 in particular) were written to assert, and their
+    # assertions are unchanged. Cases 29-31 override it.
+    : > "$1/issue-labels.txt"
+    printf '0\n' > "$1/issue-exit.txt"
     cat > "$1/bin/gh" <<'STUB'
 #!/bin/bash
 # Stub gh. `pr view` reports merged with no changes requested; `api` returns
-# two CodeRabbit comments, one Major and one Minor, in this repo's real format.
+# two CodeRabbit comments, one Major and one Minor, in this repo's real format;
+# `issue view` reports the claim labels the fixture was configured with.
+FIX="$(dirname "$(dirname "$0")")"
+case "$*" in
+  "issue view"*)
+    cat "$FIX/issue-labels.txt"
+    exit "$(cat "$FIX/issue-exit.txt")"
+    ;;
+esac
 case "$1" in
   api) cat <<'J'
 _🗄️ Data Integrity & Integration_ | _🟠 Major_ | _🏗️ Heavy lift_
@@ -920,5 +934,58 @@ echo "$out" | grep -q "1 record(s) reconciled" \
 echo "$out" | grep -q "1 CodeRabbit" \
     || fail "the reconciled record's live Major finding must reach the findings total; got: $out"
 pass "still reconciles a pull request CodeRabbit genuinely reviewed, among other reviewers"
+# 29. IN FLIGHT IS NOT LOST. `outcome: started` is what section 2 writes and
+#    section 5 rewrites, so a run working right now is byte-identical in the
+#    record to one that died. The report used to call both "died". Measured
+#    2026-08-14T18:31:39Z, issue 124 was listed as a dead run while run 34 held
+#    a live claim and was minutes from opening PR #144.
+#
+#    This matters beyond tidiness: the section's whole value is that nothing
+#    else detects a lost trial, so a category that also fires on healthy runs
+#    trains its reader to skim past it.
+make_fixture "$TMP/t29"
+printf 'agent:eligible\nagent:in-progress\nsize:m\n' > "$TMP/t29/issue-labels.txt"
+record "$TMP/t29" 124 started abc123
+out="$(report "$TMP/t29")" || fail "report failed on the in-flight case; got: $out"
+echo "$out" | grep -q "LOST TRIALS" \
+    && fail "a started record with a live claim must not be reported as a lost trial; got: $out"
+echo "$out" | grep -qi "IN FLIGHT" \
+    || fail "an in-flight run needs its own line, not silence -- dropping it entirely is the other way to lose it; got: $out"
+echo "$out" | grep -q "124" \
+    || fail "the in-flight issue number must still appear; got: $out"
+pass "a started record with a live claim is reported as in flight, not as a lost trial"
+
+# 30. STILL LOST WHEN NOTHING CLAIMS IT. The complement of case 29, and the
+#    behaviour that must not regress: a run that really did die leaves the same
+#    `started` record with no claim behind it, and that is the one thing this
+#    section exists to surface. Issue 41's record has sat in exactly this state
+#    since 2026-08-13.
+make_fixture "$TMP/t30"
+printf 'agent:eligible\nsize:s\n' > "$TMP/t30/issue-labels.txt"
+record "$TMP/t30" 41 started abc123
+out="$(report "$TMP/t30")" || fail "report failed on the genuinely-lost case; got: $out"
+echo "$out" | grep -q "LOST TRIALS" \
+    || fail "a started record with no claim is a real lost trial and must still be reported; got: $out"
+echo "$out" | grep -qi "IN FLIGHT" \
+    && fail "an unclaimed started record must not be excused as in flight; got: $out"
+pass "a started record with no live claim is still reported as a lost trial"
+
+# 31. THE CLAIM CHECK FAILS CLOSED, TOWARD REPORTING. Same exit-status-first
+#    discipline as everywhere else here, but the safe direction is the opposite
+#    of reconciliation's: there, refusing to reconcile loses nothing but a
+#    number; here, silently promoting a record out of LOST TRIALS means a dead
+#    run nothing else detects goes unreported forever. So an unconfirmable
+#    record stays listed, flagged rather than asserted.
+make_fixture "$TMP/t31"
+printf '1\n' > "$TMP/t31/issue-exit.txt"
+record "$TMP/t31" 41 started abc123
+out="$(report "$TMP/t31")" || fail "report failed when the claim query failed; got: $out"
+echo "$out" | grep -q "LOST TRIALS" \
+    || fail "a record whose claim could not be checked must stay in LOST TRIALS; got: $out"
+echo "$out" | grep -qi "unconfirmed" \
+    || fail "an unconfirmable record must be flagged as such, not asserted as dead; got: $out"
+echo "$out" | grep -qi "IN FLIGHT" \
+    && fail "a failed claim query must never be read as evidence of a live run; got: $out"
+pass "a failed claim query leaves the record listed as lost, flagged unconfirmed"
 
 echo "All loop-report tests passed."
