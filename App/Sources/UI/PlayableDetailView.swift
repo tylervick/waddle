@@ -8,7 +8,7 @@ import SwiftUI
 struct PlayableDetailView: View {
     let item: PlayableItem
     let library: LibraryService
-    let onPlay: (PlayableItem) -> Void
+    let onPlay: (PlayableItem, LaunchMode) -> Void
     let onEdit: (Loadout) -> Void
     let onChanged: () -> Void
 
@@ -22,7 +22,7 @@ struct PlayableDetailView: View {
     @State private var showCreatePresetFromBase = false
 
     init(item: PlayableItem, library: LibraryService,
-         onPlay: @escaping (PlayableItem) -> Void,
+         onPlay: @escaping (PlayableItem, LaunchMode) -> Void,
          onEdit: @escaping (Loadout) -> Void,
          onChanged: @escaping () -> Void) {
         self.item = item
@@ -33,14 +33,15 @@ struct PlayableDetailView: View {
         _scheme = State(initialValue: item.schemeOverrideRaw.flatMap(TouchControlScheme.init(rawValue:)))
     }
 
-    /// The saves-directory key for this item: a base game keys its saves off
-    /// the IWAD's own id, a preset off the Loadout's id (Task 6 reconciles
-    /// this against the engine's actual save filenames).
-    private var savesKey: UUID {
-        switch item {
-        case .baseGame(let wad): return wad.id
-        case .preset(let loadout): return loadout.id
-        }
+    /// The saves-directory key for this item -- see `PlayableItem.savesKey`,
+    /// which `PlayableLauncher` keys the launch off too.
+    private var savesKey: UUID { item.savesKey }
+
+    /// Non-nil when this item has a save the engine can boot straight into, in
+    /// which case the header offers Continue. Derived from `saves`, so it
+    /// tracks a deletion in `savesSection` without a second directory read.
+    private var continuableSlot: Int? {
+        EngineSaveSlot.newestLoadGameArgument(in: saves)
     }
 
     var body: some View {
@@ -73,15 +74,41 @@ struct PlayableDetailView: View {
         Section {
             TitleArtView(item: item, library: library)
             Text(item.title).font(.title2.bold())
-            Button {
-                onPlay(item)
-            } label: {
-                Label("Play", systemImage: "play.fill")
-                    .frame(maxWidth: .infinity)
+            // With a resumable save, Continue takes the prominent slot and Play
+            // becomes the explicit "New Game" half of the pair -- the
+            // predecessor's RESUME/NEW split. With no saves the `else` branch
+            // is exactly the single prominent Play button this has always been.
+            if continuableSlot != nil {
+                Button {
+                    onPlay(item, .continueNewest)
+                } label: {
+                    Label("Continue", systemImage: "clock.arrow.circlepath")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .accessibilityIdentifier("detailContinueButton")
+
+                Button {
+                    onPlay(item, .newGame)
+                } label: {
+                    Label("New Game", systemImage: "play.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .accessibilityIdentifier("detailPlayButton")
+            } else {
+                Button {
+                    onPlay(item, .newGame)
+                } label: {
+                    Label("Play", systemImage: "play.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .accessibilityIdentifier("detailPlayButton")
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .accessibilityIdentifier("detailPlayButton")
         }
     }
 

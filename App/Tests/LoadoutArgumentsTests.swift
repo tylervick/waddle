@@ -74,6 +74,38 @@ final class LoadoutArgumentsTests: XCTestCase {
         XCTAssertTrue(args.contains("-save"))
     }
 
+    func testLoadGameSlotAppendsTheArgumentPair() throws {
+        let saveID = UUID()
+        let args = try LoadoutArguments.build(
+            iwadURL: URL(fileURLWithPath: "/tmp/doom2.wad"), saveID: saveID,
+            loadGameSlot: 12)
+        addTeardownBlock { try? FileManager.default.removeItem(at: LibraryService.savesDirectory(forLoadoutID: saveID)) }
+        let idx = try XCTUnwrap(args.firstIndex(of: "-loadgame"))
+        XCTAssertEqual(args[idx + 1], "12")
+    }
+
+    func testOmittedLoadGameSlotLeavesArgvUnchanged() throws {
+        let saveID = UUID()
+        let args = try LoadoutArguments.build(
+            iwadURL: URL(fileURLWithPath: "/tmp/doom2.wad"), saveID: saveID)
+        addTeardownBlock { try? FileManager.default.removeItem(at: LibraryService.savesDirectory(forLoadoutID: saveID)) }
+        XCTAssertFalse(args.contains("-loadgame"))
+    }
+
+    func testLoadoutOverloadForwardsTheLoadGameSlot() throws {
+        let loadout = Loadout(name: "F1", iwadID: UUID())
+        loadout.complevel = "mbf21"
+        let args = try LoadoutArguments.build(
+            loadout: loadout, resolve: resolver([loadout.iwadID: "/gd/freedoom1.wad"]),
+            loadGameSlot: EngineSaveSlot.autoSaveArgument)
+        let loadoutID = loadout.id
+        addTeardownBlock { try? FileManager.default.removeItem(at: LibraryService.savesDirectory(forLoadoutID: loadoutID)) }
+        let idx = try XCTUnwrap(args.firstIndex(of: "-loadgame"))
+        XCTAssertEqual(args[idx + 1], "255")
+        // -complevel still trails it, as the pre-Continue argv order had it.
+        XCTAssertEqual(Array(args.suffix(2)), ["-complevel", "mbf21"])
+    }
+
     func testBuildWithPWADsAndComplevel() throws {
         let saveID = UUID()
         let args = try LoadoutArguments.build(

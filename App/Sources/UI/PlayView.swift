@@ -86,7 +86,7 @@ struct PlayView: View {
                 }
             }) { item in
                 PlayableDetailView(item: item, library: library,
-                                   onPlay: play,
+                                   onPlay: { play($0, mode: $1) },
                                    onEdit: { pendingEditLoadout = $0 },
                                    onChanged: refresh)
             }
@@ -175,6 +175,12 @@ struct PlayView: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier(canonicalID ? accessibilityID(for: item) : "recent-\(item.id)")
         .contextMenu {
+            // Continue leads when there is something to resume: tapping the
+            // tile still starts a new game, so this is the only shelf-level
+            // route into a save that doesn't go through the engine's own menus.
+            if PlayableLauncher.continuableSlot(for: item, library: library) != nil {
+                Button("Continue") { play(item, mode: .continueNewest) }
+            }
             switch item {
             case .baseGame:
                 Button("Details") { detailItem = item }
@@ -215,10 +221,10 @@ struct PlayView: View {
         }
     }
 
-    private func play(_ item: PlayableItem) {
+    private func play(_ item: PlayableItem, mode: LaunchMode = .newGame) {
         lastExitCode = nil
         do {
-            let plan = try PlayableLauncher.prepare(item, library: library)
+            let plan = try PlayableLauncher.prepare(item, library: library, mode: mode)
             lastExitCode = EngineSession.play(arguments: plan.arguments, scheme: plan.scheme)
             errorAlert = EngineErrorAlert.from(exitCode: lastExitCode ?? 0,
                                                engineMessage: EngineSession.lastErrorMessage)
