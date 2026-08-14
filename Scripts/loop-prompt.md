@@ -118,6 +118,15 @@ fill in rather than variables to expand:
   follows the exact same rule as the other five the instant it exists: a
   literal you record and then substitute directly into every command that
   names it — most heavily in section 4, which uses it three times.
+- **`<CR_REQUESTED>`** — not available yet: there is no pull request to ask
+  about. Section 3 captures it the instant it posts the review request —
+  `yes` if the comment posted, `failed` if the command errored. If the run
+  never opens a pull request at all, it is the literal `no`, set at section
+  4's no-PR exit. Goes in the trial record's `coderabbit_review_requested`
+  field, and it is what makes `coderabbit_findings_first: unavailable`
+  readable: *asked and refused* is a fact about CodeRabbit, *never asked* is a
+  fact about this run, and before this literal existed the record could not
+  tell them apart.
 - **`<CR_FIRST>`** — not available yet: nothing has been reviewed at this
   point. It is captured the moment its value becomes known, at exactly one of
   four places: 4.2's grep count, the moment that command runs (this is also
@@ -167,10 +176,11 @@ substitute the actual value directly into every command below that names it.
 For `<WAIT_TOTAL>` specifically, that means whichever value you most recently
 recorded, not the section-1 starting point of `0`, once section 4.1 has
 updated it at least once. `<PR>` means the same thing from the moment section
-3 records it onward, and `<CR_FIRST>` / `<CI_RESULT>` / `<TEST_PROOF>` /
-`<TEST_PROOF_DOMAINS>` mean the same thing from the moment whichever of 4.1's
-read, 4.1's timeout, 4.1's terminal-review detection, 4.2, or section 4's
-no-PR exit records them, onward.
+3 records it onward, as does `<CR_REQUESTED>` from the moment section 3 posts
+the review request (or section 4's no-PR exit sets it to `no`), and
+`<CR_FIRST>` / `<CI_RESULT>` / `<TEST_PROOF>` / `<TEST_PROOF_DOMAINS>` mean the
+same thing from the moment whichever of 4.1's read, 4.1's timeout, 4.1's
+terminal-review detection, 4.2, or section 4's no-PR exit records them, onward.
 
 ## 2. Claim, and write the failure marker
 
@@ -262,6 +272,41 @@ happened — it is what makes a lost trial visible instead of silent.
    separate tool invocations and needs this literal three times; a `$PR`
    shell variable will not survive to get there.
 
+   Then **ask CodeRabbit for a review**, before section 4 starts waiting for
+   one:
+
+   ```bash
+   gh pr comment <PR> --body '@coderabbitai review'
+   ```
+
+   Record the literal `<CR_REQUESTED>` from its result: `yes` if the comment
+   posted, `failed` if the command errored. **A failure here does not stop the
+   run** — like the `orca worktree set` block below, this is not part of the
+   work — but unlike that block it is *recorded* rather than masked, because it
+   changes how the next section's silence should be read.
+
+   **Why this exists.** CodeRabbit no longer reviews repositories under 10
+   stars automatically; this one has 1, so nothing arrives unless it is asked.
+   Its own notice on the pull request says so: *"Reviews should be triggered
+   manually for repositories with fewer than 10 stars. Select Trigger review
+   above or comment `@coderabbitai review`."* Before this step existed, 13 of
+   24 pull-request trials recorded `coderabbit_findings_first: unavailable`
+   after waiting out the full 900-second cap for a review nobody had requested.
+
+   **Why unconditionally, with no check first.** If a review was already
+   coming, this is redundant and harmless. If CodeRabbit is rate-limited,
+   section 4.1's terminal detection fires exactly as it did before. There is no
+   path where asking leaves the trial worse off than not asking, and a
+   "should I ask?" test would need to parse bot output — the fragility this
+   step is shaped to avoid.
+
+   **Why a comment and not the checkbox.** CodeRabbit's notice also offers a
+   `- [ ] 🔍 Trigger review` checkbox. Do not use it. Checking it means
+   `PATCH`ing another user's comment body and preserving an opaque
+   `<!-- {"checkboxId": "<uuid>"} -->` marker, which breaks silently whenever
+   that markup changes and races the bot's own edits to the same comment. The
+   comment form is documented by CodeRabbit itself and costs one call.
+
    Then label the Orca workspace this run is executing in, so the owner can
    get from a workspace card to its output without hunting for the branch:
 
@@ -304,7 +349,10 @@ review from silently eating into it.
 **If no pull request was opened** — section 3's `no-repro`, `failed-verification`,
 and 45-minute `stuck` paths all end this way — skip this entire section.
 Record `ci_result: not-run` and `coderabbit_findings_first: none` (these become
-the literals `<CI_RESULT>` and `<CR_FIRST>` from section 1), and also
+the literals `<CI_RESULT>` and `<CR_FIRST>` from section 1),
+`coderabbit_review_requested: no` (the literal `<CR_REQUESTED>` — there was no
+pull request to ask about, which is not the same as having asked and been
+refused), and also
 `test_proof_first: error` and `test_proof_domains: none` — no pull request
 means no CI run, so the proof was never computed, the same sense of `error`
 used below for a crashed job — and go straight to section 5. There is nothing
@@ -394,12 +442,35 @@ measurement.
 **Recognise a terminal non-review state and stop waiting for it at once.**
 CodeRabbit's row in `gh pr checks <PR>` carries its own description,
 separate from CI's rows. Read it on every poll. If it reads `Review rate
-limited` (the observed string), that is an answer, not a pending state:
+limited` (an observed string), that is an answer, not a pending state:
 CodeRabbit reported this as a check status, not as a review, so the
 review-count query above would otherwise stay at 0 and poll for the full
 900-second cap waiting for an answer that has already arrived. **Do not wait
 for CodeRabbit to recover, and do not retry for a review** — not later in
-this same wait, not in 4.3. The instant you see it:
+this same wait, not in 4.3.
+
+**Two observed strings, and only one of them is terminal.** The other is
+`Review skipped: manual review required for this OSS repository`, seen on
+PR #144 — also a `pass` bucket with no review behind it, and the reason
+section 3 now posts a review request. Which one you are looking at decides
+what to do, so do not match loosely across both:
+
+- `Review rate limited` — **terminal.** CodeRabbit will not review this pull
+  request during this run no matter what is asked of it. Proceed to the
+  bullets below.
+- `Review skipped: manual review required …` — **terminal only if
+  `<CR_REQUESTED>` is `failed`.** If `<CR_REQUESTED>` is `yes`, the request
+  went out and this row is the state *before* it was honoured; keep polling
+  and let it resolve into a real review, a rate limit, or the plain
+  900-second timeout. Treating it as terminal here would throw away the
+  review the run just asked for, one poll before it arrived.
+- Any other non-pending description you do not recognise — treat as
+  **not** terminal and keep polling to the cap. An unknown string is not
+  evidence of refusal, and the cap already bounds the cost. Say what you saw
+  in the record's narrative so the next reader can name it, the way run 34's
+  record named the string above.
+
+When you have a terminal state by the rules above, the instant you see it:
 
 - Record `coderabbit_findings_first: unavailable` — the literal `<CR_FIRST>`
   from section 1 — right then, and do not revisit this value even if
@@ -639,7 +710,12 @@ frontmatter still reads `outcome: started`).
 Carry `ci_result` and `coderabbit_findings_first` through **unchanged** — the
 literals `<CI_RESULT>` and `<CR_FIRST>` you recorded at whichever of 4.1's
 timeout, 4.1's terminal-review detection, 4.2, or section 4's no-PR exit
-wrote them. **Do not re-run 4.2's grep here.** By this point any fixes from
+wrote them. `coderabbit_review_requested` carries through the same way, from
+the literal `<CR_REQUESTED>` that section 3 or section 4's no-PR exit wrote —
+**do not re-post the review request here.** Section 3 asked once; asking again
+after 4.3's fixes would request a review of the fixed tree while the record
+still describes the original, which is the same confusion 4.2's early snapshot
+exists to prevent. **Do not re-run 4.2's grep here.** By this point any fixes from
 4.3 are already pushed to the pull request, so re-deriving the count now
 would measure your fixes instead of the original work — silently
 overwriting, one commit later, the exact number section 4.2 pushed early
@@ -763,6 +839,7 @@ outcome: started|pr-opened|failed-verification|no-repro|stuck
 wall_clock_seconds: <now - START>
 verification_result: pass|fail|not-run
 ci_result: pass|fail|timeout|not-run
+coderabbit_review_requested: <yes if section 3 posted the review request, failed if that command errored, no if this run never opened a pull request>
 coderabbit_findings_first: <integer, none if no review landed before the wait ended or there was no pull request at all (independent of CI's own state), or unavailable if CodeRabbit reported it would not review>
 coderabbit_findings_after: <integer, or none if no fixes were attempted>
 test_proof_first: <proved|proved-by-compile|vacuous|no-test|n/a|error — from the FIRST CI run, before any fix round>
@@ -783,10 +860,27 @@ where the cap expired with CI unresolved — it is the literal `error`, set at
 that exit, alongside `test_proof_domains: none`. `error` there means the proof
 was never computed, which is not the same as the change proving nothing.
 `coderabbit_findings_first` is a secondary signal, written in section 4.2
-*before* any fix. `Scripts/loop-report.sh` reads both from this record and
-never queries GitHub for the CodeRabbit count —
-a live query would return post-fix counts and silently report zero findings for
-every run.
+*before* any fix. The reason it is snapshotted rather than read later stands
+unchanged: a live query returns post-fix counts, so scoring a trial from one
+would silently report zero findings for the runs that fixed the most.
+
+`Scripts/loop-report.sh` reads both from this record. It makes one narrow
+exception, added after this paragraph was first written: a record whose
+measurement is unusable (`none` or `unavailable`) *and* whose `fix_rounds` is
+`0` *and* whose every commit is agent-authored is "reconciled" by a live query
+— the code was never touched again, so today's query reads the same pre-fix
+tree. Issue #71 is open against that exception: its gate proves the code is
+unchanged but never proves a review happened, so a pull request nobody reviewed
+reconciles to a real-looking `0`. Do not treat a reconciled count as a
+measurement this run made.
+
+`coderabbit_review_requested` is what makes an absent count readable. Paired
+with `coderabbit_findings_first`, the combinations mean different things and
+should be reported as such: `yes` + `unavailable` is *asked, and refused*;
+`failed` + `unavailable` is *could not ask*; `yes` + `none` is *asked, and the
+answer never came inside the cap*; `no` + `none` is *no pull request existed*.
+Records written before this field existed carry none of these distinctions, and
+that is exactly the ambiguity it was added to end.
 
 ## Known gaps
 
