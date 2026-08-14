@@ -34,7 +34,7 @@ overlay to remain visible even when input devices are connected.
 - [ ] "Control Feel…" in the gear menu opens the tuning sheet; the three
       sliders (accessibilityIdentifiers `turnSpeedSlider`,
       `stickDeadZoneSlider`, `moveSensitivitySlider`) persist across app
-      relaunch, and Reset to Defaults restores 1.00 / 0.20 / 1.00
+      relaunch, and Reset to Defaults restores 1.00 / 0.00 / 1.00
 
 ### Control-feel tuning procedure (on-device)
 

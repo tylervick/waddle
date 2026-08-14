@@ -200,8 +200,10 @@ Freedoom Phase 1+2 are bundled and pre-wired as presets.
   installs, so mid-session changes apply to the next session):
   - **Turn Speed** (0.25–3.0, default 1.0): multiplies the classic scheme's
     stick turn and the modern scheme's drag-to-turn sensitivity.
-  - **Stick Dead Zone** (0.05–0.4, default 0.2): fraction of the movement
-    stick's radius that ignores small wobbles before movement registers.
+  - **Stick Dead Zone** (0.0–0.4, default 0.0): *extra* fraction of the
+    movement stick's radius to ignore before movement registers, on top of
+    the 15% inner dead zone Woof! already applies to gamepad axes
+    engine-side.
   - **Move Sensitivity** (0.5–1.5, default 1.0): scales forward/back and
     strafe output.
 
