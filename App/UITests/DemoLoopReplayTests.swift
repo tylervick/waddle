@@ -42,28 +42,24 @@ final class DemoLoopReplayTests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["Play"].waitForExistence(timeout: 90),
+        XCTAssertTrue(app.navigationBars["WADdle"].waitForExistence(timeout: 90),
                       "launcher UI never appeared")
         let ok = app.alerts.buttons["OK"]
         if ok.waitForExistence(timeout: 3) { ok.tap() }
         return app
     }
 
-    /// Polls the Library tab for `name` (async loose-file adoption may take a
-    /// few seconds after launch). Returns whether it ever showed up — the
-    /// caller decides skip vs. fail, since the required IWAD is copyrighted.
+    /// Polls Manage for `name` (async loose-file adoption may take a few
+    /// seconds after launch). Returns whether it ever showed up — the caller
+    /// decides skip vs. fail, since the required IWAD is copyrighted.
     private func wadAppears(app: XCUIApplication, name: String,
                             timeout: TimeInterval = 30) -> Bool {
-        let libraryTab = app.tabBars.buttons["Library"]
-        let playTab = app.tabBars.buttons["Play"]
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            libraryTab.tap()
-            if app.staticTexts[name].waitForExistence(timeout: 2) {
-                playTab.tap()
-                return true
-            }
-            playTab.tap()
+            openManage(app)
+            let found = app.staticTexts[name].waitForExistence(timeout: 2)
+            returnToShelf(app)
+            if found { return true }
         } while Date() < deadline
         return false
     }
@@ -115,6 +111,7 @@ final class DemoLoopReplayTests: XCTestCase {
         // Create the DOOM2 loadout (commercial IWAD, no DEMO4 lump).
         let doom2Tile = app.buttons["loadout-DoomII"]
         if !doom2Tile.exists {
+            openManage(app)
             app.buttons["newLoadoutButton"].tap()
             let nameField = app.textFields["loadoutNameField"]
             XCTAssertTrue(nameField.waitForExistence(timeout: 5))
@@ -123,6 +120,7 @@ final class DemoLoopReplayTests: XCTestCase {
             app.buttons["iwadPicker"].tap()
             app.buttons["DOOM2"].tap()
             app.buttons["saveLoadoutButton"].tap()
+            returnToShelf(app)
             XCTAssertTrue(doom2Tile.waitForExistence(timeout: 5),
                           "DOOM2 loadout tile missing after save")
         }

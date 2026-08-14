@@ -1,13 +1,30 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// The Manage door (spec §3): the library workspace, pushed from the shelf
+/// rather than sitting beside it as a tab. Holds everything that used to be
+/// top-level — the grouped file list with its Base Games / Mods / Patches
+/// taxonomy, Import, preset creation and editing — plus Hidden from Shelf,
+/// where an item removed from the shelf is restored.
+///
+/// No `NavigationStack` of its own: it is pushed into the shelf's.
 struct LibraryView: View {
     let library: LibraryService
     let importer: ImportService
+    /// Launching from a Details page opened here goes back through the shelf's
+    /// own launcher, so a session started from Manage still reports its exit
+    /// code where every other session does.
+    let onPlay: (PlayableItem, LaunchMode) -> Void
 
     @Environment(\.openURL) private var openURL
     @State private var groups: [LibraryGroup] = []
+    @State private var presets: [Loadout] = []
+    @State private var hidden: [PlayableItem] = []
     @State private var showImporter = false
+    @State private var showCreationFlow = false
+    @State private var editorLoadout: Loadout?
+    @State private var detailItem: PlayableItem?
+    @State private var pendingEditLoadout: Loadout?
     @State private var lastOutcome: ImportOutcome?
     @State private var deleteBlocked: [BlockedFile] = []
 
@@ -94,56 +111,141 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            List {
-                ForEach(groups) { group in
-                    Section {
-                        ForEach(group.wads, id: \.id) { wad in
-                            row(for: wad)
-                        }
-                        .onDelete { offsets in
-                            delete(offsets.map { group.wads[$0] })
-                        }
-                    } header: {
-                        Text(group.title)
-                    } footer: {
-                        if group.kind == .deh {
-                            Text("Patches modify a base game and aren't playable on their own — add them to a preset's Contents.")
-                        }
+        List {
+            ForEach(groups) { group in
+                Section {
+                    ForEach(group.wads, id: \.id) { wad in
+                        row(for: wad)
+                    }
+                    .onDelete { offsets in
+                        delete(offsets.map { group.wads[$0] })
+                    }
+                } header: {
+                    Text(group.title)
+                } footer: {
+                    if group.kind == .deh {
+                        Text("Patches modify a base game and aren't playable on their own — add them to a preset's Contents.")
                     }
                 }
             }
-            .navigationTitle("Library")
-            .toolbar {
-                Button {
-                    showImporter = true
-                } label: {
-                    Label("Import", systemImage: "plus")
+            presetsSection
+            hiddenSection
+        }
+        .accessibilityIdentifier("manageScreen")
+        .navigationTitle("Manage")
+        .toolbar {
+            Button {
+                showCreationFlow = true
+            } label: {
+                Label("New Preset", systemImage: "square.stack.3d.up")
+            }
+            .accessibilityIdentifier("newLoadoutButton")
+
+            Button {
+                showImporter = true
+            } label: {
+                Label("Import", systemImage: "plus")
+            }
+            .accessibilityIdentifier("importButton")
+        }
+        .sheet(isPresented: $showCreationFlow, onDismiss: refresh) {
+            PresetCreationFlow(library: library)
+        }
+        .sheet(item: $editorLoadout, onDismiss: refresh) { loadout in
+            LoadoutEditorView(library: library, existing: loadout)
+        }
+        .sheet(item: $detailItem, onDismiss: {
+            // Promote the pending edit only once the detail sheet is fully
+            // gone — presenting the editor in the same synchronous pass as
+            // the dismiss is the transaction race cfaed69 fixed on the
+            // create path, and `ShelfView` avoids the same way.
+            if let loadout = pendingEditLoadout {
+                pendingEditLoadout = nil
+                editorLoadout = loadout
+            }
+            refresh()
+        }) { item in
+            PlayableDetailView(item: item, library: library,
+                               onPlay: { onPlay($0, $1) },
+                               onEdit: { pendingEditLoadout = $0 },
+                               onChanged: refresh)
+        }
+        .fileImporter(isPresented: $showImporter,
+                      allowedContentTypes: importTypes,
+                      allowsMultipleSelection: true) { result in
+            if case .success(let urls) = result {
+                let outcome = importer.importFiles(at: urls)
+                lastOutcome = outcome
+                ImportNotices.shared.post(outcome: outcome)
+                refresh()
+            }
+        }
+        .alert("Import complete", isPresented: outcomeAlertBinding, presenting: lastOutcome) { _ in
+            Button("OK") { lastOutcome = nil }
+        } message: { outcome in
+            Text(summary(of: outcome))
+        }
+        .alert("File in use", isPresented: deleteBlockedBinding) {
+            Button("OK") { deleteBlocked = [] }
+        } message: {
+            Text(Self.blockedMessage(for: deleteBlocked))
+        }
+        .onAppear(perform: refresh)
+        .onReceive(NotificationCenter.default.publisher(for: .libraryDidChange)) { _ in refresh() }
+    }
+
+    /// Presets, listed as presets — the one place that does. A row opens the
+    /// same `PlayableDetailView` a tile's Details opens (spec §3's
+    /// shared-component rule: one component, two entrances), and editing is
+    /// that page's own Edit button rather than a second route to the editor.
+    @ViewBuilder
+    private var presetsSection: some View {
+        if !presets.isEmpty {
+            Section("Presets") {
+                ForEach(presets, id: \.id) { loadout in
+                    Button {
+                        detailItem = .preset(loadout)
+                    } label: {
+                        HStack {
+                            Text(loadout.name)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    // Deliberately not "loadout-<name>": the shelf's tiles hold
+                    // that identifier and stay in the hierarchy behind this
+                    // push, so reusing it here would make every UI-test lookup
+                    // of a tile ambiguous.
+                    .accessibilityIdentifier("managePreset-\(loadout.name)")
                 }
-                .accessibilityIdentifier("importButton")
             }
-            .fileImporter(isPresented: $showImporter,
-                          allowedContentTypes: importTypes,
-                          allowsMultipleSelection: true) { result in
-                if case .success(let urls) = result {
-                    let outcome = importer.importFiles(at: urls)
-                    lastOutcome = outcome
-                    ImportNotices.shared.post(outcome: outcome)
-                    refresh()
+        }
+    }
+
+    /// Hidden from Shelf (spec §3/§4): items removed from the shelf, each with
+    /// Restore. The row, its file and its saves all still exist — hiding is a
+    /// flag, which is what keeps the seeder from resurrecting a bundled row
+    /// under a fresh UUID.
+    @ViewBuilder
+    private var hiddenSection: some View {
+        if !hidden.isEmpty {
+            Section("Hidden from Shelf") {
+                ForEach(hidden) { item in
+                    HStack {
+                        Text(item.title)
+                        Spacer()
+                        Button("Restore") {
+                            try? library.restore(item)
+                            refresh()
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityIdentifier("restore-\(item.id)")
+                    }
+                    .accessibilityIdentifier("hiddenRow-\(item.id)")
                 }
             }
-            .alert("Import complete", isPresented: outcomeAlertBinding, presenting: lastOutcome) { _ in
-                Button("OK") { lastOutcome = nil }
-            } message: { outcome in
-                Text(summary(of: outcome))
-            }
-            .alert("File in use", isPresented: deleteBlockedBinding) {
-                Button("OK") { deleteBlocked = [] }
-            } message: {
-                Text(Self.blockedMessage(for: deleteBlocked))
-            }
-            .onAppear(perform: refresh)
-            .onReceive(NotificationCenter.default.publisher(for: .libraryDidChange)) { _ in refresh() }
         }
     }
 
@@ -225,5 +327,7 @@ struct LibraryView: View {
 
     private func refresh() {
         groups = (try? library.libraryGroups()) ?? []
+        presets = (try? library.presets()) ?? []
+        hidden = (try? library.hiddenItems()) ?? []
     }
 }

@@ -18,6 +18,9 @@ final class PresetCreationTests: XCTestCase {
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launch()
 
+        // Preset creation lives behind Manage now (spec §3): the shelf's chrome
+        // is the gear and the Manage door, nothing else.
+        openManage(app)
         app.buttons["newLoadoutButton"].tap()
 
         let baseRow = app.buttons["createPresetBase-Freedoom Phase 1"]
@@ -32,12 +35,13 @@ final class PresetCreationTests: XCTestCase {
         clearAndType(nameField, "Smoke Preset")
 
         app.buttons["saveLoadoutButton"].tap()
+        returnToShelf(app)
 
         // Fails against the pre-fix bug: the sheet stays open on the
-        // base-game picker, PlayView's onDismiss:refresh never fires, and
+        // base-game picker, the presenter's onDismiss:refresh never fires, and
         // this tile never appears. Passes once Save/Cancel close the whole
         // sheet.
         XCTAssertTrue(app.buttons["loadout-Smoke Preset"].waitForExistence(timeout: 5),
-                      "new preset tile never appeared on Play -- creation sheet likely did not close")
+                      "new preset tile never appeared on the shelf -- creation sheet likely did not close")
     }
 }

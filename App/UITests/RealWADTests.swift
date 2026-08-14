@@ -18,7 +18,7 @@ final class RealWADTests: XCTestCase {
         // provisioned WADs (including the 293 MB Eviternity II). Adoption
         // finishing is awaited separately, per-loadout, in
         // waitForWADAvailable below.
-        XCTAssertTrue(app.tabBars.buttons["Play"].waitForExistence(timeout: 90),
+        XCTAssertTrue(app.navigationBars["WADdle"].waitForExistence(timeout: 90),
                       "launcher UI never appeared")
         // Dismiss the loose-file adoption alert if it fired this launch.
         // NOTE: launch-time adoption is currently silent (no alert; the
@@ -56,20 +56,16 @@ final class RealWADTests: XCTestCase {
     private func waitForWADAvailable(app: XCUIApplication, filename: String,
                                      timeout: TimeInterval = 90,
                                      file: StaticString = #filePath, line: UInt = #line) {
-        let libraryTab = app.tabBars.buttons["Library"]
-        let playTab = app.tabBars.buttons["Play"]
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            libraryTab.tap()
+            openManage(app, file: file, line: line)
             let row = app.descendants(matching: .any)
                 .matching(identifier: "libraryRow-\(filename)").firstMatch
-            if row.waitForExistence(timeout: 2) {
-                playTab.tap()
-                return
-            }
-            playTab.tap()
+            let found = row.waitForExistence(timeout: 2)
+            returnToShelf(app)
+            if found { return }
         } while Date() < deadline
-        XCTFail("WAD '\(filename)' never appeared in the Library tab (async adoption stalled?)",
+        XCTFail("WAD '\(filename)' never appeared in Manage (async adoption stalled?)",
                 file: file, line: line)
     }
 
@@ -109,6 +105,7 @@ final class RealWADTests: XCTestCase {
             // step is gone: the base is chosen here, before the editor ever
             // appears, so there's nothing left to assert/select on iwadPicker
             // for this flow.
+            openManage(app, file: file, line: line)
             app.buttons["newLoadoutButton"].tap()
             let baseRow = app.buttons["createPresetBase-\(iwad)"]
             XCTAssertTrue(baseRow.waitForExistence(timeout: 5), file: file, line: line)
@@ -130,6 +127,7 @@ final class RealWADTests: XCTestCase {
                 app.buttons["addPWADButton-\(pwad)"].tap()
             }
             app.buttons["saveLoadoutButton"].tap()
+            returnToShelf(app)
             XCTAssertTrue(tile.waitForExistence(timeout: 5),
                           "loadout tile missing after save", file: file, line: line)
         }
@@ -167,12 +165,10 @@ final class RealWADTests: XCTestCase {
                 .firstMatch.exists,
                 "alert body missing the engine's error text", file: file, line: line)
             alert.buttons["OK"].tap()
-            // App survived the engine error — launcher still interactive.
-            // Tab-bar buttons carry no accessibility id on iOS 26 (the
-            // native tab bar is reconstructed by the system and doesn't
-            // inherit identifiers set on tabItem content); address the
-            // button by its label instead.
-            XCTAssertTrue(app.tabBars.buttons["Play"].isHittable, file: file, line: line)
+            // App survived the engine error — launcher still interactive. The
+            // shelf's Manage door stands in for the departed tab bar here: it
+            // is the one piece of shelf chrome that is always present.
+            XCTAssertTrue(app.buttons["manageButton"].isHittable, file: file, line: line)
         }
     }
 

@@ -188,6 +188,15 @@ final class LibraryService {
         try allLoadouts().filter { !$0.isHidden }
     }
 
+    /// Everything the shelf shows, unordered: base games and presets mixed, with
+    /// hidden rows already excluded by `baseGames()`/`presets()`. `ShelfView`
+    /// reads exactly this and then hands it to `Shelf.ordered` — so "a hidden
+    /// item never reaches the shelf" is a property of this one call rather than
+    /// of a filter the view could forget to apply.
+    func shelfItems() throws -> [PlayableItem] {
+        try baseGames().map(PlayableItem.baseGame) + presets().map(PlayableItem.preset)
+    }
+
     /// Everything the player has taken off the shelf, for Manage → Hidden from
     /// Shelf. Base games first, then presets, each in its shelf order.
     func hiddenItems() throws -> [PlayableItem] {

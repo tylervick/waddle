@@ -67,7 +67,7 @@ struct PlayableDetailView: View {
     // MARK: Sections
     //
     // Split out of `body` -- a Form this size inline is enough for the Swift
-    // type checker to give up entirely (see PlayView.toolbarContent's own
+    // type checker to give up entirely (see ShelfView.toolbarContent's own
     // note on the same limit).
 
     private var headerSection: some View {

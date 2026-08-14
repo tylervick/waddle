@@ -10,9 +10,12 @@ final class LibraryTabTests: XCTestCase {
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launch()
 
-        // iOS 26 TabView: switch via the button LABEL, assert via the pane id.
-        app.tabBars.buttons["Library"].tap()
-        XCTAssertTrue(app.otherElements["libraryTab"].waitForExistence(timeout: 10))
+        // The library list is the Manage door now, pushed from the shelf
+        // (spec §3), not a tab beside it.
+        openManage(app)
+        XCTAssertTrue(app.descendants(matching: .any)
+            .matching(identifier: "manageScreen").firstMatch
+            .waitForExistence(timeout: 10))
 
         XCTAssertTrue(app.staticTexts["Base Games"].waitForExistence(timeout: 5),
                       "grouped section header missing")
