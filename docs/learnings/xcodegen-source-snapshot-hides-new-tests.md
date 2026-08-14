@@ -8,7 +8,7 @@ directory is not consulted again at build time.
 So a source file added after the last generate is not "missing" in any way
 the build can report. It is simply not a member of the target:
 
-```
+```console
 $ # write App/Tests/TouchOverlayLayoutTests.swift, then:
 $ xcodebuild ... -only-testing:WADdleTests test
      Executed 193 tests, with 0 failures (0 unexpected)
