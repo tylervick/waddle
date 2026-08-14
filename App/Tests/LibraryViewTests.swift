@@ -1,3 +1,4 @@
+import SwiftData
 import XCTest
 @testable import WADdle
 
@@ -89,5 +90,103 @@ final class LibraryViewTests: XCTestCase {
 
     func testBlockedMessageEmptyWhenNothingIsBlocked() {
         XCTAssertEqual(LibraryView.blockedMessage(for: []), "")
+    }
+
+    // MARK: - The delete wiring itself
+    //
+    // Everything above pins a helper in isolation. These drive the batch the
+    // Library tab actually runs, against a real LibraryService, so a revert of
+    // the accumulation to a plain overwrite fails here instead of passing.
+
+    /// An in-memory library plus its scratch directory, mirroring
+    /// `LibraryServiceTests`' fixture. Real rows and real loadouts, so
+    /// `deleteWAD` refuses for the actual reason the view reacts to rather
+    /// than a stubbed error.
+    @MainActor
+    private func makeLibrary() throws -> (library: LibraryService, tmp: URL) {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: WADFile.self, Loadout.self,
+                                           configurations: config)
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let library = LibraryService(context: ModelContext(container),
+                                     store: WADStore(directory: tmp))
+        return (library, tmp)
+    }
+
+    /// Deleting a batch where every row is spoken for: each refusal has to
+    /// survive to the alert. An overwrite keeps only the last row, which is
+    /// exactly the bug this pins — and with the loop inline in the view, the
+    /// whole suite stayed green through that revert.
+    @MainActor
+    func testDeletingABatchKeepsEveryBlockedRow() throws {
+        let (library, tmp) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let iwad = try library.registerImported(filename: "doom2.wad", sha1: "i1",
+                                                kind: WADKind.iwad.rawValue, family: "doom2")
+        let sunlust = try library.registerImported(filename: "sunlust.wad", sha1: "p1",
+                                                   kind: WADKind.pwad.rawValue, family: "doom2")
+        let eviternity = try library.registerImported(filename: "eviternity.wad", sha1: "p2",
+                                                      kind: WADKind.pwad.rawValue, family: "doom2")
+        _ = try library.createLoadout(name: "Sunlust MP", iwadID: iwad.id,
+                                      pwadIDs: [sunlust.id], dehIDs: [])
+        _ = try library.createLoadout(name: "Eviternity", iwadID: iwad.id,
+                                      pwadIDs: [eviternity.id], dehIDs: [])
+
+        let blocked = LibraryView.deleting([sunlust, eviternity], from: library, blocked: [])
+
+        XCTAssertEqual(blocked, [
+            LibraryView.BlockedFile(filename: "sunlust.wad", presets: ["Sunlust MP"]),
+            LibraryView.BlockedFile(filename: "eviternity.wad", presets: ["Eviternity"]),
+        ])
+    }
+
+    /// A mixed batch: the unreferenced row is really gone, and only the
+    /// referenced one reaches the alert. Pins that a refusal does not abort
+    /// the rest of the batch.
+    @MainActor
+    func testDeletingABatchRemovesUnreferencedRowsAndBlocksTheRest() throws {
+        let (library, tmp) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let iwad = try library.registerImported(filename: "doom2.wad", sha1: "i1",
+                                                kind: WADKind.iwad.rawValue, family: "doom2")
+        let sunlust = try library.registerImported(filename: "sunlust.wad", sha1: "p1",
+                                                   kind: WADKind.pwad.rawValue, family: "doom2")
+        let spare = try library.registerImported(filename: "spare.wad", sha1: "p2",
+                                                 kind: WADKind.pwad.rawValue, family: "doom2")
+        _ = try library.createLoadout(name: "Sunlust MP", iwadID: iwad.id,
+                                      pwadIDs: [sunlust.id], dehIDs: [])
+
+        let blocked = LibraryView.deleting([sunlust, spare], from: library, blocked: [])
+
+        XCTAssertEqual(blocked, [
+            LibraryView.BlockedFile(filename: "sunlust.wad", presets: ["Sunlust MP"]),
+        ])
+        XCTAssertNil(try library.wad(id: spare.id), "an unblocked row must still be deleted")
+        XCTAssertNotNil(try library.wad(id: sunlust.id), "a blocked row must survive")
+    }
+
+    /// The batch starts from whatever is already on screen, so a second batch
+    /// cannot drop the first one's entries while the alert is still up.
+    @MainActor
+    func testDeletingCarriesInAlreadyBlockedFiles() throws {
+        let (library, tmp) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let iwad = try library.registerImported(filename: "doom2.wad", sha1: "i1",
+                                                kind: WADKind.iwad.rawValue, family: "doom2")
+        let sunlust = try library.registerImported(filename: "sunlust.wad", sha1: "p1",
+                                                   kind: WADKind.pwad.rawValue, family: "doom2")
+        _ = try library.createLoadout(name: "Sunlust MP", iwadID: iwad.id,
+                                      pwadIDs: [sunlust.id], dehIDs: [])
+        let existing = [LibraryView.BlockedFile(filename: "eviternity.wad",
+                                                presets: ["Eviternity"])]
+
+        let blocked = LibraryView.deleting([sunlust], from: library, blocked: existing)
+
+        XCTAssertEqual(blocked, [
+            LibraryView.BlockedFile(filename: "eviternity.wad", presets: ["Eviternity"]),
+            LibraryView.BlockedFile(filename: "sunlust.wad", presets: ["Sunlust MP"]),
+        ])
     }
 }
