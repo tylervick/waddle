@@ -84,8 +84,21 @@
 #               deliberately so: an empty commits list is impossible for any
 #               real PR, so it is treated the same as a failure, while an
 #               empty comments list is a legitimate, fully-measured zero -- a
-#               PR CodeRabbit reviewed and found nothing Major/Critical in,
-#               which is PRs #57 and #59's actual outcome.
+#               PR CodeRabbit reviewed and found nothing Major/Critical in.
+#
+#               That last sentence is only true because a THIRD query now
+#               establishes its premise: `gh api .../pulls/<PR>/reviews` must
+#               show a review by `coderabbitai[bot]` before any of this runs.
+#               An empty comments list is a measured zero when a review
+#               happened, and is simply what an unreviewed PR returns when one
+#               did not -- the two are indistinguishable at the comments
+#               endpoint, which is how the fabricated zero arose. This header
+#               previously cited PRs #57 and #59 as the reviewed-and-clean
+#               shape; both in fact have zero reviews of any kind, so they
+#               were examples of the bug. A pull request that fails the
+#               reviews gate is reported on its own line, and a reviews query
+#               that FAILS is reported on another: "nobody reviewed it" and
+#               "could not find out" are different facts and are never merged.
 #   lagging  -- the PR merged without requiring changes. Slow and authoritative;
 #               it exists to check the leading signal is telling the truth.
 #
@@ -172,6 +185,7 @@ echo "by prompt version:"
 if [ "${#rows[@]}" -gt 0 ]; then
     for sha in $(printf '%s\n' "${rows[@]}" | cut -d'|' -f1 | sort -u); do
         n=0; merged=0; prs=0; findings=0; legacy=0; legacy_failed=0; unavailable=0; reconciled=0; foreign=0
+        never_reviewed=0; unreviewable=0
         proved=0; provedc=0; vac=0; notest=0; nap=0; errp=0
         for r in "${rows[@]}"; do
             [ "${r%%|*}" = "$sha" ] || continue
@@ -337,7 +351,47 @@ if [ "${#rows[@]}" -gt 0 ]; then
                                     [ "$email" = "$AGENT_EMAIL" ] || all_agent=0
                                 done < <(printf '%s\n' "$commit_emails")
                                 if [ "$all_agent" -eq 1 ]; then
-                                    is_reconciled=1
+                                    # THIRD GATE: prove a review actually
+                                    # happened. The two gates above establish
+                                    # that a live query reads the same code the
+                                    # run produced -- they say nothing about
+                                    # whether anyone ever looked at it. Without
+                                    # this, a PR nobody reviewed reconciles to
+                                    # a real-looking 0, because "no
+                                    # Major/Critical comments" is exactly what
+                                    # an unreviewed PR returns. That is not a
+                                    # hypothetical: CodeRabbit stopped
+                                    # auto-reviewing repositories under 10
+                                    # stars, this one has 1, and every one of
+                                    # the 14 records eligible here on 2026-08-14
+                                    # was for a PR with zero reviews of any
+                                    # kind. See issue #71 and
+                                    # docs/superpowers/specs/2026-08-14-trial-record-signal-integrity-design.md.
+                                    #
+                                    # Same exit-status-first discipline as the
+                                    # commits query, and for the same reason: a
+                                    # failed call must never read as "no
+                                    # reviews", which would be indistinguishable
+                                    # from a successful empty answer and would
+                                    # fail closed in the wrong direction --
+                                    # refusing reconciliation is the safe error
+                                    # here, so both failure and absence land in
+                                    # the same non-reconciled path, counted
+                                    # separately below.
+                                    if reviewers="$(gh api "repos/{owner}/{repo}/pulls/$pr/reviews" --paginate \
+                                          --jq '.[].user.login' 2>/dev/null)"; then
+                                        if printf '%s\n' "$reviewers" | grep -qx 'coderabbitai\[bot\]'; then
+                                            is_reconciled=1
+                                        else
+                                            # Queried successfully; nobody
+                                            # reviewed. The honest count, and
+                                            # the one this gate exists to make
+                                            # visible instead of fabricating.
+                                            never_reviewed=$((never_reviewed + 1))
+                                        fi
+                                    else
+                                        unreviewable=$((unreviewable + 1))
+                                    fi
                                 else
                                     # Eligible on every other count but refused
                                     # for this one: a distinct outcome from never
@@ -355,13 +409,22 @@ if [ "${#rows[@]}" -gt 0 ]; then
                         # Same exit-status-first discipline as the commits
                         # query above, but the failure verdict differs: an
                         # empty-but-successful result here is a real, valid
-                        # measurement (a PR CodeRabbit reviewed and found
-                        # nothing Major/Critical in -- PRs #57 and #59's
-                        # actual shape), not a suspect one, so only a failed
-                        # call refuses reconciliation. The two queries cannot
-                        # share one verdict: this one measures a count, where
-                        # zero is meaningful, while the commits query measures
-                        # presence, where zero is impossible for a real PR.
+                        # measurement -- a PR CodeRabbit reviewed and found
+                        # nothing Major/Critical in -- not a suspect one, so
+                        # only a failed call refuses reconciliation. The two
+                        # queries cannot share one verdict: this one measures a
+                        # count, where zero is meaningful, while the commits
+                        # query measures presence, where zero is impossible for
+                        # a real PR.
+                        #
+                        # "A review happened" is what makes that zero
+                        # meaningful, and it is now established by the reviews
+                        # gate above rather than assumed here. This comment
+                        # previously cited PRs #57 and #59 as examples of the
+                        # reviewed-and-clean shape; run 35 checked, and both
+                        # have zero reviews of any kind. They were examples of
+                        # the fabricated zero, which is the defect, not the
+                        # premise.
                         if out="$(gh api "repos/{owner}/{repo}/pulls/$pr/comments" --paginate \
                               --jq '.[] | select(.user.login as $l | ["coderabbitai[bot]","renovate[bot]"] | index($l)) | .body' 2>/dev/null)"; then
                             # `|| true` here masks grep's own no-match exit
@@ -414,9 +477,15 @@ if [ "${#rows[@]}" -gt 0 ]; then
             if [ "$foreign" -gt 0 ]; then
                 echo "      ($foreign of the above were otherwise eligible for reconciliation (unusable snapshot, fix_rounds 0, PR exists) but refused: a commit on the PR was not authored by the agent identity, so the PR no longer represents only the loop's own work)"
             fi
+            if [ "$never_reviewed" -gt 0 ]; then
+                echo "      ($never_reviewed of the above were otherwise eligible for reconciliation but refused: the pull request has no CodeRabbit review at all, so a live query would count 'no Major/Critical comments' on something nobody ever looked at -- an absent measurement, never a zero)"
+            fi
+            if [ "$unreviewable" -gt 0 ]; then
+                echo "      ($unreviewable of the above were otherwise eligible for reconciliation but refused: the reviews query itself failed, so whether a review exists could not be confirmed either way)"
+            fi
         fi
         if [ "$reconciled" -gt 0 ]; then
-            echo "    ($reconciled record(s) reconciled -- no measurement existed at run time (fix_rounds 0, so the code was never touched again), and every commit on the PR is authored by the agent, so a live query today reads the same pre-fix code and is counted in the findings total above)"
+            echo "    ($reconciled record(s) reconciled -- no measurement existed at run time (fix_rounds 0, so the code was never touched again), every commit on the PR is authored by the agent, and CodeRabbit did review it, so a live query today reads the same pre-fix code that was actually reviewed and is counted in the findings total above)"
         fi
         echo "    test proof: $proved proved, $vac vacuous, $provedc proved-by-compile, $notest no-test"
         if [ "$((nap + errp))" -gt 0 ]; then
