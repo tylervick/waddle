@@ -27,6 +27,17 @@ final class LibraryService {
     private let context: ModelContext
     private let store: WADStore
 
+    /// Resolves an imported file's content SHA-1 to a published game title, or
+    /// nil when the content isn't a recognized commercial IWAD.
+    ///
+    /// Injectable seam for tests only: production always resolves against the
+    /// shipped `IWADCatalog`. The repository ships no commercial WAD content
+    /// (and never will), so this is the only way a test can drive the *import
+    /// path* end-to-end for a recognized file — it registers a synthetic
+    /// fixture's own hash and imports that. Same pattern, and the same reason,
+    /// as `ImportService.maxZipEntryBytes`.
+    var recognizedTitle: (String) -> String? = IWADCatalog.title(forSHA1:)
+
     init(context: ModelContext, store: WADStore) {
         self.context = context
         self.store = store
@@ -254,8 +265,14 @@ final class LibraryService {
     @discardableResult
     func registerImported(filename: String, sha1: String, kind: String,
                           family: String) throws -> WADFile {
+        // Content-derived title first, filename only as a fallback: a
+        // recognized commercial IWAD is titled by what it *is*, so renaming
+        // doom2.wad before importing it cannot change what the Play tab calls
+        // it. Anything unrecognized — every PWAD, every mod — keeps the
+        // filename behavior this line has always had.
         let wad = WADFile(filename: filename,
-                          displayName: (filename as NSString).deletingPathExtension,
+                          displayName: recognizedTitle(sha1)
+                              ?? (filename as NSString).deletingPathExtension,
                           kindRaw: kind, sha1: sha1, gameFamilyRaw: family)
         context.insert(wad)
         try context.save()
