@@ -15,6 +15,46 @@ DeHackEd patches — for everything else.
        alt="Play tab: recently played, base games and presets" width="49%">
 </p>
 
+## What WADdle replaces, and the parity bar it answers to
+
+WADdle is the direct successor to the per-game apps of the id/Tom Kidd
+DOOM-iOS lineage — DOOM, DOOM II, Final DOOM (TNT + Plutonia in one app) and
+SIGIL — replacing that "one app per WAD" model with a single app and a WAD
+library ([founding
+spec](docs/superpowers/specs/2026-07-11-doom-ios-design.md)). It is meant to
+keep those apps' players, so their load-bearing behaviors are the **parity
+baseline** this app's UX answers to:
+
+- **Zero-setup launch** — something playable on first open, with no import step.
+- **One-tap resume** — the primary button continues the saved game, rather
+  than landing on the title screen with menus to walk.
+- **Auto-use** — walking into a door or switch operates it; no separate USE tap.
+- **A drag-configurable HUD** — on-screen controls repositionable, positions
+  persisted.
+- **A pan/zoom automap** — drag to pan, pinch to zoom, drop marks.
+- **Wavetable MIDI music** — not OPL3 synthesis.
+
+The baseline exists because it changes scope calls. Judged as "is this good
+iOS software," touch-layout customization is a nice-to-have — the founding
+spec deferred it as exactly that. Judged against the predecessors, it is a
+headline feature, because their players already had it.
+
+The 2026-08-13 parity audit measured WADdle against this baseline and filed
+every gap it found. This table is that filing record, not a live checklist —
+each issue carries its own current state:
+
+| Parity gap | Issue |
+| --- | --- |
+| Backgrounding mid-game neither pauses nor saves | [#111](https://github.com/tylervick/waddle/issues/111) |
+| Resuming a saved game takes the title screen plus four menu steps | [#112](https://github.com/tylervick/waddle/issues/112) |
+| Automap can be toggled but never panned, zoomed, or marked | [#113](https://github.com/tylervick/waddle/issues/113) |
+| Doors need an explicit USE tap — no auto-use | [#114](https://github.com/tylervick/waddle/issues/114) |
+| Touch overlay layout is fixed, with no HUD editor | [#115](https://github.com/tylervick/waddle/issues/115) |
+| MIDI music is OPL3-only, not wavetable | [#116](https://github.com/tylervick/waddle/issues/116) |
+| Nothing in the repo verifies music or SFX | [#117](https://github.com/tylervick/waddle/issues/117) |
+| Library shows raw filenames instead of each game's identity | [#118](https://github.com/tylervick/waddle/issues/118) |
+| Documented dead-zone slider range contradicted the code | [#119](https://github.com/tylervick/waddle/issues/119) |
+
 ## Working in this repository
 
 `CLAUDE.md` carries the rules that apply to every change. `docs/learnings/`
