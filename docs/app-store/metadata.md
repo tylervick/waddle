@@ -504,3 +504,88 @@ what motivated fixing this properly.
 | Export compliance answers | Approved as drafted (§9) | 2026-07-18 |
 | Privacy policy URL approach | `PRIVACY.md` in repo root (GitHub URL once public) | 2026-07-18 |
 | iPadOS windowing | Fix before shipping (support all orientations/windowed mode), not ship-as-limitation | 2026-07-18 |
+| License agreement (EULA) | **Apple's standard EULA, by decision** — both ASC license fields deliberately left empty (§14) | 2026-08-15 |
+
+## 14. License agreement (EULA) — decision and basis
+
+**Decision: version 1.0 ships under Apple's standard EULA.** Both App Store
+Connect license fields — `betaLicenseAgreement.agreementText` and the
+`endUserLicenseAgreement` relationship — are deliberately left empty. Empty is
+the setting; it is not an unfilled field.
+
+That distinction is the whole point of recording this. Before 2026-08-15 both
+fields were empty because nobody had decided anything, which is
+indistinguishable from nobody having gotten to them.
+
+### The question
+
+Apple's standard EULA limits use to devices the user owns or controls and
+restricts redistribution. GPL-2.0 §6 says a distributor "may not impose any
+further restrictions on the recipients' exercise of the rights granted herein."
+That tension is real, and it is not one this repo can engineer around: the
+engine is Woof! master `798acebd`, GPL-2.0 held by its own contributors, so
+relicensing is not an option available to us.
+
+### Why the standard EULA anyway
+
+**Every comparable shipped app uses it.** Checked 2026-08-15 on the live App
+Store listings — neither carries a custom licence agreement link, which means
+Apple's standard EULA applies to both:
+
+| App | Licence agreement | Price | Engine |
+|---|---|---|---|
+| [GenZD](https://apps.apple.com/us/app/genzd/id6503916449) | none — standard EULA | **$2.99** | GZDoom (GPL) |
+| [RetroArch](https://apps.apple.com/us/app/retroarch/id6499539433) | none — standard EULA | free | libretro (GPL) |
+
+GenZD is the more demanding precedent: GPL engine code sold as a **paid** app.
+WADdle is free, so it is strictly less exposed on the point GPL §6 raises.
+
+**A custom EULA would address the wrong layer.** The usual cited precedent is
+VLC's 2011 removal, and its resolution is widely misremembered. VideoLAN did
+not fix it with a custom agreement — Jean-Baptiste Kempf tracked down 230+
+individual developers for personal authorisation and relicensed
+libVLC/libVLCcore from GPLv2+ to **LGPLv2.1**, then rebuilt the iOS app on
+that; VLC media player itself stayed GPLv2+. The objection was to App Store
+distribution *itself* — device binding and DRM — which no EULA text alters. So
+a custom EULA buys little here, and the move that actually resolved VLC
+(weakening the copyleft) is precisely the one unavailable to us.
+
+### What this decision does not resolve, stated plainly
+
+VLC was removed on a complaint from **one of its own contributors**, not on
+Apple's initiative. That failure mode is unaffected by which EULA field is set,
+and it is unaffected for GenZD and RetroArch today as well. Shipping accepts a
+small, real, non-zero risk that a Woof! copyright holder objects. It is
+accepted knowingly rather than papered over, and no EULA choice available to
+this repo would remove it.
+
+App Store *review* is not the risk — that question is settled by the two
+listings above.
+
+### Verification
+
+Both fields must remain empty. Re-read them before submission:
+
+```bash
+export ASC_KEY_ID=... ASC_ISSUER_ID=... ASC_KEY_PATH=...
+JWT=$(Scripts/asc-jwt.sh)
+for rel in betaLicenseAgreement endUserLicenseAgreement; do
+  curl -sS -H "Authorization: Bearer $JWT" \
+    "https://api.appstoreconnect.apple.com/v1/apps/6792905089/$rel"
+done
+```
+
+Expected: `agreementText: None` on the beta agreement, and an empty
+`endUserLicenseAgreement` relationship. A non-empty value means someone set a
+custom agreement without updating this section — reconcile before submitting.
+
+**Sources** (checked 2026-08-15): [FSF on the VLC
+enforcement](https://www.fsf.org/blogs/licensing/vlc-enforcement) ·
+[LWN, Relicensing VLC from GPL to LGPL](https://lwn.net/Articles/525718/) ·
+[VideoLAN's libVLC relicensing press
+release](https://www.videolan.org/press/lgpl-libvlc.html) ·
+[Bradley Kuhn on the relicensing](https://ebb.org/bkuhn/blog/2012/11/22/vlc-lgpl.html) ·
+[Denis-Courmont's own account](https://www.remlab.net/op/vlc-lgpl.shtml) — he
+is both the strongest "copyleft and the App Store cannot be reconciled" voice
+and the person who filed the 2011 complaint, which is worth knowing when
+weighing it.

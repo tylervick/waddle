@@ -185,6 +185,14 @@ and pick a value above the highest already in App Store Connect.
     surfaces all licenses.
   - No copyrighted commercial game content in the repo or the bundle —
     Freedoom only.
+  - **Licence agreement is Apple's standard EULA, by decision** — both
+    `betaLicenseAgreement.agreementText` and the `endUserLicenseAgreement`
+    relationship are deliberately empty. Confirm they are still empty with
+    the `curl` check in `metadata.md` §14; a non-empty value means someone
+    set a custom agreement without updating that section. This bullet exists
+    because the EULA is the one GPL question this gate used to omit, and an
+    empty field left by decision has to be distinguishable from one nobody
+    got to. Basis, comparables, and the accepted residual risk: §14.
 - [ ] Submit for review.
 
 ## Known limitations (for the record, no action needed)
