@@ -82,7 +82,21 @@ natively).
 ## Reaching App Store Connect
 
 `Scripts/whats-to-test.sh <build-number>` does the work, so it is runnable
-outside the workflow.
+outside the workflow — but only while `HEAD` is still the commit the build
+shipped from. The changelog range ends at `HEAD` (`$TAG..HEAD`), not at the
+build's own commit. On the workflow path that endpoint is correct by
+construction: the script runs at the commit being shipped, so `HEAD` *is* the
+build. Off that path the claim holds only for as long as that stays true —
+once anything has landed on `main` since the release, the notes describe work
+the build does not contain.
+
+Two consequences worth stating outright. Re-attaching notes by hand after a
+notes failure inherits this condition: the remedy is sound when it is run
+promptly, and silently wrong once `main` has moved, so it is not
+unconditionally safe. And a past build cannot be annotated this way at all —
+`prev_tag` selects only the *start* of the range, so no argument moves the
+endpoint off `HEAD`. Historical builds are deliberately out of scope; this
+design only moves forward.
 
 The App Store Connect REST API authenticates with an **ES256 JWT**. The
 existing `ASC_KEY_ID` / `ASC_ISSUER_ID` / `ASC_PRIVATE_KEY` secrets are
@@ -138,7 +152,15 @@ was NOT recorded. The recovery differs from a notes failure, though:
 **re-running does not fix this and should not be attempted.** It recomputes
 the same build number and would tag the wrong build if it got this far again,
 and as above it will not even get that far. The fix is to create and push
-the tag by hand: `git tag build-<N> && git push origin build-<N>`.
+the tag by hand:
+`git -c tag.gpgSign=false tag build-<N> && git push origin build-<N>`.
+
+The `-c` is not optional on a machine with `tag.gpgSign = true`. A bare `git
+tag` fails there with `fatal: no tag message?`, which reads as a missing
+annotation and sends the operator looking for the wrong thing entirely — see
+`docs/learnings/git-fixtures-inherit-signing-config.md`. The workflow's own
+failure message already prints this corrected form; this document is stating
+the same command, not a second one.
 
 **A notes failure fails the job loudly.** The run goes red so it cannot be
 missed.
