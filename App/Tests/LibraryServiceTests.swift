@@ -409,4 +409,65 @@ final class LibraryServiceTests: XCTestCase {
         XCTAssertTrue(after.isHidden, "the seeder must not unhide what the player hid")
         XCTAssertFalse(try service.baseGames().contains { $0.id == originalID })
     }
+
+    // MARK: seedContinueSaveForCapture (test-only seam)
+
+    /// The property the App Store shot actually depends on is not "a file
+    /// exists" but "`EngineSaveSlot` resolves a slot from it", since that is
+    /// what `ShelfView.hasResumableSave` calls to decide whether to draw the
+    /// Continue hero. Assert the resolution, not just the filename.
+    func testSeedContinueSaveMakesTheNewestPlayedItemResumable() throws {
+        try service.seedBundledContentIfNeeded()
+        let freedoom1 = try XCTUnwrap(try service.allWADs().first { $0.filename == "freedoom1.wad" })
+        try service.markPlayed(freedoom1)
+        let dir = LibraryService.savesDirectory(forLoadoutID: freedoom1.id)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        XCTAssertNil(EngineSaveSlot.newestLoadGameArgument(in: service.saveSlots(forKey: freedoom1.id)),
+                     "precondition: a warped capture session leaves no save behind")
+
+        try service.seedContinueSaveForCapture()
+
+        XCTAssertEqual(
+            EngineSaveSlot.newestLoadGameArgument(in: service.saveSlots(forKey: freedoom1.id)),
+            EngineSaveSlot.autoSaveArgument,
+            "the seeded save must resolve as the autosave, or the shelf draws no Continue hero")
+    }
+
+    /// A real save must always win. If the capture device has genuine progress,
+    /// seeding over it would replace a loadable save with a marker that only
+    /// looks like one.
+    func testSeedContinueSaveLeavesAnExistingSaveAlone() throws {
+        try service.seedBundledContentIfNeeded()
+        let freedoom1 = try XCTUnwrap(try service.allWADs().first { $0.filename == "freedoom1.wad" })
+        try service.markPlayed(freedoom1)
+        let dir = LibraryService.savesDirectory(forLoadoutID: freedoom1.id)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let real = dir.appendingPathComponent("woofsav03.dsg")
+        try Data("a real save".utf8).write(to: real)
+
+        try service.seedContinueSaveForCapture()
+
+        XCTAssertEqual(try Data(contentsOf: real), Data("a real save".utf8),
+                       "an existing save was modified")
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: dir.appendingPathComponent(EngineSaveSlot.autoSaveFilename).path),
+            "seeding must no-op when the item already has a save")
+    }
+
+    /// Nothing played means nothing to continue — seeding must not invent a
+    /// hero for an item the player has never opened.
+    func testSeedContinueSaveDoesNothingWhenNothingWasPlayed() throws {
+        try service.seedBundledContentIfNeeded()
+        let freedoom1 = try XCTUnwrap(try service.allWADs().first { $0.filename == "freedoom1.wad" })
+        let dir = LibraryService.savesDirectory(forLoadoutID: freedoom1.id)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        try service.seedContinueSaveForCapture()
+
+        XCTAssertTrue(service.saveSlots(forKey: freedoom1.id).isEmpty,
+                      "seeded a save for an item that was never played")
+    }
 }

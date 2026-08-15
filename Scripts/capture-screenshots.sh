@@ -122,6 +122,24 @@ final class ScreenshotCaptureTests: XCTestCase {
     /// error ("overriding declaration requires an 'override' keyword"), which
     /// is how the duplication was caught. Use the shared ones.
 
+    /// Scrolls `element` into the hierarchy. Restored after being deleted as
+    /// dead code in the shelf migration — it is needed again, for a new reason.
+    /// SwiftUI's lazy containers (LazyVGrid on the shelf, List in Manage) omit
+    /// off-screen cells from the accessibility hierarchy entirely, so `exists`
+    /// is false and no `waitForExistence` will ever change it. The seeded
+    /// Continue hero made this bite again by pushing the shelf grid below the
+    /// fold, and Manage's preset rows sit under three WAD groups.
+    @discardableResult
+    @MainActor
+    private func scrollIntoView(_ app: XCUIApplication, _ element: XCUIElement) -> Bool {
+        for _ in 0..<6 {
+            if element.exists { return true }
+            app.swipeUp()
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        return element.exists
+    }
+
     /// Opens the player-settings sheet from the shelf's gear. The identifier is
     /// still `touchSchemeMenu` — deliberately kept across the Menu-to-sheet
     /// conversion so existing tests kept working.
@@ -212,10 +230,24 @@ final class ScreenshotCaptureTests: XCTestCase {
     @MainActor
     func testB_MenuScreens() throws {
         let app = XCUIApplication()
-        app.launch()  // no env vars: no debug HUD, no test seams
+        // The one seam this test needs. Woof autosaves only from
+        // `G_DoWorldDone` (level completion); testA warps in via `G_InitNew`
+        // and never finishes the level, so it leaves no save and the shelf
+        // draws no Continue hero — the shelf's headline affordance, missing
+        // from the marketing shot. This gives the item testA played a save so
+        // the hero renders. No debug HUD or other seams.
+        app.launchEnvironment["WADDLE_SEED_CONTINUE_SAVE"] = "1"
+        app.launch()
         forceLandscape()
 
-        XCTAssertTrue(app.buttons["playFreedoom1"].waitForExistence(timeout: 20))
+        // Probe the shelf by its chrome, not by a tile. With the Continue hero
+        // seeded above it, the LazyVGrid starts below the fold on a landscape
+        // phone — and a LazyVGrid cell below the fold is absent from the
+        // accessibility hierarchy entirely, not merely non-hittable, so
+        // `app.buttons["playFreedoom1"]` does not exist and no wait will change
+        // that. `manageButton` is toolbar chrome and always present.
+        XCTAssertTrue(app.buttons["manageButton"].waitForExistence(timeout: 20),
+                      "shelf never came up")
 
         // Manage: the grouped file manager (Base Games / Mods / Patches), shot
         // before the preset exists so no notice banner or in-use warning is on
@@ -235,9 +267,14 @@ final class ScreenshotCaptureTests: XCTestCase {
         // §3: one grid, no headers) — so that check would have read "no preset"
         // forever and created a duplicate on every run. Manage lists presets
         // under a stable per-name identifier, and we are already standing in it.
+        // Scroll to decide, not just to assert. Manage's preset rows sit under
+        // three WAD groups in a lazy List, so a bare `waitForExistence` reports
+        // "no preset" whenever one merely sits below the fold — and this run
+        // would then try to create a duplicate, the exact re-run hazard this
+        // probe exists to prevent.
         let presetRow = app.descendants(matching: .any)
             .matching(identifier: "managePreset-\(presetName)").firstMatch
-        let presetExists = presetRow.waitForExistence(timeout: 5)
+        let presetExists = scrollIntoView(app, presetRow)
 
         if presetExists {
             // Re-run against a container that already has the preset: edit it
@@ -270,20 +307,21 @@ final class ScreenshotCaptureTests: XCTestCase {
             addPWAD.tap()
             shoot("03-preset-editor")
             app.buttons["saveLoadoutButton"].tap()
+            XCTAssertTrue(app.buttons["newLoadoutButton"].waitForExistence(timeout: 10),
+                          "creation sheet never dismissed back to Manage")
         }
 
         // Back to the shelf for the home shot: one grid of base games and
         // presets, tiles carrying extracted TITLEPIC art. This is what a user
         // sees on launch.
         //
-        // NOTE, measured on the 2026-08-15 iPhone capture: there is **no
-        // Continue hero** in this shot. `Shelf.hero` requires the last-played
-        // item to have a resumable save, and testA's warped session does not
-        // leave one that survives testB's fresh `app.launch()`. So the shelf's
-        // headline affordance is absent from the marketing image. Whether to
-        // seed a save first so the hero appears is a judgement call for the
-        // re-capture, not something to decide here — see #127. Do not describe
-        // this shot as showing the hero until a capture actually does.
+        // The Continue hero is asserted, not hoped for. It renders only because
+        // WADDLE_SEED_CONTINUE_SAVE gave testA's item a save (see the launch
+        // above), and what `ShelfView.hasResumableSave` ultimately consults is
+        // `EngineSaveSlot`'s filename-based resolution. If that ever becomes
+        // content-aware, the seeded marker stops resolving and the hero quietly
+        // vanishes from the marketing shot — the precise silent-wrong-image
+        // failure this script was rewritten to eliminate (#156). Assert it.
         //
         // The filename stays `01-play-tab` on purpose. Renaming it here would
         // orphan the image that file currently holds and break README.md's
@@ -291,9 +329,20 @@ final class ScreenshotCaptureTests: XCTestCase {
         // rename belongs with the re-capture, where the files are being
         // replaced anyway. See issue #127.
         returnToShelf(app)
-        XCTAssertTrue(app.buttons["loadout-\(presetName)"].waitForExistence(timeout: 10),
-                      "preset tile never appeared on the shelf — preset creation did not land")
+        XCTAssertTrue(app.buttons["continueHero"].waitForExistence(timeout: 10),
+                      "no Continue hero on the shelf — WADDLE_SEED_CONTINUE_SAVE did not take, "
+                      + "and this shot would ship without the shelf's headline affordance")
+
+        // Preset creation is deliberately NOT asserted from a shelf tile here.
+        // Issue #159: the hero has no height cap, so on a landscape phone it
+        // fills the viewport and the LazyVGrid below it holds no cells in the
+        // accessibility hierarchy at all — scrolling does not recover them
+        // reliably. Once #159 lands and the grid is visible beside the hero,
+        // add `XCTAssertTrue(app.buttons["loadout-\(presetName)"].waitFor...)`
+        // back here, after the shot. Until then this shot is known to show the
+        // hero and nothing else, which is why #159 blocks the re-capture.
         shoot("01-play-tab")
+
 
         // Control Feel, now two levels deep: the gear opens the Settings sheet
         // (a sheet since the rework, not a Menu), and Control Feel… opens its

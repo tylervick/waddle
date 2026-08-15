@@ -425,6 +425,34 @@ final class LibraryService {
             .appendingPathComponent(filename)
     }
 
+    #if DEBUG
+    /// Test-only: gives the most-recently-played item a save file so the
+    /// shelf's Continue hero renders, for App Store screenshot capture.
+    /// Driven by `WADDLE_SEED_CONTINUE_SAVE` (see `WADdleApp`).
+    ///
+    /// **This writes a marker, not a loadable savegame**, and that is a
+    /// deliberate limit rather than an oversight. Only the engine can produce a
+    /// real `.dsg`, and it writes one solely on level completion
+    /// (`Engine/woof/src/g_game.c:2002`), which a warped capture session never
+    /// reaches. What the hero actually depends on is
+    /// `EngineSaveSlot.newestLoadGameArgument`, which resolves a slot from the
+    /// *filename* alone — so `autosave.dsg` is enough to render the hero, and
+    /// tapping Continue on this seeded state would not resume anything.
+    ///
+    /// The capture test asserts the hero is present after setting this, so if
+    /// that filename-based check ever becomes content-aware, the capture fails
+    /// loudly instead of quietly losing the hero from the marketing shot.
+    ///
+    /// No-ops when the item already has a save: a real one must always win.
+    func seedContinueSaveForCapture() throws {
+        guard let item = try recentlyPlayed(limit: 1).first else { return }
+        guard saveSlots(forKey: item.savesKey).isEmpty else { return }
+        let dir = Self.savesDirectory(forLoadoutID: item.savesKey)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data().write(to: dir.appendingPathComponent(EngineSaveSlot.autoSaveFilename))
+    }
+    #endif
+
     nonisolated static func savesDirectory(forLoadoutID id: UUID) -> URL {
         URL.documentsDirectory
             .appendingPathComponent("Saves", isDirectory: true)
