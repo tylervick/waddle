@@ -208,7 +208,13 @@ TestFlight builds run from a third workflow, `testflight.yml` — see
 
 ## WAD library
 
-Import WADs three ways: the in-app Import button, "Share → WADdle" from
+The shelf is the home screen: a Continue hero when your last game has a save
+to resume, then one grid of every base game and preset, most recently played
+first. A gear opens player settings; **Manage** opens the library workspace,
+where importing, preset editing, and restoring hidden items live. Long-press
+a tile to remove it from the shelf — the files and saves are kept.
+
+Import WADs three ways: the Import button in Manage, "Share → WADdle" from
 another app, or drop files into the app's folder in the Files app (adopted
 on next launch). IWADs, PWADs, `.deh`/`.bex` patches, and zips containing
 any of those all work; zips are recursed into and duplicates are deduped by
@@ -222,8 +228,9 @@ Freedoom Phase 1+2 are bundled and pre-wired as presets.
 
 - **Touch:** left side of the screen is a floating movement stick. On-screen
   buttons: FIRE, USE, weapon prev/next, automap (MAP), and menu (≡). Two
-  touch control schemes are available from the gear menu on the Play tab
-  ("Touch Controls: Classic / Modern", persisted across launches):
+  touch control schemes are available from the gear on the shelf, which
+  opens a Settings sheet ("Touch Controls: Classic / Modern", persisted
+  across launches):
   - **Classic** (default): the stick's horizontal axis turns, vertical axis
     moves forward/back — no strafe, matching how classic WADs expect to be
     played. The right side of the screen has no drag gesture; it only hosts
@@ -235,7 +242,7 @@ Freedoom Phase 1+2 are bundled and pre-wired as presets.
 
   The overlay drives a virtual gamepad, so all bindings are remappable in
   Woof!'s own setup menu.
-- **Control feel tuning:** the same gear menu has a "Control Feel…" sheet
+- **Control feel tuning:** the same Settings sheet has a "Control Feel…" button
   with three persisted sliders (values are read when a session's overlay
   installs, so mid-session changes apply to the next session):
   - **Turn Speed** (0.25–3.0, default 1.0): multiplies the classic scheme's
@@ -254,8 +261,8 @@ Freedoom Phase 1+2 are bundled and pre-wired as presets.
   touch overlay hides automatically while one is connected.
 - **Keyboard & mouse:** hardware keyboards hide the overlay; mouse look
   works on iPad (indirect input events are enabled).
-- **Debug HUD:** the same gear menu has a "Show Debug Info" toggle
-  (persisted) that adds a build-stamp footer on the Play tab and a live
+- **Debug HUD:** the same Settings sheet has a "Show Debug Info" toggle
+  (persisted) that adds a build-stamp footer on the shelf and a live
   commit/scheme/touch-event/trigger-value overlay during engine sessions —
   see `docs/manual-testing.md` for what each field means.
 
