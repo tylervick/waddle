@@ -361,7 +361,7 @@ and the repo's COPYING.)
 > On iPad the app supports all orientations and windowed multitasking.
 >
 > To demo: no account or setup needed - tap the "Freedoom Phase 1" tile on
-> the Play tab.
+> the home shelf.
 >
 > WAD files are game data, not executable code: they contain maps, sprites,
 > sounds and music. DeHackEd patches are data tables the engine interprets.
