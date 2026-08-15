@@ -104,30 +104,38 @@ final class ScreenshotCaptureTests: XCTestCase {
         add(attachment)
     }
 
-    /// iOS 26's TabView reconstructs the tab-bar button from the tabItem, so
-    /// it carries no accessibility identifier — switch by label text (see the
-    /// note in ContentView). Falls back to a plain button query in case iPad
-    /// surfaces them outside a tabBars container.
-    private func tapTab(_ app: XCUIApplication, _ label: String) {
-        let tab = app.tabBars.buttons[label]
-        if tab.waitForExistence(timeout: 5) { tab.tap() }
-        else { app.buttons[label].firstMatch.tap() }
-    }
+    /// Navigation MUST fail loudly. The predecessor of these two helpers tapped
+    /// the tab bar behind a bare `if tab.waitForExistence(...)`, with no
+    /// assertion. When the shelf (PR #144) deleted that tab bar the helper
+    /// stopped navigating and stopped complaining: every subsequent `shoot(...)`
+    /// photographed whatever happened to be on screen, so a capture run emitted
+    /// six correctly-named images of the wrong screens and exited 0 — straight
+    /// into docs/app-store/screenshots/, which is what the App Store submission
+    /// and README.md both read from. A silent miss is the worst outcome
+    /// available to this script, strictly worse than a crash, because nothing
+    /// downstream re-checks the pixels. Assert every step.
 
-    /// PlayView's sections are LazyVGrids inside a ScrollView, so a tile below
-    /// the fold is absent from the accessibility hierarchy entirely rather
-    /// than merely non-hittable — `exists` is false and no wait will change
-    /// that. Three sections do not fit a landscape iPhone, so scroll it in.
-    /// The section *headers* are plain Text in a non-lazy VStack and are
-    /// always present; that is what the assertions below key on.
-    @discardableResult
-    private func scrollIntoView(_ app: XCUIApplication, _ element: XCUIElement) -> Bool {
-        for _ in 0..<5 {
-            if element.exists { return true }
-            app.swipeUp()
-            Thread.sleep(forTimeInterval: 0.5)
-        }
-        return element.exists
+    /// `openManage` and `returnToShelf` are NOT defined here. They live in
+    /// App/UITests/XCTestCase+UIHelpers.swift, which compiles into this same UI
+    /// test target, and both already assert. Redeclaring them as private
+    /// methods on this subclass does not shadow the extension — it is a compile
+    /// error ("overriding declaration requires an 'override' keyword"), which
+    /// is how the duplication was caught. Use the shared ones.
+
+    /// Opens the player-settings sheet from the shelf's gear. The identifier is
+    /// still `touchSchemeMenu` — deliberately kept across the Menu-to-sheet
+    /// conversion so existing tests kept working.
+    ///
+    /// `@MainActor` to match the test methods below: without it, referencing
+    /// `app.navigationBars` inside `XCTAssertTrue`'s autoclosure warns about
+    /// main-actor isolation.
+    @MainActor
+    private func openPlayerSettings(_ app: XCUIApplication) {
+        let gear = app.buttons["touchSchemeMenu"]
+        XCTAssertTrue(gear.waitForExistence(timeout: 10), "gear missing from the shelf")
+        gear.tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10),
+                      "tapped the gear but the Settings sheet never appeared")
     }
 
     /// iPadOS 26 defaults to the "Windowed Apps" multitasking style. Since
@@ -208,34 +216,35 @@ final class ScreenshotCaptureTests: XCTestCase {
         forceLandscape()
 
         XCTAssertTrue(app.buttons["playFreedoom1"].waitForExistence(timeout: 20))
-        // Checked here, on the Play tab: elements on a background tab don't
-        // exist in the hierarchy, so checking after switching to Library
-        // would always create a duplicate preset on a re-run. The section
-        // header, not the tile, is the probe — see `scrollIntoView`.
-        let presetTile = app.buttons["loadout-\(presetName)"]
-        let presetsSection = app.staticTexts["Presets"]
-        let presetExists = presetsSection.exists
 
-        // Library: the reworked grouped file manager (Base Games / Mods /
-        // Patches), shot before the preset exists so no notice banner or
-        // in-use warning is on screen.
-        tapTab(app, "Library")
+        // Manage: the grouped file manager (Base Games / Mods / Patches), shot
+        // before the preset exists so no notice banner or in-use warning is on
+        // screen. Everything below happens here rather than on the shelf —
+        // preset creation and editing both moved into Manage with the shelf
+        // rework, and so did the only reliable place to ask whether the preset
+        // already exists.
+        openManage(app)
         let scytheRow = app.descendants(matching: .any)
             .matching(identifier: "libraryRow-SCYTHE.WAD").firstMatch
         XCTAssertTrue(scytheRow.waitForExistence(timeout: 30),
                       "provisioned WADs not adopted — run the warm-up launch first")
         shoot("02-library")
 
-        tapTab(app, "Play")
+        // The re-run probe. It used to be the shelf's "Presets" section header,
+        // which the shelf deleted along with every other section header (spec
+        // §3: one grid, no headers) — so that check would have read "no preset"
+        // forever and created a duplicate on every run. Manage lists presets
+        // under a stable per-name identifier, and we are already standing in it.
+        let presetRow = app.descendants(matching: .any)
+            .matching(identifier: "managePreset-\(presetName)").firstMatch
+        let presetExists = presetRow.waitForExistence(timeout: 5)
+
         if presetExists {
             // Re-run against a container that already has the preset: edit it
             // instead of creating a second one.
-            XCTAssertTrue(scrollIntoView(app, presetTile), "preset tile not reachable")
-            presetTile.press(forDuration: 1.2)
-            let edit = app.buttons["Edit"]
-            XCTAssertTrue(edit.waitForExistence(timeout: 5))
-            edit.tap()
-            XCTAssertTrue(app.textFields["loadoutNameField"].waitForExistence(timeout: 5))
+            presetRow.tap()
+            XCTAssertTrue(app.textFields["loadoutNameField"].waitForExistence(timeout: 10),
+                          "tapped the existing preset but the editor never opened")
             shoot("03-preset-editor")
             app.buttons["Cancel"].tap()
         } else {
@@ -263,24 +272,46 @@ final class ScreenshotCaptureTests: XCTestCase {
             app.buttons["saveLoadoutButton"].tap()
         }
 
-        // Play tab: Recently Played (from testA's session) + Base Games +
-        // Presets, tiles carrying extracted TITLEPIC art. Shot from the top
-        // of the list, which is what a user sees on launch; all three
-        // sections fit on iPad, an iPhone in landscape shows the first.
-        XCTAssertTrue(presetsSection.waitForExistence(timeout: 10),
-                      "Presets section never appeared — preset creation did not land")
+        // Back to the shelf for the home shot: one grid of base games and
+        // presets, tiles carrying extracted TITLEPIC art. This is what a user
+        // sees on launch.
+        //
+        // NOTE, measured on the 2026-08-15 iPhone capture: there is **no
+        // Continue hero** in this shot. `Shelf.hero` requires the last-played
+        // item to have a resumable save, and testA's warped session does not
+        // leave one that survives testB's fresh `app.launch()`. So the shelf's
+        // headline affordance is absent from the marketing image. Whether to
+        // seed a save first so the hero appears is a judgement call for the
+        // re-capture, not something to decide here — see #127. Do not describe
+        // this shot as showing the hero until a capture actually does.
+        //
+        // The filename stays `01-play-tab` on purpose. Renaming it here would
+        // orphan the image that file currently holds and break README.md's
+        // <img src>, while the replacement image does not exist yet — the
+        // rename belongs with the re-capture, where the files are being
+        // replaced anyway. See issue #127.
+        returnToShelf(app)
+        XCTAssertTrue(app.buttons["loadout-\(presetName)"].waitForExistence(timeout: 10),
+                      "preset tile never appeared on the shelf — preset creation did not land")
         shoot("01-play-tab")
 
-        // Control Feel sheet (gear menu).
-        let menu = app.buttons["touchSchemeMenu"]
-        XCTAssertTrue(menu.waitForExistence(timeout: 5))
-        menu.tap()
+        // Control Feel, now two levels deep: the gear opens the Settings sheet
+        // (a sheet since the rework, not a Menu), and Control Feel… opens its
+        // own sheet on top of that. Both are dismissed so the run ends on the
+        // shelf rather than leaving a sheet stacked over it.
+        openPlayerSettings(app)
         let controlFeel = app.buttons["controlFeelButton"]
-        XCTAssertTrue(controlFeel.waitForExistence(timeout: 5))
+        XCTAssertTrue(controlFeel.waitForExistence(timeout: 5),
+                      "Control Feel button missing from the Settings sheet")
         controlFeel.tap()
-        XCTAssertTrue(app.buttons["controlFeelDoneButton"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["controlFeelDoneButton"].waitForExistence(timeout: 5),
+                      "Control Feel sheet never opened")
         shoot("04-control-feel")
         app.buttons["controlFeelDoneButton"].tap()
+        let settingsDone = app.navigationBars["Settings"].buttons["Done"]
+        XCTAssertTrue(settingsDone.waitForExistence(timeout: 5),
+                      "Settings sheet did not survive dismissing Control Feel")
+        settingsDone.tap()
     }
 }
 EOF

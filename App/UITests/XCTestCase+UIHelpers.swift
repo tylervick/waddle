@@ -26,8 +26,25 @@ extension XCTestCase {
 
     /// Pops Manage back to the shelf. The back button is titled with the
     /// shelf's own navigation title.
-    func returnToShelf(_ app: XCUIApplication) {
+    ///
+    /// Asserts, unlike its first version. Every caller reaches this line
+    /// directly after a successful `openManage`, so a missing back button means
+    /// navigation is broken, not that the app is in some other legitimate
+    /// state. Leaving it as a bare `if` made that failure silent, and the
+    /// polling loops in `RealWADTests`/`DemoLoopReplayTests` would then spin
+    /// against the wrong screen until their deadline and report the timeout
+    /// instead of the real cause. `Scripts/capture-screenshots.sh` depends on
+    /// this assertion outright: it shoots straight after returning, so a silent
+    /// no-op there produces a correctly-named marketing image of the wrong
+    /// screen (see issue #156).
+    func returnToShelf(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         let back = app.navigationBars.buttons["WADdle"]
-        if back.waitForExistence(timeout: 5) { back.tap() }
+        XCTAssertTrue(back.waitForExistence(timeout: 5),
+                      "no back button out of Manage — navigation is broken",
+                      file: file, line: line)
+        back.tap()
+        XCTAssertTrue(app.buttons["manageButton"].waitForExistence(timeout: 10),
+                      "left Manage but never landed back on the shelf",
+                      file: file, line: line)
     }
 }
