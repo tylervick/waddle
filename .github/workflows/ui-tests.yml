@@ -1,10 +1,37 @@
 name: UI Tests
 
-# Manual dispatch only, by choice. These tests boot a real Metal/OpenGL
-# engine session in the simulator, so they are the slow, flake-prone half of
-# the suite and are kept off the PR path. The trade-off is that nothing runs
-# them automatically -- add a `schedule:` block here if they start to rot.
+# Runs on every merge to main, and on manual dispatch. These tests boot a real
+# Metal/OpenGL engine session in the simulator, so they are the slow,
+# flake-prone half of the suite and stay off the pull-request path -- but they
+# no longer run only when somebody remembers.
+#
+# The previous header said "Manual dispatch only, by choice" and closed with
+# "add a `schedule:` block here if they start to rot." They rotted; this is that
+# block, arriving after the rot rather than before it.
+#
+# Why this exists: ui-tests.yml was workflow_dispatch-only, and between its last
+# run (2026-07-29) and 2026-08-16, 84 pull requests merged. One of them, PR #144,
+# replaced the whole app shell and touched five UI suites. None of them ran. A
+# regression in it -- long-press to Details never opening the detail sheet --
+# merged, shipped to TestFlight, and was found weeks later by accident. Two UI
+# tests had been red on main the entire time with no red check anywhere.
+#
+# Why `push: main` rather than `pull_request`: this suite boots the real engine
+# on top of a full build, on a macOS runner. Paying that on every push to every
+# pull request buys the ability to block the breaking merge; paying it once per
+# merge tells you within minutes instead, which is what the failure above
+# actually needed. Deliberately weaker and much cheaper. Revisit if something
+# breaks that a post-merge signal catches too late.
+#
+# No `concurrency:` block on purpose. ci.yml has one and exempts main from
+# cancellation for a cache reason that does not apply here, but the reason to
+# omit it entirely is attribution: two merges landing close together should
+# produce two runs, so a red one names the merge that broke it. Cancelling the
+# older run would hand you a red result covering an unknown span of commits --
+# the exact ambiguity a nightly cron would have had.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       device:
@@ -25,6 +52,13 @@ permissions:
 env:
   XCODE_VERSION: "26.2"
   SIMULATOR_OS: "26.2"
+  # The fallback for every trigger that is not workflow_dispatch. `inputs` is
+  # populated ONLY for dispatch (and workflow_call); on a `push` run the whole
+  # context is empty, so `inputs.device` is "". Without this, DESTINATION built
+  # to `platform=iOS Simulator,name=,OS=26.2` and the job failed on a malformed
+  # destination -- a failure that looks like a broken test suite and is not one.
+  # The dispatch input keeps its own default so the form still shows a value.
+  SIMULATOR_DEVICE: "iPhone 17 Pro"
 
 jobs:
   ui-tests:
@@ -46,7 +80,7 @@ jobs:
       # below.
       - name: Verify simulator is available
         env:
-          SIM_DEVICE: ${{ inputs.device }}
+          SIM_DEVICE: ${{ inputs.device || env.SIMULATOR_DEVICE }}
         run: Scripts/check-simulator-available.sh "$SIM_DEVICE" "$SIMULATOR_OS"
 
       # Inputs go through env rather than direct ${{ }} interpolation into
@@ -54,7 +88,7 @@ jobs:
       # break out of the command.
       - name: Run UI tests
         env:
-          DESTINATION: platform=iOS Simulator,name=${{ inputs.device }},OS=${{ env.SIMULATOR_OS }}
+          DESTINATION: platform=iOS Simulator,name=${{ inputs.device || env.SIMULATOR_DEVICE }},OS=${{ env.SIMULATOR_OS }}
           ONLY_TESTING: ${{ inputs.only_testing }}
         run: |
           ARGS=(
