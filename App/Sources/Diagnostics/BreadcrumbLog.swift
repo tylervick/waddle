@@ -35,24 +35,53 @@ enum BreadcrumbEvent {
         }
     }
 
+    /// Stands in for a path whose final component cannot be told apart from a
+    /// directory name.
+    static let redactedPath = "<path>"
+
     /// Collapses a value to one safe line: no newlines (one event is one
-    /// line, and the reader counts lines), no filesystem paths -- a token
-    /// containing `/` is reduced to its last component, which is how the
-    /// engine's own "Failed to load <path>" text stays inside info.txt's
-    /// names-only envelope -- and a bounded length, so one runaway engine
-    /// message cannot evict the whole trail from the ring buffer.
+    /// line, and the reader counts lines), no filesystem paths -- which is
+    /// how the engine's own "Failed to load <path>" text stays inside
+    /// info.txt's names-only envelope -- and a bounded length, so one runaway
+    /// engine message cannot evict the whole trail from the ring buffer.
     static func sanitized(_ value: String, maxLength: Int = 200) -> String {
-        let flattened = value
-            .split(whereSeparator: { $0.isWhitespace })
-            .map { token -> Substring in
-                guard token.contains("/") else { return token }
-                return token.split(separator: "/").last ?? ""
+        let tokens = value.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        var kept: [String] = []
+        var index = 0
+        while index < tokens.count {
+            guard tokens[index].contains("/") else {
+                kept.append(tokens[index])
+                index += 1
+                continue
             }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+            // A path span is a *run* of separator-carrying tokens, not one
+            // token: a space inside a directory name splits a single path
+            // across several of them, and reducing only the first is what
+            // would leave a directory component -- a person's home folder, in
+            // the worst case -- standing as a bare word. Reducing the run as a
+            // whole is what makes "no paths" true rather than nearly true.
+            var end = index
+            while end + 1 < tokens.count, tokens[end + 1].contains("/") { end += 1 }
+            kept.append(finalComponent(ofPathSpan: tokens[index...end].joined(separator: " ")))
+            index = end + 1
+        }
+        let flattened = kept.filter { !$0.isEmpty }.joined(separator: " ")
         return flattened.count > maxLength
             ? String(flattened.prefix(maxLength)) + "..."
             : flattened
+    }
+
+    /// Everything ahead of the span's last separator is dropped, so no
+    /// directory component can survive. The final component is kept only when
+    /// it reads as a file name: a path can end in a directory just as easily,
+    /// and that case is genuinely ambiguous, so it is redacted whole rather
+    /// than guessed at. The same bias costs an occasional non-path token that
+    /// happens to carry a slash, which is the cheaper mistake to make here.
+    private static func finalComponent(ofPathSpan span: String) -> String {
+        guard let name = span.split(separator: "/").last, name.contains(".") else {
+            return redactedPath
+        }
+        return String(name)
     }
 }
 

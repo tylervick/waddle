@@ -74,6 +74,39 @@ final class BreadcrumbLogTests: XCTestCase {
         XCTAssertTrue(line.hasSuffix("Failed to load private.wad"), line)
     }
 
+    func testADirectoryNameContainingSpacesDoesNotSurviveRedaction() {
+        let log = BreadcrumbLog(directory: tmp)
+        log.record(.sessionEnd(
+            exitCode: -1,
+            engineMessage: "Failed to load /Users/Alice Smith/My WADs/private.wad"))
+
+        let line = BreadcrumbLog.lines(in: tmp)[0]
+        XCTAssertTrue(line.hasSuffix("Failed to load private.wad"), line)
+        for component in ["Alice", "Smith", "My", "WADs", "Users"] {
+            XCTAssertFalse(line.contains(component),
+                "a space inside a directory name must not leave \(component) standing as a bare word")
+        }
+    }
+
+    func testAPathEndingInADirectoryIsRedactedRatherThanGuessedAt() {
+        let log = BreadcrumbLog(directory: tmp)
+        log.record(.sessionBegin(name: "/Users/Alice"))
+
+        let line = BreadcrumbLog.lines(in: tmp)[0]
+        XCTAssertTrue(line.hasSuffix("session begin: \(BreadcrumbEvent.redactedPath)"), line)
+        XCTAssertFalse(line.contains("Alice"),
+            "a final component that could equally be a directory is ambiguous, so it goes whole")
+    }
+
+    func testEachPathInAMessageIsReducedSeparately() {
+        let log = BreadcrumbLog(directory: tmp)
+        log.record(.sessionEnd(exitCode: -1,
+                               engineMessage: "cannot copy /a/base.wad to /b/target.wad"))
+
+        let line = BreadcrumbLog.lines(in: tmp)[0]
+        XCTAssertTrue(line.hasSuffix("cannot copy base.wad to target.wad"), line)
+    }
+
     func testNewlinesInAValueCannotForgeExtraEvents() {
         let log = BreadcrumbLog(directory: tmp)
         log.record(.sessionBegin(name: "Nuts\nalert dismissed"))
