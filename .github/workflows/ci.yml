@@ -88,6 +88,12 @@ jobs:
           # that ships the wrong thing costs a build number to undo.
           Scripts/test-asc-jwt.sh
           Scripts/test-whats-to-test.sh
+          # Decides whether testflight.yml's nightly schedule ships at all.
+          # Hermetic: throwaway git repos in a temp dir, with a ceiling set so
+          # the no-repository cases cannot wander up into this checkout. It is
+          # the only pull-request-visible test of that gate -- the workflow
+          # bash around it runs nowhere before merge.
+          Scripts/test-release-due.sh
           # Hermetic: it clears GH_TOKEN/GITHUB_TOKEN and strips PATH itself,
           # so it needs no credentials here and never reaches real GitHub.
           # issue-format.yml runs it too, but that workflow fires on

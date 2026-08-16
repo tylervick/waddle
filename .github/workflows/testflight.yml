@@ -1,8 +1,24 @@
 name: TestFlight
 
-# Manual dispatch only. Shipping to TestFlight is a deliberate act and must
-# never be a side effect of a push or a tag.
+# Scheduled nightly, plus manual dispatch. The rule this used to state --
+# "shipping is a deliberate act and must never be a side effect of a push or a
+# tag" -- is narrowed here, not dropped, and the narrowing is only in the word
+# "push". No individual merge ships anything, and no tag ships anything. What
+# ships is one scheduled act per day, carrying whatever main accumulated, and
+# only when main actually moved past the newest build-* tag (the `gate` job
+# below, via Scripts/release-due.sh).
+#
+# Per-merge releases were the alternative and were rejected on the numbers: at
+# the two or three merged pull requests a day this repo lands, they would mean
+# three builds daily whose What-to-Test notes are each a single bullet, which
+# teaches testers to ignore the notification. Once ignored, the notification
+# cannot be un-ignored by shipping more often.
 on:
+  schedule:
+    # 01:17 America/Los_Angeles in winter, 02:17 in summer -- cron has no
+    # timezone and GitHub reads it as UTC. Deliberately off the hour: schedules
+    # bunch at :00, and a contended queue delays them, sometimes past an hour.
+    - cron: '17 9 * * *'
   workflow_dispatch:
     inputs:
       validate_only:
@@ -29,11 +45,74 @@ env:
   # Builds 1-6 are consumed. run_number starts at 1 for a new workflow, so
   # this floor clears them with room for out-of-band manual uploads. First CI
   # release is 201. Documented in the design spec.
+  #
+  # Since the nightly schedule landed, build numbers have GAPS: a night the
+  # gate declines still consumes a run_number, so the sequence skips. That is
+  # harmless -- App Store Connect requires build numbers to be unique and
+  # increasing, never contiguous -- but it means a missing number is not
+  # evidence of a lost or failed release, and the run list is the only place
+  # that distinction is recorded.
   BUILD_NUMBER_OFFSET: 200
 
 jobs:
+  # Deliberately a separate ubuntu job rather than a first step of the macOS
+  # one. Two things follow from the split and neither is cosmetic: a quiet
+  # night never spins up a macOS runner at all, and a declined night reads as
+  # `skipped` in the run list instead of as a green run that silently did
+  # nothing -- the shape that makes a broken schedule indistinguishable from a
+  # calm week.
+  gate:
+    name: Anything to ship?
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      ship: ${{ steps.due.outputs.ship }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Same reason as the release job below, and the same trap:
+          # Scripts/release-due.sh measures from the newest build-* tag, and a
+          # depth-1 clone has neither the tag nor the history behind it. The
+          # script fails closed rather than guessing if this is ever dropped,
+          # but the point is to not put it in that position.
+          fetch-depth: 0
+
+      - name: Ask whether main moved
+        id: due
+        env:
+          # A manual dispatch is the owner meaning it, and the schedule's gate
+          # must not second-guess that. Re-releasing after a failed notes
+          # attach, and shipping an engine rebuild that changes the binary with
+          # no new commits behind it, are both legitimate and both look exactly
+          # like "nothing to ship" when measured from git alone.
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" != "schedule" ]; then
+            echo "ship=true" >> "$GITHUB_OUTPUT"
+            echo "Manual dispatch: shipping regardless of what main has done."
+            exit 0
+          fi
+          # Status tested before the output is read. A masked failure here
+          # would surface as an empty string, which compares unequal to "yes"
+          # and would silently stop releasing forever -- a failure that looks
+          # exactly like a quiet week. See
+          # docs/learnings/masked-exit-status-fails-open.md.
+          if ! DUE="$(Scripts/release-due.sh)"; then
+            echo "::error::Could not determine whether a release is due; refusing to ship blind."
+            exit 1
+          fi
+          if [ "$DUE" = "yes" ]; then
+            echo "ship=true" >> "$GITHUB_OUTPUT"
+            echo "main has moved since the last shipped build; releasing."
+          else
+            echo "ship=false" >> "$GITHUB_OUTPUT"
+            echo "No commits since the newest build-* tag; nothing to ship tonight."
+          fi
+
   testflight:
     name: Archive and upload
+    needs: gate
+    if: ${{ needs.gate.outputs.ship == 'true' }}
     runs-on: macos-26
     timeout-minutes: 90
     # Declared on the JOB, not the workflow: written at workflow level it

@@ -46,6 +46,21 @@ paste; `docs/app-store/screenshots/` holds the images;
 **Releases run from CI.** Dispatch the `TestFlight` workflow — do not archive
 by hand unless CI is unavailable.
 
+**Most builds arrive without you.** The workflow also runs on a nightly
+schedule (`17 9 * * *`, so ~01:17 PT in winter and ~02:17 PT in summer). A
+`gate` job asks `Scripts/release-due.sh` whether `main` has moved past the
+newest `build-*` tag and skips the whole release if it has not, so a quiet day
+costs nothing and ships nothing. Everything below is still how you release *on
+demand* — for a version cut, a signing change, or anything you do not want to
+wait a night for. A manual dispatch is never gated: it ships whether or not
+`main` moved, which is what makes it the way to re-release after a failed notes
+attach or to ship an engine rebuild that changes the binary with no new commits
+behind it.
+
+Build numbers therefore have gaps — a night the gate declines still consumes a
+`run_number`. A missing number is not a lost release; check the Actions run
+list before assuming one went wrong.
+
 - [ ] **Preflight** (do this first whenever signing, certificates or profiles
       have changed). Builds, signs, exports and validates against App Store
       Connect **without consuming a build number**:
