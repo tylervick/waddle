@@ -19,6 +19,12 @@ struct TitleArtView: View {
     /// Width-to-height ratio of the shape the art fills: 3:4 on tiles, the
     /// art's own ~1.6:1 on the full-width hero (`Theme`).
     var aspectRatio: CGFloat = Theme.tileAspectRatio
+    /// When set, the art fills a box of exactly this height at whatever width
+    /// is offered and crops to it, instead of deriving its height from
+    /// `aspectRatio`. The hero passes `ShelfHeroLayout.artHeight` so a short
+    /// viewport still has room for the grid; tiles leave it nil and keep the
+    /// ratio.
+    var height: CGFloat?
 
     @State private var image: CGImage?
 
@@ -42,7 +48,7 @@ struct TitleArtView: View {
                     .scaledToFill()
             }
         }
-        .aspectRatio(aspectRatio, contentMode: .fit)
+        .modifier(ArtShape(aspectRatio: aspectRatio, height: height))
         // TITLEPIC is landscape and tiles are portrait, so `scaledToFill`
         // overflows by design; clip it to the tile before anyone rounds it.
         .clipped()
@@ -60,6 +66,29 @@ struct TitleArtView: View {
             // still win the race and briefly flash the previous item's art.
             guard !Task.isCancelled else { return }
             image = loaded
+        }
+    }
+
+    /// Sizes the art either by ratio or by an explicit height. Which branch a
+    /// given call site takes is fixed by that call site -- the hero always
+    /// passes a height, tiles never do -- so this never flips underneath a
+    /// live view.
+    private struct ArtShape: ViewModifier {
+        let aspectRatio: CGFloat
+        let height: CGFloat?
+
+        @ViewBuilder
+        func body(content: Content) -> some View {
+            if let height {
+                // The offered width, at exactly this height. `scaledToFill`
+                // inside already overflows a short box, so the art crops --
+                // where `aspectRatio(_:contentMode: .fit)` would letterbox
+                // instead, shrinking the hero's width to match its capped
+                // height and leaving it floating in the middle of the screen.
+                content.frame(maxWidth: .infinity).frame(height: height)
+            } else {
+                content.aspectRatio(aspectRatio, contentMode: .fit)
+            }
         }
     }
 }
