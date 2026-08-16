@@ -27,6 +27,7 @@ struct PresetCreationFlow: View {
                 Button(base.displayName) { path = base }
                     .accessibilityIdentifier("createPresetBase-\(base.displayName)")
             }
+            .waddleScrollSurface()
             .navigationTitle("New Preset")
             .navigationDestination(item: $path) { base in
                 // `onComplete: { dismiss() }` closes the whole sheet (this

@@ -92,6 +92,7 @@ struct LoadoutEditorView: View {
                     }
                 }
             }
+            .waddleScrollSurface()
             .navigationTitle(existing == nil ? "New Preset" : "Edit Preset")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {

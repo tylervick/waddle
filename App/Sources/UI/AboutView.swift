@@ -39,6 +39,7 @@ struct AboutView: View {
                 }
             }
         }
+        .waddleScrollSurface()
         .navigationTitle("About")
         .accessibilityIdentifier("aboutView")
         .sheet(item: $exportedZip) { zip in
@@ -97,6 +98,7 @@ struct LicenseTextView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding()
         }
+        .background(Color.appBackground)
         .navigationTitle(title)
     }
 

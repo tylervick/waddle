@@ -53,6 +53,7 @@ struct PlayableDetailView: View {
                 savesSection
                 footerSection
             }
+            .waddleScrollSurface()
             .navigationTitle(item.title)
             .navigationBarTitleDisplayMode(.inline)
             .onAppear { saves = library.saveSlots(forKey: savesKey) }

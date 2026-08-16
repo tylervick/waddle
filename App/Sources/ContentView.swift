@@ -18,10 +18,15 @@ struct ContentView: View {
             if let notice = ImportNotices.shared.current {
                 Text(notice)
                     .font(.footnote)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: Theme.minimumTapTarget)
                     .background(.thinMaterial, in: Capsule())
                     .accessibilityIdentifier("importNoticeBanner")
+                    // The banner is tappable to dismiss, so it is one of the
+                    // controls the shell draws itself and owes spec §5's 44 pt
+                    // minimum; `contentShape` makes the whole capsule hittable
+                    // rather than just the glyphs.
+                    .contentShape(Capsule())
                     .onTapGesture { ImportNotices.shared.dismiss() }
                     .padding(.bottom, 100)
             }
@@ -61,5 +66,12 @@ struct ContentView: View {
             }
             #endif
         }
+        // Always dark, and set once at the root so it reaches the sheets,
+        // dialogs and alerts presented from anywhere below (spec §5). The
+        // engine the shell hands off to is dark; a launcher that followed the
+        // system setting would flash white between worlds. The semantic
+        // colorsets in `Theme` are appearance-agnostic on their own — this is
+        // what settles the system-drawn chrome around them.
+        .preferredColorScheme(.dark)
     }
 }
