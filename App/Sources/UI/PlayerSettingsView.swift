@@ -53,6 +53,7 @@ struct PlayerSettingsView: View {
                     .accessibilityIdentifier("aboutButton")
                 }
             }
+            .waddleScrollSurface()
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

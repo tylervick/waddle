@@ -1,78 +1,55 @@
 import SwiftUI
 
-/// Generated placeholder art shown while `TitleArtView` is loading a real
-/// TITLEPIC (or when none decodes): a family-accent-colored tile with a
-/// monogram derived from the title. Deterministic -- no randomness -- so it's
-/// stable across repeated renders of the same item.
-struct GeneratedArtView: View {
-    let title: String
-    let family: GameFamily
-
-    private var accentColor: Color {
-        switch family {
-        case .doom1: return Color.red.opacity(0.35)
-        case .doom2: return Color.orange.opacity(0.35)
-        case .unknown: return Color.gray.opacity(0.3)
-        }
-    }
-
-    /// First character of up to the first two whitespace-separated words of
-    /// `title`, uppercased -- e.g. "Freedoom Phase 1" -> "FP".
-    private var monogram: String {
-        title.split(whereSeparator: { $0.isWhitespace })
-            .prefix(2)
-            .compactMap { $0.first }
-            .map { String($0).uppercased() }
-            .joined()
-    }
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: 12)
-            .fill(accentColor)
-            .aspectRatio(1.6, contentMode: .fit)
-            .overlay(
-                Text(monogram)
-                    .font(.title.weight(.bold))
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-            )
-    }
-}
-
-/// Async-loads a `PlayableItem`'s TITLEPIC art (via `WADArtwork`) and shows
-/// `GeneratedArtView` while loading or when no art decodes. Slots into
-/// `PlayableTileView` and `PlayableDetailView` in place of their former
-/// static placeholder.
+/// Async-loads a `PlayableItem`'s TITLEPIC art (via `WADArtwork`) and fills the
+/// requested shape with it, falling back to spec §5's flat dark tile when
+/// nothing decodes.
+///
+/// The fallback is deliberately flat and empty: the `GeneratedArtView` monogram
+/// this replaced painted a family-tinted card that reads, at a glance, as the
+/// game's own artwork — "no fake art" is §5's wording. The title is not drawn
+/// here either; `PlayableTileView`'s scrim carries it over art and fallback
+/// alike, so the two states differ only in whether there is art behind the same
+/// title.
+///
+/// Whether art is drawn at all goes through `TileAppearance.resolve`, which is
+/// where that rule is tested — the view has no second opinion about it.
 struct TitleArtView: View {
     let item: PlayableItem
     let library: LibraryService
+    /// Width-to-height ratio of the shape the art fills: 3:4 on tiles, the
+    /// art's own ~1.6:1 on the full-width hero (`Theme`).
+    var aspectRatio: CGFloat = Theme.tileAspectRatio
 
     @State private var image: CGImage?
 
-    private var family: GameFamily {
-        switch item {
-        case .baseGame(let wad):
-            return wad.gameFamily
-        case .preset(let loadout):
-            return (try? library.wad(id: loadout.iwadID))?.gameFamily ?? .unknown
-        }
+    /// The image to draw, or nil to leave the flat tile bare. Reading it
+    /// through `TileAppearance` rather than testing `image` directly is what
+    /// keeps the drawn result and the tested rule from drifting apart.
+    private var artImage: CGImage? {
+        guard case .art = TileAppearance.resolve(decodedArt: image) else { return nil }
+        return image
     }
 
     var body: some View {
-        Group {
-            if let image {
-                Image(decorative: image, scale: 1)
+        ZStack {
+            // The flat elevated tile is the floor, drawn unconditionally: it is
+            // where a failed decode settles, so a tile that is still decoding
+            // already shows the shape it may keep.
+            Color.appSurface
+            if let artImage {
+                Image(decorative: artImage, scale: 1)
                     .resizable()
-                    .aspectRatio(1.6, contentMode: .fill)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-            } else {
-                GeneratedArtView(title: item.title, family: family)
+                    .scaledToFill()
             }
         }
+        .aspectRatio(aspectRatio, contentMode: .fit)
+        // TITLEPIC is landscape and tiles are portrait, so `scaledToFill`
+        // overflows by design; clip it to the tile before anyone rounds it.
+        .clipped()
         .task(id: item.id) {
             // Recycled tiles reuse this view for a new item; drop the previous
             // item's art immediately so it never lingers (or stays forever when
-            // the new item has no candidates) -- fall back to generated art
+            // the new item has no candidates) -- fall back to the flat tile
             // until the new load resolves.
             image = nil
             guard let (urls, cacheKey) = WADArtwork.candidates(for: item, library: library) else { return }

@@ -131,6 +131,7 @@ struct LibraryView: View {
             presetsSection
             hiddenSection
         }
+        .waddleScrollSurface()
         .accessibilityIdentifier("manageScreen")
         .navigationTitle("Manage")
         .toolbar {

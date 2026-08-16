@@ -48,6 +48,7 @@ struct ControlFeelView: View {
                          + "Show Debug Info to see the effective values in-game.")
                 }
             }
+            .waddleScrollSurface()
             .navigationTitle("Control Feel")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

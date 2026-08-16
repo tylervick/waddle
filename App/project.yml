@@ -55,6 +55,12 @@ targets:
         CURRENT_PROJECT_VERSION: 6
         MARKETING_VERSION: "1.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # The one red accent of spec §5's visual system, named once in the
+        # asset catalog (App/Assets.xcassets/AccentColor.colorset). Setting it
+        # globally rather than tinting a view tree is what reaches the system
+        # controls the shell does not draw itself — sheet confirmation buttons,
+        # the document picker, context menus.
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         PRODUCT_BUNDLE_IDENTIFIER: com.tylervick.waddle
       # XcodeGen's built-in application_iOS setting preset injects
       # CODE_SIGN_IDENTITY=iPhone Developer at this same (target) scope, and a

@@ -27,8 +27,15 @@ struct ShelfView: View {
     @State private var showPlayerSettings = false
     @AppStorage(debugHUDUserDefaultsKey) private var debugHUD: Bool = false
     @State private var errorAlert: EngineErrorAlert?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    private let columns = [GridItem(.adaptive(minimum: 200), spacing: 16)]
+    /// Adaptive, and re-derived from the current Dynamic Type size rather than
+    /// fixed: at accessibility sizes the wider floor fits fewer columns, which
+    /// is spec §5's "drops columns rather than shrinking text".
+    private var columns: [GridItem] {
+        [GridItem(.adaptive(minimum: Theme.gridMinimumTileWidth(for: dynamicTypeSize)),
+                  spacing: 16)]
+    }
 
     var body: some View {
         ScrollView {
@@ -44,6 +51,7 @@ struct ShelfView: View {
             }
             .padding()
         }
+        .background(Color.appBackground)
         .navigationTitle("WADdle")
         .toolbar { toolbarContent }
         // .overlay, not .safeAreaInset -- a conditionally-empty safeAreaInset
@@ -53,7 +61,7 @@ struct ShelfView: View {
             if debugHUD {
                 Text("WADdle \(BuildInfo.commit) (\(BuildInfo.branch)) · built \(BuildInfo.builtAt)")
                     .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.appSecondaryText)
                     .padding(.vertical, 4)
                     .accessibilityIdentifier("buildInfoLabel")
             }
@@ -131,29 +139,40 @@ struct ShelfView: View {
     }
 
     /// The Continue hero: full-width art, title, and when it was last played.
-    /// One tap resumes its newest save.
+    /// One tap resumes its newest save. It keeps the art's own wide shape
+    /// rather than the 3:4 tile crop — spec §5 has the hero spanning the width.
     private func hero(for item: PlayableItem) -> some View {
         Button {
             play(item, mode: .continueNewest)
         } label: {
             VStack(alignment: .leading, spacing: 6) {
-                TitleArtView(item: item, library: library)
+                TitleArtView(item: item, library: library,
+                             aspectRatio: Theme.heroAspectRatio)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius,
+                                                style: .continuous))
                 Text(item.title).font(.title2.bold())
                 HStack(spacing: 4) {
-                    Image(systemName: "play.fill")
-                    Text("Continue")
+                    // Continue is this screen's primary action, so it — and
+                    // only it — wears the one red accent (spec §5). The
+                    // last-played half stays secondary.
+                    Group {
+                        Image(systemName: "play.fill")
+                        Text("Continue")
+                    }
+                    .foregroundStyle(Color.appAccent)
                     if let played = item.lastPlayed {
                         Text("·")
                         Text(played, format: .relative(presentation: .named))
                     }
                 }
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.appSecondaryText)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("continueHero")
+        .accessibilityLabel("Continue \(TileAccessibility.label(for: item))")
     }
 
     private func tile(for item: PlayableItem) -> some View {
@@ -167,6 +186,12 @@ struct ShelfView: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(accessibilityID(for: item))
+        // Replaces the merged title-plus-scrim reading with spec §5's phrasing
+        // ("DOOM II, last played yesterday"). Set here rather than inside
+        // `PlayableTileView` on purpose: the label belongs to the button that
+        // already owns this tile's identifier and traits, and making the tile
+        // its own accessibility element would split the two apart.
+        .accessibilityLabel(TileAccessibility.label(for: item))
         .contextMenu {
             if hasResumableSave(item) {
                 Button("Continue") { play(item, mode: .continueNewest) }
