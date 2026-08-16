@@ -57,6 +57,10 @@ struct WADdleApp: App {
             fatalError("SwiftData container failed: \(error)")
         }
         MXMetricManager.shared.add(DiagnosticsMetricSubscriber.shared)
+        // Last line of init on purpose: it is the first breadcrumb of this
+        // launch, and a trail that begins after a failed setup would be
+        // describing a process that never got this far.
+        BreadcrumbLog.shared.record(.appLaunch)
     }
 
     var body: some Scene {
@@ -64,6 +68,9 @@ struct WADdleApp: App {
             ContentView(library: library, importer: importer)
                 .task { await runAdoption() }
                 .onChange(of: scenePhase) { oldPhase, newPhase in
+                    BreadcrumbLog.shared.record(
+                        .scenePhase(from: Self.phaseName(oldPhase),
+                                    to: Self.phaseName(newPhase)))
                     // Launch is covered by .task above; this catches files dropped
                     // into Documents via the Files app while we were backgrounded.
                     guard oldPhase == .background, newPhase == .active else { return }
@@ -76,6 +83,18 @@ struct WADdleApp: App {
                 }
         }
         .modelContainer(container)
+    }
+
+    /// ScenePhase has no textual form worth leaning on, so the three cases
+    /// are spelled out here: the breadcrumb wording is what a human reads six
+    /// weeks later, and it must not shift under an SDK update.
+    private static func phaseName(_ phase: ScenePhase) -> String {
+        switch phase {
+        case .active: return "active"
+        case .inactive: return "inactive"
+        case .background: return "background"
+        @unknown default: return "unknown"
+        }
     }
 
     /// One adoption pass: sweep loose files from Documents/Inbox into the

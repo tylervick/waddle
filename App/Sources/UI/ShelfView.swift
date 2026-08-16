@@ -96,9 +96,9 @@ struct ShelfView: View {
                 .accessibilityIdentifier("detailsAction")
         }
         .alert(errorAlert?.title ?? "", isPresented: Binding(
-            get: { errorAlert != nil }, set: { if !$0 { errorAlert = nil } }
+            get: { errorAlert != nil }, set: { if !$0 { dismissErrorAlert() } }
         ), presenting: errorAlert) { _ in
-            Button("OK") { errorAlert = nil }
+            Button("OK") { dismissErrorAlert() }
         } message: { alert in
             Text([alert.engineMessage, alert.hint].compactMap { $0 }
                 .joined(separator: "\n\n"))
@@ -226,17 +226,48 @@ struct ShelfView: View {
 
     private func play(_ item: PlayableItem, mode: LaunchMode = .newGame) {
         lastExitCode = nil
+        // Recorded before prepare() can throw: the user did try to start this
+        // one, and a "session begin" with an immediate argument-failure end is
+        // a truer trail than no begin at all.
+        BreadcrumbLog.shared.record(.sessionBegin(name: item.title))
         do {
             let plan = try PlayableLauncher.prepare(item, library: library, mode: mode)
-            lastExitCode = EngineSession.play(arguments: plan.arguments, scheme: plan.scheme)
-            errorAlert = EngineErrorAlert.from(exitCode: lastExitCode ?? 0,
-                                               engineMessage: EngineSession.lastErrorMessage)
+            let exitCode = EngineSession.play(arguments: plan.arguments, scheme: plan.scheme)
+            lastExitCode = exitCode
+            BreadcrumbLog.shared.record(
+                .sessionEnd(exitCode: exitCode,
+                            engineMessage: EngineSession.lastErrorMessage))
+            present(EngineErrorAlert.from(exitCode: exitCode,
+                                          engineMessage: EngineSession.lastErrorMessage))
         } catch {
+            let message = "A file in this preset is missing from the library."
             lastExitCode = EngineSession.ExitCode.argumentFailure
-            errorAlert = EngineErrorAlert.from(exitCode: EngineSession.ExitCode.argumentFailure,
-                                               engineMessage: "A file in this preset is missing from the library.")
+            BreadcrumbLog.shared.record(
+                .sessionEnd(exitCode: EngineSession.ExitCode.argumentFailure,
+                            engineMessage: message))
+            present(EngineErrorAlert.from(exitCode: EngineSession.ExitCode.argumentFailure,
+                                          engineMessage: message))
         }
         refresh()
+    }
+
+    /// Both alert transitions go through these two, so every "alert presented"
+    /// in the breadcrumb trail has a matching "alert dismissed" -- and the
+    /// absence of that pairing is exactly the stuck-UI evidence a force quit
+    /// otherwise destroys.
+    private func present(_ alert: EngineErrorAlert?) {
+        guard let alert else { return }
+        errorAlert = alert
+        BreadcrumbLog.shared.record(.alertPresented(title: alert.title))
+    }
+
+    /// Idempotent on purpose: the OK button and the alert's own dismissal
+    /// binding both fire for one dismissal, and a second "alert dismissed"
+    /// line would read as a second alert.
+    private func dismissErrorAlert() {
+        guard errorAlert != nil else { return }
+        errorAlert = nil
+        BreadcrumbLog.shared.record(.alertDismissed)
     }
 
     private func refresh() {

@@ -28,7 +28,7 @@ struct AboutView: View {
             Section("Diagnostics") {
                 Button("Export Diagnostics") { exportDiagnostics() }
                     .accessibilityIdentifier("exportDiagnosticsButton")
-                Text("Bundles recent engine session logs (which can include the names of your WAD files), crash reports, and device details. Nothing leaves your device unless you share this file.")
+                Text("Bundles recent engine session logs (which can include the names of your WAD files), a log of app events like launches and sessions, crash reports, and device details. Nothing leaves your device unless you share this file.")
                     .font(.footnote)
             }
             Section("Licenses") {
