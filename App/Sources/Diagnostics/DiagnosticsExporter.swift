@@ -24,6 +24,7 @@ enum DiagnosticsExporter {
         // up in the diagnostics directory (or a stray WAD) must not ship.
         let bundled = SessionLogCapture.sessionLogs(in: diagnosticsDirectory)
             + DiagnosticsStore.payloadFiles(in: diagnosticsDirectory)
+            + BreadcrumbLog.breadcrumbFiles(in: diagnosticsDirectory)
         for file in bundled {
             // A failed copy fails the whole export: a silently incomplete
             // archive is worse than an alert the user can see and retry.

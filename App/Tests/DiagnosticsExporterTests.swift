@@ -30,17 +30,36 @@ final class DiagnosticsExporterTests: XCTestCase {
         XCTAssertTrue(text.contains("iOS"), "must name the OS version")
     }
 
-    func testExportBundlesLogsPayloadsAndInfo() throws {
+    func testExportBundlesLogsPayloadsBreadcrumbsAndInfo() throws {
         try Data("engine says hi".utf8)
             .write(to: tmp.appendingPathComponent("session-a.log"))
         try Data("{}".utf8)
             .write(to: tmp.appendingPathComponent("metrickit-2026-b.json"))
+        BreadcrumbLog(directory: tmp).record(.appLaunch)
 
         let zip = try DiagnosticsExporter.export(diagnosticsDirectory: tmp,
                                                  libraryLines: [])
         XCTAssertEqual(try zipEntryNames(zip),
-                       ["info.txt", "session-a.log", "metrickit-2026-b.json"],
+                       ["info.txt", "session-a.log", "metrickit-2026-b.json",
+                        BreadcrumbLog.fileName],
                        "exactly the allowlisted files, nothing else")
+    }
+
+    func testExportedBreadcrumbsKeepTheirContents() throws {
+        BreadcrumbLog(directory: tmp).record(.appLaunch,
+                                             at: Date(timeIntervalSince1970: 0))
+
+        let zip = try DiagnosticsExporter.export(diagnosticsDirectory: tmp,
+                                                 libraryLines: [])
+        let archive = try Archive(url: zip, accessMode: .read)
+        let entry = try XCTUnwrap(archive.first {
+            ($0.path as NSString).lastPathComponent == BreadcrumbLog.fileName
+        })
+        var extracted = Data()
+        _ = try archive.extract(entry, consumer: { extracted.append($0) })
+        XCTAssertEqual(String(decoding: extracted, as: UTF8.self),
+                       "1970-01-01T00:00:00Z app launch\n",
+                       "the trail must arrive intact, not merely be named in the zip")
     }
 
     func testExportWithEmptyDiagnosticsStillProducesInfoOnlyZip() throws {
