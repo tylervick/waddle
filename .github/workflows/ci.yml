@@ -24,6 +24,13 @@ env:
   XCODE_VERSION: "26.2"
   SIMULATOR_OS: "26.2"
   SIMULATOR_DEVICE: "iPhone 17 Pro"
+  # The app ships universal (App/project.yml sets TARGETED_DEVICE_FAMILY
+  # "1,2"), so the unit suite runs on an iPad too. This name must stay in
+  # step with Scripts/ensure-ipad-simulator.sh, which owns the matching
+  # CoreSimulator device type and creates the device; if the two ever
+  # disagree, check-simulator-available.sh below fails the job by name
+  # rather than testing whatever else was lying around.
+  SIMULATOR_DEVICE_IPAD: "iPad Pro 13-inch (M4)"
 
 jobs:
   build-and-test:
@@ -72,6 +79,7 @@ jobs:
           Scripts/test-engine-fingerprint.sh
           Scripts/test-check-engine-fresh.sh
           Scripts/test-check-simulator-available.sh
+          Scripts/test-ensure-ipad-simulator.sh
           Scripts/test-check-red-green.sh
           Scripts/test-release-args.sh
           Scripts/test-check-substrate.sh
@@ -158,18 +166,30 @@ jobs:
 
       # CI run 31427755601 failed with an empty simulator enumeration on an
       # otherwise-clean commit and runner image; a bare re-run passed. This
-      # confirms the destination actually exists before the build spends the
-      # whole run on it, using the same device/OS values DESTINATION does
-      # below, so the two can never disagree. See
+      # confirms both destinations actually exist before the build spends the
+      # whole run on them, using the same device/OS values the two DESTINATION
+      # values below do, so they can never disagree. See
       # docs/learnings/simulator-enumeration-race.md.
-      - name: Verify simulator is available
-        run: Scripts/check-simulator-available.sh "$SIMULATOR_DEVICE" "$SIMULATOR_OS"
+      - name: Verify simulators are available
+        run: |
+          Scripts/check-simulator-available.sh "$SIMULATOR_DEVICE" "$SIMULATOR_OS"
+          # The iPad is created on demand rather than pre-provisioned, and the
+          # iPad a runner image does hand you is the wrong size class -- see
+          # the header of Scripts/ensure-ipad-simulator.sh.
+          #
+          # Deliberately AFTER the phone check: that one retries through the
+          # cold-runner enumeration race, and this script reads the same
+          # enumeration, so during such a window it would see no iPad and
+          # create a duplicate. Passing the phone check first is what makes
+          # its lookup trustworthy.
+          Scripts/ensure-ipad-simulator.sh "$SIMULATOR_OS" >/dev/null
+          Scripts/check-simulator-available.sh "$SIMULATOR_DEVICE_IPAD" "$SIMULATOR_OS"
 
       # -only-testing:WADdleTests is REQUIRED, not a tuning choice: the
       # WADdle scheme's test action also includes WADdleUITests, which boot
       # the real engine and belong to the manually-dispatched ui-tests
       # workflow.
-      - name: Run unit tests
+      - name: Run unit tests (iPhone)
         env:
           DESTINATION: platform=iOS Simulator,name=${{ env.SIMULATOR_DEVICE }},OS=${{ env.SIMULATOR_OS }}
         run: |
@@ -177,6 +197,36 @@ jobs:
             -destination "$DESTINATION" \
             -only-testing:WADdleTests \
             -resultBundlePath TestResults.xcresult \
+            test
+
+      # The second destination, because the app ships universal and iPad is
+      # the device it is built for. Until this step, every test path in the
+      # repository was pinned to one phone and the only thing that ever looked
+      # at an iPad was Scripts/capture-screenshots.sh, which asserts nothing
+      # (issue #131).
+      #
+      # -only-testing:WADdleTests for the same REASON as the iPhone leg above
+      # -- the scheme's test action includes WADdleUITests -- and it is also
+      # what makes a per-pull-request iPad leg affordable. The two legs build
+      # the same arm64-simulator products and share derived data with each
+      # other, so this step boots a simulator and runs the suite rather than
+      # building the app a second time: measured locally at 25s for the first
+      # leg and 13s for the second, against a job whose warm total is 4m14s.
+      # If that ratio ever stops holding, the cheap fallback is moving this
+      # leg to `push: main` (the cadence ui-tests.yml uses), not deleting it.
+      #
+      # What makes this leg able to fail on its own -- rather than agreeing
+      # with the iPhone leg on every assertion, which would buy nothing -- is
+      # App/Tests/LiveDeviceOverlayLayoutTests.swift. Read its header before
+      # adding a third destination.
+      - name: Run unit tests (iPad)
+        env:
+          DESTINATION: platform=iOS Simulator,name=${{ env.SIMULATOR_DEVICE_IPAD }},OS=${{ env.SIMULATOR_OS }}
+        run: |
+          xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
+            -destination "$DESTINATION" \
+            -only-testing:WADdleTests \
+            -resultBundlePath TestResults-ipad.xcresult \
             test
 
       # The loop's leading signal: does the test shipped with this change
@@ -222,5 +272,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ci-test-results
-          path: TestResults.xcresult
+          path: |
+            TestResults.xcresult
+            TestResults-ipad.xcresult
+          # A failing iPhone leg ends the job before the iPad leg runs, so one
+          # of these two legitimately does not exist on that path. Without
+          # this, that normal case annotates the run with a warning about a
+          # missing artifact.
+          if-no-files-found: ignore
           retention-days: 7

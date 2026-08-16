@@ -30,8 +30,30 @@ description = "Full from-scratch setup"
 depends = ["build-engine", "fetch-freedoom", "generate"]
 
 [tasks.test]
-description = "Build and run the test suite (incl. engine smoke check) on simulator"
+description = "Build and run the test suite (incl. engine smoke check) on iPhone and iPad"
+# Two destinations, because the app ships universal (App/project.yml sets
+# TARGETED_DEVICE_FAMILY "1,2") and iPad is the device it is built for. Issue
+# #131: every test path here used to be pinned to one phone.
+#
+# The iPad leg runs FIRST, and that ordering is load-bearing. mise stops a
+# task at its first failing line, and the iPhone leg is the whole scheme --
+# including RealWADTests, whose failures without the fixtures in
+# docs/learnings/simulator-test-hazards.md are expected rather than a
+# regression. An iPad leg placed second would therefore never run on exactly
+# the machines where the full scheme is red.
+#
+# The iPad leg is -only-testing:WADdleTests, matching what ci.yml runs there;
+# see the note beside its "Run unit tests (iPad)" step for why. The iPhone leg
+# keeps running the whole scheme, unchanged.
+#
+# The iPad simulator is created on demand rather than pre-provisioned --
+# Scripts/ensure-ipad-simulator.sh owns that and prints the UDID, which
+# nothing here needs.
 run = """
+Scripts/ensure-ipad-simulator.sh > /dev/null
+xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
+  -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4)' \
+  -only-testing:WADdleTests test
 xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 """
