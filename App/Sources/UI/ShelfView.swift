@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The home screen (spec §§2–3): a Continue hero, one adaptive grid of every
 /// playable item, and two doors — a gear for player settings and Manage for the
@@ -29,6 +30,14 @@ struct ShelfView: View {
     @State private var errorAlert: EngineErrorAlert?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
+    /// Width available to the hero's art and the height visible without
+    /// scrolling, measured from the scroll view itself rather than from its
+    /// contents: the contents are as tall as they need to be, and it is the
+    /// *viewport* the hero has to fit inside (`ShelfHeroLayout`). Both start
+    /// at zero, which that type reads as "not measured yet".
+    @State private var heroContentWidth: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 0
+
     /// Adaptive, and re-derived from the current Dynamic Type size rather than
     /// fixed: at accessibility sizes the wider floor fits fewer columns, which
     /// is spec §5's "drops columns rather than shrinking text".
@@ -39,7 +48,7 @@ struct ShelfView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: ShelfHeroLayout.sectionSpacing) {
                 if let heroItem {
                     hero(for: heroItem)
                 }
@@ -49,7 +58,20 @@ struct ShelfView: View {
                     }
                 }
             }
-            .padding()
+            .padding(contentPadding)
+        }
+        // Measured on the ScrollView, so this is the viewport: its own frame,
+        // less the insets the toolbar and home indicator occupy, less the
+        // padding above. Rotation and window resizing both re-fire it.
+        .onGeometryChange(for: CGSize.self) { proxy in
+            let insets = proxy.safeAreaInsets
+            return CGSize(
+                width: proxy.size.width - insets.leading - insets.trailing - contentPadding * 2,
+                height: proxy.size.height - insets.top - insets.bottom
+            )
+        } action: { size in
+            heroContentWidth = size.width
+            viewportHeight = size.height
         }
         .background(Color.appBackground)
         .navigationTitle("WADdle")
@@ -138,16 +160,47 @@ struct ShelfView: View {
         Binding(get: { actionItem != nil }, set: { if !$0 { actionItem = nil } })
     }
 
+    /// The inset around the whole shelf. Named because the hero's own width is
+    /// derived from it above, and a `.padding()` that means one thing to the
+    /// layout and another to the measurement would cap the hero against a
+    /// width it is not drawn at.
+    private var contentPadding: CGFloat { 16 }
+
+    /// Gap between the hero's art, title and Continue line.
+    private var heroCaptionSpacing: CGFloat { 6 }
+
+    /// What the hero's title and Continue line need below the art, measured
+    /// rather than assumed: `UIFont` already carries the reader's Dynamic Type
+    /// setting, so at accessibility sizes this reserves the taller block those
+    /// two lines really occupy instead of a default-size constant that would
+    /// leave the caption hanging off the bottom of a landscape phone -- the
+    /// same reason `columns` re-derives its floor from `dynamicTypeSize`.
+    private var heroCaptionHeight: CGFloat {
+        UIFont.preferredFont(forTextStyle: .title2).lineHeight
+            + UIFont.preferredFont(forTextStyle: .subheadline).lineHeight
+            + heroCaptionSpacing * 2
+    }
+
     /// The Continue hero: full-width art, title, and when it was last played.
     /// One tap resumes its newest save. It keeps the art's own wide shape
     /// rather than the 3:4 tile crop — spec §5 has the hero spanning the width.
+    ///
+    /// Its height, though, is capped against the viewport rather than left to
+    /// the aspect ratio: at full width on a landscape phone that ratio asks
+    /// for more height than the whole screen has, which used to push the grid
+    /// — and this hero's own caption — below the fold. `ShelfHeroLayout` owns
+    /// that arithmetic and is where it is tested.
     private func hero(for item: PlayableItem) -> some View {
         Button {
             play(item, mode: .continueNewest)
         } label: {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: heroCaptionSpacing) {
                 TitleArtView(item: item, library: library,
-                             aspectRatio: Theme.heroAspectRatio)
+                             aspectRatio: Theme.heroAspectRatio,
+                             height: ShelfHeroLayout.artHeight(
+                                contentWidth: heroContentWidth,
+                                viewportHeight: viewportHeight,
+                                captionHeight: heroCaptionHeight))
                     .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius,
                                                 style: .continuous))
                 Text(item.title).font(.title2.bold())
