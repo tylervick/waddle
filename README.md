@@ -62,6 +62,11 @@ records the traps this project has already paid for — read
 [its index](docs/learnings/INDEX.md) before debugging anything that feels like
 it should already work.
 
+Most of the backlog is worked by an unattended loop, whose protocol is
+`Scripts/loop-prompt.md`. The issues it is *not* allowed to touch are labelled
+`agent:blocked`; [`docs/owner-side-issues.md`](docs/owner-side-issues.md) is the
+counterpart process for clearing those by hand.
+
 ## Licensing
 
 WADdle is free software under the **GNU GPL v2** (see [COPYING](COPYING)),
