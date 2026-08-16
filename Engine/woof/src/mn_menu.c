@@ -433,10 +433,51 @@ static void M_FinishReadThis(int choice)
 //
 // killough 10/98: updated with new screens
 
+#ifdef WOOF_IOS
+// Draw a help screen's backdrop without betting the session on the lump
+// being there. Upstream's V_CachePatchName() routes a miss through
+// W_GetNumForName(), whose failure path is a hard I_Error("%.8s not
+// found!") -- fine for a standalone port that exits to a shell, fatal here,
+// where the engine runs in-process behind the app UI and takes the player's
+// running game down with it. Commercial IWADs in a user's library really do
+// turn up without their help lump (TNT.WAD copies, twice from TestFlight),
+// and the only way to reach this is opening Read This! from the menu.
+//
+// Resolve the lump first, then fall back to CREDIT -- the same substitute
+// upstream already presses into service as DOOM 2's second help page -- and
+// draw nothing at all if even that is missing, leaving a blank screen the
+// player can back out of. When the requested lump is present this resolves
+// to exactly the number V_CachePatchName() would have looked up, so only
+// the missing-lump path differs.
+static void MN_DrawHelpLumpOrFallback(const char *name)
+{
+    // W_CheckWidescreenPatch() hands back a pointer into its own static
+    // buffer for the wide variant, so each result is consumed by the
+    // W_CheckNumForName() on the same line rather than held across calls.
+    int lump = W_CheckNumForName(W_CheckWidescreenPatch(name));
+
+    if (lump < 0)
+    {
+        lump = W_CheckNumForName(W_CheckWidescreenPatch("CREDIT"));
+    }
+
+    if (lump < 0)
+    {
+        return;
+    }
+
+    V_DrawPatchFullScreen(V_CachePatchNum(lump, PU_CACHE));
+}
+#endif
+
 static void M_DrawReadThis1(void)
 {
+#ifdef WOOF_IOS
+    MN_DrawHelpLumpOrFallback("HELP2");
+#else
     V_DrawPatchFullScreen(
         V_CachePatchName(W_CheckWidescreenPatch("HELP2"), PU_CACHE));
+#endif
 }
 
 //
@@ -447,6 +488,16 @@ static void M_DrawReadThis1(void)
 static void M_DrawReadThis2(void)
 {
     // Display help screen from PWAD
+#ifdef WOOF_IOS
+    // This path already asks W_CheckNumForName() rather than
+    // W_GetNumForName(), but it never reads the answer: a -1 goes straight
+    // into V_CachePatchNum(), which bounds-checks only the upper end
+    // (`lump >= numlumps`) and then indexes lumpcache[-1]. That is a
+    // different failure from the I_Error() the other two screens hit, and a
+    // worse one -- out-of-bounds rather than a clean abort -- so it takes
+    // the same guard.
+    MN_DrawHelpLumpOrFallback(gamemode == commercial ? "HELP" : "HELP1");
+#else
     int helplump;
     if (gamemode == commercial)
     {
@@ -458,12 +509,20 @@ static void M_DrawReadThis2(void)
     }
 
     V_DrawPatchFullScreen(V_CachePatchNum(helplump, PU_CACHE));
+#endif
 }
 
 static void M_DrawReadThisCommercial(void)
 {
+#ifdef WOOF_IOS
+    // The screen the TestFlight reports landed on: bound to ReadDef1 for
+    // gamemode == commercial in M_Init() below, so a HELP-less TNT.WAD
+    // reaches it from the main menu's Read This! entry.
+    MN_DrawHelpLumpOrFallback("HELP");
+#else
     V_DrawPatchFullScreen(
         V_CachePatchName(W_CheckWidescreenPatch("HELP"), PU_CACHE));
+#endif
 }
 
 /////////////////////////////
