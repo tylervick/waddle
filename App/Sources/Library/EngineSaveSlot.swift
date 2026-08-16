@@ -21,7 +21,11 @@ enum EngineSaveSlot {
     /// The `-loadgame` value that loads the autosave instead of a numbered slot.
     static let autoSaveArgument = 255
 
-    private static let autoSaveFilename = "autosave.dsg"
+    /// Not private: `LibraryService.seedContinueSaveForCapture()` writes a file
+    /// under this exact name, and a second copy of the literal would be free to
+    /// drift away from the one `loadGameArgument(forFilename:)` matches on —
+    /// silently, since the only symptom is a Continue hero that stops rendering.
+    static let autoSaveFilename = "autosave.dsg"
     private static let manualPrefix = "woofsav"
     private static let filenameSuffix = ".dsg"
     private static let highestManualArgument = 77

@@ -37,6 +37,22 @@ struct WADdleApp: App {
             importer = ImportService(library: library, store: store)
             try library.seedBundledContentIfNeeded()
             try library.reconcileBundledBaseGameLoadouts()
+
+            // Test-only seam, same WADDLE_* family as the reset above. Gives
+            // the most-recently-played item a save so the shelf's Continue
+            // hero renders, which App Store capture needs and cannot otherwise
+            // get: Woof writes its autosave only from `G_DoWorldDone`
+            // (`Engine/woof/src/g_game.c:2002`) — level *completion*, not level
+            // start — and `-warp` enters through `G_InitNew`, which does not
+            // autosave at all. A capture session warps in, never finishes the
+            // level, and so leaves `Documents/Saves/<id>/` empty; the shot then
+            // has no hero, which is exactly what the 2026-08-15 capture
+            // produced. Never set in production.
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["WADDLE_SEED_CONTINUE_SAVE"] != nil {
+                try? library.seedContinueSaveForCapture()
+            }
+            #endif
         } catch {
             fatalError("SwiftData container failed: \(error)")
         }
