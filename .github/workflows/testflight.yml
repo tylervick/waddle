@@ -67,6 +67,13 @@ jobs:
     timeout-minutes: 10
     outputs:
       ship: ${{ steps.due.outputs.ship }}
+    # Declared for the same reason the release job declares its own, and to
+    # answer the case that comment anticipates ("every job added here later"):
+    # without this, a job added to a release workflow silently inherits
+    # whatever the repository default happens to be. This one only ever reads
+    # local history, so read is the whole of what it needs.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -76,6 +83,12 @@ jobs:
           # script fails closed rather than guessing if this is ever dropped,
           # but the point is to not put it in that position.
           fetch-depth: 0
+          # No authenticated git here. Scripts/release-due.sh runs `describe`,
+          # `rev-list` and `tag -l` and nothing else -- every one of them a
+          # local read -- so leaving the token in the checkout's git config
+          # would be handing out reach this job never uses. The release job
+          # below keeps its credentials: it pushes the build-* tag.
+          persist-credentials: false
 
       - name: Ask whether main moved
         id: due
