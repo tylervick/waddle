@@ -12,6 +12,15 @@ available** — see the availability finding below. Everything internal (bundle
 ID, target, repo) stays plain `Waddle`; only the App Store *display name*
 carries the suffix.
 
+> **The live record does not say this yet (checked 2026-08-17).** App Store
+> Connect still carries the pre-2026-08-16 wordmark spelling of the name, with
+> the same `: WAD Player` suffix. Version 1.0 is in `WAITING_FOR_REVIEW`, and app names are
+> only editable while a version is editable, so the `PATCH` was deliberately
+> not attempted: forcing it would mean pulling 1.0 out of review and forfeiting
+> its queue position. **The rename rides with the next version.** Until then
+> this section records the decision, not the live state — everything else in
+> the repo already matches it.
+
 **Availability (tested 2026-07-30, against the live ASC record).** Renaming
 the App Store Connect record to plain "Waddle" was attempted via the API —
 `PATCH /v1/appInfoLocalizations/{id}` on the **en-US** localization, which is
