@@ -6,7 +6,7 @@ options:
 packages:
   ZIPFoundation:
     url: https://github.com/weichsel/ZIPFoundation
-    exactVersion: 0.9.19
+    exactVersion: 0.9.20
 settings:
   base:
     SWIFT_VERSION: "6.0"
