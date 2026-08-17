@@ -1,4 +1,4 @@
-# App Store submission checklist — WADdle
+# App Store submission checklist — Waddle
 
 Ordered owner checklist for the first submission. Everything below is a
 human-only step (Apple ID sign-in, App Store Connect forms, review
@@ -30,7 +30,7 @@ paste; `docs/app-store/screenshots/` holds the images;
 
 - [ ] App Store Connect → My Apps → **+** → New App:
   - Platform: **iOS**
-  - Name: **WADdle** (§1 of metadata.md; if taken/rejected
+  - Name: **Waddle** (§1 of metadata.md; if taken/rejected
     for similarity, fallback options are recorded in the same section)
   - Primary language: **English (U.S.)**
   - Bundle ID: **com.tylervick.waddle** (register it under
@@ -106,7 +106,7 @@ errors.
 | Asset | Secret | Note |
 |---|---|---|
 | Apple Distribution certificate | `BUILD_CERTIFICATE_BASE64` + `P12_PASSWORD` | |
-| `WADdle App Store CI` profile | `PROVISIONING_PROFILE_BASE64` | **Manually managed.** Xcode refuses an Xcode-managed profile under manual signing, so this cannot be the "iOS Team Store Provisioning Profile" Xcode maintains. |
+| `Waddle App Store CI` profile | `PROVISIONING_PROFILE_BASE64` | **Manually managed.** Xcode refuses an Xcode-managed profile under manual signing, so this cannot be the "iOS Team Store Provisioning Profile" Xcode maintains. |
 | App Store Connect API key | `ASC_PRIVATE_KEY` + `ASC_KEY_ID` + `ASC_ISSUER_ID` | |
 
 The profile name appears in **two** places that must agree —
@@ -130,7 +130,7 @@ and pick a value above the highest already in App Store Connect.
 
 ## 3. Version page — paste from metadata.md
 
-- [ ] **Name / Subtitle:** §1–2 ("WADdle" / "Play classic
+- [ ] **Name / Subtitle:** §1–2 ("Waddle" / "Play classic
       Doom WADs")
 - [ ] **Promotional text:** §3
 - [ ] **Description:** §4
