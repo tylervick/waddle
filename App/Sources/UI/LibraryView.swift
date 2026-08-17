@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// The Manage door (spec §3): the library workspace, pushed from the shelf
 /// rather than sitting beside it as a tab. Holds everything that used to be
@@ -171,15 +170,9 @@ struct LibraryView: View {
                                onEdit: { pendingEditLoadout = $0 },
                                onChanged: refresh)
         }
-        .fileImporter(isPresented: $showImporter,
-                      allowedContentTypes: importTypes,
-                      allowsMultipleSelection: true) { result in
-            if case .success(let urls) = result {
-                let outcome = importer.importFiles(at: urls)
-                lastOutcome = outcome
-                ImportNotices.shared.post(outcome: outcome)
-                refresh()
-            }
+        .wadFileImporter(isPresented: $showImporter, importer: importer) { outcome in
+            lastOutcome = outcome
+            refresh()
         }
         .alert("Import complete", isPresented: outcomeAlertBinding, presenting: lastOutcome) { _ in
             Button("OK") { lastOutcome = nil }
@@ -295,14 +288,6 @@ struct LibraryView: View {
         case .imported: return "Imported"
         case .missing: return "Missing"
         }
-    }
-
-    private var importTypes: [UTType] {
-        var types: [UTType] = [.zip]
-        if let wad = UTType(filenameExtension: "wad") { types.append(wad) }
-        if let deh = UTType(filenameExtension: "deh") { types.append(deh) }
-        if let bex = UTType(filenameExtension: "bex") { types.append(bex) }
-        return types
     }
 
     private var outcomeAlertBinding: Binding<Bool> {

@@ -58,6 +58,48 @@ enum Shelf {
         return hasResumableSave(last) ? last : nil
     }
 
+    /// What the hero zone shows. One value rather than two independent
+    /// questions, so the welcome card and the Continue hero cannot both be on
+    /// screen and cannot both be missing when one of them is owed.
+    enum HeroZone: Equatable {
+        /// First launch: the welcome card (spec §4).
+        case welcome
+        /// The Continue hero for this item (spec §2).
+        case resume(PlayableItem)
+        /// Nothing -- played, but nothing resumable.
+        case empty
+
+        // `PlayableItem` wraps SwiftData models and is not `Equatable`; its
+        // `id` is what identifies an item everywhere else on this screen (it
+        // is the `Identifiable` conformance the grid's `ForEach` runs on), so
+        // it is what equality means here too.
+        static func == (lhs: HeroZone, rhs: HeroZone) -> Bool {
+            switch (lhs, rhs) {
+            case (.welcome, .welcome), (.empty, .empty): return true
+            case (.resume(let left), .resume(let right)): return left.id == right.id
+            default: return false
+            }
+        }
+    }
+
+    /// Resolves the hero zone (spec §§2, 4): the welcome card only while the
+    /// library is factory-state, the Continue hero once §2's rule is met, and
+    /// otherwise nothing.
+    ///
+    /// The two states are mutually exclusive by construction -- a resumable
+    /// save is a save, so a library with a hero is not a factory-state one --
+    /// and the hero is nevertheless checked first on purpose: if they ever did
+    /// disagree, a returning player should be handed their game back rather
+    /// than greeted as a new arrival.
+    static func heroZone(from items: [PlayableItem],
+                         isFactoryState: Bool,
+                         hasResumableSave: (PlayableItem) -> Bool) -> HeroZone {
+        if let item = hero(from: items, hasResumableSave: hasResumableSave) {
+            return .resume(item)
+        }
+        return isFactoryState ? .welcome : .empty
+    }
+
     /// Tap resolution for a tile (spec §2's tile interactions).
     static func tapAction(for item: PlayableItem,
                           hasResumableSave: (PlayableItem) -> Bool) -> TapAction {

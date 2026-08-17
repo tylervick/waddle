@@ -204,6 +204,32 @@ final class LibraryService {
             + allLoadouts().filter(\.isHidden).map(PlayableItem.preset)
     }
 
+    /// True while the library is still exactly what the app shipped with:
+    /// nothing imported, no presets, and nothing saved anywhere. This is spec
+    /// §4's factory state, and the only condition under which the shelf shows
+    /// its welcome card -- once any of the three stops holding, it never holds
+    /// again, so the card does not come back.
+    ///
+    /// Two deliberate choices about what counts:
+    ///
+    /// - It asks the *whole* library, not `shelfItems()`. A mod arriving by
+    ///   share sheet is never a shelf item and a hidden row is not one either,
+    ///   but both mean somebody's own files are in here, and greeting them as a
+    ///   new arrival afterwards would be wrong.
+    /// - "Any save" means any file in any item's saves directory, not a
+    ///   *resumable* one. The Continue hero is strict about that distinction
+    ///   (`PlayableLauncher.continuableSlot`) because it offers to boot the
+    ///   save; this only asks whether the player has got as far as playing, and
+    ///   a save the engine cannot resume still answers that yes.
+    func isFactoryState() throws -> Bool {
+        let wads = try allWADs()
+        guard !wads.contains(where: { !$0.isBundled }) else { return false }
+        guard try allLoadouts().isEmpty else { return false }
+        // Both guards held, so the bundled rows are the whole library and
+        // theirs are the only saves directories that can be in play.
+        return !wads.contains { !saveSlots(forKey: $0.id).isEmpty }
+    }
+
     func allWADs() throws -> [WADFile] {
         try context.fetch(FetchDescriptor<WADFile>(
             sortBy: [SortDescriptor(\.importDate, order: .reverse)]))

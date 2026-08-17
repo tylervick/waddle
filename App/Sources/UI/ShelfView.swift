@@ -14,7 +14,10 @@ struct ShelfView: View {
     @Binding var lastExitCode: Int32?
 
     @State private var items: [PlayableItem] = []
-    @State private var heroItem: PlayableItem?
+    /// What the top zone shows: the welcome card, a Continue hero, or nothing.
+    /// `Shelf.heroZone` decides; this only holds the answer.
+    @State private var zone: Shelf.HeroZone = .empty
+    @State private var showImporter = false
     @State private var detailItem: PlayableItem?
     /// The item whose tap opened the Continue / New Game / Details sheet.
     @State private var actionItem: PlayableItem?
@@ -49,8 +52,10 @@ struct ShelfView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: ShelfHeroLayout.sectionSpacing) {
-                if let heroItem {
-                    hero(for: heroItem)
+                switch zone {
+                case .welcome: welcomeCard
+                case .resume(let item): hero(for: item)
+                case .empty: EmptyView()
                 }
                 LazyVGrid(columns: columns, spacing: 16) {
                     ForEach(items) { item in
@@ -90,6 +95,11 @@ struct ShelfView: View {
         }
         .sheet(isPresented: $showPlayerSettings) {
             PlayerSettingsView(library: library)
+        }
+        // The welcome card's Add Your Games opens the same importer Manage's
+        // Import button does, down to the accepted types (spec §4).
+        .wadFileImporter(isPresented: $showImporter, importer: importer) { _ in
+            refresh()
         }
         .sheet(item: $editorLoadout, onDismiss: refresh) { loadout in
             LoadoutEditorView(library: library, existing: loadout)
@@ -179,6 +189,44 @@ struct ShelfView: View {
         UIFont.preferredFont(forTextStyle: .title2).lineHeight
             + UIFont.preferredFont(forTextStyle: .subheadline).lineHeight
             + heroCaptionSpacing * 2
+    }
+
+    /// The first-launch welcome card (spec §4): app name, one line, and the
+    /// primary **Add Your Games** button. It sits in the hero zone because on a
+    /// factory-state library there is no Continue hero to occupy it, and the
+    /// Freedoom tiles stay on the shelf immediately below — the app is playable
+    /// in one tap with nothing added, which is the property the card must not
+    /// get in the way of.
+    ///
+    /// Deliberately not a `Button` wrapping the whole card: only the labelled
+    /// control acts, so a reader dragging the shelf past it cannot start a file
+    /// picker by accident.
+    private var welcomeCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("WADdle").font(.title.bold())
+            Text("Bring your own WADs, or start with the Freedoom games below.")
+                .font(.subheadline)
+                .foregroundStyle(Color.appSecondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                showImporter = true
+            } label: {
+                Text("Add Your Games")
+                    .frame(maxWidth: .infinity, minHeight: Theme.minimumTapTarget)
+            }
+            .buttonStyle(.borderedProminent)
+            // Adding games is this screen's primary action while it is on
+            // screen, and spec §5 names it as one of the two that wear the
+            // single red accent (the other being Continue, which by §4's rule
+            // cannot be showing at the same time).
+            .tint(Color.appAccent)
+            .accessibilityIdentifier("addYourGamesButton")
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.appSurface,
+                    in: RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
+        .accessibilityIdentifier("welcomeCard")
     }
 
     /// The Continue hero: full-width art, title, and when it was last played.
@@ -326,6 +374,11 @@ struct ShelfView: View {
     private func refresh() {
         let all = (try? library.shelfItems()) ?? []
         items = Shelf.ordered(all)
-        heroItem = Shelf.hero(from: all, hasResumableSave: hasResumableSave)
+        // A library that cannot be read is not a factory-state one: falling
+        // back to `false` keeps a transient read failure from greeting a
+        // player who has been here for months as a new arrival.
+        zone = Shelf.heroZone(from: all,
+                              isFactoryState: (try? library.isFactoryState()) ?? false,
+                              hasResumableSave: hasResumableSave)
     }
 }
