@@ -10,6 +10,12 @@ App/Sources/Generated/
 build/
 DerivedData/
 Scripts/.appstore.env
-TestResults.xcresult
+# Glob, not one literal per destination: ci.yml writes a result bundle per
+# test leg (TestResults.xcresult, TestResults-ipad.xcresult), and any one of
+# them left untracked makes `git status --porcelain` non-empty, which is
+# exactly what Scripts/check-red-green.sh refuses to run against. Adding a
+# destination must not silently turn TEST_PROOF into `error` on every pull
+# request. See docs/learnings/fixture-stub-trips-own-dirty-tree-guard.md.
+TestResults*.xcresult
 .testflight-feedback-seen
 .superpowers/
