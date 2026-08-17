@@ -60,11 +60,11 @@ xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
 depends = ["generate"]
 
 [tasks.icons]
-description = "Regenerate icon assets from Design/source/waddle-logo.png"
+description = "Regenerate icon assets from Design/source/freedoom-glyphs/"
 run = "Scripts/render-icons.sh"
 
 [tasks.check-icons]
-description = "Verify the icon package is sound and matches the source render"
+description = "Verify the icon package is sound and matches the glyph source"
 run = """
 Scripts/check-icon-json.sh
 Scripts/check-icons-fresh.sh
