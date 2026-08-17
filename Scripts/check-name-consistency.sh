@@ -29,11 +29,20 @@ EXEMPT=(
     'docs/learnings/the-name-is-waddle.md'    # states the rule, must name the spelling
     'Scripts/check-name-consistency.sh'       # this guard
     'Scripts/test-check-name-consistency.sh'  # and its tests
-    # A provisioning-profile name registered in Apple's developer portal, not
-    # product text. Renaming it here without renaming it there breaks CI
-    # signing with an opaque error; rename it portal-first, at the next
-    # profile regeneration.
-    'App/ExportOptions-ci.plist'
+)
+
+# Exact strings that name something OUTSIDE this repo, where the spelling is
+# not ours to choose. Allowed in any file, because the alternative -- exempting
+# whole files that otherwise need sweeping -- is far broader.
+#
+# "WADdle App Store CI" is a provisioning profile registered in Apple's
+# developer portal and confirmed to still carry that spelling. It appears in
+# App/ExportOptions-ci.plist and App/project.yml, and both must match the
+# portal exactly: a mismatch fails the archive with an error naming neither
+# signing nor the profile. Rename it portal-first, at the next regeneration,
+# then drop this entry.
+ALLOWED_LITERALS=(
+    'WADdle App Store CI'
 )
 
 is_exempt() { # path
@@ -64,9 +73,22 @@ if [ "$status" -gt 1 ]; then
     exit "$status"
 fi
 
+# A file "still offends" only if the spelling survives once every allowed
+# external literal is removed from it. sed strips the literals, then the file
+# is re-checked; a file that only ever named the profile falls out here.
+still_offends() { # path
+    local path="$1" lit
+    local -a strip=()
+    for lit in "${ALLOWED_LITERALS[@]}"; do
+        strip+=(-e "s/${lit//\//\\/}//g")
+    done
+    sed "${strip[@]}" -- "$path" 2>/dev/null | grep -q -- 'WADdle'
+}
+
 offenders=()
 while IFS= read -r -d '' path; do
-    is_exempt "$path" || offenders+=("$path")
+    is_exempt "$path" && continue
+    still_offends "$path" && offenders+=("$path")
 done < "$scan"
 
 if [ "${#offenders[@]}" -gt 0 ]; then
