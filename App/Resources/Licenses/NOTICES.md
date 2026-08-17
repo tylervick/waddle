@@ -5,7 +5,9 @@ Complete corresponding source: https://github.com/tylervick/waddle
 
 - Woof! (Doom engine) — GPL-2.0, © Fabian Greffrath and contributors.
   Vendored with iOS patches; see Engine/WOOF_UPSTREAM.md in the source repo.
-- Freedoom (game data) — BSD-style license (FREEDOOM-BSD.txt).
+- Freedoom (game data, and the font artwork the app mark is drawn from) —
+  BSD-style license (FREEDOOM-BSD.txt), © 2001-2024 Contributors to the
+  Freedoom project.
 - SDL 3 — zlib license (SDL3-ZLIB.txt).
 - OpenAL Soft — LGPL-2.0 (OPENALSOFT-LGPL.txt). Statically linked and
   conveyed as part of this GPL-2.0 application per LGPL §3 (conversion to

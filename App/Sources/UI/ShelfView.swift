@@ -217,9 +217,14 @@ struct ShelfView: View {
             .buttonStyle(.borderedProminent)
             // Adding games is this screen's primary action while it is on
             // screen, and spec §5 names it as one of the two that wear the
-            // single red accent (the other being Continue, which by §4's rule
+            // single accent (the other being Continue, which by §4's rule
             // cannot be showing at the same time).
+            //
+            // The label is forced black. The accent is a light green, and
+            // borderedProminent's default white label measures 1.29:1 against
+            // it -- a contrast failure. Black measures 16.32:1.
             .tint(Color.appAccent)
+            .foregroundStyle(.black)
             .accessibilityIdentifier("addYourGamesButton")
         }
         .padding(16)

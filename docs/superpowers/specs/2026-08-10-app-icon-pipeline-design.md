@@ -1,5 +1,11 @@
 # App icon pipeline — design
 
+> **Superseded on 2026-08-17** by `2026-08-17-icon-wordmark-design.md`. The
+> subject of this document — extracting a rendered subject from an AI image and
+> vectorizing it — no longer exists: the mark is now the app's name set in
+> Freedoom's `DBIGFONT`. Kept as a dated record; its reasoning about
+> raster-versus-vector at icon sizes is still sound for the mark it describes.
+
 Replaces the current orange-flame `AppIcon.appiconset` with the webbed-foot mark,
 delivered through an Icon Composer `.icon` package, and makes every derived image
 regenerable from a committed source render.

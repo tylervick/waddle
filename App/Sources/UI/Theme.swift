@@ -55,10 +55,14 @@ extension Color {
     static let appSurface = Color("AppSurface")
     /// Warm gray secondary text.
     static let appSecondaryText = Color("AppSecondaryText")
-    /// The one red accent, reserved for primary actions. Also the asset
-    /// catalog's global accent (`ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME`
-    /// in `App/project.yml`), which is what tints system controls the shell
-    /// does not draw itself.
+    /// The one accent, reserved for primary actions — Freedoom's nukage green,
+    /// matching the app icon. Also the asset catalog's global accent
+    /// (`ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME` in `App/project.yml`),
+    /// which is what tints system controls the shell does not draw itself.
+    ///
+    /// It is light: 14.98:1 as text on `appBackground`, but only 1.29:1 behind
+    /// a white label. Anything that fills with this colour needs a dark label —
+    /// see the Add Your Games button in `ShelfView`.
     static let appAccent = Color("AccentColor")
 }
 
