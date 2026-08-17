@@ -9,7 +9,7 @@ anything touching `App/Sources/Touch/`.
 both fail on an unmodified tree, verified at `174a52f` on 2026-08-17 by
 stashing a diff and re-running:
 
-```
+```text
 XCTAssertTrue failed - overlay never installed
 XCTAssertGreaterThan failed: ("0") is not greater than ("0")
     -- modern-scheme drag-turn never reached the SDL shim
