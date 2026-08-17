@@ -170,6 +170,69 @@ final class ShelfTests: XCTestCase {
                        "wad-\(wad.id)")
     }
 
+    // MARK: - First-launch welcome card
+
+    /// Every case below seeds the real bundled rows first, so "factory state"
+    /// here is the state a genuine first launch is in — the two Freedoom IWADs
+    /// present and nothing else — rather than an empty store, which no install
+    /// is ever in.
+    func testWelcomeCardShowsOnAFactoryStateLibrary() throws {
+        try service.seedBundledContentIfNeeded()
+
+        XCTAssertTrue(try service.isFactoryState())
+        XCTAssertEqual(try zone(), .welcome)
+    }
+
+    func testWelcomeCardIsGoneOnceANonBundledItemExists() throws {
+        try service.seedBundledContentIfNeeded()
+        _ = try service.registerImported(filename: "myown.wad", sha1: "m",
+                                         kind: WADKind.iwad.rawValue, family: "doom2")
+
+        // Nothing has been played, so nothing takes the zone over: the card is
+        // gone and the zone is simply empty. That is the half of §4's rule an
+        // implementation keying the card off "no saves yet" alone would miss.
+        XCTAssertFalse(try service.isFactoryState())
+        XCTAssertEqual(try zone(), .empty)
+    }
+
+    func testWelcomeCardIsGoneOnceABundledGameHasASave() throws {
+        try service.seedBundledContentIfNeeded()
+        let freedoom = try XCTUnwrap(try service.allWADs()
+            .first { $0.filename == "freedoom1.wad" })
+        try writeSaves([("woofsav0.dsg", 400)], forKey: freedoom.id)
+
+        // Nothing imported — the save alone ends factory state, which is the
+        // other half of "whichever comes first". `lastPlayed` is deliberately
+        // unset, so this cannot pass by way of the Continue hero.
+        XCTAssertFalse(try service.isFactoryState())
+        XCTAssertEqual(try zone(), .empty)
+    }
+
+    /// The transition §4 hands off to §2: once there is something to resume,
+    /// the zone is the Continue hero rather than either of the above.
+    func testContinueHeroTakesTheZoneOverFromTheWelcomeCard() throws {
+        try service.seedBundledContentIfNeeded()
+        let freedoom = try XCTUnwrap(try service.allWADs()
+            .first { $0.filename == "freedoom2.wad" })
+        try service.markPlayed(freedoom, at: Date(timeIntervalSince1970: 700))
+        try writeSaves([("woofsav3.dsg", 800)], forKey: freedoom.id)
+
+        XCTAssertEqual(try zone(), .resume(.baseGame(freedoom)))
+    }
+
+    /// A mod is never a shelf item, so a rule written over `shelfItems()` would
+    /// keep greeting someone who has already brought their own files in.
+    func testAnImportedModEndsFactoryStateThoughItNeverReachesTheShelf() throws {
+        try service.seedBundledContentIfNeeded()
+        _ = try service.registerImported(filename: "sunlust.wad", sha1: "s",
+                                         kind: WADKind.pwad.rawValue, family: "doom2")
+
+        XCTAssertFalse(try service.shelfItems().contains { $0.title == "sunlust" },
+                       "a PWAD is not directly playable and never reaches the shelf")
+        XCTAssertFalse(try service.isFactoryState())
+        XCTAssertEqual(try zone(), .empty)
+    }
+
     // MARK: - Tap resolution
 
     func testTapWithASaveOpensTheActionSheet() throws {
@@ -210,6 +273,18 @@ final class ShelfTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// The hero zone exactly as `ShelfView.refresh()` resolves it: the same
+    /// three service answers, in the same composition. Going through this
+    /// rather than passing literals means the welcome-card cases above are
+    /// tests of the screen's behaviour against a real store, not of a rule
+    /// handed its own conclusion.
+    private func zone() throws -> Shelf.HeroZone {
+        Shelf.heroZone(from: try service.shelfItems(),
+                       isFactoryState: try service.isFactoryState()) {
+            PlayableLauncher.continuableSlot(for: $0, library: self.service) != nil
+        }
+    }
 
     /// Writes real save files into `key`'s saves directory and arranges for the
     /// directory to be removed again — it lives under the app's Documents
