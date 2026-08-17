@@ -33,7 +33,7 @@ settings:
   #
   # The Release profile must therefore be MANUALLY managed: Xcode refuses an
   # Xcode-managed profile under Manual signing ("is Xcode managed, but signing
-  # settings require a manually managed profile"). "Waddle App Store CI" was
+  # settings require a manually managed profile"). "WADdle App Store CI" was
   # created by hand at developer.apple.com for exactly this reason; the
   # Xcode-managed "iOS Team Store Provisioning Profile" cannot be used here.
   # It is installed on the runner from the PROVISIONING_PROFILE_BASE64 secret
@@ -44,7 +44,12 @@ settings:
       CODE_SIGN_STYLE: Automatic
     Release:
       CODE_SIGN_STYLE: Manual
-      PROVISIONING_PROFILE_SPECIFIER: "Waddle App Store CI"
+      # Named for the profile as it exists in Apple's developer portal, which
+      # still carries the pre-2026-08-16 spelling. This string is not ours to
+      # restyle: it must match the portal exactly or the archive fails to
+      # resolve a profile, with an error that names neither. Rename it in the
+      # portal first, at the next regeneration, then here.
+      PROVISIONING_PROFILE_SPECIFIER: "WADdle App Store CI"
       CODE_SIGN_IDENTITY: "Apple Distribution"
 targets:
   Waddle:

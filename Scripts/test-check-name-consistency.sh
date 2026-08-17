@@ -107,4 +107,29 @@ grep -q "App/Sources/Guilty.swift" "$TMP/out" || fail "did not report the real o
 grep -q "nocent.swift" "$TMP/out" && fail "reported a file that does not carry the spelling"
 pass "NUL-delimited paths survive a newline in a filename"
 
+# 9. The provisioning-profile name is allowed anywhere, because it names
+# something in Apple's portal that this repo does not get to rename. Regression
+# test for a real bug: the rename swept App/project.yml's
+# PROVISIONING_PROFILE_SPECIFIER to a profile that does not exist, which would
+# have failed the Release archive with an error naming neither signing nor the
+# profile.
+make_fixture "$TMP/i"
+printf 'PROVISIONING_PROFILE_SPECIFIER: "WADdle App Store CI"\n' > "$TMP/i/App/project.yml"
+( cd "$TMP/i" && git add -A && git commit -qm add )
+check "$TMP/i" >"$TMP/out" 2>&1 || fail "refused a file naming the portal profile: $(cat "$TMP/out")"
+pass "the registered provisioning-profile name is allowed in any file"
+
+# 10. ...but the allowance is for that exact string only. A file that names the
+# profile AND spells the name wrong elsewhere is still an offender, so the
+# allowance cannot be used to smuggle the spelling into a real file.
+make_fixture "$TMP/j"
+printf 'PROVISIONING_PROFILE_SPECIFIER: "WADdle App Store CI"\nname: WADdle\n' \
+    > "$TMP/j/App/project.yml"
+( cd "$TMP/j" && git add -A && git commit -qm add )
+if check "$TMP/j" >"$TMP/out" 2>&1; then
+    fail "the literal allowance swallowed a genuine offender in the same file"
+fi
+grep -q "App/project.yml" "$TMP/out" || fail "did not name the still-offending file"
+pass "the allowance is scoped to the literal, not the file"
+
 echo "all check-name-consistency tests passed"

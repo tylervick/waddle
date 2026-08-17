@@ -18,10 +18,21 @@ it on sight. That is why the rule is mechanical rather than remembered.
   UTIs, `tylervick/waddle`, `Design/waddle-mark.png`, `.waddleScrollSurface()`.
   Changing the bundle ID or UTIs would orphan every installed build's saves and
   document associations.
-- `WADdle App Store CI` in `App/ExportOptions-ci.plist` — a provisioning-profile
-  name registered in Apple's developer portal. Renaming it here without renaming
-  it there breaks CI signing with an opaque error. Rename it at the next profile
-  regeneration, portal first.
+- `WADdle App Store CI` — a provisioning-profile name registered in Apple's
+  developer portal, confirmed still spelled that way via
+  `GET /v1/profiles`. It appears in **both** `App/ExportOptions-ci.plist` and
+  `App/project.yml`'s `PROVISIONING_PROFILE_SPECIFIER`, and both must match the
+  portal exactly. The guard allows this exact literal in any file rather than
+  exempting those files wholesale. Rename it at the next profile regeneration,
+  portal first.
+
+  **This was missed once and it was nearly expensive.** The 2026-08-16 rename
+  exempted the plist but swept `project.yml`, leaving the build asking for a
+  profile that does not exist. Nothing caught it: the guard was satisfied, the
+  simulator builds are unsigned, and CI never archives on a pull request. It
+  would have surfaced as an opaque signing failure on the next TestFlight
+  release. Case 9 of `Scripts/test-check-name-consistency.sh` is the regression
+  test.
 
 **Dated records under `docs/superpowers/` are frozen.** They are cited as
 provenance by the guard scripts and skill guides, every stale identifier in them
