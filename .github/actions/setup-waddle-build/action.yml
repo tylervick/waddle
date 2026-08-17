@@ -46,7 +46,7 @@ runs:
     # ships cmake and ninja at other versions and no xcodegen at all, so
     # this is what keeps CI's toolchain identical to a developer's.
     - name: Install pinned CLI tools
-      uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+      uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # v4
 
     # Assign to a variable on its own line, rather than interpolating the
     # command substitution directly into the echo. engine-fingerprint.sh
