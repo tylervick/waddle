@@ -34,4 +34,12 @@ reading a plan written before 2026-08-16, translate build commands yourself.
 `docs/app-store/metadata.md` are all outside the exemption list, so the entry
 that indexes this file, the CI comment that runs the check, and the store
 listing's naming rationale all had to describe the wordmark instead of spelling
-it. Only this file and the guard's own source may name it.
+it. Only the paths in the guard's `EXEMPT` list may spell it: `Design/`, the
+dated records under `docs/superpowers/`, this file, the guard and its test
+suite, and `App/ExportOptions-ci.plist`.
+
+`docs/app-store/submission-checklist.md` is the case that bites. It documents
+the provisioning profile by name, but the profile is exempt and the checklist
+is not — so the checklist refers to it indirectly and points at
+`App/ExportOptions-ci.plist` for the exact string. Renaming the profile in the
+portal is what would let both spell it plainly.

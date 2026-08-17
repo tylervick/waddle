@@ -83,4 +83,28 @@ grep -q "App/Sources/One.swift" "$TMP/out" || fail "did not report the first off
 grep -q "App/Sources/Two.swift" "$TMP/out" || fail "did not report the second offender"
 pass "reports every offender in one run"
 
+# 7. A scan that cannot run refuses, rather than reporting a clean tree.
+# This is the fail-open case: `git grep` exits >1 on a real error, and the
+# guard must not fold that into "no matches". Removing .git is the cheapest
+# way to make the scan fail for a reason the guard cannot control.
+make_fixture "$TMP/g"
+rm -rf "$TMP/g/.git"
+if check "$TMP/g" >"$TMP/out" 2>&1; then
+    fail "passed when the scan could not run -- the guard failed OPEN"
+fi
+grep -q "scan itself failed" "$TMP/out" \
+    || fail "did not explain that the scan failed: $(cat "$TMP/out")"
+pass "fails closed when the scan cannot run"
+
+# 8. A newline in a tracked filename cannot forge an extra entry, and the
+# real offender is still reported. Guards the -z/read -d '' pairing.
+make_fixture "$TMP/h"
+printf 'Waddle\n' > "$TMP/h/App/Sources/in$(printf '\n')nocent.swift"
+printf 'WADdle\n' > "$TMP/h/App/Sources/Guilty.swift"
+( cd "$TMP/h" && git add -A && git commit -qm add )
+if check "$TMP/h" >"$TMP/out" 2>&1; then fail "passed a tree with a real offender"; fi
+grep -q "App/Sources/Guilty.swift" "$TMP/out" || fail "did not report the real offender"
+grep -q "nocent.swift" "$TMP/out" && fail "reported a file that does not carry the spelling"
+pass "NUL-delimited paths survive a newline in a filename"
+
 echo "all check-name-consistency tests passed"

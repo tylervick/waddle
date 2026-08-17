@@ -44,11 +44,30 @@ is_exempt() { # path
     return 1
 }
 
+# Fails CLOSED. `git grep` exits 0 with matches, 1 with none, and >1 on a real
+# error -- an unreadable tracked file, or no git work tree at all. The obvious
+# `git ls-files -z | xargs -0 grep -Il ... || true` shape folds that third case
+# into "no matches" and reports a clean tree it never finished reading, which is
+# how a guard fails open. This repo has paid for that four times; see
+# docs/learnings/masked-exit-status-fails-open.md. Only status 1 means clean.
+#
+# -z keeps the path list NUL-delimited, so a newline in a filename cannot forge
+# an extra entry, and -I skips binaries.
+scan="$(mktemp)"
+trap 'rm -f "$scan"' EXIT
+
+status=0
+git grep -I -l -z -e 'WADdle' -- . > "$scan" || status=$?
+if [ "$status" -gt 1 ]; then
+    echo "error: the name scan itself failed (git grep exit $status) —" >&2
+    echo "       refusing to report a tree it never finished reading." >&2
+    exit "$status"
+fi
+
 offenders=()
-while IFS= read -r path; do
-    [ -n "$path" ] || continue
+while IFS= read -r -d '' path; do
     is_exempt "$path" || offenders+=("$path")
-done < <(git ls-files -z | xargs -0 grep -Il -- 'WADdle' 2>/dev/null || true)
+done < "$scan"
 
 if [ "${#offenders[@]}" -gt 0 ]; then
     echo "error: the app's name is \"Waddle\". \"WADdle\" is the wordmark and" >&2
