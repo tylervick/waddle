@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The single Read/Update/Delete surface for any playable item -- base game
 /// *or* preset -- reached from the Play grid's "Details" context action. Same
@@ -20,6 +21,14 @@ struct PlayableDetailView: View {
     @State private var scheme: TouchControlScheme?
     @State private var saves: [LibraryService.SaveSlot] = []
     @State private var showCreatePresetFromBase = false
+
+    /// Width the header's art is drawn at and the height visible without
+    /// scrolling, both measured from the `Form` itself: the form's contents are
+    /// as tall as they need to be, and it is the *viewport* the art has to fit
+    /// inside alongside the controls below it (`PlayableDetailLayout`). Both
+    /// start at zero, which that type reads as "not measured yet".
+    @State private var artContentWidth: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 0
 
     init(item: PlayableItem, library: LibraryService,
          onPlay: @escaping (PlayableItem, LaunchMode) -> Void,
@@ -53,6 +62,22 @@ struct PlayableDetailView: View {
                 savesSection
                 footerSection
             }
+            // Measured on the Form, so this is the viewport the art competes
+            // with the controls for: its own frame, less the insets the
+            // navigation bar and home indicator occupy, and less the row
+            // insets the art is drawn inside. Rotation and window resizing
+            // both re-fire it.
+            .onGeometryChange(for: CGSize.self) { proxy in
+                let insets = proxy.safeAreaInsets
+                return CGSize(
+                    width: proxy.size.width - insets.leading - insets.trailing
+                        - PlayableDetailLayout.rowHorizontalInset * 2,
+                    height: proxy.size.height - insets.top - insets.bottom
+                )
+            } action: { size in
+                artContentWidth = size.width
+                viewportHeight = size.height
+            }
             .waddleScrollSurface()
             .navigationTitle(item.title)
             .navigationBarTitleDisplayMode(.inline)
@@ -71,9 +96,33 @@ struct PlayableDetailView: View {
     // type checker to give up entirely (see ShelfView.toolbarContent's own
     // note on the same limit).
 
+    /// What the header draws below the art, from the fonts actually in force:
+    /// `UIFont` already carries the reader's Dynamic Type setting, so at
+    /// accessibility sizes this reserves the taller block those rows really
+    /// occupy instead of a default-size constant that would let the art push
+    /// the controls back off the bottom -- the same reason `ShelfView` measures
+    /// its own hero caption rather than assuming it.
+    private var captionHeight: CGFloat {
+        PlayableDetailLayout.captionHeight(
+            titleLineHeight: UIFont.preferredFont(forTextStyle: .title2).lineHeight,
+            buttonLineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight,
+            primaryButtonCount: continuableSlot != nil ? 2 : 1)
+    }
+
     private var headerSection: some View {
         Section {
-            TitleArtView(item: item, library: library)
+            // Capped against the viewport rather than left to an aspect ratio:
+            // at full width the tile's 3:4 shape asked for 481 pt of a 708 pt
+            // sheet, which pushed every control below it out of a lazy `Form`
+            // entirely -- not just out of sight, but out of the accessibility
+            // hierarchy. `PlayableDetailLayout` owns that arithmetic and is
+            // where it is tested.
+            TitleArtView(item: item, library: library,
+                         aspectRatio: Theme.heroAspectRatio,
+                         height: PlayableDetailLayout.artHeight(
+                            contentWidth: artContentWidth,
+                            viewportHeight: viewportHeight,
+                            captionHeight: captionHeight))
             Text(item.title).font(.title2.bold())
             // With a resumable save, Continue takes the prominent slot and Play
             // becomes the explicit "New Game" half of the pair -- the
