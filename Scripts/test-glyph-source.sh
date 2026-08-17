@@ -36,7 +36,7 @@ for ch, w in want.items():
     px = [p[x, y] for y in range(im.height) for x in range(im.width)]
     if not any(a == 0 for _, a in px):
         sys.exit(f"FAIL: {ch}.png has no transparent pixels — a ground was baked in")
-    shades = {l for l, a in px if a}
+    shades = {luma for luma, a in px if a}
     if len(shades) < 4:
         sys.exit(f"FAIL: {ch}.png has {len(shades)} shades — the bevel ramp is gone")
 print("ok - geometry, mode, transparency and shading ramp are intact")

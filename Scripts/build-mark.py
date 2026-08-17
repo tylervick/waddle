@@ -72,10 +72,10 @@ def tint(src: Image.Image, hexs: str) -> Image.Image:
     sp, op = src.load(), out.load()
     for y in range(src.height):
         for x in range(src.width):
-            l, a = sp[x, y]
+            luma, a = sp[x, y]
             if not a:
                 continue
-            t = l / 255.0
+            t = luma / 255.0
             v = (0.28 + 0.72 * (t**0.85)) * (0.85 + 0.35 * val)
             s = min(1.0, sat * (1.12 - 0.32 * t))
             rr, gg, bb = colorsys.hsv_to_rgb(hue, s, min(1.0, v))

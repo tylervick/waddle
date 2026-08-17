@@ -85,10 +85,15 @@ a hue compromise.
   Continue, which §4 guarantees cannot be showing at the same time). Only the
   value changes, and the contrast measurement above is the reason.
 
-**Unverified assumption:** that `.borderedProminent` honours a
+**Assumption, since resolved:** that `.borderedProminent` honours a
 `.foregroundStyle(.black)` on its label rather than forcing its own. SwiftUI
-has changed this across releases. The plan verifies it in a real build before
-relying on it, and falls back to a custom `ButtonStyle` if it does not hold.
+has changed this across releases, so the plan verified it in a real build
+rather than relying on it, with a custom `ButtonStyle` as the fallback.
+
+> **Resolved 2026-08-17: it holds.** Confirmed by screenshot on iOS 26 — the
+> button renders green with a black label, and no custom `ButtonStyle` was
+> needed. Recorded in `docs/learnings/freedoom-fonts-are-uppercase-fon2.md` so
+> it is not re-investigated.
 
 ## 3. Pipeline
 
@@ -101,7 +106,8 @@ The architecture — tracked source → derived assets → byte-compare guard �
 kept. Only the source and the generator change.
 
 ```text
-Design/source/freedoom-glyphs.png   tracked: W A D L E, decoded from DBIGFONT
+Design/source/freedoom-glyphs/      tracked: W.png A.png D.png L.png E.png,
+                                    decoded from DBIGFONT
         ↓  Scripts/build-mark.py    compose → tint → emit
 Design/waddle-mark.png              derived: transparent lockup, 1024
 Design/waddle-mark-flat.svg         derived: pixel grid → rects
@@ -160,12 +166,15 @@ faceting, exactly symmetric by construction.
 `render-icons.sh` and by `check-icons-fresh.sh` in full mode. Both drop it.
 `uv` stays, because both new scripts are Python.
 
-This touches two existing tests directly: `test-check-icons-fresh.sh` asserts
-that `--sync-only` runs *with no uv and no potrace on PATH*, and that full mode
-*refuses* without them. The second assertion changes shape when potrace is no
-longer required. `--sync-only` exists because CI has neither tool, so that
-split must survive the rewrite intact — it is what keeps icon verification
-runnable on the runner.
+This touches `test-check-icons-fresh.sh`, which asserts that `--sync-only` runs
+with the tooling absent and that full mode *refuses* rather than downgrading.
+`--sync-only` exists because CI has neither tool, so that split must survive
+the rewrite intact — it is what keeps icon verification runnable on the runner.
+
+> **Resolved 2026-08-17: no test logic changed.** Both cases strip `PATH` to
+> `/usr/bin:/bin`, which hides `uv` exactly as effectively as it hid `potrace`,
+> so the assertions hold as written and only the wording naming potrace moved.
+> After the change, full regeneration requires `uv` alone.
 
 ## 4. Attribution
 
@@ -200,9 +209,16 @@ say the app mark derives from Freedoom's font artwork.
 ## 6. Deleted
 
 - `Design/source/waddle-logo.png` — the AI render of the foot
-- `Design/waddle-mark.png`, `Design/waddle-mark-flat.svg`
 - `Scripts/extract-mark.py` — subject extraction and potrace, entirely obsolete
-- `potrace` from the bootstrap path
+- `potrace` as a requirement of `render-icons.sh` and `check-icons-fresh.sh`
+
+`Design/waddle-mark.png` and `Design/waddle-mark-flat.svg` are **not** deleted —
+§3 defines them as the pipeline's outputs. Their *contents* change; the files
+stay. (An earlier draft of this section listed them as deleted, contradicting
+§3.)
+
+Note also that `potrace` was never a bootstrap dependency, only a requirement of
+those two scripts. `uv` remains, since both new scripts are Python.
 
 ## 7. Verification
 
