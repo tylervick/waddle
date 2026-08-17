@@ -381,38 +381,18 @@ final class TouchOverlayView: UIView {
         }
     }
 
-    /// How far past a button's edge still counts as "aimed at that button",
-    /// in points, so a near-miss does nothing instead of being claimed as a
-    /// stick or turn track.
-    ///
-    /// This used to be justified by weaponPrevButton sitting at
-    /// `x: minX + inset.left + 40`, inside the movement stick's own capture
-    /// column (`point.x < bounds.width * 0.4`), where a missed tap started a
-    /// stick track and the player got movement instead of a weapon switch.
-    /// TouchOverlayLayout has since moved both weapon buttons into the
-    /// right-hand cluster, so nothing is left in the stick column and that
-    /// specific collision is gone. The cushion still earns its place on the
-    /// other side: in the `modern` scheme the whole right region is a
-    /// drag-to-turn surface, so a near-miss on FIRE, USE or a weapon button
-    /// would otherwise start a turn track and swing the view.
-    ///
-    /// 20pt puts the cushion just past a fingertip's radius beyond the
-    /// button's edge, which is the size of the miss this is about. It is
-    /// deliberately *not* scaled: it models a fingertip, and fingers are the
-    /// same size on an iPad.
-    private static let buttonNearMissMargin: CGFloat = 20
-
-    /// True when `point` falls inside a visible button's frame grown by
-    /// `buttonNearMissMargin`. Hidden buttons are deliberately excluded:
-    /// updateAutomapAvailability() hides MAP whenever a menu is on screen,
-    /// and a hidden button accepts no touches, so the space it vacated is
-    /// ordinary overlay again and should behave like it.
-    private func nearButton(_ point: CGPoint) -> Bool {
-        let margin = Self.buttonNearMissMargin
-        return buttons.contains { button in
-            !button.isHidden
-                && button.frame.insetBy(dx: -margin, dy: -margin).contains(point)
-        }
+    /// Live routing decision for the current geometry. Recomputed per
+    /// touch-begin for the same reason `layout` is: button frames follow the
+    /// bounds, and iPadOS windowed multitasking resizes those continuously.
+    /// The margin and the column split live on `TouchTrackRouter`, where they
+    /// are covered by `WaddleTests`.
+    private var trackRouter: TouchTrackRouter {
+        TouchTrackRouter(
+            overlayWidth: bounds.width,
+            scheme: scheme,
+            buttons: buttons.map {
+                TouchOverlayButtonState(frame: $0.frame, isHidden: $0.isHidden)
+            })
     }
 
     // MARK: Touches (stick + turn; buttons handle their own)
@@ -428,25 +408,30 @@ final class TouchOverlayView: UIView {
         let wasKeyboardActive = keyboardActive
         updateSummonTracking(began: touches)
         if wasKeyboardActive || keyboardActive { return }
+        // Built once for the whole batch: the button frames it reads cannot
+        // change mid-loop, and which tracks are already owned is passed per
+        // touch instead.
+        let router = trackRouter
         for touch in touches {
             let point = touch.location(in: self)
-            // nearButton() keeps a near-miss on a button that sits inside
-            // the stick column (weaponPrevButton does) from being claimed
-            // as a stick touch. A rejected touch falls through both
-            // branches -- the turn branch below requires the opposite half
-            // of the screen -- so it does nothing at all, which is what a
-            // miss should do.
-            if stickTouch == nil && point.x < bounds.width * 0.4 && !nearButton(point) {
+            switch router.route(point,
+                                stickTracking: stickTouch != nil,
+                                turnTracking: turnTouch != nil) {
+            case .stick:
                 stickTouch = touch
                 stickModel = TouchStickModel(center: point, radius: layout.stickRadius,
                                              deadZone: CGFloat(tuning.stickDeadZone))
                 drawStick(at: point)
                 stickEngagedMarker.isHidden = false
-            } else if scheme.usesDragTurn && turnTouch == nil && point.x >= bounds.width * 0.4 {
+            case .turn:
                 turnTouch = touch
                 lastTurnX = point.x
                 turnModel = TouchStickModel(center: point, radius: layout.stickRadius)
                 drawTurnStick(at: point)
+            case .ignore:
+                // A near-miss on a button, or a region already owned by
+                // another finger. Doing nothing is what a miss should do.
+                break
             }
         }
     }
