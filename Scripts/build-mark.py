@@ -26,7 +26,16 @@ ROOT = Path(__file__).resolve().parent.parent
 GLYPH_DIR = ROOT / "Design/source/freedoom-glyphs"
 TINT = "#77FF6F"  # Freedoom PLAYPAL nukage green
 CANVAS = 1024
-INSET = 0.72  # fraction of the canvas the mark spans
+# Fraction of the canvas the mark spans. 0.82 -> 17x -> an 816x544 mark with
+# ~99px of clearance to the iOS squircle. Measured against a superellipse
+# (n=5) mask: nothing clips until 0.95, so this is a design choice rather
+# than a safe-area limit. Larger than it looks like it needs to be on purpose
+# -- the mark's weakness is legibility at 40pt, and bigger letterforms are
+# what survives the downsample.
+INSET = 0.82
+# Tracking stays at 1: the two rows come out ragged (WAD is 48px, DLE 40px)
+# and that is deliberate. Letterspacing DLE to square the block was tried and
+# reads as artificially stretched on a pixel face.
 TRACKING = 1  # px between glyphs, at source scale
 LINE_GAP = 2  # px between the two lines, at source scale
 
