@@ -14,7 +14,7 @@ survives.
 | Form | Verdict | Where it lives |
 | --- | --- | --- |
 | `Waddle` | **Canonical.** Prose, docs, Xcode project/scheme/targets, source filenames, App Store display name. | everywhere text is typed |
-| `WADdle` | **Wordmark only.** Never typed as text. | `Design/` artwork |
+| `WADdle` | **Wordmark only.** Never typed as text in new work. | `Design/` artwork; plus dated records under `docs/superpowers/`, left verbatim (§2.4) |
 | `waddle` | **Unchanged — already correct.** Bundle ID, UTIs, git remote, asset filenames, Swift method prefixes. | `com.tylervick.waddle`, `tylervick/waddle`, `Design/waddle-mark.png`, `.waddleScrollSurface()` |
 | `WADDLE_*` | **Unchanged — already correct.** SCREAMING_SNAKE reads identically for either casing. | test-seam env vars |
 
@@ -27,7 +27,9 @@ about this project. They stay as they are.
 
 ## 2. In-repo rename
 
-343 occurrences of `WADdle`, in four clusters.
+358 tracked occurrences of `WADdle`. 174 are in dated records under
+`docs/superpowers/` and are deliberately left alone (§2.4). The remaining
+**184 are in scope**, in five clusters.
 
 ### 2.1 Xcode identity
 
@@ -61,14 +63,52 @@ and `-only-testing:WADdleUITests` in:
 with the `@main` struct renamed to match. This is the only tracked file whose
 *name* carries the stylization.
 
-### 2.4 Prose
+`@testable import WADdle` → `import Waddle` in all 40 test files: this is the
+module name, so it follows the target rename in §2.1 and is not optional.
 
-`CLAUDE.md` (header and the `-only-testing:` rule), `README.md`, and `docs/`.
+**User-facing product strings.** `App/Sources/Diagnostics/DiagnosticsExporter.swift`
+builds `WADdle-diagnostics.zip` and titles its share sheet `"WADdle
+diagnostics"`; `DiagnosticsExporterTests` asserts on the filename. Both become
+`Waddle`. Diagnostics archives testers already sent keep the old name, which is
+harmless for correlation. `AboutView`, `ShelfView`, `ImportService`,
+`LibraryService`, `PRIVACY.md`, and `NOTICES.md` carry further display text.
 
-Dated artifacts under `docs/superpowers/plans/` and `docs/superpowers/specs/`
-are swept too. They are historical records, but the loop's agents read them as
-reference, and a plan instructing `-scheme WADdle` is a trap rather than a
-preserved fact. The date in each filename already marks them as historical.
+**Vendored engine strings.** `Engine/woof/src/woof_ios.c:235` sets
+`desc.name = "WADdle Touch Controls"` (a runtime controller descriptor) and
+`Engine/woof/src/i_input.c:1034` carries a project comment. Both are existing
+local patches on the `798acebd` pin, so editing them is legitimate — but
+`check-engine-fresh.sh` fingerprints all of `Engine/woof`, so **this cluster
+alone forces a ~25-minute engine rebuild and a cold CI build.** Land both in
+one commit so a single rebuild covers them. This is the only expensive item in
+the spec; dropping it costs consistency in two lines of engine source and
+nothing else.
+
+### 2.4 Prose — living docs only
+
+**Swept:** `CLAUDE.md` (header and the `-only-testing:` rule), `README.md`,
+`PRIVACY.md`, `Design/README.md`, `Engine/WOOF_UPSTREAM.md`,
+`docs/learnings/`, `docs/app-store/`, `docs/manual-testing.md`, and both
+`.claude/skills/` guides.
+
+**Left verbatim: `docs/superpowers/plans/` and `docs/superpowers/specs/`** —
+174 occurrences. These are dated records of completed work, and three things
+argue against rewriting them:
+
+- They are cited as *provenance*, not followed as runbooks.
+  `check-red-green.sh`, `whats-to-test.sh`, `loop-report.sh`, and both skill
+  guides point at dated specs to explain why something is the way it is. A
+  citation whose text has been quietly altered is a weaker citation.
+- Every stale identifier in them fails **loudly** at the point of use —
+  `-scheme WADdle` gives "scheme not found", `@testable import WADdle` gives a
+  compile error. There is no silent-wrong-result path, which was the original
+  argument for sweeping them.
+- A sweep would fabricate. `2026-07-20-soft-keyboard-input-design.md:5` reads
+  `**App:** WADdle (com.tylervick.BoomBox)`, recording the window when the name
+  had changed but the bundle ID had not. Rewriting it yields
+  `Waddle (com.tylervick.BoomBox)` — a state this project was never in.
+
+The `docs/learnings/` entry from §2.5 records the rename and its date, so a
+reader of a July plan knows to translate build commands.
 
 `docs/app-store/metadata.md` needs more than substitution: the store name
 becomes **"Waddle: WAD Player"**, and the naming rationale is rewritten so the
@@ -79,11 +119,19 @@ account and the suffix is forced, not chosen — is unchanged and stays.
 ### 2.5 The guard
 
 `CLAUDE.md` requires that a learning which can be an executable check becomes
-one. Add `Scripts/check-name-consistency.sh`: fail if `WADdle` appears outside
-`Design/`. Wire it into the same gate as `check-engine-fresh.sh`, give it a
-`Scripts/test-check-name-consistency.sh` companion matching the existing
-pattern, and add a one-line `docs/learnings/` entry that points at the check
-instead of restating it.
+one. Add `Scripts/check-name-consistency.sh`: fail if `WADdle` appears in
+tracked files, with exactly two exclusions written into the script as stated
+rules rather than accumulated exemptions:
+
+- `Design/` — the wordmark lives there by definition (§1).
+- `docs/superpowers/plans/` and `docs/superpowers/specs/` — dated records,
+  frozen by §2.4.
+
+Any *new* exemption is a signal the rule is being eroded and should be argued
+in review, not added quietly. Wire the check into the same gate as
+`check-engine-fresh.sh`, give it a `Scripts/test-check-name-consistency.sh`
+companion matching the existing pattern, and add a one-line
+`docs/learnings/INDEX.md` entry pointing at the check instead of restating it.
 
 ## 3. Machine-side migration
 
@@ -197,8 +245,10 @@ with the next version. Report the refusal; do not work around it.
 ## 5. Order of operations
 
 1. **Repo rename on a branch → PR.** Never on `main`. Gate: `mise run generate`
-   yields `App/Waddle.xcodeproj`, `mise run test` green,
-   `Scripts/check-name-consistency.sh` passes, CI green.
+   yields `App/Waddle.xcodeproj`, `mise run build-engine` completes (forced by
+   the §2.3 engine strings), `Scripts/check-engine-fresh.sh` passes,
+   `mise run test` green, `Scripts/check-name-consistency.sh` passes, CI green.
+   Budget ~25 minutes for the engine rebuild and expect a cold CI build.
 2. **Merge**, then
    `orca automations edit 8a0d5727-9d5c-46a6-b0ef-92d5accf3859 --disabled`.
    The loop fires at 09:00/13:00/17:00; a run landing mid-migration would
