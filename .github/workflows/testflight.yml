@@ -75,7 +75,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Same reason as the release job below, and the same trap:
           # Scripts/release-due.sh measures from the newest build-* tag, and a
@@ -145,7 +145,7 @@ jobs:
       # run that quietly ships the wrong notes. Same reasoning as ci.yml's
       # fetch-depth: 0 for `git merge-base`; this repo's history is small
       # enough that the unshallow fetch costs well under a second.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
