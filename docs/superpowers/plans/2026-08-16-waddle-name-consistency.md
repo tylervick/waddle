@@ -354,6 +354,17 @@ previous rename."
 
 ---
 
+> **Correction (found during execution, 2026-08-16):** Tasks 2 and 3 **cannot be
+> split**, and the plan was wrong to try. Task 2's sweep of `App/UITests/` does
+> not only change `@testable import` — it also rewrites assertions about
+> on-screen text (`app.navigationBars["WADdle"]`,
+> `app.descendants(...)["WADdle & Woof! — GPL-2.0"]`) whose matching strings live
+> in Task 3's `ShelfView` and `AboutView`. Landing Task 2 alone leaves three UI
+> tests red: `ShipUITests/testAboutScreenShowsLicensesAndBuild`,
+> `PresetCreationTests/testCreatingPresetClosesSheetAndShowsTileOnPlay`, and
+> `DemoLoopReplayTests/testDoom2AfterFreedoomDoesNotCrashOnReplay`. They were
+> executed as one commit.
+
 ## Task 3: User-facing product strings
 
 **Files:**
