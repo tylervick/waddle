@@ -182,8 +182,20 @@ jobs:
           # enumeration, so during such a window it would see no iPad and
           # create a duplicate. Passing the phone check first is what makes
           # its lookup trustworthy.
-          Scripts/ensure-ipad-simulator.sh "$SIMULATOR_OS" >/dev/null
+          udid="$(Scripts/ensure-ipad-simulator.sh "$SIMULATOR_OS")"
           Scripts/check-simulator-available.sh "$SIMULATOR_DEVICE_IPAD" "$SIMULATOR_OS"
+          # Start the iPad booting HERE rather than leaving it to its own test
+          # step. A simulator created seconds ago has never booted, and on run
+          # 31980014093 that first boot was ~87s of the iPad leg's 2m43s --
+          # more than the code-signing and the tests put together. `boot`
+          # returns immediately, so the device comes up while the iPhone leg
+          # (~3m) runs and the cost overlaps work the job was doing anyway.
+          #
+          # Non-fatal on purpose, and it must stay that way: if the boot fails
+          # or the device is already booting, xcodebuild boots it itself when
+          # the iPad step runs, exactly as it did before this line existed.
+          # This is an optimisation, not a precondition.
+          xcrun simctl boot "$udid" || true
 
       # -only-testing:WADdleTests is REQUIRED, not a tuning choice: the
       # WADdle scheme's test action also includes WADdleUITests, which boot
@@ -205,15 +217,23 @@ jobs:
       # at an iPad was Scripts/capture-screenshots.sh, which asserts nothing
       # (issue #131).
       #
-      # -only-testing:WADdleTests for the same REASON as the iPhone leg above
-      # -- the scheme's test action includes WADdleUITests -- and it is also
-      # what makes a per-pull-request iPad leg affordable. The two legs build
-      # the same arm64-simulator products and share derived data with each
-      # other, so this step boots a simulator and runs the suite rather than
-      # building the app a second time: measured locally at 25s for the first
-      # leg and 13s for the second, against a job whose warm total is 4m14s.
-      # If that ratio ever stops holding, the cheap fallback is moving this
-      # leg to `push: main` (the cadence ui-tests.yml uses), not deleting it.
+      # -only-testing:WADdleTests for the same REASON as the iPhone leg above:
+      # the scheme's test action includes WADdleUITests.
+      #
+      # What this leg costs, measured on the runner (run 31980014093) rather
+      # than locally -- a local figure is worthless here, because the local
+      # simulator is already booted and the runner's is not:
+      #
+      #   ~20s   link + code-sign. NO recompile: the two legs build identical
+      #          arm64-simulator products and share derived data.
+      #   ~87s   first boot of the simulator created minutes earlier.
+      #   ~48s   launching and running the 312 tests (17.9s of that is tests).
+      #
+      # 2m43s in total, on a job that was ~7m20s. The boot is the expensive
+      # part and it is not inherent, which is why the step above starts it
+      # early; that should leave the marginal cost near a minute. If it ever
+      # grows back, the cheap fallback is moving this leg to `push: main` (the
+      # cadence ui-tests.yml uses), not deleting it.
       #
       # What makes this leg able to fail on its own -- rather than agreeing
       # with the iPhone leg on every assertion, which would buy nothing -- is
