@@ -229,11 +229,13 @@ jobs:
       #   ~87s   first boot of the simulator created minutes earlier.
       #   ~48s   launching and running the 312 tests (17.9s of that is tests).
       #
-      # 2m43s in total, on a job that was ~7m20s. The boot is the expensive
-      # part and it is not inherent, which is why the step above starts it
-      # early; that should leave the marginal cost near a minute. If it ever
-      # grows back, the cheap fallback is moving this leg to `push: main` (the
-      # cadence ui-tests.yml uses), not deleting it.
+      # 2m43s in total. The boot is the expensive part and it is not inherent,
+      # so the step above starts it early, overlapping the iPhone leg: run
+      # 31980939825 then measured this step at 1m33s, with the test phase
+      # falling from 135s to 34s. That 1m33s is the real per-pull-request cost
+      # of the iPad destination. If it ever grows back, the cheap fallback is
+      # moving this leg to `push: main` (the cadence ui-tests.yml uses), not
+      # deleting it.
       #
       # What makes this leg able to fail on its own -- rather than agreeing
       # with the iPhone leg on every assertion, which would buy nothing -- is
