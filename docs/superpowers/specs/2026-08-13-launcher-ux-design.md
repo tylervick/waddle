@@ -115,8 +115,18 @@ deciding all three mechanisms it weighed):
 **Always dark, by design.** The engine the shell hands off to is dark; a
 light launcher would flash between worlds. No light variant. Semantic colors
 defined once in the asset catalog: near-black background, one elevated
-surface tone for cards and sheets, a single red accent for primary actions
-(Continue, Add Your Games), warm gray secondary text.
+surface tone for cards and sheets, a single accent for primary actions
+(Continue, Add Your Games) — Freedoom's nukage green `#77FF6F`, matching the
+app icon — warm gray secondary text.
+
+**Amended 2026-08-17** (`2026-08-17-icon-wordmark-design.md`): the accent was
+red `#CC2C20` until the icon became a Freedoom wordmark. The structure of this
+commitment is unchanged — still one accent, still worn by exactly these two
+controls. The value changed for contrast as much as coherence: the red measured
+3.63:1 as text on the near-black background (AA-large only), the green measures
+14.98:1. Because the green is light, anything that *fills* with it needs a dark
+label — the Add Your Games button forces black, where white would be 1.29:1.
+The rule against retro chrome below governs the shell, not the icon.
 
 **Tiles carry the identity.** TITLEPIC art (existing `TitleArtView` decode)
 on 3:4 tiles, title on a bottom scrim, one shared corner radius. Items with

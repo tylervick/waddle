@@ -1,64 +1,76 @@
 # Waddle brand assets
 
-Everything here derives from one hand-supplied file. To change the logo, replace
-that file and re-run the pipeline — do not edit the derived assets.
+The mark is the app's name, set in Freedoom's own `DBIGFONT` and tinted the
+game's own nukage green. Everything here derives from five committed glyph
+PNGs — to change the mark, change those or the compositor, then re-run the
+pipeline. Do not edit the derived assets.
 
 ```text
-Design/source/waddle-logo.png   the only hand-supplied input (1254x1254 render)
-Design/waddle-mark.png          derived: subject on transparency, 1024 canvas
-Design/waddle-mark-flat.svg     derived: flat silhouette, 1024 viewBox
-App/AppIcon.icon/Assets/mark.png  derived: copy of waddle-mark.png
+Design/source/freedoom-glyphs/{W,A,D,L,E}.png   tracked: decoded from DBIGFONT
+Design/waddle-mark.png                          derived: transparent, 1024
+Design/waddle-mark-flat.svg                     derived: rect grid, 1024 viewBox
+App/AppIcon.icon/Assets/mark.png                derived: copy of waddle-mark.png
 ```
 
 ```sh
-mise run icons         regenerate everything from the source render
+mise run icons         regenerate the derived assets
 mise run check-icons   verify the committed assets match the source
 ```
+
+The glyphs are committed rather than read from the WAD at build time. The WAD
+is gitignored and fetched, so reading it here would put a network round trip
+inside `mise run check-icons` and let a `FREEDOOM_VERSION` bump silently
+restyle the mark. To re-derive them deliberately, run
+`Scripts/extract-freedoom-glyphs.py`.
 
 ## Which asset to use
 
 | Use | Asset |
 | --- | --- |
 | App icon | `App/AppIcon.icon` — do not hand-edit; regenerate |
-| Anything dimensional at ≤1024 | `waddle-mark.png` |
+| Anything at ≤1024 | `waddle-mark.png` |
 | Small sizes, favicon, README, print | `waddle-mark-flat.svg` |
 
-`waddle-mark-flat.svg` fills with `currentColor`, so it inherits colour from its
-context rather than carrying its own.
+`waddle-mark-flat.svg` fills with `currentColor`, so it inherits colour from
+its context rather than carrying its own.
 
 ## Colour
 
 | Role | Hex |
 | --- | --- |
-| Mark, core | `#F4490A` |
-| Mark, interior face | `#F95109` (top) → `#F74104` (bottom) |
-| Mark, rim highlight | `#F56E31` |
-| Mark, bottom lip | `#B51F04` |
-| Icon background | white |
+| Mark tint | `#77FF6F` — Freedoom PLAYPAL nukage green |
+| Icon ground | `#0E0E10` — set by `icon.json`'s `fill`, not baked into the mark |
 
-The interior face is almost flat; the dimensionality is carried by the rim and
-the bottom lip, not by a body gradient. Worth knowing before anyone "fixes" the
-mark by adding a strong gradient to it.
+The same green is the app's accent (`AccentColor`), so the icon and the app
+agree. It was chosen partly on contrast: as text on the app background it
+measures 14.98:1, against the previous red's 3.63:1. It is a *light* colour —
+anything that fills with it needs a dark label, or the contrast inverts.
 
-## Two things that look like bugs and are not
+## Geometry
 
-**The mark is not perfectly symmetric.** It is 98.8% mirror-symmetric about
-x=625.0 in the source. The raster keeps that real asymmetry, because the render
-is lit slightly off-axis and that is the artwork. Only the flat vector is
-symmetrised — its halves are averaged before tracing, so the traced path is
-exactly symmetric.
+The mark is 48×32 source pixels, scaled 17× to 816×544 on the 1024 canvas
+(`INSET = 0.82` in `Scripts/build-mark.py`). Measured against an iOS
+continuous-corner squircle, that leaves ~99px of clearance; nothing clips until
+an inset of 0.95. The size is therefore a design decision, not a safe-area
+limit — it is deliberately larger than it needs to be, because the mark's one
+weakness is legibility at 40pt and bigger letterforms are what survive the
+downsample.
 
-**The mark carries no squircle, no background, and no drop shadow.** iOS 26
-supplies all three. They are stripped during extraction so the icon does not
-ship a second shadow underneath the system's.
+## Four things that look like bugs and are not
 
-## Why the dimensional mark is raster
+**The mark is all caps.** Freedoom has no lowercase in either of its fonts —
+see `docs/learnings/freedoom-fonts-are-uppercase-fon2.md`. `WADDLE` still
+contains `WAD`; the pun is simply not typographically marked.
 
-Three vectorizations were built and compared against the render: a machine trace
-(visibly faceted), a residual-driven gradient decomposition (lost the rim
-highlight), and an authored 8-path illustration (correct in character, grooves
-too shallow). All three read worse than the render. An iOS icon tops out at 1024
-and the subject lands ~657px inside that frame, so the raster is lossless at
-every size iOS asks for.
+**The two rows are ragged.** `WAD` is 48 source px, `DLE` is 40, and they are
+centred rather than justified. Letterspacing `DLE` to square the block was
+tried and reads as artificially stretched on a pixel face.
 
-Full reasoning: `docs/superpowers/specs/2026-08-10-app-icon-pipeline-design.md`.
+**The mark layer is transparent, with no ground, squircle or shadow.** iOS 26
+supplies the container, the shadow and the specular; `icon.json`'s `fill`
+supplies the ground. actool derives the Dark and Tinted appearances *from the
+layer artwork*, so baking a ground in would degrade both.
+
+**The flat SVG is a grid of rects, not a traced path.** The source is a pixel
+grid, so rects are exact and symmetric by construction. Nothing traces, which
+is why `potrace` is not a dependency.

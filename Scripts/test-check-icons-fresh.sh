@@ -5,10 +5,11 @@
 # Nothing here touches the real Design/ tree.
 #
 # Only the TOOLLESS paths are exercised -- --sync-only and the missing-file
-# refusals. The full mode shells out to extract-mark.py, which needs uv,
-# potrace, and a real 1254x1254 render; standing that up in a fixture would test
-# the extractor rather than the guard, and CI runs --sync-only anyway. The full
-# mode's own success path is covered by `mise run check-icons` on a clean tree.
+# refusals. The full mode shells out to build-mark.py, which needs uv and the
+# real glyph PNGs; standing that up in a fixture would test the compositor
+# rather than the guard, and CI runs --sync-only anyway. The full mode's own
+# success path is covered by `mise run check-icons` on a clean tree, and the
+# compositor by Scripts/test-build-mark.sh.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
@@ -20,9 +21,9 @@ pass() { echo "ok - $1"; }
 # Fake repo mirroring the layout the guard walks. Contents are arbitrary -- the
 # guard compares bytes, it never decodes an image.
 make_fixture() { # dest
-    mkdir -p "$1/Scripts" "$1/Design/source" "$1/App/AppIcon.icon/Assets"
+    mkdir -p "$1/Scripts" "$1/Design/source/freedoom-glyphs" "$1/App/AppIcon.icon/Assets"
     cp "$ROOT/Scripts/check-icons-fresh.sh" "$1/Scripts/"
-    printf 'source-render'   > "$1/Design/source/waddle-logo.png"
+    for g in W A D L E; do printf 'glyph' > "$1/Design/source/freedoom-glyphs/$g.png"; done
     printf 'mark-bytes'      > "$1/Design/waddle-mark.png"
     printf '<svg/>'          > "$1/Design/waddle-mark-flat.svg"
     printf 'mark-bytes'      > "$1/App/AppIcon.icon/Assets/mark.png"
@@ -46,28 +47,29 @@ pass "fails closed when the .icon copy drifts"
 
 # 3. Each required file missing in turn -> refuse. A guard that passes because
 #    its inputs vanished is worse than no guard.
-for missing in Design/source/waddle-logo.png Design/waddle-mark.png \
-               Design/waddle-mark-flat.svg App/AppIcon.icon/Assets/mark.png; do
+for missing in Design/source/freedoom-glyphs/W.png Design/source/freedoom-glyphs/E.png \
+               Design/waddle-mark.png Design/waddle-mark-flat.svg \
+               App/AppIcon.icon/Assets/mark.png; do
     make_fixture "$TMP/c"; rm "$TMP/c/$missing"
     if check "$TMP/c" > "$TMP/out" 2>&1; then fail "passed with $missing absent"; fi
     grep -q "is missing" "$TMP/out" || fail "absent $missing did not report a missing file"
 done
 pass "fails closed when any required file is absent"
 
-# 4. --sync-only must not need uv or potrace: it runs in CI before the toolchain
+# 4. --sync-only must not need uv: it runs in CI before the toolchain
 #    exists. Strip PATH to the system bins so neither can be found.
 make_fixture "$TMP/d"
 if ! PATH="/usr/bin:/bin" check "$TMP/d" > "$TMP/out" 2>&1; then
     fail "--sync-only needs tooling that CI will not have: $(cat "$TMP/out")"
 fi
-pass "--sync-only runs with no uv and no potrace on PATH"
+pass "--sync-only runs with no uv on PATH"
 
 # 5. The full mode must NOT silently downgrade to --sync-only when the tools are
 #    missing -- that would quietly narrow the guarantee to the one thing it can
 #    still check. Refuse and name the flag instead.
 make_fixture "$TMP/e"
 if PATH="/usr/bin:/bin" check "$TMP/e" "" > "$TMP/out" 2>&1; then
-    fail "full mode passed without uv/potrace instead of refusing"
+    fail "full mode passed without uv instead of refusing"
 fi
 grep -q -- "--sync-only" "$TMP/out" || fail "refusal does not point at --sync-only"
 pass "full mode refuses rather than downgrading when tooling is absent"
