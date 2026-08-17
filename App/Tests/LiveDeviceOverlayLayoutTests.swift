@@ -1,6 +1,6 @@
 import UIKit
 import XCTest
-@testable import WADdle
+@testable import Waddle
 
 /// The overlay geometry, measured against the device the suite is *running
 /// on* rather than a table of literal bounds.
@@ -67,7 +67,7 @@ final class LiveDeviceOverlayLayoutTests: XCTestCase {
 
     /// The window the host app is actually showing.
     ///
-    /// Polled rather than read once: `WADdleApp` is a SwiftUI `WindowGroup`
+    /// Polled rather than read once: `WaddleApp` is a SwiftUI `WindowGroup`
     /// and scene connection is asynchronous, so a bare read can land before
     /// the scene exists. Failing on that race would read as an iPad geometry
     /// regression when it is a startup timing artefact — and this file is the

@@ -3,7 +3,7 @@ import SwiftData
 import SwiftUI
 
 @main
-struct WADdleApp: App {
+struct WaddleApp: App {
     let container: ModelContainer
     let library: LibraryService
     let importer: ImportService

@@ -1,6 +1,6 @@
-# WADdle Privacy Policy
+# Waddle Privacy Policy
 
-WADdle does not collect any data of any kind.
+Waddle does not collect any data of any kind.
 
 - The app makes no network connections on its own. The only data this app
   ever sends anywhere is the diagnostics file you explicitly export and

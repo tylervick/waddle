@@ -1,6 +1,6 @@
 import SwiftData
 import XCTest
-@testable import WADdle
+@testable import Waddle
 
 final class LibraryViewTests: XCTestCase {
     func testFilesAppURLSwapsSchemeAndKeepsPath() throws {

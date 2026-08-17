@@ -1,7 +1,7 @@
 import SwiftData
 import XCTest
 import ZIPFoundation
-@testable import WADdle
+@testable import Waddle
 
 @MainActor
 final class ImportServiceTests: XCTestCase {

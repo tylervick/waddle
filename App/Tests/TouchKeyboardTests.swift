@@ -1,6 +1,6 @@
 import UIKit
 import XCTest
-@testable import WADdle
+@testable import Waddle
 
 @MainActor
 final class TouchKeyboardTests: XCTestCase {

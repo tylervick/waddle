@@ -1,5 +1,5 @@
 import XCTest
-@testable import WADdle
+@testable import Waddle
 
 /// What the detail page's art is laid out against: the width its `Form` row
 /// offers and the height visible without scrolling. Written the same way as

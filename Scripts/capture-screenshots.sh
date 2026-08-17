@@ -40,7 +40,7 @@ cd "$(dirname "$0")/.."
 BUNDLE_ID="com.tylervick.waddle"
 WAD_SRC="$HOME/Downloads/doom-test-wads"
 DERIVED="App/build"
-APP_PATH="$DERIVED/Build/Products/Debug-iphonesimulator/WADdle.app"
+APP_PATH="$DERIVED/Build/Products/Debug-iphonesimulator/Waddle.app"
 TEST_FILE="App/UITests/ScreenshotCaptureTests.swift"
 OUT_ROOT="docs/app-store/screenshots"
 RESULTS_ROOT="${TMPDIR:-/tmp}/waddle-screenshots"
@@ -380,7 +380,7 @@ prepare() {
     # generic one adds x86_64, which WoofEngine.xcframework doesn't ship.
     # The arm64 products run on every simulator on this Apple Silicon host.
     xcodebuild build-for-testing \
-        -project App/WADdle.xcodeproj -scheme WADdle \
+        -project App/Waddle.xcodeproj -scheme Waddle \
         -destination "platform=iOS Simulator,name=$IPHONE_NAME" \
         -derivedDataPath "$DERIVED" -quiet
 }
@@ -457,9 +457,9 @@ capture() {  # $1 = iphone | ipad
     result="$RESULTS_ROOT/$slug.xcresult"
     rm -rf "$result"; mkdir -p "$RESULTS_ROOT"
     xcodebuild test-without-building \
-        -project App/WADdle.xcodeproj -scheme WADdle \
+        -project App/Waddle.xcodeproj -scheme Waddle \
         -destination "platform=iOS Simulator,id=$udid" \
-        -only-testing:WADdleUITests/ScreenshotCaptureTests \
+        -only-testing:WaddleUITests/ScreenshotCaptureTests \
         -derivedDataPath "$DERIVED" \
         -resultBundlePath "$result" -quiet
 

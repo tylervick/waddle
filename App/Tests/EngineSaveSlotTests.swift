@@ -1,5 +1,5 @@
 import XCTest
-@testable import WADdle
+@testable import Waddle
 
 /// Covers the filename -> `-loadgame` mapping and the newest-save selection
 /// Continue is built on. The literal filenames here are the engine's own

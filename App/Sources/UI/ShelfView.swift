@@ -79,14 +79,14 @@ struct ShelfView: View {
             viewportHeight = size.height
         }
         .background(Color.appBackground)
-        .navigationTitle("WADdle")
+        .navigationTitle("Waddle")
         .toolbar { toolbarContent }
         // .overlay, not .safeAreaInset -- a conditionally-empty safeAreaInset
         // directly above a ScrollView/LazyVGrid crashed SwiftUI's layout engine
         // here (HVGrid.minorGeometry, SwiftUI internal, iOS 26.2 SDK).
         .overlay(alignment: .bottom) {
             if debugHUD {
-                Text("WADdle \(BuildInfo.commit) (\(BuildInfo.branch)) · built \(BuildInfo.builtAt)")
+                Text("Waddle \(BuildInfo.commit) (\(BuildInfo.branch)) · built \(BuildInfo.builtAt)")
                     .font(.caption2.monospaced())
                     .foregroundStyle(Color.appSecondaryText)
                     .padding(.vertical, 4)
@@ -203,7 +203,7 @@ struct ShelfView: View {
     /// picker by accident.
     private var welcomeCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("WADdle").font(.title.bold())
+            Text("Waddle").font(.title.bold())
             Text("Bring your own WADs, or start with the Freedoom games below.")
                 .font(.subheadline)
                 .foregroundStyle(Color.appSecondaryText)

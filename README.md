@@ -1,4 +1,4 @@
-# WADdle
+# Waddle
 
 [![CI](https://github.com/tylervick/waddle/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tylervick/waddle/actions/workflows/ci.yml)
 
@@ -15,9 +15,9 @@ DeHackEd patches — for everything else.
        alt="Play tab: recently played, base games and presets" width="49%">
 </p>
 
-## What WADdle replaces, and the parity bar it answers to
+## What Waddle replaces, and the parity bar it answers to
 
-WADdle is the direct successor to the per-game apps of the id/Tom Kidd
+Waddle is the direct successor to the per-game apps of the id/Tom Kidd
 DOOM-iOS lineage — DOOM, DOOM II, Final DOOM (TNT + Plutonia in one app) and
 SIGIL — replacing that "one app per WAD" model with a single app and a WAD
 library ([founding
@@ -39,7 +39,7 @@ iOS software," touch-layout customization is a nice-to-have — the founding
 spec deferred it as exactly that. Judged against the predecessors, it is a
 headline feature, because their players already had it.
 
-The 2026-08-13 parity audit measured WADdle against this baseline and filed
+The 2026-08-13 parity audit measured Waddle against this baseline and filed
 every gap it found. This table is that filing record, not a live checklist —
 each issue carries its own current state:
 
@@ -69,7 +69,7 @@ counterpart process for clearing those by hand.
 
 ## Licensing
 
-WADdle is free software under the **GNU GPL v2** (see [COPYING](COPYING)),
+Waddle is free software under the **GNU GPL v2** (see [COPYING](COPYING)),
 the license of the Woof!/Boom/MBF lineage it descends from. Bundled and
 linked components: [Freedoom](https://freedoom.github.io/) data
 (BSD-style), [SDL3](https://libsdl.org) (zlib),
@@ -107,14 +107,14 @@ Scripts/build-engine.sh        # Woof! static lib + WoofEngine.xcframework; stag
 Scripts/fetch-freedoom.sh      # Freedoom WADs into App/Resources/GameData
 Scripts/generate-build-info.sh # seeds App/Sources/Generated/ (gitignored) so xcodegen's
                                 # static file scan picks it up; regenerated every build after
-cd App && xcodegen generate    # generate WADdle.xcodeproj
+cd App && xcodegen generate    # generate Waddle.xcodeproj
 ```
 
-Then build/run the `WADdle` scheme in Xcode, or from the command line
+Then build/run the `Waddle` scheme in Xcode, or from the command line
 (`mise run test` is a shortcut for this):
 
 ```sh
-xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
+xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 ```
 
@@ -172,9 +172,9 @@ with the Xcode and simulator versions pinned in each workflow's `env:` block:
 
 **`ci.yml`** runs the build-script helper tests and
 `Scripts/check-substrate.sh` first (they are ~0.1s each and guard the values
-the build caches key on), then builds the `WADdle` scheme and tests it with
-`-only-testing:WADdleTests`. That filter is required, not a tuning choice: the
-scheme's test action also includes `WADdleUITests`, which boot the real engine
+the build caches key on), then builds the `Waddle` scheme and tests it with
+`-only-testing:WaddleTests`. That filter is required, not a tuning choice: the
+scheme's test action also includes `WaddleUITests`, which boot the real engine
 and belong to the workflow below. So `mise run test` locally is *broader* than
 CI — it runs the whole scheme, UI tests included.
 
@@ -185,11 +185,11 @@ the pull-request path. It takes two inputs:
 
 - `device` — simulator device name. Default `iPhone 17 Pro`.
 - `only_testing` — an optional `-only-testing` filter, e.g.
-  `WADdleUITests/EngineSmokeTests`. Leave it blank to run all of
-  `WADdleUITests`.
+  `WaddleUITests/EngineSmokeTests`. Leave it blank to run all of
+  `WaddleUITests`.
 
-**`WADdleUITests/RealWADTests` never runs in CI**, under either workflow.
-`ui-tests.yml` passes `-skip-testing:WADdleUITests/RealWADTests`
+**`WaddleUITests/RealWADTests` never runs in CI**, under either workflow.
+`ui-tests.yml` passes `-skip-testing:WaddleUITests/RealWADTests`
 unconditionally, so even an explicit `only_testing` dispatch cannot pull it
 back in: it needs the non-redistributable WADs in `~/Downloads/doom-test-wads/`,
 which no runner has and this repository will never ship. See
@@ -219,7 +219,7 @@ first. A gear opens player settings; **Manage** opens the library workspace,
 where importing, preset editing, and restoring hidden items live. Long-press
 a tile to remove it from the shelf — the files and saves are kept.
 
-Import WADs three ways: the Import button in Manage, "Share → WADdle" from
+Import WADs three ways: the Import button in Manage, "Share → Waddle" from
 another app, or drop files into the app's folder in the Files app (adopted
 on next launch). IWADs, PWADs, `.deh`/`.bex` patches, and zips containing
 any of those all work; zips are recursed into and duplicates are deduped by

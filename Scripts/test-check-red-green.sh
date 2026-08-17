@@ -354,8 +354,8 @@ pass "swift: a reverted tree whose tests still pass is vacuous"
 # 17. EVERY class in a changed test file is targeted, not just the one whose
 #     name matches the file. ImportNoticesTests.swift in the real repo declares
 #     two; missing the second would silently halve the proof.
-grep -q 'only-testing:WADdleTests/ThingTests' "$r/xcb.log" || fail "did not target ThingTests"
-grep -q 'only-testing:WADdleTests/ThingExtraTests' "$r/xcb.log" || fail "did not target the second class in the file"
+grep -q 'only-testing:WaddleTests/ThingTests' "$r/xcb.log" || fail "did not target ThingTests"
+grep -q 'only-testing:WaddleTests/ThingExtraTests' "$r/xcb.log" || fail "did not target the second class in the file"
 pass "swift: targets every XCTestCase class declared in a changed test file"
 
 # 18. A changed test file that declares no XCTestCase class at all is

@@ -1,9 +1,9 @@
 ---
 name: waddle-filing-an-issue
-description: Use when filing, drafting, revising, or reviewing a GitHub issue in the WADdle repo — including choosing between agent:eligible and agent:blocked, picking a size label, writing the Definition of done or Verification section, or fixing a red "Issue Format" workflow run.
+description: Use when filing, drafting, revising, or reviewing a GitHub issue in the Waddle repo — including choosing between agent:eligible and agent:blocked, picking a size label, writing the Definition of done or Verification section, or fixing a red "Issue Format" workflow run.
 ---
 
-# Filing an issue in WADdle
+# Filing an issue in Waddle
 
 ## Overview
 
@@ -255,9 +255,9 @@ For a Swift change, the narrow form used by #64:
 
 ```
 mise run bootstrap
-xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
+xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
-  -only-testing:WADdleTests test
+  -only-testing:WaddleTests test
 ```
 
 For shell work, name the suites directly — `Scripts/test-build-deps.sh`,

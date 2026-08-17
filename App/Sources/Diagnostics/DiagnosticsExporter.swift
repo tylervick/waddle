@@ -4,14 +4,14 @@ import ZIPFoundation
 /// Assembles the user-facing diagnostics zip. Pure local file assembly --
 /// the result goes nowhere until the user hands it to the share sheet.
 enum DiagnosticsExporter {
-    /// Builds WADdle-diagnostics.zip in a fresh temp directory and returns
+    /// Builds Waddle-diagnostics.zip in a fresh temp directory and returns
     /// its URL. Always succeeds down to at least an info.txt-only zip, so
     /// the share flow works even on a fresh install with nothing captured.
     static func export(diagnosticsDirectory: URL, libraryLines: [String]) throws -> URL {
         let staging = FileManager.default.temporaryDirectory
             .appendingPathComponent("diagnostics-export-\(UUID().uuidString)",
                                     isDirectory: true)
-        let payload = staging.appendingPathComponent("WADdle-diagnostics",
+        let payload = staging.appendingPathComponent("Waddle-diagnostics",
                                                      isDirectory: true)
         try FileManager.default.createDirectory(at: payload,
                                                 withIntermediateDirectories: true)
@@ -33,7 +33,7 @@ enum DiagnosticsExporter {
                 to: payload.appendingPathComponent(file.lastPathComponent))
         }
 
-        let zipURL = staging.appendingPathComponent("WADdle-diagnostics.zip")
+        let zipURL = staging.appendingPathComponent("Waddle-diagnostics.zip")
         try FileManager.default.zipItem(at: payload, to: zipURL,
                                         shouldKeepParent: false)
         // The uncompressed staging copy has served its purpose.
@@ -89,7 +89,7 @@ enum DiagnosticsExporter {
             forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
 
         var lines = [
-            "WADdle diagnostics",
+            "Waddle diagnostics",
             "generated: \(ISO8601DateFormatter().string(from: .now))",
             "",
             "app version: \(version) (\(buildNumber))",

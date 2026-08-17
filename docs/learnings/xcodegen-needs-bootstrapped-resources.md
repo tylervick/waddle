@@ -4,8 +4,8 @@
 
 ```
 2 Spec validations errors:
-	- Target "WADdle" has a missing source directory ".../App/Resources/GameData"
-	- Target "WADdle" has a missing source directory ".../App/Resources/woof.pk3"
+	- Target "Waddle" has a missing source directory ".../App/Resources/GameData"
+	- Target "Waddle" has a missing source directory ".../App/Resources/woof.pk3"
 ```
 
 It reads like a bad `App/project.yml`, and it is not. Both paths are build
@@ -18,7 +18,7 @@ validates its source list before it writes anything, so the failure lands on
 `Scripts/build-engine.sh` stages `woof.pk3`; `Scripts/fetch-freedoom.sh`
 downloads `GameData/`. `mise run bootstrap` runs both (plus `generate`), and is
 the documented path — the trap is only that `generate` alone looks like it
-should work, since `WADdle.xcodeproj` is itself gitignored and regenerating it
+should work, since `Waddle.xcodeproj` is itself gitignored and regenerating it
 is otherwise a fast, self-contained step.
 
 When `Vendor/` is already populated (an Orca per-run worktree inherits it), the

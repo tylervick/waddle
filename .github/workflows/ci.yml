@@ -83,6 +83,7 @@ jobs:
           Scripts/test-check-red-green.sh
           Scripts/test-release-args.sh
           Scripts/test-check-substrate.sh
+          Scripts/test-check-name-consistency.sh
           Scripts/test-build-deps.sh
           Scripts/test-check-icons-fresh.sh
           Scripts/test-check-icon-json.sh
@@ -108,6 +109,11 @@ jobs:
           # issues/schedule/workflow_dispatch only -- never on a pull request.
           Scripts/test-check-issue-format.sh
           Scripts/check-substrate.sh
+          # The app's name is Waddle; the stylized form is a wordmark and
+          # belongs only in Design/. Pure text scan of tracked files; no
+          # network, no token. (This comment cannot quote the spelling it
+          # forbids -- ci.yml is not on the guard's exemption list.)
+          Scripts/check-name-consistency.sh
           # Refuses a `gh api` call whose exit status is masked into a
           # fabricated answer -- the defect PR #66 and issue #68 each fixed one
           # instance of. Pure text scan of Scripts/; no network, no token.
@@ -197,17 +203,17 @@ jobs:
           # This is an optimisation, not a precondition.
           xcrun simctl boot "$udid" || true
 
-      # -only-testing:WADdleTests is REQUIRED, not a tuning choice: the
-      # WADdle scheme's test action also includes WADdleUITests, which boot
+      # -only-testing:WaddleTests is REQUIRED, not a tuning choice: the
+      # Waddle scheme's test action also includes WaddleUITests, which boot
       # the real engine and belong to the manually-dispatched ui-tests
       # workflow.
       - name: Run unit tests (iPhone)
         env:
           DESTINATION: platform=iOS Simulator,name=${{ env.SIMULATOR_DEVICE }},OS=${{ env.SIMULATOR_OS }}
         run: |
-          xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
+          xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
             -destination "$DESTINATION" \
-            -only-testing:WADdleTests \
+            -only-testing:WaddleTests \
             -resultBundlePath TestResults.xcresult \
             test
 
@@ -217,8 +223,8 @@ jobs:
       # at an iPad was Scripts/capture-screenshots.sh, which asserts nothing
       # (issue #131).
       #
-      # -only-testing:WADdleTests for the same REASON as the iPhone leg above:
-      # the scheme's test action includes WADdleUITests.
+      # -only-testing:WaddleTests for the same REASON as the iPhone leg above:
+      # the scheme's test action includes WaddleUITests.
       #
       # What this leg costs, measured on the runner (run 31980014093) rather
       # than locally -- a local figure is worthless here, because the local
@@ -245,9 +251,9 @@ jobs:
         env:
           DESTINATION: platform=iOS Simulator,name=${{ env.SIMULATOR_DEVICE_IPAD }},OS=${{ env.SIMULATOR_OS }}
         run: |
-          xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
+          xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
             -destination "$DESTINATION" \
-            -only-testing:WADdleTests \
+            -only-testing:WaddleTests \
             -resultBundlePath TestResults-ipad.xcresult \
             test
 
@@ -269,7 +275,7 @@ jobs:
       # -- it asks whether reverting the change makes the tests fail -- and
       # that only means anything if they pass at HEAD. The steps above are
       # what establish that: the helper suites cover the shell domain and
-      # `-only-testing:WADdleTests` covers all of App/Tests/. If either is red,
+      # `-only-testing:WaddleTests` covers all of App/Tests/. If either is red,
       # the reverted run fails for a reason the revert did not cause, and the
       # verdict would be a fabricated `proved`.
       #

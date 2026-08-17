@@ -31,10 +31,10 @@ if [ -n "${BUILD_NUMBER:-}" ]; then
     VERSION_ARGS=("CURRENT_PROJECT_VERSION=$BUILD_NUMBER")
 fi
 EXPORT_PLIST="${EXPORT_OPTIONS_PLIST:-App/ExportOptions.plist}"
-ARCHIVE="$ROOT/Vendor/archive/WADdle.xcarchive"
+ARCHIVE="$ROOT/Vendor/archive/Waddle.xcarchive"
 
 if [ "${ARCHIVE_PRINT_ONLY:-}" = "1" ]; then
-    echo "ARCHIVE: xcodebuild -project App/WADdle.xcodeproj -scheme WADdle" \
+    echo "ARCHIVE: xcodebuild -project App/Waddle.xcodeproj -scheme Waddle" \
          "-destination generic/platform=iOS -configuration Release" \
          "-archivePath $ARCHIVE" \
          "${ASC_ARGS[@]+"${ASC_ARGS[@]}"}" "${VERSION_ARGS[@]+"${VERSION_ARGS[@]}"}" "archive"
@@ -65,7 +65,7 @@ cd "$ROOT/App" && xcodegen generate && cd "$ROOT"
 # certificate when the identity is not found; Apple caps those at 2-3 per
 # account and the only cleanup is manual revocation in the portal. CI signs
 # manually with a pre-installed profile, so there is nothing to update.
-xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
+xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
   -destination 'generic/platform=iOS' -configuration Release \
   -archivePath "$ARCHIVE" \
   "${ASC_ARGS[@]+"${ASC_ARGS[@]}"}" "${VERSION_ARGS[@]+"${VERSION_ARGS[@]}"}" \

@@ -2,7 +2,7 @@ import CoreGraphics
 import SwiftData
 import SwiftUI
 import XCTest
-@testable import WADdle
+@testable import Waddle
 
 /// Covers the two rules spec §5 states outright and `ShelfView` cannot be asked
 /// about directly (no view harness — same reason `ShelfTests` tests `Shelf`):

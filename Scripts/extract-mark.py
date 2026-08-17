@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["numpy", "pillow", "scipy", "svgpathtools"]
 # ///
-"""Extract the WADdle mark from the source render.
+"""Extract the Waddle mark from the source render.
 
 Reads Design/source/waddle-logo.png (an AI-generated 1254x1254 render of the
 orange webbed foot sitting on a white rounded card) and writes the two files

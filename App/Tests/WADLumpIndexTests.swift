@@ -1,5 +1,5 @@
 import XCTest
-@testable import WADdle
+@testable import Waddle
 
 final class WADLumpIndexTests: XCTestCase {
     // Builds a minimal WAD: header + one lump "DATA" (bytes) + directory.

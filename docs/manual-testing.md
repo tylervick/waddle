@@ -73,7 +73,7 @@ loops, then report them back so the defaults can be baked in.
 Turn this on for every session below: "Show Debug Info" in the same gear
 menu as the touch scheme picker (accessibilityIdentifier `debugHUDToggle`,
 persisted across relaunch).
-- [ ] Play tab shows a footer line once enabled: `WADdle <commit> (<branch>)
+- [ ] Play tab shows a footer line once enabled: `Waddle <commit> (<branch>)
       · built <date time>` (accessibilityIdentifier `buildInfoLabel`) —
       commit matches `git rev-parse --short HEAD` (with a trailing `+` if
       the tree had uncommitted changes at build time), branch matches

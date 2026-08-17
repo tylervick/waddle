@@ -129,7 +129,7 @@ assert_at "$A/Vendor/src/SDL" "$TMP/upstream-sdl" v2 "did not replace a bare rep
 pass "replaces a bare repo whose HEAD happens to match the pin"
 
 # --- 7. an empty directory inside an ENCLOSING repo -------------------
-# The real Vendor/src lives inside WADdle's own work tree, so `mkdir
+# The real Vendor/src lives inside Waddle's own work tree, so `mkdir
 # Vendor/src/SDL` answers --is-inside-work-tree=true and reports the ENCLOSING
 # repo's HEAD and tags. With a same-named tag there, a check that omits the
 # work-tree-root test reuses an empty directory and builds nothing.

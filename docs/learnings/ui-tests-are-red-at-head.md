@@ -1,13 +1,13 @@
 # Two detail-page UI tests are already red at HEAD, and CI will not tell you
 
-`WADdleUITests/PlayTabTests/testBaseGameDetailControlsOverridePersists` and
-`WADdleUITests/PresetEditTests/testEditFromDetailPageOpensEditor` both fail on
+`WaddleUITests/PlayTabTests/testBaseGameDetailControlsOverridePersists` and
+`WaddleUITests/PresetEditTests/testEditFromDetailPageOpensEditor` both fail on
 an unmodified tree. Both fail the same way: they long-press a shelf tile, tap
 **Details** in the context menu, and the detail sheet never opens, so
 `detailSchemePicker` / `detailEditButton` are never found.
 
-Neither is covered by `ci.yml`, which runs `-only-testing:WADdleTests`
-deliberately — `WADdleUITests` boots the real engine and belongs to the
+Neither is covered by `ci.yml`, which runs `-only-testing:WaddleTests`
+deliberately — `WaddleUITests` boots the real engine and belongs to the
 manually dispatched `ui-tests` workflow. Nothing on a pull request runs them,
 so they can stay red indefinitely without a red check anywhere.
 
@@ -16,16 +16,16 @@ so they can stay red indefinitely without a red check anywhere.
 after touching the shelf, and the obvious inference — "I broke it" — is wrong.
 Acting on it means "fixing" a diff that was never at fault.
 
-**Before attributing any `WADdleUITests` failure to your own change, reproduce
+**Before attributing any `WaddleUITests` failure to your own change, reproduce
 it at HEAD:**
 
 ```bash
 git stash push -u
 mise run generate          # the .pbxproj is a generated file-list snapshot;
                            # regenerate after stashing or new files linger in it
-xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
+xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
-  -only-testing:WADdleUITests/PlayTabTests test
+  -only-testing:WaddleUITests/PlayTabTests test
 git stash pop && mise run generate
 ```
 

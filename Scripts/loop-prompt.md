@@ -47,7 +47,7 @@ whether 4.1 timed out — and section 4.3's fix commits) must carry this exact
 form written out in place, not a reference back to this section:
 
 ```bash
-git -c user.name="WADdle Agent Loop" \
+git -c user.name="Waddle Agent Loop" \
     -c user.email="agent-loop@tylervick.com" \
     -c gpg.format=ssh \
     -c user.signingkey=~/.ssh/waddle-agent-signing.pub \
@@ -198,7 +198,7 @@ the only thing left after claiming is a single push:
    # write docs/loop-trials/<RUN_TS>-issue-<ISSUE>.md with outcome: started,
    # using the format in section 6 and the literals from section 1, then:
    git add docs/loop-trials/<RUN_TS>-issue-<ISSUE>.md
-   git -c user.name="WADdle Agent Loop" \
+   git -c user.name="Waddle Agent Loop" \
        -c user.email="agent-loop@tylervick.com" \
        -c gpg.format=ssh \
        -c user.signingkey=~/.ssh/waddle-agent-signing.pub \
@@ -256,7 +256,7 @@ happened — it is what makes a lost trial visible instead of silent.
    referenced, because this commit happens in its own tool invocation:
 
    ```bash
-   git -c user.name="WADdle Agent Loop" \
+   git -c user.name="Waddle Agent Loop" \
        -c user.email="agent-loop@tylervick.com" \
        -c gpg.format=ssh \
        -c user.signingkey=~/.ssh/waddle-agent-signing.pub \
@@ -648,7 +648,7 @@ Within whatever remains of the 45-minute budget, in this order:
    tool invocation:
 
    ```bash
-   git -c user.name="WADdle Agent Loop" \
+   git -c user.name="Waddle Agent Loop" \
        -c user.email="agent-loop@tylervick.com" \
        -c gpg.format=ssh \
        -c user.signingkey=~/.ssh/waddle-agent-signing.pub \
@@ -850,7 +850,7 @@ git worktree add /tmp/loop-trials-<RUN_TS> origin/loop-trials
 cd /tmp/loop-trials-<RUN_TS>
 # write docs/loop-trials/<RUN_TS>-issue-<ISSUE>.md, then:
 git add docs/loop-trials/<RUN_TS>-issue-<ISSUE>.md
-git -c user.name="WADdle Agent Loop" \
+git -c user.name="Waddle Agent Loop" \
     -c user.email="agent-loop@tylervick.com" \
     -c gpg.format=ssh \
     -c user.signingkey=~/.ssh/waddle-agent-signing.pub \

@@ -38,7 +38,7 @@ extension XCTestCase {
     /// no-op there produces a correctly-named marketing image of the wrong
     /// screen (see issue #156).
     func returnToShelf(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
-        let back = app.navigationBars.buttons["WADdle"]
+        let back = app.navigationBars.buttons["Waddle"]
         XCTAssertTrue(back.waitForExistence(timeout: 5),
                       "no back button out of Manage — navigation is broken",
                       file: file, line: line)

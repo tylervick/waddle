@@ -1,6 +1,6 @@
 import UIKit
 import XCTest
-@testable import WADdle
+@testable import Waddle
 
 /// `OverlayButton` draws itself as a circle (`layer.cornerRadius = size / 2`)
 /// but is a plain square `UIView`, so UIKit's default rectangular hit-testing
