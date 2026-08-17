@@ -13,12 +13,12 @@ final class RealWADTests: XCTestCase {
         app.launch()
         // Loose-file adoption (ImportService.adoptLooseFiles) now runs
         // asynchronously off a `.task` on ContentView's first frame (Plan 3
-        // Task 7), not synchronously in WADdleApp.init — so the launcher UI
+        // Task 7), not synchronously in WaddleApp.init — so the launcher UI
         // shows up immediately and does NOT wait on hashing/copying the
         // provisioned WADs (including the 293 MB Eviternity II). Adoption
         // finishing is awaited separately, per-loadout, in
         // waitForWADAvailable below.
-        XCTAssertTrue(app.navigationBars["WADdle"].waitForExistence(timeout: 90),
+        XCTAssertTrue(app.navigationBars["Waddle"].waitForExistence(timeout: 90),
                       "launcher UI never appeared")
         // Dismiss the loose-file adoption alert if it fired this launch.
         // NOTE: launch-time adoption is currently silent (no alert; the

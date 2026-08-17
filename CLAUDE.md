@@ -1,4 +1,4 @@
-# WADdle — working rules
+# Waddle — working rules
 
 An iOS port of the Woof! Doom engine. See `README.md` for build instructions and
 `docs/learnings/INDEX.md` for traps this project has already paid for.
@@ -6,8 +6,8 @@ An iOS port of the Woof! Doom engine. See `README.md` for build instructions and
 ## Build & test
 
 - Bootstrap: `mise run bootstrap`. Verify: `mise run test` runs the whole
-  `WADdle` scheme, not just unit tests; CI instead uses
-  `-only-testing:WADdleTests`. `RealWADTests` failures without the fixtures
+  `Waddle` scheme, not just unit tests; CI instead uses
+  `-only-testing:WaddleTests`. `RealWADTests` failures without the fixtures
   in `docs/learnings/simulator-test-hazards.md` are expected, not a regression.
 - Never run two `xcodebuild` test sessions against one simulator at the same
   time — they cross-contaminate and produce spurious kills and failures.

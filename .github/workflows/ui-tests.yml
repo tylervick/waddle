@@ -40,7 +40,7 @@ on:
         default: "iPhone 17 Pro"
       only_testing:
         description: >-
-          Optional -only-testing filter, e.g. WADdleUITests/EngineSmokeTests.
+          Optional -only-testing filter, e.g. WaddleUITests/EngineSmokeTests.
           Leave blank to run the whole suite except RealWADTests.
         required: false
         default: ""
@@ -92,8 +92,8 @@ jobs:
           ONLY_TESTING: ${{ inputs.only_testing }}
         run: |
           ARGS=(
-            -project App/WADdle.xcodeproj
-            -scheme WADdle
+            -project App/Waddle.xcodeproj
+            -scheme Waddle
             -destination "$DESTINATION"
             -resultBundlePath UITestResults.xcresult
           )
@@ -101,13 +101,13 @@ jobs:
           # ~/Downloads/doom-test-wads -- non-redistributable and ~300 MB, so it
           # can NEVER run here, whatever filter was requested. Applied
           # unconditionally rather than only on the default path: a dispatch of
-          # only_testing=WADdleUITests would otherwise pull it back in. Skipping
+          # only_testing=WaddleUITests would otherwise pull it back in. Skipping
           # a test that the filter never selected is a harmless no-op.
-          ARGS+=(-skip-testing:WADdleUITests/RealWADTests)
+          ARGS+=(-skip-testing:WaddleUITests/RealWADTests)
           if [ -n "$ONLY_TESTING" ]; then
             ARGS+=(-only-testing:"$ONLY_TESTING")
           else
-            ARGS+=(-only-testing:WADdleUITests)
+            ARGS+=(-only-testing:WaddleUITests)
           fi
           xcodebuild "${ARGS[@]}" test
 

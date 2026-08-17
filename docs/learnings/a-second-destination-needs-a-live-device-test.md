@@ -9,7 +9,7 @@ That proof cannot work, and the reason generalises. `TouchOverlayLayoutTests`
 is pure geometry: it hands the layout a `CGRect` from a literal table and
 asserts what comes back. Its iPad cases are iPad-shaped *numbers*, not an iPad.
 Break one and **both** legs go red, because both legs run the same arithmetic
-over the same literals. Every one of the 309 tests in `WADdleTests` was like
+over the same literals. Every one of the 309 tests in `WaddleTests` was like
 that, which is why adding the destination alone would have doubled the CI
 simulator time and duplicated 309 identical verdicts.
 

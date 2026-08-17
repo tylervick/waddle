@@ -1,6 +1,6 @@
 import SwiftData
 import XCTest
-@testable import WADdle
+@testable import Waddle
 
 @MainActor
 final class PlayableItemTests: XCTestCase {

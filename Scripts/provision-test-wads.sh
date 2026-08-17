@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copies local test WADs into the booted simulator's WADdle Documents dir
+# Copies local test WADs into the booted simulator's Waddle Documents dir
 # so the app's loose-file adoption imports them on next launch.
 # Usage: Scripts/provision-test-wads.sh [device-name]
 set -euo pipefail

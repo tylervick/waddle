@@ -251,7 +251,7 @@ jobs:
       - name: Upload IPA artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: WADdle-${{ steps.buildnum.outputs.value }}-ipa
+          name: Waddle-${{ steps.buildnum.outputs.value }}-ipa
           path: Vendor/archive/export/*.ipa
           retention-days: 7
 

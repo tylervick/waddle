@@ -50,7 +50,7 @@ JSON
 # as a JSON resource whose attributes carry the raw report in logText.
 cat > "$TMP/fixtures/crashlog.json" <<'JSON'
 {"data":{"type":"betaCrashLogs","id":"log-1",
- "attributes":{"logText":"Incident Identifier: TEST-123\nThread 0 Crashed:\n0  WADdle  I_CacheRumble + 1344\n"}}}
+ "attributes":{"logText":"Incident Identifier: TEST-123\nThread 0 Crashed:\n0  Waddle  I_CacheRumble + 1344\n"}}}
 JSON
 
 # curl stub: routes by URL substring, appends each URL to curl.log. `-o FILE`

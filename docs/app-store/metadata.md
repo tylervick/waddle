@@ -1,4 +1,4 @@
-# App Store metadata — WADdle
+# App Store metadata — Waddle
 
 **Status: APPROVED at the Plan 4 Task 7 user gate (2026-07-18).**
 Decisions recorded in the log at the bottom.
@@ -7,13 +7,13 @@ Decisions recorded in the log at the bottom.
 
 ## 1. App name (30 chars max) — DECIDED
 
-**Store name: "WADdle: WAD Player"** (18 chars). **The bare "WADdle" is not
+**Store name: "Waddle: WAD Player"** (18 chars). **The bare "Waddle" is not
 available** — see the availability finding below. Everything internal (bundle
-ID, target, repo) stays plain `WADdle`; only the App Store *display name*
+ID, target, repo) stays plain `Waddle`; only the App Store *display name*
 carries the suffix.
 
 **Availability (tested 2026-07-30, against the live ASC record).** Renaming
-the App Store Connect record to plain "WADdle" was attempted via the API —
+the App Store Connect record to plain "Waddle" was attempted via the API —
 `PATCH /v1/appInfoLocalizations/{id}` on the **en-US** localization, which is
 the only one the record has — and **rejected**:
 
@@ -31,19 +31,24 @@ here to assert. The suffix is therefore forced, not chosen — but *which*
 suffix is still open, and any 30-char-max variant that avoids "Doom" would
 work equally well if the owner prefers a different one.
 
-The original naming rationale stands otherwise: "WADdle" hides **WAD** — the
-Doom file format the app plays — inside *waddle*, in the whimsical spirit of
-the source-port lineage it belongs to (its engine is **Woof!**, alongside
-*Crispy Doom* and *Chocolate Doom*). The suffix does double duty against the
+The original naming rationale stands otherwise: the name is *Waddle*, and the
+wordmark capitalizes its first three letters so that **WAD** — the Doom file
+format the app plays — is visible inside it, in the whimsical spirit of the
+source-port lineage it belongs to (its engine is **Woof!**, alongside *Crispy
+Doom* and *Chocolate Doom*). That stylization is a visual treatment, not a
+spelling: it lives in `Design/` and never in typed text. See
+`docs/learnings/the-name-is-waddle.md`. The suffix does double duty against the
 crowding risk noted below: it separates us from the *Waddle* cluster and makes
 the listing searchable on "wad player", while the subtitle still carries the
 plain description.
 
-**Scope note:** this was a full rename, done pre-submission while it was
-still free to change. Everything moved to the new name — the bundle ID
-(`com.tylervick.waddle`, lowercase), the Xcode target/scheme/project
-(`WADdle`), the GitHub repo (`tylervick/waddle`), the UTI identifiers
-(`com.tylervick.waddle.*`), and the `WADDLE_*` test-seam env vars. Nothing
+**Scope note:** there have been two renames, both pre-submission while they
+were still free to change. The first (2026-07) moved everything off BoomBox —
+the bundle ID (`com.tylervick.waddle`, lowercase), the Xcode
+target/scheme/project, the GitHub repo (`tylervick/waddle`), the UTI
+identifiers (`com.tylervick.waddle.*`), and the `WADDLE_*` test-seam env vars.
+The second (2026-08-16) settled the casing: the name is plain *Waddle*
+everywhere text is typed, and the stylized form is the wordmark only. Nothing
 user- or developer-facing retains "BoomBox".
 
 **Knock-out checks (2026-07-20):**
@@ -79,10 +84,10 @@ the app *name*.)
 | 3 | **Boomslayer** | 10 | Punchy, game-flavored, nods to the Boom engine lineage; clearly not a music app | "Slayer" is adjacent to Bethesda's "Doom Slayer" marketing — low but nonzero trademark-adjacency risk; says nothing about function (subtitle has to work hard) |
 | 4 | **Boomport** | 8 | Portmanteau of *Boom* + *source port* — names the exact engine family; unique in research; zero music collision | Reads as "boom port" (shipping?) to laypeople; drier than the alternatives |
 
-All four avoided "Doom", as does the chosen name **WADdle**. The knock-out
-search called for here was run on WADdle on 2026-07-20 (results recorded
+All four avoided "Doom", as does the chosen name **Waddle**. The knock-out
+search called for here was run on Waddle on 2026-07-20 (results recorded
 above). The App Store *display name* is independent of the bundle ID, so
-WADdle does not require a bundle-ID change.
+Waddle does not require a bundle-ID change.
 
 ## 2. Subtitle (30 chars max)
 
@@ -102,12 +107,12 @@ chars).
 
 > **Play the classic-Doom-engine games you own, anywhere.**
 >
-> WADdle is a source port of the classic Doom engine for iPhone and iPad,
+> Waddle is a source port of the classic Doom engine for iPhone and iPad,
 > built on Woof! - the modern continuation of the Boom and MBF ports that
 > faithfully preserves original gameplay while supporting today's mods, up
 > through the MBF21 standard.
 >
-> **Ready to play out of the box.** WADdle bundles Freedoom Phase 1 and
+> **Ready to play out of the box.** Waddle bundles Freedoom Phase 1 and
 > Phase 2: two complete, freely licensed games built by the Freedoom
 > project for this engine family. Tap and play - nothing to configure.
 >
@@ -124,11 +129,11 @@ chars).
 > and modern drag-to-turn) and adjustable feel - plus full support for
 > game controllers and hardware keyboards.
 >
-> **Open source.** WADdle is free software under the GPL-2.0, like the
+> **Open source.** Waddle is free software under the GPL-2.0, like the
 > engine it descends from. Source code for the entire app is available on
 > GitHub.
 >
-> WADdle includes no copyrighted commercial game content. Only the freely
+> Waddle includes no copyrighted commercial game content. Only the freely
 > licensed Freedoom data is bundled; commercial WADs must be imported by
 > you, from copies you own. This app is not affiliated with or endorsed by
 > id Software or Bethesda.
@@ -299,8 +304,8 @@ Two things follow, and they matter more than the raw numbers:
   no descriptors and GenZD declares Frequent/Intense fantasy violence.
   Both are approved and shipping. Apple is clearly not enforcing one line
   here, so "app X got away with Y" is not a defence for anything.
-- **WADdle can't take Delta's route regardless.** Delta's 4+ is only
-  available to an app that ships nothing. WADdle bundles Freedoom, so
+- **Waddle can't take Delta's route regardless.** Delta's 4+ is only
+  available to an app that ships nothing. Waddle bundles Freedoom, so
   there *is* shipped content, and it has frequent fantasy violence and
   guns in it. 13+ is the floor for us on the shipped content alone,
   independent of what anyone imports.
@@ -496,7 +501,7 @@ what motivated fixing this properly.
 
 | Decision | Choice | Date |
 |----------|--------|------|
-| Final app name | ~~BoomBox: WAD Player~~ → ~~WADdle~~ → **WADdle: WAD Player** — plain "WADdle" is taken on the App Store by another account (§1) | 2026-07-18 → 2026-07-20 → 2026-07-30 |
+| Final app name | ~~BoomBox: WAD Player~~ → ~~Waddle~~ → **Waddle: WAD Player** — plain "Waddle" is taken on the App Store by another account (§1) | 2026-07-18 → 2026-07-20 → 2026-07-30 |
 | Subtitle wording | Approved as drafted ("Play classic Doom WADs") | 2026-07-18 |
 | Description tone | Approved as drafted (incl. promotional text and keywords) | 2026-07-18 |
 | Age-rating answers confirmed | Approved as drafted (§8 table, 13 items, older questionnaire) | 2026-07-18 |
@@ -538,7 +543,7 @@ Apple's standard EULA applies to both:
 | [RetroArch](https://apps.apple.com/us/app/retroarch/id6499539433) | none — standard EULA | free | libretro (GPL) |
 
 GenZD is the more demanding precedent: GPL engine code sold as a **paid** app.
-WADdle is free, so it is strictly less exposed on the point GPL §6 raises.
+Waddle is free, so it is strictly less exposed on the point GPL §6 raises.
 
 **A custom EULA would address the wrong layer.** The usual cited precedent is
 VLC's 2011 removal, and its resolution is widely misremembered. VideoLAN did

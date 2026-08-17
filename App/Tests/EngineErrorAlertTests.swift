@@ -1,5 +1,5 @@
 import XCTest
-@testable import WADdle
+@testable import Waddle
 
 final class EngineErrorAlertTests: XCTestCase {
     func testCleanExitProducesNoAlert() {

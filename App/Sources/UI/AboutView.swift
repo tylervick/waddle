@@ -22,7 +22,7 @@ struct AboutView: View {
             }
             Section("Open source") {
                 Link("Source code on GitHub", destination: sourceURL)
-                Text("WADdle is free software under the GNU GPL v2. It bundles Freedoom and plays your own WAD files; no game data is included from commercial releases.")
+                Text("Waddle is free software under the GNU GPL v2. It bundles Freedoom and plays your own WAD files; no game data is included from commercial releases.")
                     .font(.footnote)
             }
             Section("Diagnostics") {
@@ -56,7 +56,7 @@ struct AboutView: View {
     }
 
     private var licenseFiles: [(String, String)] {
-        [("WADdle & Woof! — GPL-2.0", "APP-LICENSE-GPL2"),
+        [("Waddle & Woof! — GPL-2.0", "APP-LICENSE-GPL2"),
          ("Third-party notices", "NOTICES"),
          ("Freedoom — BSD", "FREEDOOM-BSD"),
          ("SDL 3 — zlib", "SDL3-ZLIB"),

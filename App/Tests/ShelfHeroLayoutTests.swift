@@ -1,5 +1,5 @@
 import XCTest
-@testable import WADdle
+@testable import Waddle
 
 /// What the hero is actually laid out against: the width it is drawn at and
 /// the height visible without scrolling, both derived from device bounds in

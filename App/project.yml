@@ -1,4 +1,4 @@
-name: WADdle
+name: Waddle
 options:
   bundleIdPrefix: com.tylervick
   deploymentTarget:
@@ -33,7 +33,7 @@ settings:
   #
   # The Release profile must therefore be MANUALLY managed: Xcode refuses an
   # Xcode-managed profile under Manual signing ("is Xcode managed, but signing
-  # settings require a manually managed profile"). "WADdle App Store CI" was
+  # settings require a manually managed profile"). "Waddle App Store CI" was
   # created by hand at developer.apple.com for exactly this reason; the
   # Xcode-managed "iOS Team Store Provisioning Profile" cannot be used here.
   # It is installed on the runner from the PROVISIONING_PROFILE_BASE64 secret
@@ -44,10 +44,10 @@ settings:
       CODE_SIGN_STYLE: Automatic
     Release:
       CODE_SIGN_STYLE: Manual
-      PROVISIONING_PROFILE_SPECIFIER: "WADdle App Store CI"
+      PROVISIONING_PROFILE_SPECIFIER: "Waddle App Store CI"
       CODE_SIGN_IDENTITY: "Apple Distribution"
 targets:
-  WADdle:
+  Waddle:
     type: application
     platform: iOS
     settings:
@@ -73,7 +73,7 @@ targets:
         Release:
           CODE_SIGN_IDENTITY: "Apple Distribution"
     # Document-type registration (CFBundleDocumentTypes +
-    # UTImportedTypeDeclarations, needed for "Share -> Open in WADdle" on
+    # UTImportedTypeDeclarations, needed for "Share -> Open in Waddle" on
     # .wad files) is nested-dictionary plist content with no INFOPLIST_KEY_
     # build-setting mapping, so this target needs a real Info.plist. XcodeGen
     # writes it to App/Info.plist at `xcodegen generate` time (same lifecycle
@@ -81,7 +81,7 @@ targets:
     info:
       path: Info.plist
       properties:
-        CFBundleDisplayName: WADdle
+        CFBundleDisplayName: Waddle
         # Wire the bundle version/build number to the build settings above so
         # they're the single source of truth. Without these, xcodegen writes a
         # hardcoded CFBundleVersion of "1" and bumping CURRENT_PROJECT_VERSION
@@ -98,7 +98,7 @@ targets:
         # Wireless game controllers connect over Bluetooth; SDL's controller
         # support references CoreBluetooth, so App Store validation requires
         # this purpose string (ITMS-90683). Honest — this is a real feature.
-        NSBluetoothAlwaysUsageDescription: WADdle uses Bluetooth to connect wireless game controllers.
+        NSBluetoothAlwaysUsageDescription: Waddle uses Bluetooth to connect wireless game controllers.
         # All orientations + no UIRequiresFullScreen: required for iPadOS 26's
         # default "Windowed Apps" multitasking style (the old landscape-only +
         # fullscreen posture rendered sideways-letterboxed there, and Xcode
@@ -238,7 +238,7 @@ targets:
       - sdk: CoreMedia.framework
       - sdk: CoreBluetooth.framework
       - sdk: OpenGLES.framework
-  WADdleUITests:
+  WaddleUITests:
     type: bundle.ui-testing
     platform: iOS
     sources: [UITests]
@@ -248,8 +248,8 @@ targets:
         # it, CodeSign fails with "target does not have an Info.plist file".
         GENERATE_INFOPLIST_FILE: true
     dependencies:
-      - target: WADdle
-  WADdleTests:
+      - target: Waddle
+  WaddleTests:
     type: bundle.unit-test
     platform: iOS
     sources: [Tests]
@@ -257,13 +257,13 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: true
     dependencies:
-      - target: WADdle
+      - target: Waddle
 schemes:
-  WADdle:
+  Waddle:
     build:
       targets:
-        WADdle: all
+        Waddle: all
     test:
       targets:
-        - WADdleTests
-        - WADdleUITests
+        - WaddleTests
+        - WaddleUITests

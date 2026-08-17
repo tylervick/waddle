@@ -1,7 +1,7 @@
 import SwiftData
 import XCTest
 import ZIPFoundation
-@testable import WADdle
+@testable import Waddle
 
 final class DiagnosticsExporterTests: XCTestCase {
     var tmp: URL!

@@ -2,7 +2,7 @@
 
 `App/project.yml` points targets at directories (`sources: [Tests]`, `- path:
 Sources`). XcodeGen resolves those into an **explicit file list** at
-`xcodegen generate` time and writes it into `App/WADdle.xcodeproj`. The
+`xcodegen generate` time and writes it into `App/Waddle.xcodeproj`. The
 directory is not consulted again at build time.
 
 So a source file added after the last generate is not "missing" in any way
@@ -10,7 +10,7 @@ the build can report. It is simply not a member of the target:
 
 ```console
 $ # write App/Tests/TouchOverlayLayoutTests.swift, then:
-$ xcodebuild ... -only-testing:WADdleTests test
+$ xcodebuild ... -only-testing:WaddleTests test
      Executed 193 tests, with 0 failures (0 unexpected)
 ** TEST SUCCEEDED **
 ```

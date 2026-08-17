@@ -14,7 +14,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 ACTION="--upload-app"
 if [ "${1:-}" = "--validate" ]; then ACTION="--validate-app"; shift; fi
-IPA="${1:-$ROOT/Vendor/archive/export/WADdle.ipa}"
+IPA="${1:-$ROOT/Vendor/archive/export/Waddle.ipa}"
 
 # shellcheck disable=SC1091
 [ -f "$ROOT/Scripts/.appstore.env" ] && source "$ROOT/Scripts/.appstore.env"

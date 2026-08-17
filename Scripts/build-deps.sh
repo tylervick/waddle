@@ -25,7 +25,7 @@ at_pin() { # dir tag
     [ "$(git -C "$dir" rev-parse --is-inside-work-tree 2>/dev/null)" = true ] || return 1
     # --is-inside-work-tree is not sufficient on its own: Vendor/src lives
     # inside this repo's own work tree, so a plain `mkdir Vendor/src/SDL`
-    # answers "true" and then reports WADdle's HEAD. Require the work tree's
+    # answers "true" and then reports Waddle's HEAD. Require the work tree's
     # root to be $dir itself. `pwd -P` matches the physical path git prints.
     top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || return 1
     [ "$top" = "$(cd "$dir" && pwd -P)" ] || return 1
@@ -69,7 +69,7 @@ build() { # srcdir platform extra-cmake-args...
 for platform in iphoneos iphonesimulator; do
     # SDL_TEST_LIBRARY (the SDL3_test helper lib) defaults ON independently
     # of SDL_TESTS; nothing here links it, so don't build or install it.
-    # SDL_CAMERA=OFF: WADdle has no camera feature, but SDL's camera subsystem
+    # SDL_CAMERA=OFF: Waddle has no camera feature, but SDL's camera subsystem
     # links AVCaptureDevice, which makes App Store validation demand an
     # NSCameraUsageDescription purpose string (ITMS-90683). Disabling it drops
     # the API reference entirely so no unused-camera permission is declared.

@@ -42,7 +42,7 @@ final class DemoLoopReplayTests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
         app.launch()
-        XCTAssertTrue(app.navigationBars["WADdle"].waitForExistence(timeout: 90),
+        XCTAssertTrue(app.navigationBars["Waddle"].waitForExistence(timeout: 90),
                       "launcher UI never appeared")
         let ok = app.alerts.buttons["OK"]
         if ok.waitForExistence(timeout: 3) { ok.tap() }

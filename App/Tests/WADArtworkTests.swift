@@ -3,7 +3,7 @@ import ImageIO
 import SwiftData
 import UniformTypeIdentifiers
 import XCTest
-@testable import WADdle
+@testable import Waddle
 
 final class WADArtworkTests: XCTestCase {
     // Assemble a WAD from named lumps (offsets computed).

@@ -1,4 +1,4 @@
-# WADdle brand assets
+# Waddle brand assets
 
 Everything here derives from one hand-supplied file. To change the logo, replace
 that file and re-run the pipeline — do not edit the derived assets.

@@ -1,5 +1,5 @@
 import XCTest
-@testable import WADdle
+@testable import Waddle
 
 /// Asserted against literal published hashes, never against the table itself.
 /// A test that read `IWADCatalog.titlesBySHA1` to build its own expectations

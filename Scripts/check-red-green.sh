@@ -184,7 +184,7 @@ run_shell_domain() { # src, test
     # reverted, and nothing ever asked whether it was failing anyway. The
     # spec's justification for having no confirm-green step -- "CI already
     # runs the full suite on the pull request as-is" -- is true for the swift
-    # domain, where `-only-testing:WADdleTests` really does cover all of
+    # domain, where `-only-testing:WaddleTests` really does cover all of
     # App/Tests/. It is not true for shell: ci.yml runs a hardcoded list of
     # suites, and a suite missing from that list is green on the pull request
     # by never having run. This check is what makes the premise true here, and
@@ -319,7 +319,7 @@ run_swift_domain() { # src, test
         # subshell, which is what `run_shell_domain`'s suites loop above
         # genuinely is. Nothing in `test_classes` emits a blank line today
         # either, so this guard is defensive on both counts.
-        if [ -n "$c" ]; then only="$only -only-testing:WADdleTests/$c"; fi
+        if [ -n "$c" ]; then only="$only -only-testing:WaddleTests/$c"; fi
     done < "$TMPDIR_RG/classes"
 
     revert_src "$1"
@@ -340,7 +340,7 @@ run_swift_domain() { # src, test
     # themselves noticing the revert. Only `test-without-building` failing,
     # once the build already succeeded, is the stronger `proved`.
     # shellcheck disable=SC2086 -- $only is a deliberately word-split flag list
-    if ! xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
+    if ! xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
             -destination "$RG_DESTINATION" $only build-for-testing >/dev/null 2>&1; then
         restore_tree
         echo "proved-by-compile"
@@ -372,7 +372,7 @@ run_swift_domain() { # src, test
     Scripts/check-simulator-available.sh "$device" "$os_version" >/dev/null 2>&1
 
     # shellcheck disable=SC2086
-    if ! xcodebuild -project App/WADdle.xcodeproj -scheme WADdle \
+    if ! xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
             -destination "$RG_DESTINATION" $only test-without-building >/dev/null 2>&1; then
         restore_tree
         echo "proved"

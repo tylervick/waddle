@@ -1,4 +1,4 @@
-name: Set up WADdle build
+name: Set up Waddle build
 description: >-
   Pins the toolchain, restores or builds the Woof! engine framework and its
   SDL3/OpenAL dependencies, stages game data, and generates the Xcode project.

@@ -454,7 +454,7 @@ final class LibraryService {
     #if DEBUG
     /// Test-only: gives the most-recently-played item a save file so the
     /// shelf's Continue hero renders, for App Store screenshot capture.
-    /// Driven by `WADDLE_SEED_CONTINUE_SAVE` (see `WADdleApp`).
+    /// Driven by `WADDLE_SEED_CONTINUE_SAVE` (see `WaddleApp`).
     ///
     /// **This writes a marker, not a loadable savegame**, and that is a
     /// deliberate limit rather than an oversight. Only the engine can produce a

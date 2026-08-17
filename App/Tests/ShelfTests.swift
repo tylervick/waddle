@@ -1,6 +1,6 @@
 import SwiftData
 import XCTest
-@testable import WADdle
+@testable import Waddle
 
 /// Covers the shelf's composition rules (spec §§2, 7): what the grid contains
 /// and in what order, when the Continue hero appears, and what a tap resolves

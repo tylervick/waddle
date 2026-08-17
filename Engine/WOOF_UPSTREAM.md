@@ -285,7 +285,7 @@ only ever runs once):
   `demoloop_dynamic` flag set right after the parser's `array_push` and
   cleared at every `array_free(demoloop)` — so a static default never inherits
   it and only a heap `m_array` is ever freed. Regression:
-  `WADdleUITests/DemoLoopReplayTests` (skips when Doom II isn't provisioned;
+  `WaddleUITests/DemoLoopReplayTests` (skips when Doom II isn't provisioned;
   copyrighted, not in CI).
 - `src/i_rumble.c` — sixth instance, uncovered while verifying the
   `d_demoloop.c` fix above: with demoloop no longer aborting first, session 2

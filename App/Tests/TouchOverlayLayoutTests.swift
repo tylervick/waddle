@@ -1,5 +1,5 @@
 import XCTest
-@testable import WADdle
+@testable import Waddle
 
 /// Device bounds used across these tests, in points, as
 /// `CGRect(origin: .zero, size:)`. Sizes come from the CoreSimulator device
