@@ -11,8 +11,10 @@
 # Devices:
 #   iphone -> "iPhone 17 Pro Max"      (6.9" class, REQUIRED size; 2868x1320)
 #   ipad   -> "iPad Pro 13-inch (M4)"  (13" class, REQUIRED iPad size;
-#             2752x2064; created on demand — the pre-provisioned
-#             "iPad (A16)" is 11" class and can't produce 13" images)
+#             2752x2064; created on demand by
+#             Scripts/ensure-ipad-simulator.sh, which owns that name and its
+#             device type — the pre-provisioned "iPad (A16)" is 11" class and
+#             can't produce 13" images)
 #
 # WAD provisioning: copies the same real test WADs as
 # Scripts/provision-test-wads.sh but deliberately NOT the synthetic
@@ -44,9 +46,13 @@ OUT_ROOT="docs/app-store/screenshots"
 RESULTS_ROOT="${TMPDIR:-/tmp}/waddle-screenshots"
 
 IPHONE_NAME="iPhone 17 Pro Max"
-IPAD_NAME="iPad Pro 13-inch (M4)"
-IPAD_DEVICE_TYPE="com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M4-8GB"
-RUNTIME="com.apple.CoreSimulator.SimRuntime.iOS-26-2"
+# The iPad name and its CoreSimulator device type both live in
+# Scripts/ensure-ipad-simulator.sh, which also creates the device on demand.
+# Asking it rather than repeating the pair here is what keeps the device these
+# marketing shots are taken on identical to the one ci.yml and `mise run test`
+# run the suite on -- two copies of that device type is exactly how a
+# screenshot of one size class and a test of another would drift apart.
+IPAD_NAME="$(Scripts/ensure-ipad-simulator.sh --name)"
 
 device_name() { [ "$1" = iphone ] && echo "$IPHONE_NAME" || echo "$IPAD_NAME"; }
 device_slug() { [ "$1" = iphone ] && echo "iphone-6.9" || echo "ipad-13"; }
@@ -431,8 +437,8 @@ capture() {  # $1 = iphone | ipad
 
     udid="$(udid_for "$name")"
     if [ -z "$udid" ] && [ "$kind" = ipad ]; then
-        echo "creating $IPAD_NAME simulator"
-        udid="$(xcrun simctl create "$IPAD_NAME" "$IPAD_DEVICE_TYPE" "$RUNTIME")"
+        # Prints the UDID on stdout and its progress on stderr.
+        udid="$(Scripts/ensure-ipad-simulator.sh)"
     fi
     [ -n "$udid" ] || { echo "no simulator named $name" >&2; exit 1; }
 

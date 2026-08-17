@@ -37,6 +37,25 @@ own droppings are invisible to it. `stub_xcodebuild`'s paths did not need to
 change at all -- the fix belongs in shared fixture setup, not in the tool
 double or the individual cases that call it.
 
+## It is not only fixtures — CI hit it too
+
+Run 31980014093 reported `TEST_PROOF: error` where every prior run reported a
+real verdict, and the step took under a second: the same refusal, from the
+same cause, in the real repository rather than a fixture. Adding an iPad test
+leg to `.github/workflows/ci.yml` (issue #131) added a second result bundle,
+`TestResults-ipad.xcresult`, and `.gitignore` named only the literal
+`TestResults.xcresult`. One untracked directory in the repo root was enough to
+make `check-red-green.sh` refuse for every pull request from then on.
+
+The failure is quiet by design — `error` is an absent measurement, not a
+failure, so nothing goes red and nobody is told the proof stopped being
+computed. `.gitignore` now globs `TestResults*.xcresult`, so a third
+destination cannot reintroduce it.
+
+**Anything a workflow step writes into the repo root, before a later step
+inspects `git status`, is this trap.** New artifact path means new
+`.gitignore` entry, in the same change.
+
 ## Where else to look
 
 Any test double that writes files into a git fixture repository used by code

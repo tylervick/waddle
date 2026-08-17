@@ -52,6 +52,46 @@ if check "$TMP/a" "iPhone 17" 26.2 1 >"$TMP/out1b" 2>&1; then
 fi
 pass "does not substring-match a device name that is a prefix of a real one"
 
+# 1c. A device whose OWN NAME is parenthesised. Every iPad is: "iPad Pro
+#     13-inch (M4)", "iPad (A16)". The name used to be recovered by cutting
+#     the line at its first " (", which reads that as "iPad Pro 13-inch" and
+#     reports a device that is sitting right there as a bad destination pin --
+#     so ci.yml's iPad leg could never have passed this guard. Both a
+#     parenthesised name and its unparenthesised prefix are in the fixture, so
+#     a parser that gets this right cannot also be substring-matching.
+make_fixture_paren_names() { # dest
+    mkdir -p "$1/bin"
+    cat > "$1/bin/xcrun" <<'STUB'
+#!/bin/bash
+if [ "$1" = "simctl" ] && [ "$2" = "list" ]; then
+cat <<'EOF'
+== Devices ==
+-- iOS 26.2 --
+    iPad Pro 13-inch (CCCC1111-2222-3333-4444-555566667777) (Shutdown)
+    iPad Pro 13-inch (M4) (AAAA1111-2222-3333-4444-555566667777) (Booted)
+    iPad (A16) (BBBB1111-2222-3333-4444-555566667777) (Shutdown)
+-- tvOS 17.2 --
+EOF
+exit 0
+fi
+echo "stub xcrun: unhandled args: $*" >&2
+exit 64
+STUB
+    chmod +x "$1/bin/xcrun"
+}
+make_fixture_paren_names "$TMP/a2"
+out="$(check "$TMP/a2" "iPad Pro 13-inch (M4)" 26.2)" || fail "refused a present device whose name is parenthesised"
+echo "$out" | grep -q "matched: iPad Pro 13-inch (M4) (AAAA1111" \
+    || fail "matched the wrong line for a parenthesised name; got: $out"
+pass "matches a device whose own name contains parentheses"
+
+# 1d. The same fixture, asking for the unparenthesised prefix that is also
+#     genuinely present: it must match THAT device, not the (M4) one.
+out="$(check "$TMP/a2" "iPad Pro 13-inch" 26.2)" || fail "refused the unparenthesised device that is present"
+echo "$out" | grep -q "matched: iPad Pro 13-inch (CCCC1111" \
+    || fail "a parenthesised name was accepted for its unparenthesised prefix; got: $out"
+pass "keeps a parenthesised name distinct from its unparenthesised prefix"
+
 # 2. Zero devices enumerated (any OS, any device) -> non-zero, carries the
 #    infra marker, and dumps the full (empty) listing for diagnosis.
 make_fixture_empty() { # dest

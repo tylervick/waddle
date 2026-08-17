@@ -76,13 +76,23 @@ query_once() {
 
     # Exact-match the device name against the section for the requested OS.
     # A substring match would let "iPhone 17" match "iPhone 17 Pro".
+    #
+    # The name is recovered by peeling the two trailing parenthesised fields
+    # -- "(<udid>) (<state>)" -- off the RIGHT end of the line. This used to
+    # cut at the first " (" instead, which is correct only for devices whose
+    # own name has no parentheses: every iPad has them ("iPad Pro 13-inch
+    # (M4)", "iPad (A16)"), so the guard read that name as "iPad Pro
+    # 13-inch", found no match, and reported a present device as a bad
+    # destination pin. See docs/learnings/simctl-device-names-contain-parens.md.
     match_line="$(printf '%s\n' "$listing" | awk -v os="$OS_VERSION" -v dev="$DEVICE_NAME" '
         /^-- / { insection = ($0 == "-- iOS " os " --"); next }
         insection && /^    / {
             line = $0
             sub(/^    /, "", line)
+            sub(/[[:space:]]+$/, "", line)
             name = line
-            sub(/ \(.*/, "", name)
+            sub(/ \([^()]*\)$/, "", name)
+            sub(/ \([^()]*\)$/, "", name)
             if (name == dev) { print line; exit }
         }
     ')"
