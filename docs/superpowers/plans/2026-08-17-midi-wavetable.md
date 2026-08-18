@@ -1161,7 +1161,17 @@ endif()
 
 `i_easmusic.c` does not exist until Task 5. That is deliberate: this task ends with the wiring proven inert, and Task 5 is what makes it live. Until then `HAVE_SONIVOX` must not be allowed to turn on — so do Step 5 before building.
 
-- [ ] **Step 5: Turn it on in the engine build**
+- [ ] **Step 5: Merge the library into the framework**
+
+In the `libtool -static` invocation in Stage 3 of `Scripts/build-engine.sh`, beside `libSDL3.a` and `libopenal.a`:
+
+```bash
+        "$OUT/$platform/lib/libsonivox.a"
+```
+
+Not optional and easy to miss: the app links only the xcframework, so anything omitted here surfaces as an undefined symbol at the app's *final* link, far from the cause. Verify with `nm` rather than trusting a green engine build — `nm -g Vendor/out/WoofEngine.xcframework/ios-arm64/libWoofEngine.a | grep " T _EAS_"` must list the entry points as **T**, not `U`.
+
+- [ ] **Step 6: Turn it on in the engine build**
 
 In `Scripts/build-engine.sh:47`, extend the existing options line:
 
@@ -1187,7 +1197,7 @@ grep -n "CMAKE_PREFIX_PATH\|CMAKE_FIND_ROOT_PATH" Scripts/build-engine.sh
 
 A **green** build is now impossible for the not-found case — that is what `REQUIRED` bought. Before it, a missing library produced a successful build with no wavetable synth in it.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add Engine/woof/CMakeLists.txt Engine/woof/config.h.in \
