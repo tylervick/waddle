@@ -44,3 +44,4 @@ One file per hard-won fact. Add an entry here in the same PR that adds the file 
 - [The touch-controls UI tests are red at HEAD too, and they fail *before* touching anything](touch-controls-ui-tests-red-at-head.md) — "overlay never installed" means the session died upstream of your router change; cover touch routing in `WaddleTests` instead
 - [Comparing the EAS instrument bank: two ways to read the wrong file](eas-bank-comparison-reads-the-wrong-file.md) — a file hash lies, and a glob reads a bank the app never ships
 - [`pipefail` turns a downstream early-quit into a failure](pipefail-turns-an-early-quit-into-a-failure.md) — SIGPIPE from `… | sed -n '/x/q;p'`, and only above 64K
+- [A label-filtered issue query silently omits issues](label-filtered-issue-queries-omit-issues.md) — `--label` goes through the search index; fetch unfiltered and filter locally

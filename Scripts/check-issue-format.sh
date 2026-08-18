@@ -46,9 +46,18 @@ if ! command -v gh >/dev/null 2>&1; then
     echo "skip - gh not installed; agent:eligible issue format not checked"
 elif ! gh auth status >/dev/null 2>&1; then
     echo "skip - gh not authenticated; agent:eligible issue format not checked"
-elif ! issues="$(cd "$ROOT" && gh issue list --label agent:eligible \
-        --state open --limit 1000 --json number,body \
-        --jq '.[] | "\(.number)\t\(.body // "" | @base64)"')"; then
+# Deliberately UNFILTERED, with agent:eligible applied in the --jq selector
+# below (#171). `--label` resolves through GitHub's search index, which can
+# omit an issue whose label is genuinely attached -- measured on this
+# repository 2026-08-18, where the label query returned 8 agent:blocked issues
+# against the label edge's 9, missing #79 since at least 2026-08-16. An issue
+# it drops is never format-checked, and this check goes green having verified
+# fewer issues than exist. Its `skip - ` guard only catches checking ZERO, not
+# checking SOME, so that omission is invisible.
+elif ! issues="$(cd "$ROOT" && gh issue list \
+        --state open --limit 1000 --json number,body,labels \
+        --jq '.[] | select(any(.labels[]; .name == "agent:eligible"))
+                  | "\(.number)\t\(.body // "" | @base64)"')"; then
     err "gh issue list failed -- could not verify agent:eligible issue format (bad token scope, network error, rate limit, or wrong repo)."
 else
     while IFS=$'\t' read -r n body_b64; do
