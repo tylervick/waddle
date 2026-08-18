@@ -21,7 +21,7 @@ the issue proposed:
 | FluidSynth + `TimGM6mb.sf2` | A *different* wavetable. Sounds fine, sounds wrong. Also 5.97 MB and a glib dependency. |
 | Apple DLS / `kAudioUnitSubType_MIDISynth` | Still needs a bundled bank, still not the predecessor's bank. |
 | Stay OPL3 | Rejected. FM synthesis is the specific thing players would notice. |
-| **SONiVOX EAS** | **The predecessor's actual synth, bit-identical instrument bank.** |
+| **SONiVOX EAS** | **The predecessor's actual synth, byte-identical instrument bank.** |
 
 "The same synth" is not an approximation here. §2 records the measurement.
 
@@ -31,17 +31,25 @@ Run 2026-08-17 against `pedrolcl/sonivox` `v4.0.1` (a maintained CMake fork of
 the AOSP tree) and the predecessor's vendored copy at
 `~/Documents/DOOM-iOS/code/embeddedaudiosynthesis/arm-wt-22k`.
 
-**The instrument bank is byte-identical.** Compared component by component,
-after normalising whitespace, with array bodies extracted between each
-declaration and its closing brace:
+**The instrument bank is byte-identical.** Seven arrays, compared one at a time,
+each body extracted from its declaration line to its closing brace. All seven
+match **raw** — no whitespace normalisation needed to make them agree:
 
-| Bank component | Result |
-|---|---|
-| `eas_articulations[]` | identical |
-| `eas_regions[]` (378 lines) | identical |
-| `eas_programs[]`, `eas_banks[]` | identical |
-| `eas_samples[]` (8-bit PCM) | identical |
-| `eas_sampleLengths[]`, `eas_sampleOffsets[]` | identical |
+| Bank component | File (fork) | Result |
+|---|---|---|
+| `eas_articulations[]` | `wt_22khz.c` | raw byte-identical |
+| `eas_regions[]` (378 lines) | `wt_22khz.c` | raw byte-identical |
+| `eas_programs[]` | `wt_200k_G.c` | raw byte-identical |
+| `eas_banks[]` | `wt_200k_G.c` | raw byte-identical |
+| `eas_samples[]` (8-bit PCM) | `wt_200k_samples.c` | raw byte-identical |
+| `eas_sampleLengths[]` | `wt_200k_samples.c` | raw byte-identical |
+| `eas_sampleOffsets[]` | `wt_200k_samples.c` | raw byte-identical |
+
+The extractor must anchor on the **declaration line** (`^(static )?const <type>
+<name>\[`), not on the first line containing the name. Anchoring loosely makes
+`eas_sampleLengths` resolve to the `eas_samples` declaration above it and
+report a difference that does not exist — a false alarm hit while measuring
+this, and the reason `Scripts/check-eas-bank.sh` (§4) pins the anchor.
 
 A naive whole-file hash of `wt_22khz.c` reports a mismatch, and that mismatch
 is an artefact, not a difference: the fork split one 1.39 MB file into
@@ -152,18 +160,29 @@ the next person down a false trail or, worse, get waved through as "upstream
 churn" on a bump that genuinely changed the instruments. The distinction the
 check must preserve is between *reorganised* and *changed*.
 
-It extracts each of the six bank arrays in §2 by name, from declaration to
-closing brace, normalises whitespace, and compares the hashes against values
+It extracts each of the seven bank arrays in §2 by anchoring on its declaration
+line, takes the body to the closing brace, and compares hashes against values
 recorded in the script. It fails loudly, naming which array diverged, when a
-`sonivox` pin bump alters the instruments. It also asserts the two options that
-determine the sound — `_SAMPLE_RATE_22050` and `_8_BIT_SAMPLES` — are set in the
-generated `eas_options.h`, because a bank comparison that passes while the synth
-runs at 44 kHz proves nothing about what a player hears.
+`sonivox` pin bump alters the instruments.
+
+It also asserts the three options that determine what a player hears are set in
+the generated `eas_options.h`: `_SAMPLE_RATE_22050`, `_8_BIT_SAMPLES`, and
+`NUM_OUTPUT_CHANNELS 2`. A bank comparison that passes while the synth runs at
+44 kHz, or in mono, proves nothing. The channel count is in that set because
+`i_easmusic.c` reports `AL_FORMAT_STEREO16` to OpenAL — a mono build would make
+that report a lie, and the symptom would be garbled audio rather than a build
+failure.
+
+The header must be **present** for the guard to pass. Absent, it fails rather
+than reporting success on the arrays alone: "the bank is right and I could not
+check the options" is not the same claim as "the sound is right", and collapsing
+them is the fail-open shape this repo keeps paying for.
 
 `Scripts/test-check-eas-bank.sh` covers it in the manner of the other guard
 suites: a stub tree that matches passes; a stub with one altered sample value
 fails and names that array; a stub with the arrays intact but `_SAMPLE_RATE_44100`
-set fails on the option assertion. Prove each case discriminates by deleting the
+set fails on the option assertion; a stub with no options header at all fails
+rather than passing. Prove each case discriminates by deleting the
 corresponding check and confirming the case goes red — `Scripts/check-red-green.sh`
 scores this, and PRs #57 and #61 are why.
 
@@ -195,6 +214,21 @@ every subsequent launch — without the marker, the rewrite would fire again and
 silently overrule them, which is a bug, not a default. Clearly comment it as a
 WADdle patch; it is app-lifecycle logic living in engine code, and the next
 person to re-pin Woof needs to see that immediately.
+
+**The rewrite must be conditional on EAS actually being there, and the marker
+must only be set once it is.** Two failure modes make this non-negotiable. A
+build where `find_package(sonivox)` did not resolve has no `HAVE_SONIVOX` and no
+EAS device, so rewriting the stored name points it at a device that does not
+exist; Woof's name lookup then finds no match, leaves `midi_player_menu` at its
+stored index, and that index now selects whatever else sits there. And if the
+marker were set anyway, the migration would never retry — a player who upgraded
+through one bad build would be stranded off wavetable permanently, silently, on
+every later build that had it.
+
+So: guard the rewrite on `HAVE_SONIVOX`, and set the marker only after EAS has
+been selected successfully. Leaving the marker unset is the safe direction — the
+cost is one redundant check next launch; the cost of setting it early is
+permanent.
 
 ## 6. Performance guard
 

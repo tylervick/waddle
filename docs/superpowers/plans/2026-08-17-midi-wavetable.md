@@ -198,7 +198,7 @@ git commit -m "feat(audio): pin and build SONiVOX EAS for iOS"
 
 Read `Scripts/check-simulator-available.sh` and `Scripts/test-check-simulator-available.sh` before starting — that pair is this repo's model for a guard with a clean-skip path and a stubbed hermetic suite.
 
-The bank lives in three files and six arrays:
+The bank lives in three files and seven arrays:
 
 | Array | File |
 |---|---|
@@ -229,7 +229,7 @@ trap 'rm -rf "$TMP"' EXIT
 fail() { echo "FAIL: $1" >&2; exit 1; }
 pass() { echo "ok - $1"; }
 
-# A minimal tree carrying all six arrays and a generated options header.
+# A minimal tree carrying all seven arrays and a generated options header.
 # Values are arbitrary but FIXED -- the point is that the script notices a
 # change, not that these are the real instruments.
 make_tree() { # dir
@@ -272,6 +272,7 @@ EOF
     cat > "$1/build/libsonivox/eas_options.h" <<'EOF'
 #define _8_BIT_SAMPLES
 #define _SAMPLE_RATE_22050
+#define NUM_OUTPUT_CHANNELS 2
 EOF
 }
 
@@ -314,6 +315,7 @@ make_tree "$TMP/rate"
 cat > "$TMP/rate/build/libsonivox/eas_options.h" <<'EOF'
 #define _8_BIT_SAMPLES
 #define _SAMPLE_RATE_44100
+#define NUM_OUTPUT_CHANNELS 2
 EOF
 if out="$(run "$TMP/rate" 2>&1)"; then
     fail "a 44100 Hz build was accepted"
@@ -327,6 +329,7 @@ make_tree "$TMP/width"
 cat > "$TMP/width/build/libsonivox/eas_options.h" <<'EOF'
 #define _16_BIT_SAMPLES
 #define _SAMPLE_RATE_22050
+#define NUM_OUTPUT_CHANNELS 2
 EOF
 if out="$(run "$TMP/width" 2>&1)"; then
     fail "a 16-bit build was accepted"
@@ -353,6 +356,53 @@ fi
 echo "$out" | grep -q '^skip - ' && fail "a broken checkout was reported as a skip"
 pass "a present-but-incomplete checkout fails closed"
 
+# 8. Mono fails. The module reports AL_FORMAT_STEREO16 unconditionally, so a
+#    mono build makes that report a lie. The symptom would be garbled audio,
+#    not a build error, which is why it belongs in a guard.
+make_tree "$TMP/mono"
+cat > "$TMP/mono/build/libsonivox/eas_options.h" <<'EOF'
+#define _8_BIT_SAMPLES
+#define _SAMPLE_RATE_22050
+#define NUM_OUTPUT_CHANNELS 1
+EOF
+if out="$(run "$TMP/mono" 2>&1)"; then
+    fail "a mono build was accepted"
+fi
+echo "$out" | grep -q "STEREO16" \
+    || fail "the failure did not explain the stereo assumption; it said: $out"
+pass "mono build fails"
+
+# 9. A checkout whose options header was never generated FAILS, and is not
+#    reported as ok on the strength of the arrays alone. The arrays being
+#    right says nothing about the rate, width or channel count the synth will
+#    actually run at, and a guard that answers a question it did not ask is
+#    worse than one that refuses.
+make_tree "$TMP/noheader"
+rm -f "$TMP/noheader/build/libsonivox/eas_options.h"
+if out="$(run "$TMP/noheader" 2>&1)"; then
+    fail "a checkout with no generated options header was accepted"
+fi
+echo "$out" | grep -q '^skip - ' && fail "a missing options header was reported as a skip"
+pass "missing options header fails closed"
+
+# 10. The extractor resolves each array to ITS OWN body, not to a neighbour's.
+#     This case is not optional: the recorded expectations are produced by the
+#     same script that checks them, so a loosely-anchored extractor is
+#     self-consistent and every case above would still pass while the guard
+#     silently compared eas_samples to itself three times.
+#
+#     In the real tree, eas_sampleLengths and eas_sampleOffsets sit below the
+#     13,000-line eas_samples array in the same file, and a match on "name
+#     appears on this line" resolves both of them to eas_samples. Distinct
+#     arrays must therefore hash distinctly.
+env EAS_SRC="$TMP/ok" "$SCRIPT" --print > "$TMP/print.sh"
+n_lines="$(grep -c '^EXPECT_' "$TMP/print.sh")"
+[ "$n_lines" = "7" ] || fail "--print emitted $n_lines expectations, expected 7"
+n_unique="$(sed 's/.*="//;s/"$//' "$TMP/print.sh" | sort -u | wc -l | tr -d ' ')"
+[ "$n_unique" = "7" ] \
+    || fail "only $n_unique distinct hashes across 7 arrays -- the extractor is resolving different arrays to the same body"
+pass "each array resolves to its own body"
+
 echo "All check-eas-bank tests passed."
 ```
 
@@ -374,7 +424,7 @@ Create `Scripts/check-eas-bank.sh`:
 # Why this is not a file hash: upstream split the 1.39 MB wt_22khz.c into three
 # files. A whole-file comparison against the predecessor's copy reports a
 # mismatch that is not one -- the bank was reorganised, not changed. This
-# extracts the six arrays by name instead, so moving one between files is
+# extracts the seven arrays by declaration line instead, so moving one between files is
 # invisible and altering one value is not.
 #
 # skip  - the sonivox checkout is absent (nobody has run `mise run build-deps`).
@@ -384,7 +434,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 SRC="${EAS_SRC:-$ROOT/Vendor/src/sonivox}"
-OPTS="${EAS_OPTIONS_H:-$ROOT/Vendor/build/sonivox-iphoneos/libsonivox/eas_options.h}"
+# The INSTALLED header, which is the one the engine actually compiles against
+# (it is in sonivox's PUBLIC_HEADERS). The copy under Vendor/build is generated
+# too, but checking the build tree would let a stale build satisfy a guard about
+# what shipped.
+OPTS="${EAS_OPTIONS_H:-$ROOT/Vendor/out/iphoneos/include/libsonivox/eas_options.h}"
 
 # Recorded hashes. Regenerate with:  Scripts/check-eas-bank.sh --print
 # Do NOT copy these from the design doc -- that measured a different
@@ -404,20 +458,27 @@ err() { echo "error: $*" >&2; exit 1; }
 # whitespace and trailing comments removed so formatting churn is invisible.
 # Searches every lib_src file, so an array that moves between files still
 # resolves -- that is the entire point.
+#
+# The anchor is the DECLARATION line -- `[static] const <type> <name>[` -- not
+# merely a line containing the name. Anchoring loosely is not a style
+# preference: `eas_sampleLengths` is preceded in wt_200k_samples.c by a comment
+# mentioning `eas_samples`, and a loose match resolves it to the 13,000-line
+# eas_samples array above it, reporting a difference that does not exist. That
+# false alarm was hit for real while measuring this bank; the anchor is what
+# prevents the guard from re-manufacturing it.
 array_body() { # name
-    local name="$1" f found=""
+    local name="$1" f found="" start
     for f in "$SRC"/arm-wt-22k/lib_src/*.c; do
-        if [ -f "$f" ] && grep -q "${name}\[" "$f"; then
+        if [ -f "$f" ] && grep -q "^\(static \)\?const [A-Za-z_0-9]* ${name}\[" "$f"; then
             found="$f"
             break
         fi
     done
     [ -n "$found" ] || return 1
-    awk -v name="$name" '
-        $0 ~ name "\\[" { inb = 1; next }
-        inb && /^\};/ { exit }
-        inb { print }
-    ' "$found" | tr -d ' \t\r' | sed 's|/\*.*\*/||' | grep -v '^$'
+    start="$(grep -n "^\(static \)\?const [A-Za-z_0-9]* ${name}\[" "$found" | head -1 | cut -d: -f1)"
+    sed -n "$((start + 1)),\$p" "$found" \
+        | sed -n '/^};/q;p' \
+        | tr -d ' \t\r' | sed 's|/\*.*\*/||' | grep -v '^$'
 }
 
 hash_of() { # name
@@ -452,18 +513,26 @@ for a in $ARRAYS; do
     fi
 done
 
-# The bank can be perfect while the synth runs at the wrong rate or width.
-if [ -f "$OPTS" ]; then
-    grep -q '^#define _SAMPLE_RATE_22050' "$OPTS" \
-        || err "generated options do not define _SAMPLE_RATE_22050 -- check USE_44KHZ=OFF in Scripts/build-deps.sh"
-    grep -q '^#define _8_BIT_SAMPLES' "$OPTS" \
-        || err "generated options do not define _8_BIT_SAMPLES -- check USE_16BITS_SAMPLES=OFF in Scripts/build-deps.sh"
-fi
+# The bank can be perfect while the synth runs at the wrong rate, width, or
+# channel count. Absent header = fail, NOT a quiet pass on the arrays alone:
+# "the instruments are right and I could not check the format" is a different
+# claim from "the sound is right", and collapsing them is how a guard ends up
+# certifying something it never looked at.
+[ -f "$OPTS" ] || err "no generated options header at $OPTS -- the dependency was not built or not installed; run: mise run build-deps"
+
+grep -q '^#define _SAMPLE_RATE_22050' "$OPTS" \
+    || err "generated options do not define _SAMPLE_RATE_22050 -- check USE_44KHZ=OFF in Scripts/build-deps.sh"
+grep -q '^#define _8_BIT_SAMPLES' "$OPTS" \
+    || err "generated options do not define _8_BIT_SAMPLES -- check USE_16BITS_SAMPLES=OFF in Scripts/build-deps.sh"
+# i_easmusic.c reports AL_FORMAT_STEREO16 to OpenAL. A mono build makes that
+# report a lie, and the symptom is garbled audio rather than a build failure.
+grep -q '^#define NUM_OUTPUT_CHANNELS 2' "$OPTS" \
+    || err "generated options are not stereo -- i_easmusic.c reports AL_FORMAT_STEREO16 and would be lying"
 
 echo "ok - SONiVOX EAS bank matches its recorded instruments"
 ```
 
-Note the options check is skipped when the header is absent (source checked out, not yet built) but fails closed when present and wrong. The suite's cases 4 and 5 always write one, so both are covered.
+Note what is a skip and what is a failure. **No checkout at all** is a skip — nobody has run `mise run build-deps` and nothing is broken. **A checkout with no built header** is a failure, because the guard cannot then say anything about the format the synth will run at, and a guard that reports success on a question it did not ask is worse than no guard.
 
 - [ ] **Step 4: Fill in the recorded hashes**
 
@@ -502,7 +571,7 @@ placed after `make_tree` is defined and before case 1.
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `Scripts/test-check-eas-bank.sh`
-Expected: PASS, all seven cases.
+Expected: PASS, all ten cases.
 
 Run: `Scripts/check-eas-bank.sh`
 Expected: `ok - SONiVOX EAS bank matches its recorded instruments`
@@ -533,7 +602,7 @@ Comparing `pedrolcl/sonivox`'s wavetable against the predecessor apps' copy by
 hashing `wt_22khz.c` reports a mismatch. There is no mismatch. Upstream split
 one 1.39 MB file into `wt_22khz.c` (articulations, regions), `wt_200k_G.c`
 (programs, banks) and `wt_200k_samples.c` (PCM, 8- and 16-bit variants). All
-six arrays are byte-identical; only their addresses moved.
+seven arrays are byte-identical; only their addresses moved.
 
 Read the wrong way this costs a day chasing a difference that does not exist —
 or, worse, gets a real instrument change waved through as "that file always
@@ -958,8 +1027,16 @@ This mirrors the `WITH_FLUIDSYNTH`/`HAVE_FLUIDSYNTH` path already in the tree. F
 In `Engine/woof/CMakeLists.txt`, beside the existing options at the top:
 
 ```cmake
-option(WITH_SONIVOX "Use SONiVOX EAS if available" ON)
+# Deliberately OFF by default and REQUIRED when ON, unlike the neighbouring
+# WITH_* options. Those are "use it if available" for an upstream build; this
+# one is the whole point of the WADdle patch, and a silent fallback to
+# OPL3-only would ship the parity fix missing with nothing to notice.
+option(WITH_SONIVOX "Require SONiVOX EAS (WADdle: wavetable MIDI)" OFF)
 ```
+
+Two deviations from the neighbouring options, both deliberate.
+
+**Default OFF**, because `REQUIRED` plus a default of ON would break a plain `cmake` build of the vendored tree for anyone without the library installed. `Scripts/build-engine.sh` turns it on explicitly, which is the only build that must have it.
 
 Do **not** add a `VCPKG_MANIFEST_FEATURES` entry — the neighbouring options have one because vcpkg packages them; this dependency arrives from `Scripts/build-deps.sh`.
 
@@ -969,12 +1046,17 @@ Beside the `WITH_FLUIDSYNTH` block near line 165:
 
 ```cmake
 if(WITH_SONIVOX)
-    find_package(sonivox)
-    if(sonivox_FOUND)
-        set(HAVE_SONIVOX TRUE)
-    endif()
+    # REQUIRED, not the neighbouring "find it if you can" pattern. If someone
+    # asked for the wavetable synth and it is not there, that must stop the
+    # build -- not produce an app that quietly plays FM synthesis instead.
+    find_package(sonivox CONFIG REQUIRED)
+    set(HAVE_SONIVOX TRUE)
 endif()
 ```
+
+**`CONFIG`** because `sonivox` installs a CMake package config (`sonivox-config.cmake`) rather than relying on a `Find<Pkg>.cmake` module; without it, `find_package` searches for a module that does not exist.
+
+**`REQUIRED`** is the second deviation, and it is the one that matters. With upstream's optional pattern, a build where the library is not found sets no `HAVE_SONIVOX`, compiles no `i_easmusic.c`, registers no device — and succeeds. The resulting app ships with OPL3 music and nothing anywhere reports a problem. That is the failure-shaped-like-success class this repo files issues about (171, 71, 196); it should not be introduced by the change that fixes one of them.
 
 - [ ] **Step 3: Expose it to the compiler**
 
@@ -1009,14 +1091,19 @@ In `Scripts/build-engine.sh:47`, extend the existing options line:
 and add the prefix path so `find_package(sonivox)` resolves — `CMAKE_PREFIX_PATH` and `CMAKE_FIND_ROOT_PATH` already point at `$OUT/$platform`, which is where Task 1 installs, so verify rather than assume:
 
 Run: `mise run build-engine`
-Expected: **fails** at the `target_sources` line, because `i_easmusic.c` is missing. That failure is the proof the wiring is connected; a green build here would mean `find_package` did not find the library and `HAVE_SONIVOX` never got set.
+Expected: **fails**, because `i_easmusic.c` does not exist until Task 5. That failure is the proof the wiring is connected.
 
-If instead it builds green, `sonivox_FOUND` was false. Diagnose before continuing:
+Read *which* failure you got, because the two mean opposite things:
+
+- **`Cannot find source file: i_easmusic.c`** — correct. `find_package` resolved, `HAVE_SONIVOX` is set, and the only thing missing is Task 5's file.
+- **`Could not find a package configuration file provided by "sonivox"`** — the library is not installed where CMake looks. Task 1 did not install, or `CMAKE_PREFIX_PATH` does not reach it:
 
 ```bash
-grep -rn "sonivox" Vendor/build/woof-iphoneos/CMakeCache.txt | head
 ls Vendor/out/iphoneos/lib/cmake/sonivox/
+grep -n "CMAKE_PREFIX_PATH\|CMAKE_FIND_ROOT_PATH" Scripts/build-engine.sh
 ```
+
+A **green** build is now impossible for the not-found case — that is what `REQUIRED` bought. Before it, a missing library produced a successful build with no wavetable synth in it.
 
 - [ ] **Step 6: Commit**
 
@@ -1072,6 +1159,7 @@ git commit -m "build(engine): wire SONiVOX EAS into the Woof build"
 
 #ifdef HAVE_SONIVOX
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "eas.h"
@@ -1080,6 +1168,7 @@ git commit -m "build(engine): wire SONiVOX EAS into the Woof build"
 #include "doomtype.h"
 #include "i_oalstream.h"
 #include "i_printf.h"
+#include "m_array.h"
 #include "memio.h"
 #include "mus2mid.h"
 
@@ -1353,7 +1442,7 @@ stream_module_t stream_eas_module =
 
 Two details already verified against the tree, so do not re-derive them:
 
-- `array_push`/`array_size` come from `m_array.h`, which `i_oplmusic.c:28` includes. Add `#include "m_array.h"` to the include block above.
+- `array_push`/`array_size` come from `m_array.h` (`i_oplmusic.c:28`), and `malloc`/`free` from `<stdlib.h>` (`i_oplmusic.c:19`). Both are already in the include block above — do not drop them; the module will compile without `<stdlib.h>` on some toolchains via transitive includes and then fail on others.
 - `EAS_SetRepeat(pEASData, streamHandle, repeatCount)` is declared at `eas.h:192`, and its documented convention is `0` = no repeat, `-1` = repeat forever. `looping ? -1 : 0` above is correct as written.
 
 - [ ] **Step 2: Declare it**
@@ -1439,10 +1528,17 @@ There is no C test harness in this repo, and adding one for fifteen lines is not
 | Start state | Expected after launch |
 |---|---|
 | No config file (fresh install) | `SONiVOX EAS Wavetable` |
-| Config with `midi_player_string "OPL3 Emulation: GENMIDI"`, no marker | rewritten to `SONiVOX EAS Wavetable`, marker set |
-| Config with `midi_player_string "OPL3 Emulation: GENMIDI"`, marker set | stays `OPL3 Emulation: GENMIDI` |
+| `midi_player_string "OPL3 Emulation: GENMIDI"`, no marker | rewritten to `SONiVOX EAS Wavetable`, marker set |
+| `midi_player_string "OPL3 Emulation: DMXOPL"`, no marker | rewritten to `SONiVOX EAS Wavetable`, marker set |
+| `midi_player_string "OPL3 Emulation: GENMIDI"`, marker set | stays `OPL3 Emulation: GENMIDI` |
+| `midi_player_string "OPL3 Emulation: DMXOPL"`, marker set | stays `OPL3 Emulation: DMXOPL` |
+| A build with EAS absent, OPL3 stored, no marker | stays OPL3, **marker still unset** |
 
-The third row is the one that discriminates. Run it first, before writing the code, and confirm the *second* row currently fails — an existing OPL3 selection survives today, which is exactly the defect this task fixes.
+Rows three and five exist because the code matches two OPL3 names and testing only `GENMIDI` would leave the `DMXOPL` branch unexecuted — a player who picked the DMXOPL bank is a real case, and a typo in that second `strcasecmp` would ship silently.
+
+Rows four and five are what discriminate a migration from a bug. Run them first, before writing the code, and confirm row two currently fails — an existing OPL3 selection survives today, which is exactly the defect this task fixes.
+
+The last row is the one that cannot be checked by reading the code. Produce it by building with `-DWITH_SONIVOX=OFF`: the stored selection must be untouched *and* `waddle_midi_migrated` must still be `0` in the written config afterwards, so a later build carrying EAS still migrates. A marker set here would strand that player permanently.
 
 - [ ] **Step 2: Write the implementation**
 
@@ -1456,14 +1552,40 @@ In `I_InitMusic`, immediately before the existing `const char **strings = I_Devi
     // The marker is why this is a migration and not a policy: someone who
     // deliberately picks OPL3 back must keep it. Rewriting on every launch
     // would silently overrule them.
+    //
+    // Both the rewrite AND the marker are gated on EAS actually being in the
+    // device list, which is a runtime check rather than #ifdef HAVE_SONIVOX
+    // because it also covers a build where the library linked but the module
+    // never registered. In a build without EAS, rewriting the stored name
+    // would point it at a device that does not exist: the lookup below finds
+    // no match, midi_player_menu keeps its stored index, and that index now
+    // selects whatever else sits there. Setting the marker in that build
+    // would be worse still -- the migration would never retry, stranding that
+    // player off wavetable permanently on every later build that has it.
+    // Leaving it unset costs one list walk per launch.
     if (!waddle_midi_migrated)
     {
-        if (!strcasecmp(midi_player_string, "OPL3 Emulation: GENMIDI")
-            || !strcasecmp(midi_player_string, "OPL3 Emulation: DMXOPL"))
+        const char **available = I_DeviceList();
+        boolean eas_available = false;
+
+        for (int i = 0; i < array_size(available); ++i)
         {
-            midi_player_string = "SONiVOX EAS Wavetable";
+            if (!strcasecmp(available[i], "SONiVOX EAS Wavetable"))
+            {
+                eas_available = true;
+                break;
+            }
         }
-        waddle_midi_migrated = 1;
+
+        if (eas_available)
+        {
+            if (!strcasecmp(midi_player_string, "OPL3 Emulation: GENMIDI")
+                || !strcasecmp(midi_player_string, "OPL3 Emulation: DMXOPL"))
+            {
+                midi_player_string = "SONiVOX EAS Wavetable";
+            }
+            waddle_midi_migrated = 1;
+        }
     }
 ```
 
@@ -1588,10 +1710,23 @@ This step exists because both lines look like obvious edits and are not.
 ```bash
 Scripts/check-substrate.sh
 Scripts/check-name-consistency.sh
-grep -rn "GPL v2\|GPL-2.0" README.md App/Resources/Licenses/NOTICES.md
+
+# Every location this task touched, not just the two obvious ones.
+grep -rn "GPL v2\|GPL-2\.0" README.md COPYING App/Resources/Licenses/
+
+# The new files must exist -- a notice nobody can open is not a notice.
+test -f App/Resources/Licenses/APP-LICENSE-GPL3.txt
+test -f App/Resources/Licenses/SONIVOX-APACHE2.txt
+test ! -f App/Resources/Licenses/APP-LICENSE-GPL2.txt
+
+# And SONiVOX must actually be named where the notices are read.
+grep -q "SONiVOX" App/Resources/Licenses/NOTICES.md
+grep -q "SONiVOX" README.md
 ```
 
-Expected: both guards pass. The `grep` should return only lines describing *components'* licenses (Woof, OpenAL Soft), never Waddle's own terms.
+Expected: both guards pass; every `test`/`grep -q` exits 0. The first `grep -rn` should return only lines describing *components'* licenses — Woof is GPL-2.0-or-later, OpenAL Soft is LGPL-2.0 — and never Waddle's own terms. A hit on `COPYING`, or on `APP-LICENSE-GPL3.txt`, means a file was missed.
+
+Search `COPYING` and the whole `Licenses/` directory, not just `README.md` and `NOTICES.md`: four locations state the license and the two easily-forgotten ones are the license text that ships in the bundle and the root `COPYING` the README links to.
 
 Then build and open the About screen. Expected: it renders, and shows GPL-3.0 plus the SONiVOX entry.
 
