@@ -90,6 +90,7 @@ jobs:
           Scripts/test-loop-report.sh
           Scripts/test-loop-precheck.sh
           Scripts/test-check-masked-gh-status.sh
+          Scripts/test-check-eas-bank.sh
           # Both hermetic: test-asc-jwt.sh generates its own throwaway EC key
           # and never reads the real App Store Connect key; test-whats-to-test.sh
           # stubs git, curl and the token minter and never reaches the network.
