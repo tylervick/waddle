@@ -3,6 +3,7 @@
 set -euo pipefail
 SDL_TAG="release-3.4.12"
 OPENAL_TAG="1.25.2"
+SONIVOX_TAG="v4.0.1"
 IOS_DEPLOYMENT_TARGET="26.0"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -49,6 +50,7 @@ fetch() { # dir url tag
 }
 fetch SDL https://github.com/libsdl-org/SDL.git "$SDL_TAG"
 fetch openal-soft https://github.com/kcat/openal-soft.git "$OPENAL_TAG"
+fetch sonivox https://github.com/pedrolcl/sonivox.git "$SONIVOX_TAG"
 
 build() { # srcdir platform extra-cmake-args...
     local src="$1" platform="$2"
@@ -89,5 +91,28 @@ for platform in iphoneos iphonesimulator; do
         -DLIBTYPE=STATIC -DALSOFT_REQUIRE_COREAUDIO=ON \
         -DALSOFT_UTILS=OFF -DALSOFT_EXAMPLES=OFF -DALSOFT_EMBED_HRTF_DATA=ON \
         -DHAVE_WFUNCTION_EFFECTS=OFF
+    # SONiVOX EAS: the wavetable synth the predecessor per-game apps used, so
+    # its instruments are the ones long-time players know every track by (#116,
+    # docs/superpowers/specs/2026-08-17-midi-wavetable-design.md).
+    #
+    # USE_44KHZ=OFF and USE_16BITS_SAMPLES=OFF are the two options that decide
+    # what a player hears: together they select the 22 kHz 8-bit bank the
+    # predecessor shipped. Scripts/check-eas-bank.sh refuses a pin bump that
+    # changes either those options or the instrument bank itself.
+    #
+    # NEW_HOST_WRAPPER=ON is load-bearing, not a preference: it supplies the
+    # EAS_FILE {handle, readAt, size} reader, which is how the engine hands EAS
+    # a music lump straight out of a WAD with no file on disk. Without it the
+    # music module cannot be written at all.
+    #
+    # SF2 and ZLIB off keep this dependency from pulling in anything else --
+    # with both off it needs no external library, not even -lm on Apple.
+    build "$SRC/sonivox" "$platform" \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DUSE_44KHZ=OFF -DUSE_16BITS_SAMPLES=OFF \
+        -DNEW_HOST_WRAPPER=ON \
+        -DSF2_SUPPORT=OFF -DZLIB_SUPPORT=OFF \
+        -DEAS_WT_SYNTH=ON -DEAS_FM_SYNTH=OFF \
+        -DBUILD_TESTING=OFF -DBUILD_APPLICATION=OFF
 done
 echo "Deps installed under $OUT/{iphoneos,iphonesimulator}"

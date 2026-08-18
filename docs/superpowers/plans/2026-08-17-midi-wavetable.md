@@ -172,12 +172,30 @@ Expected: succeeds. Then confirm the artifact is what later tasks assume:
 ```bash
 lipo -info Vendor/out/iphoneos/lib/libsonivox.a
 otool -l Vendor/out/iphoneos/lib/libsonivox.a | grep -A3 LC_BUILD_VERSION | head -5
-grep -E "_SAMPLE_RATE_22050|_8_BIT_SAMPLES" Vendor/out/iphoneos/include/libsonivox/eas_options.h
+grep -E "_SAMPLE_RATE_22050|_8_BIT_SAMPLES|NUM_OUTPUT_CHANNELS" Vendor/out/iphoneos/include/sonivox/eas_options.h
 ```
 
 Expected: `architecture: arm64`; `platform 2` (iOS, **not** macOS); both defines present and neither commented out. If `platform` reads 1, the cross-compile flags did not apply and the rest of this plan will link a macOS library into an iOS app.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Rebuild the engine, because this task invalidated it**
+
+`Scripts/engine-fingerprint.sh` hashes `Engine/woof` **plus `build-engine.sh` and `build-deps.sh`**, so editing `build-deps.sh` marks the existing `WoofEngine.xcframework` stale even though no engine source changed:
+
+```
+$ Scripts/check-engine-fresh.sh
+error: engine sources/scripts changed since WoofEngine.xcframework was built.
+```
+
+That is the guard working, not a problem to route around. Rebuild:
+
+```bash
+mise run build-engine
+Scripts/check-engine-fresh.sh
+```
+
+Expected: the rebuild is fast (measured 2026-08-18: **16.8s**, since only the fingerprint inputs changed and ninja has no work to do), and the freshness check then exits 0. Leaving this undone leaves the tree failing that guard and `mise run test` with it.
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add Scripts/build-deps.sh Scripts/test-build-deps.sh
@@ -469,7 +487,12 @@ SRC="${EAS_SRC:-$ROOT/Vendor/src/sonivox}"
 # (it is in sonivox's PUBLIC_HEADERS). The copy under Vendor/build is generated
 # too, but checking the build tree would let a stale build satisfy a guard about
 # what shipped.
-OPTS="${EAS_OPTIONS_H:-$ROOT/Vendor/out/iphoneos/include/libsonivox/eas_options.h}"
+#
+# Note the directory: install puts these under include/sonivox/, while the
+# build tree generates them under libsonivox/. Measured 2026-08-18 -- the
+# libsonivox/ prefix is the build layout only, and a guard pointed there
+# finds nothing.
+OPTS="${EAS_OPTIONS_H:-$ROOT/Vendor/out/iphoneos/include/sonivox/eas_options.h}"
 
 # Recorded hashes. Regenerate with:  Scripts/check-eas-bank.sh --print
 # Do NOT copy these from the design doc -- that measured a different
