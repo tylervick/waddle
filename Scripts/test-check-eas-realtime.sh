@@ -25,7 +25,7 @@ EOF
     chmod +x "$1"
 }
 
-run() { env EAS_PROBE_BIN="$1" "$SCRIPT"; }
+run() { env EAS_PROBE_BIN="$1" ${EAS_MIN_RTF:+EAS_MIN_RTF="$EAS_MIN_RTF"} "$SCRIPT"; }
 
 # 1. Comfortably ahead of playback passes. 24x is the conservative on-device
 #    figure the design projects from a 1229x dev-machine measurement.
@@ -68,5 +68,25 @@ if out="$(run "$TMP/garbage" 2>&1)"; then
 fi
 echo "$out" | grep -q '^skip - ' && fail "a broken probe was reported as a skip"
 pass "probe with no rtf fails closed"
+
+# 6. A malformed factor fails rather than passing. `[0-9.]*` matches "1.2.3",
+#    on which bc errors and prints nothing -- and comparing "" against "1" is
+#    false, so the old code fell through to `ok`. A guard that reports success
+#    on a measurement it could not read is worse than no guard.
+make_probe "$TMP/malformed" "frames=114432 seconds=5.190 wall=0.2163 rtf=1.2.3"
+if out="$(run "$TMP/malformed" 2>&1)"; then
+    fail "a malformed real-time factor was accepted"
+fi
+echo "$out" | grep -q "malformed" \
+    || fail "the failure did not name the malformed value; it said: $out"
+pass "malformed real-time factor fails closed"
+
+# 7. Same for the floor. An EAS_MIN_RTF typo must be a loud refusal, not a
+#    comparison that silently never fires.
+make_probe "$TMP/goodrtf" "frames=114432 seconds=5.190 wall=0.2163 rtf=24.0"
+if out="$(EAS_MIN_RTF=five; export EAS_MIN_RTF; run "$TMP/goodrtf" 2>&1)"; then
+    fail "a non-numeric EAS_MIN_RTF was accepted"
+fi
+pass "non-numeric floor fails closed"
 
 echo "All check-eas-realtime tests passed."

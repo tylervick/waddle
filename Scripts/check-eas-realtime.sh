@@ -68,7 +68,29 @@ fi
 rtf="$(echo "$out" | sed -n 's/.*rtf=\([0-9.]*\).*/\1/p')"
 [ -n "$rtf" ] || err "the probe produced no real-time factor: $out"
 
-if [ "$(echo "$rtf < $MIN_RTF" | bc -l)" = "1" ]; then
+# Both operands must be well-formed decimals BEFORE bc sees them. `[0-9.]*`
+# happily matches "1.2.3", on which bc errors, prints nothing, and the old
+# `[ "" = "1" ]` test was false -- so a malformed measurement reported ok.
+# That is the fail-open shape this guard exists to avoid, in the guard itself.
+is_decimal() { # value
+    printf '%s' "$1" | grep -Eq '^[0-9]+(\.[0-9]+)?$'
+}
+is_decimal "$rtf" \
+    || err "the probe reported a malformed real-time factor '$rtf' -- refusing to guess. Full output: $out"
+is_decimal "$MIN_RTF" \
+    || err "EAS_MIN_RTF is '$MIN_RTF', which is not a decimal number"
+
+# Test the STATUS of bc separately from its output: a missing bc, or one that
+# errors, must not read as "not below the floor".
+if ! below="$(echo "$rtf < $MIN_RTF" | bc -l 2>/dev/null)"; then
+    err "could not compare ${rtf} against the ${MIN_RTF}x floor -- is bc available?"
+fi
+case "$below" in
+    0|1) ;;
+    *)   err "comparing ${rtf} against ${MIN_RTF} produced '$below' rather than 0 or 1" ;;
+esac
+
+if [ "$below" = "1" ]; then
     err "MIDI synthesis real-time factor is ${rtf}x, below the ${MIN_RTF}x floor. Music will stutter on device before it does here."
 fi
 

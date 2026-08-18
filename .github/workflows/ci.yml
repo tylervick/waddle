@@ -189,6 +189,14 @@ jobs:
       # this step is what points them at the real checkout.
       - name: Verify the MIDI synthesis path
         if: steps.setup.outputs.deps-built == 'true'
+        # shell: bash is load-bearing, not style. The default for `run:` is
+        # `bash -e`, which has NO pipefail, so `guard | tee` takes tee's exit
+        # status and a FAILING guard reports success. Verified: under `bash -e`
+        # a guard exiting 1 into tee gives pipeline exit 0. `shell: bash` runs
+        # `bash --noprofile --norc -eo pipefail`, which is what makes the
+        # failures below actually fail. See
+        # docs/learnings/masked-exit-status-fails-open.md.
+        shell: bash
         run: |
           # Neither may report `skip - ` here: the sources are present by the
           # condition above, so a skip can only mean something broke, and a

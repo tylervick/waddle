@@ -15,7 +15,8 @@ Complete corresponding source: https://github.com/tylervick/waddle
   available at the repository above.
 - SONiVOX EAS (wavetable MIDI synthesis) — Apache-2.0 (SONIVOX-APACHE2.txt),
   Copyright (c) 2004-2006 Sonic Network Inc. The upstream attribution notice is
-  reproduced verbatim in SONIVOX-NOTICE.txt, as Apache-2.0 §4(d) requires. This
+  reproduced verbatim in SONIVOX-NOTICE.txt, to satisfy Apache-2.0 §4(d),
+  which requires a readable copy of the attribution notices. This
   is the synth the predecessor per-game apps used, which is why Waddle's music
   sounds like theirs. Apache-2.0 is incompatible with GPL-2.0 and compatible
   with GPL-3.0; Woof is GPL-2.0-or-later, and exercising that "or later" grant

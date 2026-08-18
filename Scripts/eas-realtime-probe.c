@@ -47,12 +47,19 @@ int main(int argc, char **argv)
     f = fopen(argv[1], "rb");
     if (!f) { fprintf(stderr, "cannot open %s\n", argv[1]); return 2; }
     fseek(f, 0, SEEK_END); len = ftell(f); fseek(f, 0, SEEK_SET);
+    if (len <= 0) { fprintf(stderr, "%s is empty\n", argv[1]); fclose(f); return 2; }
     buf = malloc(len);
-    if (fread(buf, 1, len, f) != (size_t)len) { fprintf(stderr, "short read\n"); return 2; }
+    if (!buf) { fprintf(stderr, "out of memory reading %s\n", argv[1]); fclose(f); return 2; }
+    if (fread(buf, 1, len, f) != (size_t)len) {
+        fprintf(stderr, "short read\n"); free(buf); fclose(f); return 2;
+    }
     fclose(f);
 
     cfg = EAS_Config();
-    if (EAS_Init(&eas) != EAS_SUCCESS) { fprintf(stderr, "EAS_Init failed\n"); return 2; }
+    if (!cfg) { fprintf(stderr, "EAS_Config returned nothing\n"); free(buf); return 2; }
+    if (EAS_Init(&eas) != EAS_SUCCESS) {
+        fprintf(stderr, "EAS_Init failed\n"); free(buf); return 2;
+    }
 
     lump.data = buf; lump.len = (int)len;
     memset(&locator, 0, sizeof(locator));
@@ -61,13 +68,22 @@ int main(int argc, char **argv)
     locator.size   = mem_size;
 
     if (EAS_OpenFile(eas, &locator, &stream) != EAS_SUCCESS) {
-        fprintf(stderr, "EAS_OpenFile from memory failed\n"); return 2;
+        fprintf(stderr, "EAS_OpenFile from memory failed\n");
+        EAS_Shutdown(eas); free(buf);
+        return 2;
     }
     if (EAS_Prepare(eas, stream) != EAS_SUCCESS) {
-        fprintf(stderr, "EAS_Prepare failed\n"); return 2;
+        fprintf(stderr, "EAS_Prepare failed\n");
+        EAS_CloseFile(eas, stream); EAS_Shutdown(eas); free(buf);
+        return 2;
     }
 
     pcm = malloc(cfg->mixBufferSize * cfg->numChannels * sizeof(EAS_PCM));
+    if (!pcm) {
+        fprintf(stderr, "out of memory allocating the render buffer\n");
+        EAS_CloseFile(eas, stream); EAS_Shutdown(eas); free(buf);
+        return 2;
+    }
     clock_gettime(CLOCK_MONOTONIC, &t0);
     for (i = 0; i < 100000; i++) {
         EAS_I32 got = 0;

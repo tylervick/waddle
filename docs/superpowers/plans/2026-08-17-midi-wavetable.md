@@ -181,7 +181,7 @@ Expected: `architecture: arm64`; `platform 2` (iOS, **not** macOS); both defines
 
 `Scripts/engine-fingerprint.sh` hashes `Engine/woof` **plus `build-engine.sh` and `build-deps.sh`**, so editing `build-deps.sh` marks the existing `WoofEngine.xcframework` stale even though no engine source changed:
 
-```
+```console
 $ Scripts/check-engine-fresh.sh
 error: engine sources/scripts changed since WoofEngine.xcframework was built.
 ```
@@ -1777,7 +1777,7 @@ The `NOTICE` file is not optional decoration. Apache-2.0 §4(d) requires that a 
 
 It also settles a question that must not be answered by inference. The pinned `NOTICE` reads:
 
-```
+```console
 Copyright (c) 2004-2006 Sonic Network Inc.
 ```
 
