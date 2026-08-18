@@ -4,6 +4,19 @@ set -euo pipefail
 SDL_TAG="release-3.4.12"
 OPENAL_TAG="1.25.2"
 SONIVOX_TAG="v4.0.1"
+# Streamed music (#196). libsndfile needs Ogg and Vorbis as EXTERNAL libraries
+# for OGG support -- it vendors neither -- so this is three pins, not one.
+# Build order below is load-bearing: vorbis needs ogg, sndfile needs both.
+LIBOGG_TAG="v1.3.6"
+LIBVORBIS_TAG="v1.3.7"
+LIBSNDFILE_TAG="1.2.2"
+# libsndfile treats its external codecs as a SET: HAVE_EXTERNAL_XIPH_LIBS is
+# one flag gating Ogg, Vorbis, FLAC and Opus together, with no per-codec
+# option. Wanting OGG therefore costs FLAC and Opus too -- configure fails at
+# target_link_libraries without them. All four are BSD-3-Clause; libsndfile
+# itself is LGPL-2.1, conveyed under the GPL exactly as OpenAL Soft already is.
+LIBFLAC_TAG="1.5.0"
+LIBOPUS_TAG="v1.6.1"
 IOS_DEPLOYMENT_TARGET="26.0"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -51,6 +64,11 @@ fetch() { # dir url tag
 fetch SDL https://github.com/libsdl-org/SDL.git "$SDL_TAG"
 fetch openal-soft https://github.com/kcat/openal-soft.git "$OPENAL_TAG"
 fetch sonivox https://github.com/pedrolcl/sonivox.git "$SONIVOX_TAG"
+fetch ogg https://github.com/xiph/ogg.git "$LIBOGG_TAG"
+fetch vorbis https://github.com/xiph/vorbis.git "$LIBVORBIS_TAG"
+fetch flac https://github.com/xiph/flac.git "$LIBFLAC_TAG"
+fetch opus https://github.com/xiph/opus.git "$LIBOPUS_TAG"
+fetch libsndfile https://github.com/libsndfile/libsndfile.git "$LIBSNDFILE_TAG"
 
 build() { # srcdir platform extra-cmake-args...
     local src="$1" platform="$2"
@@ -63,6 +81,8 @@ build() { # srcdir platform extra-cmake-args...
         -DCMAKE_OSX_DEPLOYMENT_TARGET="$IOS_DEPLOYMENT_TARGET" \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="$OUT/$platform" \
+        -DCMAKE_PREFIX_PATH="$OUT/$platform" \
+        -DCMAKE_FIND_ROOT_PATH="$OUT/$platform" \
         "$@"
     cmake --build "$bdir"
     cmake --install "$bdir"
@@ -107,6 +127,24 @@ for platform in iphoneos iphonesimulator; do
     #
     # SF2 and ZLIB off keep this dependency from pulling in anything else --
     # with both off it needs no external library, not even -lm on Apple.
+    # Streamed music (#196), in dependency order: vorbis needs ogg, and
+    # libsndfile needs all four. CMAKE_POLICY_VERSION_MINIMUM=3.5 is required
+    # for vorbis and libsndfile: both declare a cmake_minimum_required below
+    # 3.5, which CMake 4 (pinned at 4.4.2 in mise.toml) refuses outright.
+    build "$SRC/ogg" "$platform" \
+        -DBUILD_SHARED_LIBS=OFF -DINSTALL_DOCS=OFF
+    build "$SRC/vorbis" "$platform" \
+        -DBUILD_SHARED_LIBS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+    build "$SRC/flac" "$platform" \
+        -DBUILD_SHARED_LIBS=OFF -DBUILD_CXXLIBS=OFF -DBUILD_PROGRAMS=OFF \
+        -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF -DBUILD_DOCS=OFF \
+        -DINSTALL_MANPAGES=OFF -DWITH_OGG=ON
+    build "$SRC/opus" "$platform" \
+        -DBUILD_SHARED_LIBS=OFF -DOPUS_BUILD_PROGRAMS=OFF -DOPUS_BUILD_TESTING=OFF
+    build "$SRC/libsndfile" "$platform" \
+        -DBUILD_SHARED_LIBS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DBUILD_PROGRAMS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF \
+        -DENABLE_MPEG=OFF -DENABLE_CPACK=OFF
     build "$SRC/sonivox" "$platform" \
         -DBUILD_SHARED_LIBS=OFF \
         -DUSE_44KHZ=OFF -DUSE_16BITS_SAMPLES=OFF \
