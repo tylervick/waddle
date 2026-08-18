@@ -68,7 +68,7 @@ static music_module_t *midi_module = NULL;
 static int midi_player_menu;
 static const char *midi_player_string = "";
 
-// WADdle patch (#116): set once, the first time a build carrying the wavetable
+// Waddle patch (#116): set once, the first time a build carrying the wavetable
 // synth actually plays through it. See the two halves in I_InitMusic.
 static int waddle_midi_migrated;
 
@@ -683,7 +683,7 @@ boolean I_InitMusic(void)
 
     I_AtExit(I_ShutdownMusic, true);
 
-    // WADdle patch (#116), first half: move existing installs onto the
+    // Waddle patch (#116), first half: move existing installs onto the
     // wavetable synth once. Woof restores the MIDI player by NAME, so without
     // this an upgrading player keeps OPL3 forever and never hears the parity
     // fix. The marker is why this is a migration and not a policy -- someone
@@ -726,7 +726,7 @@ boolean I_InitMusic(void)
 
     I_SetMidiPlayer();
 
-    // WADdle patch (#116), second half -- the only place the marker is set.
+    // Waddle patch (#116), second half -- the only place the marker is set.
     // I_SetMidiPlayer leaves midi_player_string naming whatever module
     // actually initialised, which is not necessarily the one selected above:
     // if EAS is listed but I_EAS_InitStream fails, the fallback loop takes the
@@ -891,11 +891,11 @@ void I_BindSoundVariables(void)
     BIND_NUM_MENU(midi_player_menu, 0, UL);
     M_BindStr("midi_player_string", &midi_player_string, "", wad_no,
               "MIDI Player string");
-    // WADdle patch (#116). Bound purely so it survives a launch: without
+    // Waddle patch (#116). Bound purely so it survives a launch: without
     // persistence the migration fires every time and overrules a player who
     // switched back to OPL3. ss_none keeps it out of the setup menus.
     BIND_NUM(waddle_midi_migrated, 0, 0, 1,
-             "WADdle: MIDI player already migrated to wavetable (internal)");
+             "Waddle: MIDI player already migrated to wavetable (internal)");
     for (int i = 0; i < arrlen(music_modules); ++i)
     {
         music_modules[i]->I_BindVariables();

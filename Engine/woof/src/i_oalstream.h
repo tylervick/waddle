@@ -41,7 +41,7 @@ extern stream_module_t stream_fl_module;
 extern stream_module_t stream_snd_module;
 extern stream_module_t stream_xmp_module;
 extern stream_module_t stream_mp3_module;
-/* WADdle patch (#116): SONiVOX EAS wavetable MIDI. */
+/* Waddle patch (#116): SONiVOX EAS wavetable MIDI. */
 extern stream_module_t stream_eas_module;
 
 boolean I_OAL_InitStream(void);

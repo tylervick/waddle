@@ -285,7 +285,7 @@ if(HAVE_FLUIDSYNTH)
     target_link_libraries(woof PRIVATE FluidSynth::libfluidsynth)
 endif()
 
-# WADdle patch (#116): the wavetable MIDI module.
+# Waddle patch (#116): the wavetable MIDI module.
 if(HAVE_SONIVOX)
     target_sources(woof PRIVATE i_easmusic.c)
     target_link_libraries(woof PRIVATE sonivox::sonivox)

@@ -10,7 +10,7 @@
 #cmakedefine HAVE_ALSA
 #cmakedefine HAVE_FLUIDSYNTH
 
-/* WADdle patch (#116): SONiVOX EAS wavetable MIDI. */
+/* Waddle patch (#116): SONiVOX EAS wavetable MIDI. */
 #cmakedefine HAVE_SONIVOX
 #cmakedefine HAVE_LIBXMP
 #cmakedefine HAVE_SNDFILE

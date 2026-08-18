@@ -14,7 +14,7 @@
 // DESCRIPTION:
 //      MIDI music via SONiVOX EAS wavetable synthesis (#116).
 //
-//      This is the synth the per-game apps WADdle replaces used, so its
+//      This is the synth the per-game apps Waddle replaces used, so its
 //      instruments are the ones long-time players know every track by.
 //      Structured after i_oplmusic.c: both are software synths feeding the
 //      OpenAL streaming path rather than driving an external device.

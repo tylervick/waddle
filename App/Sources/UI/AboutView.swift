@@ -56,11 +56,13 @@ struct AboutView: View {
     }
 
     private var licenseFiles: [(String, String)] {
-        [("Waddle & Woof! — GPL-2.0", "APP-LICENSE-GPL2"),
+        [("Waddle & Woof! — GPL-3.0", "APP-LICENSE-GPL3"),
          ("Third-party notices", "NOTICES"),
          ("Freedoom — BSD", "FREEDOOM-BSD"),
          ("SDL 3 — zlib", "SDL3-ZLIB"),
          ("OpenAL Soft — LGPL-2.0", "OPENALSOFT-LGPL"),
+         ("SONiVOX EAS — Apache-2.0", "SONIVOX-APACHE2"),
+         ("SONiVOX EAS — notice", "SONIVOX-NOTICE"),
          ("ZIPFoundation — MIT", "ZIPFOUNDATION-MIT")]
     }
 
