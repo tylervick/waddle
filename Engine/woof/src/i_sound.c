@@ -68,6 +68,10 @@ static music_module_t *midi_module = NULL;
 static int midi_player_menu;
 static const char *midi_player_string = "";
 
+// WADdle patch (#116): set once, the first time a build carrying the wavetable
+// synth actually plays through it. See the two halves in I_InitMusic.
+static int waddle_midi_migrated;
+
 // haleyjd: safety variables to keep changes to *_card from making
 // these routines think that sound has been initialized when it hasn't
 static boolean snd_init = false;
@@ -679,6 +683,37 @@ boolean I_InitMusic(void)
 
     I_AtExit(I_ShutdownMusic, true);
 
+    // WADdle patch (#116), first half: move existing installs onto the
+    // wavetable synth once. Woof restores the MIDI player by NAME, so without
+    // this an upgrading player keeps OPL3 forever and never hears the parity
+    // fix. The marker is why this is a migration and not a policy -- someone
+    // who deliberately picks OPL3 back must keep it.
+    //
+    // The marker is NOT set here; see the second half below. Appearing in the
+    // device list only proves the module registered, not that it initialises.
+    boolean eas_offered = false;
+
+    if (!waddle_midi_migrated)
+    {
+        const char **available = I_DeviceList();
+
+        for (int i = 0; i < array_size(available); ++i)
+        {
+            if (!strcasecmp(available[i], "SONiVOX EAS Wavetable"))
+            {
+                eas_offered = true;
+                break;
+            }
+        }
+
+        if (eas_offered
+            && (!strcasecmp(midi_player_string, "OPL3 Emulation: GENMIDI")
+                || !strcasecmp(midi_player_string, "OPL3 Emulation: DMXOPL")))
+        {
+            midi_player_string = "SONiVOX EAS Wavetable";
+        }
+    }
+
     const char **strings = I_DeviceList();
     for (int i = 0; i < array_size(strings); ++i)
     {
@@ -690,6 +725,22 @@ boolean I_InitMusic(void)
     }
 
     I_SetMidiPlayer();
+
+    // WADdle patch (#116), second half -- the only place the marker is set.
+    // I_SetMidiPlayer leaves midi_player_string naming whatever module
+    // actually initialised, which is not necessarily the one selected above:
+    // if EAS is listed but I_EAS_InitStream fails, the fallback loop takes the
+    // first module that does initialise (OPL3) and rewrites the name back.
+    // Recording the migration before that point would mark as done something
+    // that did not happen, and it would never be retried -- stranding that
+    // player off wavetable permanently, silently, on every later build.
+    //
+    // Leaving the marker unset is always the safe direction: it costs one list
+    // walk next launch. Setting it wrongly costs a player their music.
+    if (eas_offered && !strcasecmp(midi_player_string, "SONiVOX EAS Wavetable"))
+    {
+        waddle_midi_migrated = 1;
+    }
 
     return true;
 }
@@ -840,6 +891,11 @@ void I_BindSoundVariables(void)
     BIND_NUM_MENU(midi_player_menu, 0, UL);
     M_BindStr("midi_player_string", &midi_player_string, "", wad_no,
               "MIDI Player string");
+    // WADdle patch (#116). Bound purely so it survives a launch: without
+    // persistence the migration fires every time and overrules a player who
+    // switched back to OPL3. ss_none keeps it out of the setup menus.
+    BIND_NUM(waddle_midi_migrated, 0, 0, 1,
+             "WADdle: MIDI player already migrated to wavetable (internal)");
     for (int i = 0; i < arrlen(music_modules); ++i)
     {
         music_modules[i]->I_BindVariables();
