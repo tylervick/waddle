@@ -403,6 +403,37 @@ n_unique="$(sed 's/.*="//;s/"$//' "$TMP/print.sh" | sort -u | wc -l | tr -d ' ')
     || fail "only $n_unique distinct hashes across 7 arrays -- the extractor is resolving different arrays to the same body"
 pass "each array resolves to its own body"
 
+# 11. A macro whose name merely STARTS with the expected one is not the
+#     expected one. Anchoring only at the front accepts _SAMPLE_RATE_220500
+#     and _8_BIT_SAMPLES_EXTRA, and a guard that accepts a macro it was not
+#     looking for asserts nothing.
+make_tree "$TMP/prefix"
+cat > "$TMP/prefix/build/libsonivox/eas_options.h" <<'EOF'
+#define _8_BIT_SAMPLES_EXTRA
+#define _SAMPLE_RATE_220500
+#define NUM_OUTPUT_CHANNELS 2
+EOF
+if out="$(run "$TMP/prefix" 2>&1)"; then
+    fail "prefix-matched option macros were accepted"
+fi
+pass "prefix-matched option macros fail"
+
+# 12. Both sample rates defined at once fails. Not reachable from today's
+#     generator, which emits the unselected one as a comment -- stated now so
+#     that if a later generator change makes it reachable, the positive checks
+#     alone do not keep passing.
+make_tree "$TMP/conflict"
+cat > "$TMP/conflict/build/libsonivox/eas_options.h" <<'EOF'
+#define _8_BIT_SAMPLES
+#define _SAMPLE_RATE_22050
+#define _SAMPLE_RATE_44100
+#define NUM_OUTPUT_CHANNELS 2
+EOF
+if out="$(run "$TMP/conflict" 2>&1)"; then
+    fail "conflicting sample-rate defines were accepted"
+fi
+pass "conflicting sample-rate defines fail"
+
 echo "All check-eas-bank tests passed."
 ```
 
@@ -520,14 +551,35 @@ done
 # certifying something it never looked at.
 [ -f "$OPTS" ] || err "no generated options header at $OPTS -- the dependency was not built or not installed; run: mise run build-deps"
 
-grep -q '^#define _SAMPLE_RATE_22050' "$OPTS" \
+# Anchored on both ends. Without the trailing boundary, `_SAMPLE_RATE_22050`
+# also matches a hypothetical `_SAMPLE_RATE_220500`, and `_8_BIT_SAMPLES`
+# matches `_8_BIT_SAMPLES_EXTRA` -- a guard that accepts a macro it was not
+# looking for is not asserting anything.
+require_define() { # macro   (exact name, value optional)
+    grep -Eq "^#define[[:space:]]+$1([[:space:]]|\$)" "$OPTS"
+}
+reject_define() { # macro
+    ! grep -Eq "^#define[[:space:]]+$1([[:space:]]|\$)" "$OPTS"
+}
+
+require_define "_SAMPLE_RATE_22050" \
     || err "generated options do not define _SAMPLE_RATE_22050 -- check USE_44KHZ=OFF in Scripts/build-deps.sh"
-grep -q '^#define _8_BIT_SAMPLES' "$OPTS" \
+require_define "_8_BIT_SAMPLES" \
     || err "generated options do not define _8_BIT_SAMPLES -- check USE_16BITS_SAMPLES=OFF in Scripts/build-deps.sh"
 # i_easmusic.c reports AL_FORMAT_STEREO16 to OpenAL. A mono build makes that
 # report a lie, and the symptom is garbled audio rather than a build failure.
-grep -q '^#define NUM_OUTPUT_CHANNELS 2' "$OPTS" \
+require_define "NUM_OUTPUT_CHANNELS[[:space:]]+2" \
     || err "generated options are not stereo -- i_easmusic.c reports AL_FORMAT_STEREO16 and would be lying"
+
+# Assert the negatives too. The generator emits the unselected option as
+# `/* #undef _SAMPLE_RATE_44100 */`, so this cannot fire today -- which is
+# exactly why it is cheap to state now, before some later generator change
+# makes "both are defined" reachable and the positive checks alone keep
+# passing.
+reject_define "_SAMPLE_RATE_44100" \
+    || err "generated options define BOTH sample rates -- the synth's actual rate is whichever the headers resolve last, so this cannot be certified"
+reject_define "_16_BIT_SAMPLES" \
+    || err "generated options define BOTH sample widths -- see above"
 
 echo "ok - SONiVOX EAS bank matches its recorded instruments"
 ```
@@ -571,7 +623,7 @@ placed after `make_tree` is defined and before case 1.
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `Scripts/test-check-eas-bank.sh`
-Expected: PASS, all ten cases.
+Expected: PASS, all twelve cases.
 
 Run: `Scripts/check-eas-bank.sh`
 Expected: `ok - SONiVOX EAS bank matches its recorded instruments`
@@ -1523,7 +1575,7 @@ The marker is what makes this a migration and not a policy: a player who deliber
 
 - [ ] **Step 1: Write the failing test**
 
-There is no C test harness in this repo, and adding one for fifteen lines is not proportionate. Assert the behaviour where it is observable — three real launches, recorded in the PR body:
+There is no C test harness in this repo, and adding one for a few lines is not proportionate. Assert the behaviour where it is observable — seven real launches, recorded in the PR body:
 
 | Start state | Expected after launch |
 |---|---|
@@ -1533,6 +1585,7 @@ There is no C test harness in this repo, and adding one for fifteen lines is not
 | `midi_player_string "OPL3 Emulation: GENMIDI"`, marker set | stays `OPL3 Emulation: GENMIDI` |
 | `midi_player_string "OPL3 Emulation: DMXOPL"`, marker set | stays `OPL3 Emulation: DMXOPL` |
 | A build with EAS absent, OPL3 stored, no marker | stays OPL3, **marker still unset** |
+| EAS listed but `I_EAS_InitStream` fails, OPL3 stored, no marker | falls back to OPL3, **marker still unset** |
 
 Rows three and five exist because the code matches two OPL3 names and testing only `GENMIDI` would leave the `DMXOPL` branch unexecuted — a player who picked the DMXOPL bank is a real case, and a typo in that second `strcasecmp` would ship silently.
 
@@ -1553,38 +1606,34 @@ In `I_InitMusic`, immediately before the existing `const char **strings = I_Devi
     // deliberately picks OPL3 back must keep it. Rewriting on every launch
     // would silently overrule them.
     //
-    // Both the rewrite AND the marker are gated on EAS actually being in the
-    // device list, which is a runtime check rather than #ifdef HAVE_SONIVOX
-    // because it also covers a build where the library linked but the module
-    // never registered. In a build without EAS, rewriting the stored name
-    // would point it at a device that does not exist: the lookup below finds
-    // no match, midi_player_menu keeps its stored index, and that index now
-    // selects whatever else sits there. Setting the marker in that build
-    // would be worse still -- the migration would never retry, stranding that
-    // player off wavetable permanently on every later build that has it.
-    // Leaving it unset costs one list walk per launch.
+    // The rewrite is attempted here, but the marker is NOT set here -- see the
+    // second half below, after I_SetMidiPlayer has run. Appearing in the
+    // device list only proves the module registered; it does not prove
+    // I_EAS_InitStream will succeed. If EAS is listed but fails to
+    // initialise, I_SetMidiPlayer falls through to "first module that
+    // initialises" (i_sound.c:646-662), which is OPL3, and rewrites
+    // midi_player_string back to the OPL3 name. Setting the marker before
+    // that point would record a migration that did not happen, and it would
+    // never be retried -- stranding that player off wavetable permanently on
+    // every later build, silently.
     if (!waddle_midi_migrated)
     {
         const char **available = I_DeviceList();
-        boolean eas_available = false;
 
         for (int i = 0; i < array_size(available); ++i)
         {
             if (!strcasecmp(available[i], "SONiVOX EAS Wavetable"))
             {
-                eas_available = true;
+                eas_offered = true;
                 break;
             }
         }
 
-        if (eas_available)
+        if (eas_offered
+            && (!strcasecmp(midi_player_string, "OPL3 Emulation: GENMIDI")
+                || !strcasecmp(midi_player_string, "OPL3 Emulation: DMXOPL")))
         {
-            if (!strcasecmp(midi_player_string, "OPL3 Emulation: GENMIDI")
-                || !strcasecmp(midi_player_string, "OPL3 Emulation: DMXOPL"))
-            {
-                midi_player_string = "SONiVOX EAS Wavetable";
-            }
-            waddle_midi_migrated = 1;
+            midi_player_string = "SONiVOX EAS Wavetable";
         }
     }
 ```
@@ -1609,11 +1658,46 @@ and bind it so it persists. `midi_player_string` is bound at `i_sound.c:841`; pu
 
 `BIND_NUM` is defined at `m_config.h:40` and expands to `M_BindNum(#name, &name, NULL, v, a, b, ss_none, wad_no, help)` — `ss_none` keeps it out of the setup menus, which is right for an internal marker.
 
-- [ ] **Step 3: Verify all three rows**
+Declare `eas_offered` as a local `boolean` initialised to `false` at the top of `I_InitMusic`, since both halves of the migration read it.
 
-Run each state from Step 1 on device or simulator. Expected: the table's right-hand column, all three.
+**The second half — the only place the marker is ever set.** `I_InitMusic` ends by calling `I_SetMidiPlayer()`. That call is what actually initialises a module, so it is the earliest point at which the migration can be known to have taken. Immediately after it:
 
-Then prove the marker discriminates rather than merely existing: temporarily invert the guard to `if (1)`, confirm row three now *fails* (a deliberate OPL3 choice gets overwritten), restore, confirm it passes. Record both in the PR — this is the case that separates a migration from a bug.
+```c
+    I_SetMidiPlayer();
+
+    // WADdle patch (#116), second half. Only now is the outcome known:
+    // I_SetMidiPlayer sets midi_player_string to whatever module actually
+    // initialised, which is not necessarily the one selected above. Record
+    // the migration as done only if EAS is genuinely what is playing.
+    //
+    // Leaving the marker unset is always the safe direction: it costs one
+    // list walk on the next launch. Setting it wrongly costs a player their
+    // music, permanently and silently.
+    if (eas_offered && !strcasecmp(midi_player_string, "SONiVOX EAS Wavetable"))
+    {
+        waddle_midi_migrated = 1;
+    }
+```
+
+Note this also settles the case where nothing needed migrating: a fresh install lands on EAS through module ordering, `midi_player_string` reads back as the EAS name, and the marker is set without any rewrite having occurred. That is correct — there is nothing left to migrate.
+
+- [ ] **Step 3: Verify all seven rows**
+
+Run each state from Step 1 on device or simulator. Expected: the table's right-hand column, every row.
+
+Five are ordinary config edits. The last two need to be produced deliberately:
+
+- **EAS absent** — build with `-DWITH_SONIVOX=OFF`.
+- **EAS listed but failing to initialise** — temporarily `return false` from `I_EAS_InitStream`. This is the row that motivated splitting the marker away from the rewrite, and it cannot be reached by editing config alone.
+
+For both, the assertion is two-part and the second part is the one that matters: the stored selection is untouched **and** `waddle_midi_migrated` is still `0` in the written config afterwards. A marker set here strands that player off wavetable on every later build.
+
+Then prove the marker discriminates rather than merely existing. Two inversions, each restored after:
+
+- Change the guard to `if (1)` and confirm row four now *fails* — a deliberate OPL3 choice gets overwritten.
+- Move `waddle_midi_migrated = 1;` back up into the first half, beside the rewrite, and confirm the init-failure row now *fails* — the marker gets set for a migration that did not happen. This is the exact defect the two-half structure exists to prevent, and without this inversion nothing proves the structure earns its complexity.
+
+Record all of it in the PR.
 
 - [ ] **Step 4: Commit**
 
@@ -1627,7 +1711,7 @@ git commit -m "feat(audio): migrate existing installs to the wavetable synth onc
 ## Task 7: Relicensing to GPL-3.0, and the notices that ship
 
 **Files:**
-- Create: `App/Resources/Licenses/SONIVOX-APACHE2.txt`, `App/Resources/Licenses/APP-LICENSE-GPL3.txt`
+- Create: `App/Resources/Licenses/SONIVOX-APACHE2.txt`, `App/Resources/Licenses/SONIVOX-NOTICE.txt`, `App/Resources/Licenses/APP-LICENSE-GPL3.txt`
 - Delete: `App/Resources/Licenses/APP-LICENSE-GPL2.txt`
 - Modify: `App/Resources/Licenses/NOTICES.md:3-16`, `README.md:70-82`, `COPYING`
 - Check: the About screen that renders `App/Resources/Licenses/`
@@ -1640,13 +1724,24 @@ git commit -m "feat(audio): migrate existing installs to the wavetable synth onc
 
 This is not optional polish. It is the one externally visible consequence of the decision, and the About screen is the copy an end user actually sees.
 
-- [ ] **Step 1: Add the Apache-2.0 text**
+- [ ] **Step 1: Add the Apache-2.0 text and the upstream NOTICE**
 
-The upstream copy is in the checkout — use it rather than pasting from memory:
+Both come from the checkout. Do not retype either, and in particular do not infer the copyright years from source-file headers:
 
 ```bash
 cp Vendor/src/sonivox/LICENSE-2.0.txt App/Resources/Licenses/SONIVOX-APACHE2.txt
+cp Vendor/src/sonivox/NOTICE          App/Resources/Licenses/SONIVOX-NOTICE.txt
 ```
+
+The `NOTICE` file is not optional decoration. Apache-2.0 §4(d) requires that a derivative work carrying a `NOTICE` file reproduce the attribution notices it contains, so shipping it is the licence obligation itself.
+
+It also settles a question that must not be answered by inference. The pinned `NOTICE` reads:
+
+```
+Copyright (c) 2004-2006 Sonic Network Inc.
+```
+
+Individual source headers say other things — `eas_public.c` carries "Copyright Sonic Network Inc. 2004" and `wt_22khz.c` carries "Copyright (c) 2009 Sonic Network Inc." — and reading a range off those produces "2004-2009", which is **wrong** as the attribution. Copy the `NOTICE`; do not synthesise a year range from what the sources happen to say.
 
 - [ ] **Step 2: Replace the app license text with GPL-3.0**
 
@@ -1675,10 +1770,12 @@ Complete corresponding source: https://github.com/tylervick/waddle
 
 ```markdown
 - SONiVOX EAS (wavetable MIDI synthesis) — Apache-2.0 (SONIVOX-APACHE2.txt),
-  © 2004-2009 Sonic Network Inc. The same synth the predecessor per-game apps
-  used. Apache-2.0 is incompatible with GPL-2.0 and compatible with GPL-3.0;
-  Woof is GPL-2.0-or-later, and exercising that "or later" grant is what makes
-  this combination lawful and why this app is GPL-3.0 rather than GPL-2.0.
+  Copyright (c) 2004-2006 Sonic Network Inc. Upstream attribution notice
+  reproduced verbatim in SONIVOX-NOTICE.txt, per Apache-2.0 §4(d). The same
+  synth the predecessor per-game apps used. Apache-2.0 is incompatible with
+  GPL-2.0 and compatible with GPL-3.0; Woof is GPL-2.0-or-later, and
+  exercising that "or later" grant is what makes this combination lawful and
+  why this app is GPL-3.0 rather than GPL-2.0.
 ```
 
 Also update the Woof line above it if it states GPL-2.0 as the app's terms rather than Woof's own — Woof stays GPL-2.0-or-later; only the *combined work* moves.
@@ -1714,10 +1811,22 @@ Scripts/check-name-consistency.sh
 # Every location this task touched, not just the two obvious ones.
 grep -rn "GPL v2\|GPL-2\.0" README.md COPYING App/Resources/Licenses/
 
+# Assert the license texts are the VERSION they claim to be. The grep above
+# cannot do this: a real GPL-2.0 text says "Version 2, June 1991" and contains
+# neither "GPL v2" nor "GPL-2.0", so a stale COPYING sails through it.
+grep -q "Version 3, 29 June 2007" COPYING
+grep -q "Version 3, 29 June 2007" App/Resources/Licenses/APP-LICENSE-GPL3.txt
+! grep -q "Version 2, June 1991" COPYING
+
 # The new files must exist -- a notice nobody can open is not a notice.
 test -f App/Resources/Licenses/APP-LICENSE-GPL3.txt
 test -f App/Resources/Licenses/SONIVOX-APACHE2.txt
+test -f App/Resources/Licenses/SONIVOX-NOTICE.txt
 test ! -f App/Resources/Licenses/APP-LICENSE-GPL2.txt
+
+# The upstream attribution must survive verbatim, not paraphrased.
+grep -q "Copyright (c) 2004-2006 Sonic Network Inc." App/Resources/Licenses/SONIVOX-NOTICE.txt
+diff -q Vendor/src/sonivox/NOTICE App/Resources/Licenses/SONIVOX-NOTICE.txt
 
 # And SONiVOX must actually be named where the notices are read.
 grep -q "SONiVOX" App/Resources/Licenses/NOTICES.md
@@ -1727,6 +1836,8 @@ grep -q "SONiVOX" README.md
 Expected: both guards pass; every `test`/`grep -q` exits 0. The first `grep -rn` should return only lines describing *components'* licenses — Woof is GPL-2.0-or-later, OpenAL Soft is LGPL-2.0 — and never Waddle's own terms. A hit on `COPYING`, or on `APP-LICENSE-GPL3.txt`, means a file was missed.
 
 Search `COPYING` and the whole `Licenses/` directory, not just `README.md` and `NOTICES.md`: four locations state the license and the two easily-forgotten ones are the license text that ships in the bundle and the root `COPYING` the README links to.
+
+The version assertions matter more than the string search. Verified against the real texts: GPL-3.0 opens "Version 3, 29 June 2007" and contains no occurrence of "Version 2" anywhere, while GPL-2.0 opens "Version 2, June 1991" and never says "GPL-2.0". So a `COPYING` left untouched passes a `GPL-2.0` grep and fails only the version assertion — which is the whole reason it is here.
 
 Then build and open the About screen. Expected: it renders, and shows GPL-3.0 plus the SONiVOX entry.
 
@@ -1767,7 +1878,7 @@ No test asserts "this sounds right", so this is not optional. Play a MIDI-music 
 
 - The measured real-time factor, and that the floor is deliberately loose.
 - Both discrimination proofs (Task 2 Step 6, Task 3 Step 7) with their output.
-- The migration's three rows and the inverted-guard proof (Task 6 Step 3).
+- The migration's seven rows and both inverted-guard proofs (Task 6 Step 3).
 - That the combined binary is now GPL-3.0.
 - That bit-identity with the predecessor is **not** claimed — the bank is identical, 42 of 75 core sources are not.
 - That streamed/tracker music silence (`WITH_SNDFILE=OFF`, `WITH_XMP=OFF`) is deliberately out of scope and tracked separately.

@@ -225,10 +225,22 @@ marker were set anyway, the migration would never retry — a player who upgrade
 through one bad build would be stranded off wavetable permanently, silently, on
 every later build that had it.
 
-So: guard the rewrite on `HAVE_SONIVOX`, and set the marker only after EAS has
-been selected successfully. Leaving the marker unset is the safe direction — the
-cost is one redundant check next launch; the cost of setting it early is
-permanent.
+So the migration is in **two halves**, and they are separated on purpose.
+
+Before the name lookup, rewrite the stored name if EAS appears in the device
+list. After `I_SetMidiPlayer()` has run, and only then, set the marker — and
+only if `midi_player_string` actually reads back as the EAS name.
+
+Appearing in the device list proves the module registered; it does not prove
+`I_EAS_InitStream` succeeds. If EAS is listed but fails to initialise,
+`I_SetMidiPlayer` falls through to "first module that initialises"
+(`i_sound.c:646-662`), which is OPL3, and rewrites `midi_player_string` back to
+the OPL3 name. A marker set before that point records a migration that did not
+happen and is never retried.
+
+Leaving the marker unset is always the safe direction: it costs one list walk on
+the next launch. Setting it wrongly costs a player their music, permanently and
+silently.
 
 ## 6. Performance guard
 
@@ -258,6 +270,13 @@ Record the change and EAS's attribution in the repo's license documentation
 alongside the existing third-party notices. This is the only externally visible
 consequence of the decision and it should not be discovered later by a reader
 diffing licenses.
+
+Apache-2.0 §4(d) makes part of this an obligation rather than a courtesy: the
+upstream `NOTICE` file must be reproduced. Ship it verbatim rather than
+paraphrasing it — its attribution reads `Copyright (c) 2004-2006 Sonic Network
+Inc.`, which is **not** what the individual source headers suggest (they carry
+2004 and 2009 separately, from which "2004-2009" is an easy and wrong
+inference).
 
 ## 8. Testing and scope
 
