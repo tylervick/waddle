@@ -1023,10 +1023,22 @@ void S_ChangeMusic(int musicnum, int looping)
     I_PlaySong((void *)music->handle, looping);
 
     // [crispy] log played music
-    I_Printf(VB_DEBUG, "S_ChangeMusic: %.8s (%s), %s",
-             lumpinfo[music->lumpnum].name,
-             W_WadNameForLump(music->lumpnum),
-             I_MusicFormat());
+    // Waddle patch (#196): only when it actually played. A NULL handle means
+    // no module accepted the lump, and logging the format string there
+    // reported "Unknown" as though it were a successful play.
+    if (music->handle)
+    {
+        I_Printf(VB_DEBUG, "S_ChangeMusic: %.8s (%s), %s",
+                 lumpinfo[music->lumpnum].name,
+                 W_WadNameForLump(music->lumpnum),
+                 I_MusicFormat());
+    }
+    else
+    {
+        I_Printf(VB_ERROR, "S_ChangeMusic: %.8s (%s) produced no music",
+                 lumpinfo[music->lumpnum].name,
+                 W_WadNameForLump(music->lumpnum));
+    }
 
     music->lumpnum = old_lumpnum;
 
@@ -1077,11 +1089,20 @@ void S_ChangeMusInfoMusic(int lumpnum, int looping)
 
     I_PlaySong((void *)music->handle, looping);
 
-    // [crispy] log played music
-    I_Printf(VB_DEBUG, "S_ChangeMusInfoMusic: %.8s (%s), %s",
-             lumpinfo[music->lumpnum].name,
-             W_WadNameForLump(music->lumpnum),
-             I_MusicFormat());
+    // [crispy] log played music -- see the S_ChangeMusic note above (#196).
+    if (music->handle)
+    {
+        I_Printf(VB_DEBUG, "S_ChangeMusInfoMusic: %.8s (%s), %s",
+                 lumpinfo[music->lumpnum].name,
+                 W_WadNameForLump(music->lumpnum),
+                 I_MusicFormat());
+    }
+    else
+    {
+        I_Printf(VB_ERROR, "S_ChangeMusInfoMusic: %.8s (%s) produced no music",
+                 lumpinfo[music->lumpnum].name,
+                 W_WadNameForLump(music->lumpnum));
+    }
 
     music->lumpnum = lumpnum;
 

@@ -787,6 +787,27 @@ boolean IsMid(byte *mem, int len)
     return len > 4 && !memcmp(mem, "MThd", 4);
 }
 
+// Waddle patch (#196): names the container a refused music lump appears to be,
+// so "no music" in the session log says WHICH format nobody could play. The
+// engine ships without libsndfile and libxmp, so OGG/FLAC/WAV and tracker
+// lumps are refused by every module -- a real case, not a hypothetical: two of
+// Eviternity II's tracks are OGG, including its title theme.
+static const char *MusicFormatHint(byte *mem, int len)
+{
+    if (len < 4)
+    {
+        return "truncated";
+    }
+    if (!memcmp(mem, "OggS", 4))            { return "Ogg (needs libsndfile)"; }
+    if (!memcmp(mem, "fLaC", 4))            { return "FLAC (needs libsndfile)"; }
+    if (!memcmp(mem, "RIFF", 4))            { return "WAV (needs libsndfile)"; }
+    if (!memcmp(mem, "IMPM", 4))            { return "Impulse Tracker (needs libxmp)"; }
+    if (!memcmp(mem, "SCRM", 4))            { return "ScreamTracker (needs libxmp)"; }
+    if (!memcmp(mem, "Extended Module", 15 < len ? 15 : len))
+                                            { return "XM tracker (needs libxmp)"; }
+    return "unrecognised";
+}
+
 boolean IsMus(byte *mem, int len)
 {
     return len > 4 && !memcmp(mem, "MUS\x1a", 4);
@@ -804,7 +825,15 @@ void *I_RegisterSong(void *data, int size)
             return result;
         }
     }
+    // Waddle patch (#196): refusing every module used to return NULL in
+    // silence, and the caller logged the track as though it had played. A
+    // player heard nothing and neither the log nor the diagnostics bundle
+    // could tell that apart from a map with no music.
     active_module = NULL;
+    I_Printf(VB_ERROR,
+             "I_RegisterSong: no music module accepted this lump -- %s; "
+             "it will be silent",
+             MusicFormatHint((byte *)data, size));
     return NULL;
 }
 
