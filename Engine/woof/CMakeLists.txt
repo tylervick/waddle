@@ -10,6 +10,16 @@ if(WITH_FLUIDSYNTH)
     list(APPEND VCPKG_MANIFEST_FEATURES "fluidsynth")
 endif()
 
+# Waddle patch (#116): SONiVOX EAS wavetable MIDI.
+#
+# Deliberately OFF by default and REQUIRED when ON, unlike the WITH_* options
+# around it. Those are "use it if available" for an upstream build; this one is
+# the whole point of the Waddle patch, and a silent fallback to OPL3-only would
+# ship the parity fix missing with nothing to notice. Default OFF so a plain
+# cmake build of this tree still configures without the library installed;
+# Scripts/build-engine.sh turns it on explicitly.
+option(WITH_SONIVOX "Require SONiVOX EAS (Waddle: wavetable MIDI)" OFF)
+
 option(WITH_XMP "Use libxmp if available" ON)
 if(WITH_XMP)
     list(APPEND VCPKG_MANIFEST_FEATURES "libxmp")
@@ -167,6 +177,15 @@ if(WITH_FLUIDSYNTH)
     if(FluidSynth_FOUND)
         set(HAVE_FLUIDSYNTH TRUE)
     endif()
+endif()
+
+# Waddle patch (#116). REQUIRED, not the "find it if you can" pattern above:
+# if someone asked for the wavetable synth and it is not there, that must stop
+# the build rather than produce an app that quietly plays FM synthesis. CONFIG
+# because sonivox installs a package config, not a Find module.
+if(WITH_SONIVOX)
+    find_package(sonivox CONFIG REQUIRED)
+    set(HAVE_SONIVOX TRUE)
 endif()
 
 if(WITH_XMP)

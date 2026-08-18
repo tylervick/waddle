@@ -45,6 +45,7 @@ for platform in iphoneos iphonesimulator; do
         -DCMAKE_PREFIX_PATH="$OUT/$platform" \
         -DCMAKE_FIND_ROOT_PATH="$OUT/$platform" \
         -DWITH_SNDFILE=OFF -DWITH_FLUIDSYNTH=OFF -DWITH_XMP=OFF \
+        -DWITH_SONIVOX=ON \
         -DWITH_DISCORD_RPC=OFF
     cmake --build "$bdir" --target woof
 done
@@ -93,11 +94,19 @@ EOF
 for platform in iphoneos iphonesimulator; do
     mkdir -p "$STAGE/$platform"
     # All Woof-built static libs (engine + vendored third-party + opl,
-    # textscreen, netlib, md5, sha1 ...) plus SDL3 and OpenAL Soft.
+    # textscreen, netlib, md5, sha1 ...) plus SDL3, OpenAL Soft and SONiVOX.
+    #
+    # libsonivox.a must be merged here for the same reason the other two are:
+    # the app links only this xcframework, so anything left out shows up as an
+    # undefined symbol at the app's final link. i_easmusic.c references
+    # EAS_Init/EAS_Render/EAS_OpenFile/EAS_SetRepeat, and without this line
+    # they stay `U` in libWoofEngine.a -- the engine builds green and the app
+    # fails to link, a long way from the cause.
     libtool -static -o "$STAGE/$platform/libWoofEngine.a" \
         $(find "$ROOT/Vendor/build/woof-$platform" -name '*.a') \
         "$OUT/$platform/lib/libSDL3.a" \
-        "$OUT/$platform/lib/libopenal.a"
+        "$OUT/$platform/lib/libopenal.a" \
+        "$OUT/$platform/lib/libsonivox.a"
 done
 
 xcodebuild -create-xcframework \

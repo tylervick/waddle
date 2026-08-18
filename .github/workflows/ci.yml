@@ -90,6 +90,8 @@ jobs:
           Scripts/test-loop-report.sh
           Scripts/test-loop-precheck.sh
           Scripts/test-check-masked-gh-status.sh
+          Scripts/test-check-eas-bank.sh
+          Scripts/test-check-eas-realtime.sh
           # Both hermetic: test-asc-jwt.sh generates its own throwaway EC key
           # and never reads the real App Store Connect key; test-whats-to-test.sh
           # stubs git, curl and the token minter and never reaches the network.
@@ -167,8 +169,43 @@ jobs:
           Scripts/check-icon-json.sh
 
       - uses: ./.github/actions/setup-waddle-build
+        id: setup
         with:
           xcode-version: ${{ env.XCODE_VERSION }}
+
+      # The two SONiVOX guards read Vendor/src/sonivox, which only exists when
+      # build-deps.sh actually ran. On a cache hit it did not, and only
+      # Vendor/out/* was restored -- so this is gated on the action's
+      # deps-built output rather than left to skip.
+      #
+      # Gating this way is not a hole. Both caches key on build-deps.sh (the
+      # deps cache directly, the engine cache through engine-fingerprint.sh,
+      # which hashes that script), so any change to SONIVOX_TAG misses both and
+      # forces a rebuild -- meaning these run on exactly the pull requests that
+      # could change their answer. A cache hit means the pin is byte-identical
+      # to one already verified.
+      #
+      # The suites above run unconditionally and cover the guards' own logic;
+      # this step is what points them at the real checkout.
+      - name: Verify the MIDI synthesis path
+        if: steps.setup.outputs.deps-built == 'true'
+        # shell: bash is load-bearing, not style. The default for `run:` is
+        # `bash -e`, which has NO pipefail, so `guard | tee` takes tee's exit
+        # status and a FAILING guard reports success. Verified: under `bash -e`
+        # a guard exiting 1 into tee gives pipeline exit 0. `shell: bash` runs
+        # `bash --noprofile --norc -eo pipefail`, which is what makes the
+        # failures below actually fail. See
+        # docs/learnings/masked-exit-status-fails-open.md.
+        shell: bash
+        run: |
+          # Neither may report `skip - ` here: the sources are present by the
+          # condition above, so a skip can only mean something broke, and a
+          # guard that silently skips is indistinguishable from one that
+          # always passes.
+          Scripts/check-eas-bank.sh | tee "$RUNNER_TEMP/eas-bank.txt"
+          ! grep -q '^skip - ' "$RUNNER_TEMP/eas-bank.txt"
+          Scripts/check-eas-realtime.sh | tee "$RUNNER_TEMP/eas-rtf.txt"
+          ! grep -q '^skip - ' "$RUNNER_TEMP/eas-rtf.txt"
 
       # CI run 31427755601 failed with an empty simulator enumeration on an
       # otherwise-clean commit and runner image; a bare re-run passed. This

@@ -41,7 +41,7 @@
 | `Scripts/check-eas-realtime.sh` | Compiles and runs the probe; refuses a synth that cannot stay ahead of playback. |
 | `Scripts/test-check-eas-realtime.sh` | Hermetic suite for the above. |
 | `Scripts/fixtures/eas-realtime.mid` | Fixed MIDI input for the probe. |
-| `docs/learnings/eas-bank-reorganised-not-changed.md` | The reorganised-vs-changed trap, pointing at `check-eas-bank.sh`. |
+| `docs/learnings/eas-bank-comparison-reads-the-wrong-file.md` and `docs/learnings/pipefail-turns-an-early-quit-into-a-failure.md` | The reorganised-vs-changed trap, pointing at `check-eas-bank.sh`. |
 
 **Modified files**
 
@@ -172,12 +172,30 @@ Expected: succeeds. Then confirm the artifact is what later tasks assume:
 ```bash
 lipo -info Vendor/out/iphoneos/lib/libsonivox.a
 otool -l Vendor/out/iphoneos/lib/libsonivox.a | grep -A3 LC_BUILD_VERSION | head -5
-grep -E "_SAMPLE_RATE_22050|_8_BIT_SAMPLES" Vendor/out/iphoneos/include/libsonivox/eas_options.h
+grep -E "_SAMPLE_RATE_22050|_8_BIT_SAMPLES|NUM_OUTPUT_CHANNELS" Vendor/out/iphoneos/include/sonivox/eas_options.h
 ```
 
 Expected: `architecture: arm64`; `platform 2` (iOS, **not** macOS); both defines present and neither commented out. If `platform` reads 1, the cross-compile flags did not apply and the rest of this plan will link a macOS library into an iOS app.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Rebuild the engine, because this task invalidated it**
+
+`Scripts/engine-fingerprint.sh` hashes `Engine/woof` **plus `build-engine.sh` and `build-deps.sh`**, so editing `build-deps.sh` marks the existing `WoofEngine.xcframework` stale even though no engine source changed:
+
+```console
+$ Scripts/check-engine-fresh.sh
+error: engine sources/scripts changed since WoofEngine.xcframework was built.
+```
+
+That is the guard working, not a problem to route around. Rebuild:
+
+```bash
+mise run build-engine
+Scripts/check-engine-fresh.sh
+```
+
+Expected: the rebuild is fast (measured 2026-08-18: **16.8s**, since only the fingerprint inputs changed and ninja has no work to do), and the freshness check then exits 0. Leaving this undone leaves the tree failing that guard and `mise run test` with it.
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add Scripts/build-deps.sh Scripts/test-build-deps.sh
@@ -189,7 +207,7 @@ git commit -m "feat(audio): pin and build SONiVOX EAS for iOS"
 ## Task 2: The bank-identity guard
 
 **Files:**
-- Create: `Scripts/check-eas-bank.sh`, `Scripts/test-check-eas-bank.sh`, `docs/learnings/eas-bank-reorganised-not-changed.md`
+- Create: `Scripts/check-eas-bank.sh`, `Scripts/test-check-eas-bank.sh`, `docs/learnings/eas-bank-comparison-reads-the-wrong-file.md` and `docs/learnings/pipefail-turns-an-early-quit-into-a-failure.md`
 - Modify: `docs/learnings/INDEX.md`, `.github/workflows/ci.yml:77-107`
 
 **Interfaces:**
@@ -469,7 +487,12 @@ SRC="${EAS_SRC:-$ROOT/Vendor/src/sonivox}"
 # (it is in sonivox's PUBLIC_HEADERS). The copy under Vendor/build is generated
 # too, but checking the build tree would let a stale build satisfy a guard about
 # what shipped.
-OPTS="${EAS_OPTIONS_H:-$ROOT/Vendor/out/iphoneos/include/libsonivox/eas_options.h}"
+#
+# Note the directory: install puts these under include/sonivox/, while the
+# build tree generates them under libsonivox/. Measured 2026-08-18 -- the
+# libsonivox/ prefix is the build layout only, and a guard pointed there
+# finds nothing.
+OPTS="${EAS_OPTIONS_H:-$ROOT/Vendor/out/iphoneos/include/sonivox/eas_options.h}"
 
 # Recorded hashes. Regenerate with:  Scripts/check-eas-bank.sh --print
 # Do NOT copy these from the design doc -- that measured a different
@@ -645,7 +668,7 @@ Expected: first run exits non-zero naming `eas_samples`; second exits 0. Paste b
 
 - [ ] **Step 7: Write the learning and index it**
 
-Create `docs/learnings/eas-bank-reorganised-not-changed.md`:
+Create `docs/learnings/eas-bank-comparison-reads-the-wrong-file.md` and `docs/learnings/pipefail-turns-an-early-quit-into-a-failure.md`:
 
 ```markdown
 # The EAS instrument bank was reorganised, not changed
@@ -1040,6 +1063,7 @@ And add a step running both new guards after the dependency build, near the othe
 
 ```yaml
       - name: Verify the MIDI synthesis path
+        if: steps.setup.outputs.deps-built == 'true'
         run: |
           Scripts/check-eas-bank.sh | tee "$RUNNER_TEMP/eas-bank.txt"
           ! grep -q '^skip - ' "$RUNNER_TEMP/eas-bank.txt"
@@ -1047,7 +1071,13 @@ And add a step running both new guards after the dependency build, near the othe
           ! grep -q '^skip - ' "$RUNNER_TEMP/eas-rtf.txt"
 ```
 
-The re-fail on skip is the same discipline `issue-format.yml` uses: here the dependency is guaranteed to have been built, so a skip can only mean something broke, and a guard that silently skips is indistinguishable from one that always passes.
+**The `if:` is load-bearing and was not in the first draft of this plan.** Both guards read `Vendor/src/sonivox`, and CI does not always have it: on an engine cache hit neither `build-deps.sh` nor `build-engine.sh` runs, and the deps cache restores only `Vendor/out/*` — the dependency *sources* are absent. Unconditionally, this step would skip on every warm run and the re-fail below would turn CI red.
+
+So `.github/actions/setup-waddle-build` gains a `deps-built` output, set only when `build-deps.sh` actually ran, and `ci.yml` gives the setup step `id: setup` to read it.
+
+Gating this way is not a hole. Both caches key on `build-deps.sh` — the deps cache directly, the engine cache through `engine-fingerprint.sh`, which hashes that script — so any change to `SONIVOX_TAG` misses both and forces a rebuild. The guards therefore run on exactly the pull requests that could change their answer, and a cache hit means the pin is byte-identical to one already verified.
+
+The re-fail on skip is the same discipline `issue-format.yml` uses, and the `if:` is what makes it true here: the sources are present by construction, so a skip can only mean something broke.
 
 - [ ] **Step 9: Commit**
 
@@ -1131,7 +1161,17 @@ endif()
 
 `i_easmusic.c` does not exist until Task 5. That is deliberate: this task ends with the wiring proven inert, and Task 5 is what makes it live. Until then `HAVE_SONIVOX` must not be allowed to turn on — so do Step 5 before building.
 
-- [ ] **Step 5: Turn it on in the engine build**
+- [ ] **Step 5: Merge the library into the framework**
+
+In the `libtool -static` invocation in Stage 3 of `Scripts/build-engine.sh`, beside `libSDL3.a` and `libopenal.a`:
+
+```bash
+        "$OUT/$platform/lib/libsonivox.a"
+```
+
+Not optional and easy to miss: the app links only the xcframework, so anything omitted here surfaces as an undefined symbol at the app's *final* link, far from the cause. Verify with `nm` rather than trusting a green engine build — `nm -g Vendor/out/WoofEngine.xcframework/ios-arm64/libWoofEngine.a | grep " T _EAS_"` must list the entry points as **T**, not `U`.
+
+- [ ] **Step 6: Turn it on in the engine build**
 
 In `Scripts/build-engine.sh:47`, extend the existing options line:
 
@@ -1157,7 +1197,7 @@ grep -n "CMAKE_PREFIX_PATH\|CMAKE_FIND_ROOT_PATH" Scripts/build-engine.sh
 
 A **green** build is now impossible for the not-found case — that is what `REQUIRED` bought. Before it, a missing library produced a successful build with no wavetable synth in it.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add Engine/woof/CMakeLists.txt Engine/woof/config.h.in \
@@ -1737,7 +1777,7 @@ The `NOTICE` file is not optional decoration. Apache-2.0 §4(d) requires that a 
 
 It also settles a question that must not be answered by inference. The pinned `NOTICE` reads:
 
-```
+```console
 Copyright (c) 2004-2006 Sonic Network Inc.
 ```
 

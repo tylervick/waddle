@@ -34,6 +34,7 @@ make_upstream() { # dir
 }
 make_upstream "$TMP/upstream-sdl"
 make_upstream "$TMP/upstream-openal"
+make_upstream "$TMP/upstream-sonivox"
 
 # A copy of the REAL script with its two clone URLs repointed at those repos.
 # file:// (not a bare path) is required: a local-path clone ignores --depth.
@@ -41,12 +42,15 @@ make_fixture() { # dest
     mkdir -p "$1/Scripts" "$1/bin"
     sed -e "s|https://github.com/libsdl-org/SDL.git|file://$TMP/upstream-sdl|" \
         -e "s|https://github.com/kcat/openal-soft.git|file://$TMP/upstream-openal|" \
+        -e "s|https://github.com/pedrolcl/sonivox.git|file://$TMP/upstream-sonivox|" \
         "$SCRIPT" > "$1/Scripts/build-deps.sh"
     chmod +x "$1/Scripts/build-deps.sh"
     grep -q "file://$TMP/upstream-sdl" "$1/Scripts/build-deps.sh" \
         || fail "fixture did not repoint the SDL clone URL -- this test would hit the network"
     grep -q "file://$TMP/upstream-openal" "$1/Scripts/build-deps.sh" \
         || fail "fixture did not repoint the openal-soft clone URL -- this test would hit the network"
+    grep -q "file://$TMP/upstream-sonivox" "$1/Scripts/build-deps.sh" \
+        || fail "fixture did not repoint the sonivox clone URL -- this test would hit the network"
     # The checkout guard is under test, not the build. Stub cmake out entirely.
     printf '#!/bin/sh\nexit 0\n' > "$1/bin/cmake"
     chmod +x "$1/bin/cmake"
@@ -80,10 +84,11 @@ assert_at() { # dir upstream tag msg
 
 # --- 1. cold clone ----------------------------------------------------
 A="$TMP/a"; make_fixture "$A"
-set_pin "$A" SDL_TAG v1; set_pin "$A" OPENAL_TAG v1
+set_pin "$A" SDL_TAG v1; set_pin "$A" OPENAL_TAG v1; set_pin "$A" SONIVOX_TAG v1
 run_deps "$A"
 assert_at "$A/Vendor/src/SDL" "$TMP/upstream-sdl" v1 "cold clone of SDL"
 assert_at "$A/Vendor/src/openal-soft" "$TMP/upstream-openal" v1 "cold clone of openal-soft"
+assert_at "$A/Vendor/src/sonivox" "$TMP/upstream-sonivox" v1 "cold clone of sonivox"
 pass "clones each dep at its pinned tag when nothing exists yet"
 
 # --- 2. the bug in #13: a bumped pin under an existing checkout --------
@@ -91,6 +96,7 @@ set_pin "$A" SDL_TAG v2
 run_deps "$A"
 assert_at "$A/Vendor/src/SDL" "$TMP/upstream-sdl" v2 "bumped SDL_TAG left the old checkout"
 assert_at "$A/Vendor/src/openal-soft" "$TMP/upstream-openal" v1 "untouched pin re-fetched anyway"
+assert_at "$A/Vendor/src/sonivox" "$TMP/upstream-sonivox" v1 "untouched pin re-fetched anyway"
 pass "re-fetches when the pin is bumped under an existing checkout"
 
 # --- 3. a matching checkout is reused, not re-cloned -------------------
@@ -137,7 +143,7 @@ B="$TMP/b"; make_fixture "$B"
 git init -q -b main "$B"
 echo enclosing > "$B/README"; git -C "$B" add README; git -C "$B" commit -qm enclosing
 git -C "$B" tag v1
-set_pin "$B" SDL_TAG v1; set_pin "$B" OPENAL_TAG v1
+set_pin "$B" SDL_TAG v1; set_pin "$B" OPENAL_TAG v1; set_pin "$B" SONIVOX_TAG v1
 mkdir -p "$B/Vendor/src/SDL"
 run_deps "$B"
 assert_at "$B/Vendor/src/SDL" "$TMP/upstream-sdl" v1 "reused an empty dir inside the enclosing repo"

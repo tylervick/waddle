@@ -146,9 +146,16 @@ to `all_modules[]` and `midi_modules[]` in `i_oalmusic.c:39,65`, **ahead of**
 install: `I_SetMidiPlayer`'s fallback path (`i_sound.c:646-662`) takes the first
 module that initialises.
 
-**Build wiring.** `Scripts/build-engine.sh` passes `-DWITH_SONIVOX=ON` and the
-include/lib paths, alongside the existing `-DWITH_SNDFILE=OFF
--DWITH_FLUIDSYNTH=OFF -DWITH_XMP=OFF`. Those three stay off; see §8.
+**Build wiring.** `Scripts/build-engine.sh` passes `-DWITH_SONIVOX=ON`
+alongside the existing `-DWITH_SNDFILE=OFF -DWITH_FLUIDSYNTH=OFF
+-DWITH_XMP=OFF`. Those three stay off; see §8.
+
+It must **also merge `libsonivox.a` into `libWoofEngine.a`**, beside `libSDL3.a`
+and `libopenal.a` in the `libtool -static` invocation. The app links only the
+xcframework, so anything left out surfaces as an undefined symbol at the app's
+final link: `EAS_Init`, `EAS_Render`, `EAS_OpenFile` and `EAS_SetRepeat` stay
+`U` in `libWoofEngine.a`, the engine builds green, and the app fails to link a
+long way from the cause. Found exactly that way on 2026-08-18.
 
 ## 4. The bank-identity guard
 
