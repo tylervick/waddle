@@ -344,4 +344,46 @@ out=$(run_precheck "$TMP/r") || fail "refused a valid backlog"
 [ "$out" = "42" ] || fail "picked $out; expected 42 (41 is linked by 'Fixed #41')"
 pass "excludes an issue linked by any of the nine closing keywords"
 
+# 19. The label is applied LOCALLY, so an issue without agent:eligible is
+#     never selected -- even when it would outrank every eligible one. Before
+#     #171 the server did this filtering; now the fetch is unfiltered and this
+#     check is the only thing standing between the loop and a blocked issue.
+#     The blocked issue here is size:xs against an eligible size:m, so a
+#     missing filter picks the wrong one rather than merely tolerating it.
+make_fixture "$TMP/label_local"
+cat > "$TMP/label_local/issues.json" <<'J'
+[{"number":10,"labels":[{"name":"agent:blocked"},{"name":"size:xs"}]},
+ {"number":90,"labels":[{"name":"agent:eligible"},{"name":"size:m"}]}]
+J
+out=$(run_precheck "$TMP/label_local") || fail "refused a backlog containing one eligible issue"
+[ "$out" = "90" ] || fail "picked $out; expected 90 -- a non-eligible issue must never be selected"
+pass "applies agent:eligible locally, never selecting an unlabelled issue"
+
+# 20. And the fetch must NOT filter by label server-side. That query resolves
+#     through GitHub's search index, which silently omitted #79 for days
+#     (#171); an issue it drops is invisible to the loop forever and reads as
+#     an empty queue. Asserting the absence of --label is what stops the
+#     defect being reintroduced by someone "tidying" the query.
+grep -q "^issue list" "$TMP/label_local/gh-calls.log" \
+    || fail "no issue list call was logged at all"
+if grep "^issue list" "$TMP/label_local/gh-calls.log" | grep -q -- "--label"; then
+    fail "the issue query filtered by label server-side; that path omits issues (see #171)"
+fi
+pass "fetches the queue unfiltered rather than through the search index"
+
+# 21. A queue that was read but contains nothing claimable must not sound like
+#     a queue that could not be read. Collapsing those is the defect #171
+#     names: a permanently-invisible issue and an idle loop looked identical
+#     in the record.
+make_fixture "$TMP/empty_read"
+cat > "$TMP/empty_read/issues.json" <<'J'
+[{"number":11,"labels":[{"name":"agent:blocked"},{"name":"size:xs"}]}]
+J
+if run_precheck "$TMP/empty_read" 2>"$TMP/empty_err"; then
+    fail "selected an issue from a backlog with nothing eligible"
+fi
+grep -q "read completely" "$TMP/empty_err" \
+    || fail "an empty-but-readable queue did not say so; it said: $(cat "$TMP/empty_err")"
+pass "distinguishes an empty queue from one it could not read"
+
 echo "All loop-precheck tests passed."

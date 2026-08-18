@@ -154,15 +154,33 @@ if command -v orca >/dev/null 2>&1; then
 fi
 
 # 3. Fetch the world in two calls, then decide locally.
-issues="$(gh issue list --label agent:eligible --state open --limit 1000 \
-            --json number,labels 2>/dev/null)" || skip "gh issue list failed"
+# Deliberately UNFILTERED, with the label applied locally below (#171).
+#
+# `--label agent:eligible` resolves through GitHub's SEARCH INDEX, which can
+# omit an issue whose label is genuinely attached. When it does, that issue is
+# invisible to the loop forever: never claimed, never reported, and
+# indistinguishable from an empty queue. Measured 2026-08-18 on this
+# repository: `--label agent:blocked` returned 8 issues while the label edge
+# returned 9, missing #79 -- and #79 had been missing since at least
+# 2026-08-16, when #171 was filed.
+#
+# The unfiltered listing does not go through that index and returned the
+# complete set (28 open issues, #79 among them); filtering locally reproduced
+# the label edge exactly for both agent:eligible and agent:blocked.
+issues="$(gh issue list --state open --limit 1000 \
+            --json number,labels 2>/dev/null)" \
+    || skip "could not read the issue queue: gh issue list failed"
 open_prs="$(gh pr list --state open --limit 1000 --json number,body 2>/dev/null)" \
     || skip "gh pr list failed"
 
 # 4. Liveness + stale sweep.
+# Scoped to agent:eligible, matching what this saw before the query above
+# stopped filtering server-side: a stray agent:in-progress on an issue the loop
+# would never select is not this sweep's business.
 claimed="$(printf '%s' "$issues" | python3 -c 'import json,sys
 for i in json.load(sys.stdin):
-    if any(l["name"]=="agent:in-progress" for l in i["labels"]): print(i["number"])')"
+    names = {l["name"] for l in i["labels"]}
+    if "agent:eligible" in names and "agent:in-progress" in names: print(i["number"])')"
 
 swept=""
 for n in $claimed; do
@@ -235,6 +253,10 @@ rank = {"size:xs": 0, "size:s": 1, "size:m": 2}
 best = None
 for i in issues:
     names = {l["name"] for l in i["labels"]}
+    # The label is applied HERE rather than in the query -- see the comment on
+    # the gh issue list call above (#171).
+    if "agent:eligible" not in names:
+        continue
     if "agent:stuck" in names:
         continue
     if "agent:in-progress" in names and i["number"] not in swept:
@@ -254,5 +276,5 @@ for i in issues:
 print(best[1] if best else "")
 ')"
 
-[ -n "$choice" ] || skip "no claimable agent:eligible issue"
+[ -n "$choice" ] || skip "the queue was read completely; no claimable agent:eligible issue in it"
 echo "$choice"
