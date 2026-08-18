@@ -41,7 +41,7 @@
 | `Scripts/check-eas-realtime.sh` | Compiles and runs the probe; refuses a synth that cannot stay ahead of playback. |
 | `Scripts/test-check-eas-realtime.sh` | Hermetic suite for the above. |
 | `Scripts/fixtures/eas-realtime.mid` | Fixed MIDI input for the probe. |
-| `docs/learnings/eas-bank-reorganised-not-changed.md` | The reorganised-vs-changed trap, pointing at `check-eas-bank.sh`. |
+| `docs/learnings/eas-bank-comparison-reads-the-wrong-file.md` and `docs/learnings/pipefail-turns-an-early-quit-into-a-failure.md` | The reorganised-vs-changed trap, pointing at `check-eas-bank.sh`. |
 
 **Modified files**
 
@@ -207,7 +207,7 @@ git commit -m "feat(audio): pin and build SONiVOX EAS for iOS"
 ## Task 2: The bank-identity guard
 
 **Files:**
-- Create: `Scripts/check-eas-bank.sh`, `Scripts/test-check-eas-bank.sh`, `docs/learnings/eas-bank-reorganised-not-changed.md`
+- Create: `Scripts/check-eas-bank.sh`, `Scripts/test-check-eas-bank.sh`, `docs/learnings/eas-bank-comparison-reads-the-wrong-file.md` and `docs/learnings/pipefail-turns-an-early-quit-into-a-failure.md`
 - Modify: `docs/learnings/INDEX.md`, `.github/workflows/ci.yml:77-107`
 
 **Interfaces:**
@@ -668,7 +668,7 @@ Expected: first run exits non-zero naming `eas_samples`; second exits 0. Paste b
 
 - [ ] **Step 7: Write the learning and index it**
 
-Create `docs/learnings/eas-bank-reorganised-not-changed.md`:
+Create `docs/learnings/eas-bank-comparison-reads-the-wrong-file.md` and `docs/learnings/pipefail-turns-an-early-quit-into-a-failure.md`:
 
 ```markdown
 # The EAS instrument bank was reorganised, not changed
@@ -1063,6 +1063,7 @@ And add a step running both new guards after the dependency build, near the othe
 
 ```yaml
       - name: Verify the MIDI synthesis path
+        if: steps.setup.outputs.deps-built == 'true'
         run: |
           Scripts/check-eas-bank.sh | tee "$RUNNER_TEMP/eas-bank.txt"
           ! grep -q '^skip - ' "$RUNNER_TEMP/eas-bank.txt"
@@ -1070,7 +1071,13 @@ And add a step running both new guards after the dependency build, near the othe
           ! grep -q '^skip - ' "$RUNNER_TEMP/eas-rtf.txt"
 ```
 
-The re-fail on skip is the same discipline `issue-format.yml` uses: here the dependency is guaranteed to have been built, so a skip can only mean something broke, and a guard that silently skips is indistinguishable from one that always passes.
+**The `if:` is load-bearing and was not in the first draft of this plan.** Both guards read `Vendor/src/sonivox`, and CI does not always have it: on an engine cache hit neither `build-deps.sh` nor `build-engine.sh` runs, and the deps cache restores only `Vendor/out/*` — the dependency *sources* are absent. Unconditionally, this step would skip on every warm run and the re-fail below would turn CI red.
+
+So `.github/actions/setup-waddle-build` gains a `deps-built` output, set only when `build-deps.sh` actually ran, and `ci.yml` gives the setup step `id: setup` to read it.
+
+Gating this way is not a hole. Both caches key on `build-deps.sh` — the deps cache directly, the engine cache through `engine-fingerprint.sh`, which hashes that script — so any change to `SONIVOX_TAG` misses both and forces a rebuild. The guards therefore run on exactly the pull requests that could change their answer, and a cache hit means the pin is byte-identical to one already verified.
+
+The re-fail on skip is the same discipline `issue-format.yml` uses, and the `if:` is what makes it true here: the sources are present by construction, so a skip can only mean something broke.
 
 - [ ] **Step 9: Commit**
 

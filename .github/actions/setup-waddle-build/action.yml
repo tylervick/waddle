@@ -19,6 +19,16 @@ inputs:
     required: false
     default: 'false'
 
+outputs:
+  deps-built:
+    description: >-
+      'true' when Scripts/build-deps.sh actually ran, meaning Vendor/src/* was
+      fetched and is on disk. On a cache hit it did not run and only
+      Vendor/out/* was restored -- the dependency SOURCES are absent, so any
+      check that reads them must be gated on this rather than skipping and
+      being read as having passed.
+    value: ${{ steps.build-deps.outputs.ran }}
+
 runs:
   using: composite
   steps:
@@ -95,9 +105,12 @@ runs:
     # With skip-cache the restore steps do not run, so cache-hit is empty and
     # these conditions hold. Stated explicitly rather than relying on that.
     - name: Build SDL3 + OpenAL Soft
+      id: build-deps
       if: inputs.skip-cache == 'true' || (steps.engine-cache.outputs.cache-hit != 'true' && steps.deps-cache.outputs.cache-hit != 'true')
       shell: bash
-      run: Scripts/build-deps.sh
+      run: |
+        Scripts/build-deps.sh
+        echo "ran=true" >> "$GITHUB_OUTPUT"
 
     - name: Build engine framework
       if: inputs.skip-cache == 'true' || steps.engine-cache.outputs.cache-hit != 'true'
