@@ -219,7 +219,14 @@ final class ImportService {
                              sha1: WADStore.sha1(of: data), into: &outcome)
         case "wad":
             do {
-                guard let data = try? Data(contentsOf: url) else {
+                // .mappedIfSafe, not a plain read: a megawad like Eviternity II
+                // is ~280MB, and a whole-file Data is one anonymous allocation
+                // that size, on a path that runs at launch and on every
+                // foreground (see adoptLooseFiles). Mapped, the kernel pages it
+                // in on demand and can evict under pressure — which on iOS is
+                // the difference between a slow import and a jetsam kill.
+                // Everything below indexes Data exactly as before.
+                guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
                     outcome.rejected[name] = "File could not be read."
                     return
                 }
@@ -318,15 +325,22 @@ final class ImportService {
             await storeAndRegisterAsync(url: url, name: name, kind: WADKind.deh.rawValue,
                                         family: GameFamily.unknown.rawValue, sha1: sha1, into: &outcome)
         case "wad":
-            // WADParser.parse needs the whole file loaded (it slices into
-            // the lump directory by offset), so there's no avoiding a full
-            // Data(contentsOf:) read here — but it, the parse, and the hash
-            // all happen inside this detached task, off Main. Hashing from
-            // the buffer we already loaded for parsing (rather than a
-            // second streamed pass over the file) avoids reading a 293MB
-            // WAD like Eviternity II off disk twice.
+            // WADParser.parse addresses the whole file (it slices into the
+            // lump directory by offset), but it only ever touches two small
+            // ranges: the 12-byte header, then numLumps * 16 bytes at
+            // dirOffset. .mappedIfSafe serves that from the page cache
+            // instead of holding the file resident — a 293MB WAD like
+            // Eviternity II would otherwise be one 293MB allocation, and on
+            // iOS that is a jetsam risk, not just a slow read. The parse and
+            // the hash still happen inside this detached task, off Main, and
+            // hashing from the same mapping we parsed (rather than a second
+            // streamed pass) keeps this to a single pass over the file.
+            //
+            // .mappedIfSafe is a request: Foundation declines where it judges
+            // mapping unsafe, and behaviour is then exactly what it was
+            // before — the floor is the status quo.
             let result = await Task.detached { () -> WADCandidateResult in
-                guard let data = try? Data(contentsOf: url) else {
+                guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
                     return .rejected("File could not be read.")
                 }
                 do {
