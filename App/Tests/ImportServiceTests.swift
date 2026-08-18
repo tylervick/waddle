@@ -470,4 +470,108 @@ final class ImportServiceTests: XCTestCase {
             at: storeDir, includingPropertiesForKeys: nil)
         XCTAssertEqual(filesInStore.count, 1)
     }
+
+    // MARK: mapped reads
+
+    /// A WAD whose directory sits *after* real lump data, so parsing has to
+    /// address the middle of the file rather than read straight off the
+    /// header. `makeWAD` puts the directory at offset 12 with zero-size lumps,
+    /// which would not exercise the seek at all — and seeking by offset is
+    /// exactly the property `.mappedIfSafe` has to preserve, since `Data`
+    /// indexes the same way whether the bytes are a heap buffer or a mapping.
+    private func makeWADWithBodies(magic: String, lumps: [(String, [UInt8])]) -> Data {
+        var body = Data()
+        var entries: [(pos: Int32, size: Int32, name: String)] = []
+        for (name, bytes) in lumps {
+            entries.append((pos: Int32(12 + body.count), size: Int32(bytes.count), name: name))
+            body.append(contentsOf: bytes)
+        }
+        var data = Data(magic.utf8)
+        data.append(contentsOf: withUnsafeBytes(of: Int32(lumps.count).littleEndian, Array.init))
+        data.append(contentsOf: withUnsafeBytes(of: Int32(12 + body.count).littleEndian,
+                                                Array.init))
+        data.append(body)
+        for entry in entries {
+            data.append(contentsOf: withUnsafeBytes(of: entry.pos.littleEndian, Array.init))
+            data.append(contentsOf: withUnsafeBytes(of: entry.size.littleEndian, Array.init))
+            var nameBytes = Array(entry.name.utf8.prefix(8))
+            nameBytes.append(contentsOf: Array(repeating: 0, count: 8 - nameBytes.count))
+            data.append(contentsOf: nameBytes)
+        }
+        return data
+    }
+
+    /// The property the import path now turns on: reading a WAD mapped yields
+    /// the same bytes, the same parse and the same SHA-1 as reading it whole.
+    /// Hermetic — a few KB proves it; the 280MB megawad this exists for cannot
+    /// be a fixture, and peak memory is deliberately not asserted here (see the
+    /// issue: XCTMemoryMetric on a simulator does not measure what jetsam
+    /// cares about).
+    func testMappedReadParsesAndHashesIdenticallyToPlainRead() throws {
+        let lumps: [(String, [UInt8])] = [
+            ("MAP01", [UInt8](repeating: 0xAB, count: 4096)),
+            ("THINGS", (0...255).map { UInt8($0) }),
+            ("SIDEDEFS", []),
+        ]
+        let url = try write("mapped.wad", makeWADWithBodies(magic: "PWAD", lumps: lumps))
+
+        let plain = try Data(contentsOf: url)
+        let mapped = try Data(contentsOf: url, options: .mappedIfSafe)
+
+        XCTAssertEqual(mapped.count, plain.count)
+        XCTAssertEqual(Array(mapped), Array(plain), "mapped read differs byte-for-byte")
+
+        let plainParsed = try WADParser.parse(plain)
+        let mappedParsed = try WADParser.parse(mapped)
+        XCTAssertEqual(mappedParsed.kind, plainParsed.kind)
+        XCTAssertEqual(mappedParsed.kind, .pwad)
+        XCTAssertEqual(mappedParsed.lumpNames, plainParsed.lumpNames)
+        XCTAssertEqual(mappedParsed.lumpNames, ["MAP01", "THINGS", "SIDEDEFS"])
+        XCTAssertEqual(WADParser.gameFamily(of: mappedParsed.lumpNames),
+                       WADParser.gameFamily(of: plainParsed.lumpNames))
+
+        XCTAssertEqual(WADStore.sha1(of: mapped), WADStore.sha1(of: plain))
+        // ...and against the streamed hasher, which never loads the file at
+        // all: three independent reads of the same bytes must agree.
+        XCTAssertEqual(WADStore.sha1(of: mapped), try WADStore.sha1(ofFileAt: url))
+    }
+
+    /// The same property through `importOne` itself, on a WAD whose directory
+    /// is past its lump data: what lands in the library must be the hash of
+    /// the file on disk, not of whatever the mapped read happened to page in.
+    func testImportHashesMappedWADToItsOnDiskSHA1() throws {
+        let data = makeWADWithBodies(magic: "PWAD",
+                                     lumps: [("MAP01", [UInt8](repeating: 0x7F, count: 8192))])
+        let url = try write("body.wad", data)
+        let expected = try WADStore.sha1(ofFileAt: url)
+
+        let outcome = importer.importFiles(at: [url])
+
+        XCTAssertEqual(outcome.imported, ["body"])
+        let wad = try XCTUnwrap(try library.allWADs().first)
+        XCTAssertEqual(wad.sha1, expected)
+        XCTAssertEqual(wad.kindRaw, WADKind.pwad.rawValue)
+        XCTAssertEqual(wad.gameFamilyRaw, GameFamily.doom2.rawValue)
+    }
+
+    /// And through the detached-task branch (`adoptLooseFiles`), which is the
+    /// one that runs at launch and on every foreground — the reason a resident
+    /// whole-file read mattered enough to fix.
+    func testAdoptLooseFilesHashesMappedWADToItsOnDiskSHA1() async throws {
+        let docs = URL.documentsDirectory
+        let name = "mapped-\(UUID().uuidString).wad"
+        let looseURL = docs.appendingPathComponent(name)
+        try makeWADWithBodies(magic: "PWAD",
+                              lumps: [("MAP01", [UInt8](repeating: 0x5A, count: 8192))])
+            .write(to: looseURL)
+        let expected = try WADStore.sha1(ofFileAt: looseURL)
+        defer { try? FileManager.default.removeItem(at: looseURL) }
+
+        let outcome = await importer.adoptLooseFiles()
+
+        XCTAssertTrue(outcome.imported.contains((name as NSString).deletingPathExtension),
+                      "adoptLooseFiles did not import the loose WAD: \(outcome)")
+        let wad = try XCTUnwrap(try library.allWADs().first { $0.sha1 == expected })
+        XCTAssertEqual(wad.kindRaw, WADKind.pwad.rawValue)
+    }
 }
