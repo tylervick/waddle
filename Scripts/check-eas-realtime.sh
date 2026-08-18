@@ -65,7 +65,11 @@ if ! out="$("$PROBE" "$MIDI" 2>&1)"; then
     err "the real-time probe failed: $out"
 fi
 
-rtf="$(echo "$out" | sed -n 's/.*rtf=\([0-9.]*\).*/\1/p')"
+# Capture the whole non-whitespace token, NOT just its numeric prefix.
+# `\([0-9.]*\)` would read "rtf=24.0ms" as "24.0", which then sails through
+# is_decimal below -- the validation would be inspecting a value the probe
+# never reported.
+rtf="$(echo "$out" | sed -n 's/.*rtf=\([^[:space:]]*\).*/\1/p')"
 [ -n "$rtf" ] || err "the probe produced no real-time factor: $out"
 
 # Both operands must be well-formed decimals BEFORE bc sees them. `[0-9.]*`

@@ -25,7 +25,13 @@ EOF
     chmod +x "$1"
 }
 
-run() { env EAS_PROBE_BIN="$1" ${EAS_MIN_RTF:+EAS_MIN_RTF="$EAS_MIN_RTF"} "$SCRIPT"; }
+# The threshold is passed EXPLICITLY, never inherited. A developer with
+# EAS_MIN_RTF set in their shell would otherwise have every "default" case
+# silently test a different floor, and the suite would pass or fail depending on
+# whose machine it ran on.
+run() { # probe [min_rtf]
+    env EAS_PROBE_BIN="$1" EAS_MIN_RTF="${2:-5}" "$SCRIPT"
+}
 
 # 1. Comfortably ahead of playback passes. 24x is the conservative on-device
 #    figure the design projects from a 1229x dev-machine measurement.
@@ -84,9 +90,30 @@ pass "malformed real-time factor fails closed"
 # 7. Same for the floor. An EAS_MIN_RTF typo must be a loud refusal, not a
 #    comparison that silently never fires.
 make_probe "$TMP/goodrtf" "frames=114432 seconds=5.190 wall=0.2163 rtf=24.0"
-if out="$(EAS_MIN_RTF=five; export EAS_MIN_RTF; run "$TMP/goodrtf" 2>&1)"; then
+if out="$(run "$TMP/goodrtf" five 2>&1)"; then
     fail "a non-numeric EAS_MIN_RTF was accepted"
 fi
 pass "non-numeric floor fails closed"
+
+# 8. A factor with a trailing suffix fails. Capturing only the numeric prefix
+#    would read "24.0ms" as "24.0" and validate THAT -- inspecting a value the
+#    probe never reported, which is validation theatre rather than validation.
+make_probe "$TMP/suffix" "frames=114432 seconds=5.190 wall=0.2163 rtf=24.0ms"
+if out="$(run "$TMP/suffix" 2>&1)"; then
+    fail "a real-time factor with a trailing suffix was accepted"
+fi
+echo "$out" | grep -q "malformed" \
+    || fail "the failure did not name the malformed value; it said: $out"
+pass "suffixed real-time factor fails closed"
+
+# 9. The threshold under test is the one this suite passes, never one
+#    inherited from the environment. Proven by setting a hostile value in the
+#    caller's environment and confirming the default cases still use 5:
+#    at EAS_MIN_RTF=100000 a 24x probe would fail if the value leaked through.
+export EAS_MIN_RTF=100000
+out="$(run "$TMP/fast" 2>&1)" \
+    || fail "an inherited EAS_MIN_RTF leaked into the default cases: $out"
+unset EAS_MIN_RTF
+pass "the threshold is pinned by the suite, not inherited"
 
 echo "All check-eas-realtime tests passed."
