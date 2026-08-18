@@ -41,6 +41,9 @@ static stream_module_t *all_modules[] =
 #if defined (HAVE_FLUIDSYNTH)
     &stream_fl_module,
 #endif
+#if defined (HAVE_SONIVOX)
+    &stream_eas_module,
+#endif
     &stream_opl_module,
 #if defined (HAVE_SNDFILE)
     &stream_snd_module,
@@ -66,6 +69,12 @@ static stream_module_t *midi_modules[] =
 {
 #if defined (HAVE_FLUIDSYNTH)
     &stream_fl_module,
+#endif
+// WADdle patch (#116): ahead of OPL3 deliberately. I_SetMidiPlayer's fallback
+// takes the first module that initialises, so this ordering is what makes the
+// wavetable synth the default on a fresh install.
+#if defined (HAVE_SONIVOX)
+    &stream_eas_module,
 #endif
     &stream_opl_module,
 };
