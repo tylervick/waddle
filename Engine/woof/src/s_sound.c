@@ -1042,7 +1042,11 @@ void S_ChangeMusic(int musicnum, int looping)
 
     music->lumpnum = old_lumpnum;
 
-    mus_playing = music;
+    // Waddle patch (#196): a track that never registered is not the track
+    // that is playing. Recording it as such would also block a retry -- the
+    // `mus_playing == music` early return above -- and leave pause/resume
+    // holding a handle that was never valid.
+    mus_playing = music->handle ? music : NULL;
 
     // [crispy] musinfo.items[0] is reserved for the map's default music
     if (!musinfo.items[0])
@@ -1106,7 +1110,9 @@ void S_ChangeMusInfoMusic(int lumpnum, int looping)
 
     music->lumpnum = lumpnum;
 
-    mus_playing = music;
+    // Waddle patch (#196): see the note in S_ChangeMusic -- a track that never
+    // registered must not be recorded as the one playing.
+    mus_playing = music->handle ? music : NULL;
 
     musinfo.current_item = lumpnum;
 }

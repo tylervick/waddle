@@ -145,6 +145,18 @@ for platform in iphoneos iphonesimulator; do
         -DBUILD_SHARED_LIBS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DBUILD_PROGRAMS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF \
         -DENABLE_MPEG=OFF -DENABLE_CPACK=OFF
+    # A libsndfile without the Xiph codecs still builds, installs and links --
+    # it just cannot decode the one format this dependency exists for. Today a
+    # missing codec fails configure outright (measured), so this is belt and
+    # braces rather than a live hole; it is here because the failure it guards
+    # is silent by nature, and the whole point of #196 was a silent one.
+    sndcfg="$ROOT/Vendor/build/libsndfile-$platform/src/config.h"
+    if ! grep -q '^#define HAVE_EXTERNAL_XIPH_LIBS 1' "$sndcfg"; then
+        echo "error: libsndfile for $platform was configured without the Xiph" >&2
+        echo "       codecs -- it cannot decode Ogg, which is why it is here." >&2
+        echo "       check that ogg/vorbis/flac/opus installed to $OUT/$platform" >&2
+        exit 1
+    fi
     build "$SRC/sonivox" "$platform" \
         -DBUILD_SHARED_LIBS=OFF \
         -DUSE_44KHZ=OFF -DUSE_16BITS_SAMPLES=OFF \

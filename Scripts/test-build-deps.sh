@@ -64,7 +64,29 @@ make_fixture() { # dest
             || fail "fixture did not repoint the $dep clone URL -- this test would hit the network"
     done
     # The checkout guard is under test, not the build. Stub cmake out entirely.
-    printf '#!/bin/sh\nexit 0\n' > "$1/bin/cmake"
+    # The checkout guard is under test, not the build -- but build-deps.sh now
+    # asserts the libsndfile it configured actually has the Xiph codecs
+    # (#196), reading src/config.h from the build dir. The stub emits that
+    # file so the assertion sees a well-formed configure, and
+    # SNDFILE_XIPH_VALUE lets a case below emit a codec-less one instead.
+    cat > "$1/bin/cmake" <<'CMAKESTUB'
+#!/bin/sh
+bdir=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -B) bdir="$2"; shift 2 ;;
+        *)  shift ;;
+    esac
+done
+case "$bdir" in
+    *libsndfile-*)
+        mkdir -p "$bdir/src"
+        printf '#define HAVE_EXTERNAL_XIPH_LIBS %s\n' "${SNDFILE_XIPH_VALUE:-1}" \
+            > "$bdir/src/config.h"
+        ;;
+esac
+exit 0
+CMAKESTUB
     chmod +x "$1/bin/cmake"
 }
 
@@ -169,5 +191,18 @@ mkdir -p "$B/Vendor/src/SDL"
 run_deps "$B"
 assert_at "$B/Vendor/src/SDL" "$TMP/upstream-sdl" v1 "reused an empty dir inside the enclosing repo"
 pass "replaces an empty directory nested inside an enclosing repo"
+
+# A libsndfile configured without the Xiph codecs builds, installs and links
+# fine -- it simply cannot decode the one format it was added for. The build
+# must refuse it rather than shipping a library that is silently useless.
+Z="$TMP/z"; make_fixture "$Z"
+set_pin "$Z" SDL_TAG v1; set_pin "$Z" OPENAL_TAG v1; set_pin "$Z" SONIVOX_TAG v1
+for v in LIBOGG_TAG LIBVORBIS_TAG LIBFLAC_TAG LIBOPUS_TAG LIBSNDFILE_TAG; do set_pin "$Z" "$v" v1; done
+if PATH="$Z/bin:$PATH" SNDFILE_XIPH_VALUE=0 "$Z/Scripts/build-deps.sh" >"$TMP/z.log" 2>&1; then
+    fail "accepted a libsndfile built without the Xiph codecs"
+fi
+grep -q "without the Xiph" "$TMP/z.log" \
+    || fail "the refusal did not explain the missing codecs: $(tail -3 "$TMP/z.log")"
+pass "refuses a libsndfile configured without the Xiph codecs"
 
 echo "all build-deps checkout-guard tests passed"

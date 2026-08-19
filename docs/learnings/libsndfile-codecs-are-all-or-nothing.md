@@ -3,8 +3,12 @@
 Wanting OGG music support costs five pinned libraries, not one. libsndfile
 vendors no codecs, and it does not let you pick among them: a single
 `HAVE_EXTERNAL_XIPH_LIBS` gates Ogg, Vorbis, FLAC **and** Opus together. There
-is no `ENABLE_VORBIS` or `ENABLE_FLAC` option in 1.2.2 — `grep 'option(ENABLE_'`
-its `CMakeLists.txt` returns nothing.
+is no `ENABLE_VORBIS` or `ENABLE_FLAC` option in 1.2.2:
+
+```console
+$ grep -n 'option(ENABLE_' Vendor/src/libsndfile/CMakeLists.txt
+$
+```
 
 With `ENABLE_EXTERNAL_LIBS` on and FLAC absent, configure does not degrade
 gracefully; it fails:
