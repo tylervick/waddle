@@ -79,6 +79,8 @@ linked components: [Freedoom](https://freedoom.github.io/) data
 (BSD-style), [SDL3](https://libsdl.org) (zlib),
 [OpenAL Soft](https://openal-soft.org) (LGPL-2.0, conveyed under the GPL),
 SONiVOX EAS (Apache-2.0),
+[libsndfile](https://libsndfile.github.io/libsndfile/) (LGPL-2.1, conveyed
+under the GPL) with libogg, libvorbis, libFLAC and libopus (all BSD-3-Clause),
 and [ZIPFoundation](https://github.com/weichsel/ZIPFoundation) (MIT). Full
 license texts ship in the app (About screen) and live in
 [`App/Resources/Licenses/`](App/Resources/Licenses/), with attribution

@@ -44,7 +44,7 @@ for platform in iphoneos iphonesimulator; do
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_PREFIX_PATH="$OUT/$platform" \
         -DCMAKE_FIND_ROOT_PATH="$OUT/$platform" \
-        -DWITH_SNDFILE=OFF -DWITH_FLUIDSYNTH=OFF -DWITH_XMP=OFF \
+        -DWITH_SNDFILE=ON -DWITH_FLUIDSYNTH=OFF -DWITH_XMP=OFF \
         -DWITH_SONIVOX=ON \
         -DWITH_DISCORD_RPC=OFF
     cmake --build "$bdir" --target woof
@@ -106,7 +106,13 @@ for platform in iphoneos iphonesimulator; do
         $(find "$ROOT/Vendor/build/woof-$platform" -name '*.a') \
         "$OUT/$platform/lib/libSDL3.a" \
         "$OUT/$platform/lib/libopenal.a" \
-        "$OUT/$platform/lib/libsonivox.a"
+        "$OUT/$platform/lib/libsonivox.a" \
+        "$OUT/$platform/lib/libsndfile.a" \
+        "$OUT/$platform/lib/libFLAC.a" \
+        "$OUT/$platform/lib/libopus.a" \
+        "$OUT/$platform/lib/libvorbisenc.a" \
+        "$OUT/$platform/lib/libvorbis.a" \
+        "$OUT/$platform/lib/libogg.a"
 done
 
 xcodebuild -create-xcframework \

@@ -163,7 +163,12 @@ if(spng_FOUND)
 endif()
 
 if(WITH_SNDFILE)
-    find_package(SndFile 1.0.29)
+    # Waddle patch (#196): REQUIRED. Without it a build that asked for
+    # libsndfile and did not find it succeeds with HAVE_SNDFILE unset, ships no
+    # streamed-music support, and says nothing -- while build-engine.sh still
+    # merges libsndfile.a into the framework, so even the artefact looks right.
+    # Same reasoning as WITH_SONIVOX above.
+    find_package(SndFile 1.0.29 REQUIRED)
     if(SndFile_FOUND)
         set(HAVE_SNDFILE TRUE)
         if(SndFile_VERSION VERSION_GREATER_EQUAL "1.1.0")

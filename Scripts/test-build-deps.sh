@@ -35,6 +35,9 @@ make_upstream() { # dir
 make_upstream "$TMP/upstream-sdl"
 make_upstream "$TMP/upstream-openal"
 make_upstream "$TMP/upstream-sonivox"
+for dep in ogg vorbis flac opus libsndfile; do
+    make_upstream "$TMP/upstream-$dep"
+done
 
 # A copy of the REAL script with its two clone URLs repointed at those repos.
 # file:// (not a bare path) is required: a local-path clone ignores --depth.
@@ -43,6 +46,11 @@ make_fixture() { # dest
     sed -e "s|https://github.com/libsdl-org/SDL.git|file://$TMP/upstream-sdl|" \
         -e "s|https://github.com/kcat/openal-soft.git|file://$TMP/upstream-openal|" \
         -e "s|https://github.com/pedrolcl/sonivox.git|file://$TMP/upstream-sonivox|" \
+        -e "s|https://github.com/xiph/ogg.git|file://$TMP/upstream-ogg|" \
+        -e "s|https://github.com/xiph/vorbis.git|file://$TMP/upstream-vorbis|" \
+        -e "s|https://github.com/xiph/flac.git|file://$TMP/upstream-flac|" \
+        -e "s|https://github.com/xiph/opus.git|file://$TMP/upstream-opus|" \
+        -e "s|https://github.com/libsndfile/libsndfile.git|file://$TMP/upstream-libsndfile|" \
         "$SCRIPT" > "$1/Scripts/build-deps.sh"
     chmod +x "$1/Scripts/build-deps.sh"
     grep -q "file://$TMP/upstream-sdl" "$1/Scripts/build-deps.sh" \
@@ -51,8 +59,34 @@ make_fixture() { # dest
         || fail "fixture did not repoint the openal-soft clone URL -- this test would hit the network"
     grep -q "file://$TMP/upstream-sonivox" "$1/Scripts/build-deps.sh" \
         || fail "fixture did not repoint the sonivox clone URL -- this test would hit the network"
+    for dep in ogg vorbis flac opus libsndfile; do
+        grep -q "file://$TMP/upstream-$dep" "$1/Scripts/build-deps.sh" \
+            || fail "fixture did not repoint the $dep clone URL -- this test would hit the network"
+    done
     # The checkout guard is under test, not the build. Stub cmake out entirely.
-    printf '#!/bin/sh\nexit 0\n' > "$1/bin/cmake"
+    # The checkout guard is under test, not the build -- but build-deps.sh now
+    # asserts the libsndfile it configured actually has the Xiph codecs
+    # (#196), reading src/config.h from the build dir. The stub emits that
+    # file so the assertion sees a well-formed configure, and
+    # SNDFILE_XIPH_VALUE lets a case below emit a codec-less one instead.
+    cat > "$1/bin/cmake" <<'CMAKESTUB'
+#!/bin/sh
+bdir=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -B) bdir="$2"; shift 2 ;;
+        *)  shift ;;
+    esac
+done
+case "$bdir" in
+    *libsndfile-*)
+        mkdir -p "$bdir/src"
+        printf '#define HAVE_EXTERNAL_XIPH_LIBS %s\n' "${SNDFILE_XIPH_VALUE:-1}" \
+            > "$bdir/src/config.h"
+        ;;
+esac
+exit 0
+CMAKESTUB
     chmod +x "$1/bin/cmake"
 }
 
@@ -85,10 +119,18 @@ assert_at() { # dir upstream tag msg
 # --- 1. cold clone ----------------------------------------------------
 A="$TMP/a"; make_fixture "$A"
 set_pin "$A" SDL_TAG v1; set_pin "$A" OPENAL_TAG v1; set_pin "$A" SONIVOX_TAG v1
+for v in LIBOGG_TAG LIBVORBIS_TAG LIBFLAC_TAG LIBOPUS_TAG LIBSNDFILE_TAG; do set_pin "$A" "$v" v1; done
 run_deps "$A"
 assert_at "$A/Vendor/src/SDL" "$TMP/upstream-sdl" v1 "cold clone of SDL"
 assert_at "$A/Vendor/src/openal-soft" "$TMP/upstream-openal" v1 "cold clone of openal-soft"
 assert_at "$A/Vendor/src/sonivox" "$TMP/upstream-sonivox" v1 "cold clone of sonivox"
+# The codec stack (#196). Five pins, because libsndfile gates Ogg, Vorbis,
+# FLAC and Opus behind one build flag and refuses to configure without all of
+# them -- so a checkout silently left behind on any one of them breaks the
+# build of the library that needs it, not just its own.
+for dep in ogg vorbis flac opus libsndfile; do
+    assert_at "$A/Vendor/src/$dep" "$TMP/upstream-$dep" v1 "cold clone of $dep"
+done
 pass "clones each dep at its pinned tag when nothing exists yet"
 
 # --- 2. the bug in #13: a bumped pin under an existing checkout --------
@@ -144,9 +186,29 @@ git init -q -b main "$B"
 echo enclosing > "$B/README"; git -C "$B" add README; git -C "$B" commit -qm enclosing
 git -C "$B" tag v1
 set_pin "$B" SDL_TAG v1; set_pin "$B" OPENAL_TAG v1; set_pin "$B" SONIVOX_TAG v1
+for v in LIBOGG_TAG LIBVORBIS_TAG LIBFLAC_TAG LIBOPUS_TAG LIBSNDFILE_TAG; do set_pin "$B" "$v" v1; done
 mkdir -p "$B/Vendor/src/SDL"
 run_deps "$B"
 assert_at "$B/Vendor/src/SDL" "$TMP/upstream-sdl" v1 "reused an empty dir inside the enclosing repo"
 pass "replaces an empty directory nested inside an enclosing repo"
+
+# build-deps.sh must refuse a libsndfile whose generated config says the Xiph
+# codecs are absent, because such a library would link fine while being unable
+# to decode the one format it was added for.
+#
+# This models the config.h alone -- cmake is stubbed, so nothing is configured,
+# built, installed or linked here. Worth being exact: against the real
+# libsndfile 1.2.2 a missing codec fails CMake configuration outright, so this
+# shape is not currently reachable. The assertion exists because the failure it
+# guards would be silent if it ever were.
+Z="$TMP/z"; make_fixture "$Z"
+set_pin "$Z" SDL_TAG v1; set_pin "$Z" OPENAL_TAG v1; set_pin "$Z" SONIVOX_TAG v1
+for v in LIBOGG_TAG LIBVORBIS_TAG LIBFLAC_TAG LIBOPUS_TAG LIBSNDFILE_TAG; do set_pin "$Z" "$v" v1; done
+if PATH="$Z/bin:$PATH" SNDFILE_XIPH_VALUE=0 "$Z/Scripts/build-deps.sh" >"$TMP/z.log" 2>&1; then
+    fail "accepted a libsndfile built without the Xiph codecs"
+fi
+grep -q "without the Xiph" "$TMP/z.log" \
+    || fail "the refusal did not explain the missing codecs: $(tail -3 "$TMP/z.log")"
+pass "refuses a libsndfile configured without the Xiph codecs"
 
 echo "all build-deps checkout-guard tests passed"

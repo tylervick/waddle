@@ -787,6 +787,44 @@ boolean IsMid(byte *mem, int len)
     return len > 4 && !memcmp(mem, "MThd", 4);
 }
 
+// Waddle patch (#196): names the container a refused music lump appears to be,
+// so "no music" in the session log says WHICH format nobody could play.
+//
+// Deliberately says only what the bytes are, not what would fix it. Which
+// modules exist is a build-time question -- libsndfile is on in this app's
+// engine but a standalone Woof build may have it off -- so naming a library
+// here would be a guess that reads as fact. The caller already says no module
+// accepted the lump; this says what the lump was.
+static const char *MusicFormatHint(byte *mem, int len)
+{
+    if (len < 4)
+    {
+        return "truncated";
+    }
+    // MIDI and MUS are normally accepted, so reaching here with one means it
+    // parsed badly rather than being an unsupported container -- worth saying
+    // distinctly instead of lumping it in with "unrecognised".
+    if (!memcmp(mem, "MThd", 4))            { return "MIDI (malformed?)"; }
+    if (!memcmp(mem, "MUS\x1a", 4))         { return "MUS (malformed?)"; }
+    if (!memcmp(mem, "OggS", 4))            { return "Ogg"; }
+    if (!memcmp(mem, "fLaC", 4))            { return "FLAC"; }
+    // RIFF is a container marker shared by AVI and WEBP among others, so the
+    // WAVE tag at offset 8 is what actually makes it a WAV.
+    if (len >= 12 && !memcmp(mem, "RIFF", 4) && !memcmp(mem + 8, "WAVE", 4))
+    {
+        return "WAV";
+    }
+    if (!memcmp(mem, "IMPM", 4))            { return "Impulse Tracker module"; }
+    if (!memcmp(mem, "SCRM", 4))            { return "ScreamTracker module"; }
+    // The full 15 bytes, not min(15, len): a shorter compare classifies any
+    // 4-byte lump beginning "Exte" as an XM module.
+    if (len >= 15 && !memcmp(mem, "Extended Module", 15))
+    {
+        return "XM module";
+    }
+    return "unrecognised";
+}
+
 boolean IsMus(byte *mem, int len)
 {
     return len > 4 && !memcmp(mem, "MUS\x1a", 4);
@@ -804,7 +842,15 @@ void *I_RegisterSong(void *data, int size)
             return result;
         }
     }
+    // Waddle patch (#196): refusing every module used to return NULL in
+    // silence, and the caller logged the track as though it had played. A
+    // player heard nothing and neither the log nor the diagnostics bundle
+    // could tell that apart from a map with no music.
     active_module = NULL;
+    I_Printf(VB_ERROR,
+             "I_RegisterSong: no music module accepted this lump -- %s; "
+             "it will be silent",
+             MusicFormatHint((byte *)data, size));
     return NULL;
 }
 
