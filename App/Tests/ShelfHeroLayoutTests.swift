@@ -194,6 +194,21 @@ final class ShelfHeroLayoutTests: XCTestCase {
     private let referenceContentWidth: CGFloat = 408
     private let referenceViewportHeight: CGFloat = 754
 
+    /// The card at the default text size: `.title` over a two-line
+    /// `.subheadline` over the 44 pt button.
+    private var defaultSizeCard: CGFloat {
+        ShelfHeroLayout.welcomeCardHeight(titleHeight: 41,
+                                          descriptionHeight: 40,
+                                          buttonHeight: 44)
+    }
+
+    /// The same card at an accessibility text size, where every row grows.
+    private var accessibilitySizeCard: CGFloat {
+        ShelfHeroLayout.welcomeCardHeight(titleHeight: 68,
+                                          descriptionHeight: 172,
+                                          buttonHeight: 76)
+    }
+
     func testAdaptiveColumnWidthMatchesASingleFullWidthColumn() {
         // 408 pt cannot fit two 200 pt columns plus a 16 pt gap, so the grid
         // resolves to one column spanning the whole width -- which is what
@@ -215,6 +230,16 @@ final class ShelfHeroLayoutTests: XCTestCase {
                                                        spacing: 16), 0)
     }
 
+    func testCompactCardIsShorterThanTheFullOne() {
+        let compact = ShelfHeroLayout.welcomeCardHeight(titleHeight: 41,
+                                                        descriptionHeight: 0,
+                                                        buttonHeight: 44)
+        XCTAssertLessThan(compact, defaultSizeCard)
+        // One row and one gap gone, nothing else.
+        XCTAssertEqual(defaultSizeCard - compact,
+                       40 + ShelfHeroLayout.welcomeCardRowSpacing)
+    }
+
     /// The regression this budget exists for: on the reference phone the full
     /// card does not fit above the first tile row, and saying it does is what
     /// left `playFreedoom1` present, on screen, and impossible to activate.
@@ -224,18 +249,23 @@ final class ShelfHeroLayoutTests: XCTestCase {
             contentWidth: referenceContentWidth,
             tileMinimumWidth: 200,
             contentPadding: 16,
-            gridSpacing: 16))
+            gridSpacing: 16,
+            fullCardHeight: defaultSizeCard))
     }
 
     /// The compact card must actually solve it -- a budget that both forms
     /// fail is a cap that only looks like one.
     func testCompactWelcomeCardLeavesTheFirstRowAboveTheFold() {
-        let tileRowHeight = ShelfHeroLayout.gridColumnWidth(
-            contentWidth: referenceContentWidth, minimum: 200, spacing: 16)
-            / Theme.tileAspectRatio
-        let used = 16 * 2 + ShelfHeroLayout.welcomeCardCompactHeight
-            + ShelfHeroLayout.sectionSpacing + tileRowHeight
-        XCTAssertLessThanOrEqual(used, referenceViewportHeight)
+        let compact = ShelfHeroLayout.welcomeCardHeight(titleHeight: 41,
+                                                        descriptionHeight: 0,
+                                                        buttonHeight: 44)
+        XCTAssertLessThanOrEqual(
+            compact,
+            ShelfHeroLayout.heroZoneBudget(viewportHeight: referenceViewportHeight,
+                                           contentWidth: referenceContentWidth,
+                                           tileMinimumWidth: 200,
+                                           contentPadding: 16,
+                                           gridSpacing: 16))
     }
 
     /// And the full card must be shown wherever it does fit: this is a cap,
@@ -246,7 +276,8 @@ final class ShelfHeroLayoutTests: XCTestCase {
             contentWidth: referenceContentWidth,
             tileMinimumWidth: 200,
             contentPadding: 16,
-            gridSpacing: 16))
+            gridSpacing: 16,
+            fullCardHeight: defaultSizeCard))
     }
 
     /// An unmeasured viewport must not flash a compact card on the first
@@ -257,6 +288,34 @@ final class ShelfHeroLayoutTests: XCTestCase {
             contentWidth: 0,
             tileMinimumWidth: 200,
             contentPadding: 16,
-            gridSpacing: 16))
+            gridSpacing: 16,
+            fullCardHeight: defaultSizeCard))
+    }
+
+    /// The accessibility case, which a budget written against default-size
+    /// constants gets wrong in the dangerous direction: the card grows, the
+    /// adaptive minimum grows with it, and a fixed 184 pt would have cleared a
+    /// card more than twice that tall.
+    func testWelcomeCardDropsItsDescriptionAtAccessibilitySizes() {
+        XCTAssertGreaterThan(accessibilitySizeCard, defaultSizeCard * 1.5)
+        XCTAssertFalse(ShelfHeroLayout.welcomeCardShowsDescription(
+            viewportHeight: referenceViewportHeight,
+            contentWidth: referenceContentWidth,
+            tileMinimumWidth: 320,
+            contentPadding: 16,
+            gridSpacing: 16,
+            fullCardHeight: accessibilitySizeCard))
+    }
+
+    /// A roomy viewport keeps the full card at accessibility sizes too --
+    /// the rule is the arithmetic, not "accessibility means compact".
+    func testWelcomeCardKeepsItsDescriptionAtAccessibilitySizesWhenItFits() {
+        XCTAssertTrue(ShelfHeroLayout.welcomeCardShowsDescription(
+            viewportHeight: 1600,
+            contentWidth: referenceContentWidth,
+            tileMinimumWidth: 320,
+            contentPadding: 16,
+            gridSpacing: 16,
+            fullCardHeight: accessibilitySizeCard))
     }
 }
