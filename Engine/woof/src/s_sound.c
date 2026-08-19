@@ -1046,7 +1046,25 @@ void S_ChangeMusic(int musicnum, int looping)
     // that is playing. Recording it as such would also block a retry -- the
     // `mus_playing == music` early return above -- and leave pause/resume
     // holding a handle that was never valid.
-    mus_playing = music->handle ? music : NULL;
+    //
+    // Releasing the lump here is not optional. S_StopMusic is what normally
+    // returns music->data from PU_STATIC to PU_CACHE, and it bails on
+    // !mus_playing -- so leaving mus_playing unset without this would retain
+    // every rejected lump for the rest of the session. The NULL guard mirrors
+    // S_StopMusic's, for wads with empty music lumps.
+    if (music->handle)
+    {
+        mus_playing = music;
+    }
+    else
+    {
+        if (music->data != NULL)
+        {
+            Z_ChangeTag(music->data, PU_CACHE);
+        }
+        music->data = NULL;
+        mus_playing = NULL;
+    }
 
     // [crispy] musinfo.items[0] is reserved for the map's default music
     if (!musinfo.items[0])
@@ -1111,8 +1129,21 @@ void S_ChangeMusInfoMusic(int lumpnum, int looping)
     music->lumpnum = lumpnum;
 
     // Waddle patch (#196): see the note in S_ChangeMusic -- a track that never
-    // registered must not be recorded as the one playing.
-    mus_playing = music->handle ? music : NULL;
+    // registered must not be recorded as the one playing, and its lump has to
+    // be released here because S_StopMusic will not reach it.
+    if (music->handle)
+    {
+        mus_playing = music;
+    }
+    else
+    {
+        if (music->data != NULL)
+        {
+            Z_ChangeTag(music->data, PU_CACHE);
+        }
+        music->data = NULL;
+        mus_playing = NULL;
+    }
 
     musinfo.current_item = lumpnum;
 }

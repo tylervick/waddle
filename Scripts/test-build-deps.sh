@@ -192,9 +192,15 @@ run_deps "$B"
 assert_at "$B/Vendor/src/SDL" "$TMP/upstream-sdl" v1 "reused an empty dir inside the enclosing repo"
 pass "replaces an empty directory nested inside an enclosing repo"
 
-# A libsndfile configured without the Xiph codecs builds, installs and links
-# fine -- it simply cannot decode the one format it was added for. The build
-# must refuse it rather than shipping a library that is silently useless.
+# build-deps.sh must refuse a libsndfile whose generated config says the Xiph
+# codecs are absent, because such a library would link fine while being unable
+# to decode the one format it was added for.
+#
+# This models the config.h alone -- cmake is stubbed, so nothing is configured,
+# built, installed or linked here. Worth being exact: against the real
+# libsndfile 1.2.2 a missing codec fails CMake configuration outright, so this
+# shape is not currently reachable. The assertion exists because the failure it
+# guards would be silent if it ever were.
 Z="$TMP/z"; make_fixture "$Z"
 set_pin "$Z" SDL_TAG v1; set_pin "$Z" OPENAL_TAG v1; set_pin "$Z" SONIVOX_TAG v1
 for v in LIBOGG_TAG LIBVORBIS_TAG LIBFLAC_TAG LIBOPUS_TAG LIBSNDFILE_TAG; do set_pin "$Z" "$v" v1; done
