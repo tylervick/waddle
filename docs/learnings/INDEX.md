@@ -46,3 +46,4 @@ One file per hard-won fact. Add an entry here in the same PR that adds the file 
 - [`pipefail` turns a downstream early-quit into a failure](pipefail-turns-an-early-quit-into-a-failure.md) — SIGPIPE from `… | sed -n '/x/q;p'`, and only above 64K
 - [A label-filtered issue query silently omits issues](label-filtered-issue-queries-omit-issues.md) — `--label` goes through the search index; fetch unfiltered and filter locally
 - [libsndfile's external codecs are all-or-nothing](libsndfile-codecs-are-all-or-nothing.md) — OGG support costs five pins, plus the CMake 4 and find-root traps
+- [The hero zone has to leave the first tile row *tappable*, not just visible](hero-zone-must-leave-a-tappable-tile-row.md) — a peek that satisfies `minimumGridPeek` can still put the row's tap target out of reach; a synthesized tap is not a landed tap

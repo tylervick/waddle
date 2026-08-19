@@ -184,4 +184,79 @@ final class ShelfHeroLayoutTests: XCTestCase {
             XCTAssertLessThanOrEqual(artHeight(viewport), viewport.naturalArtHeight)
         }
     }
+
+    // MARK: The welcome card's budget (spec §4)
+
+    /// The reference viewport: iPhone 17 Pro portrait, which is what
+    /// `ui-tests.yml` runs `EngineSmokeTests` on. 440 pt wide less 16 pt of
+    /// padding each side, and the scroll view's height less its safe-area
+    /// insets.
+    private let referenceContentWidth: CGFloat = 408
+    private let referenceViewportHeight: CGFloat = 754
+
+    func testAdaptiveColumnWidthMatchesASingleFullWidthColumn() {
+        // 408 pt cannot fit two 200 pt columns plus a 16 pt gap, so the grid
+        // resolves to one column spanning the whole width -- which is what
+        // makes the first tile row 544 pt tall.
+        XCTAssertEqual(ShelfHeroLayout.gridColumnWidth(contentWidth: 408,
+                                                       minimum: 200,
+                                                       spacing: 16), 408)
+    }
+
+    func testAdaptiveColumnWidthSplitsWhenTwoFit() {
+        XCTAssertEqual(ShelfHeroLayout.gridColumnWidth(contentWidth: 408,
+                                                       minimum: 190,
+                                                       spacing: 16), 196)
+    }
+
+    func testAdaptiveColumnWidthIsZeroBeforeMeasurement() {
+        XCTAssertEqual(ShelfHeroLayout.gridColumnWidth(contentWidth: 0,
+                                                       minimum: 200,
+                                                       spacing: 16), 0)
+    }
+
+    /// The regression this budget exists for: on the reference phone the full
+    /// card does not fit above the first tile row, and saying it does is what
+    /// left `playFreedoom1` present, on screen, and impossible to activate.
+    func testWelcomeCardDropsItsDescriptionOnTheReferencePhone() {
+        XCTAssertFalse(ShelfHeroLayout.welcomeCardShowsDescription(
+            viewportHeight: referenceViewportHeight,
+            contentWidth: referenceContentWidth,
+            tileMinimumWidth: 200,
+            contentPadding: 16,
+            gridSpacing: 16))
+    }
+
+    /// The compact card must actually solve it -- a budget that both forms
+    /// fail is a cap that only looks like one.
+    func testCompactWelcomeCardLeavesTheFirstRowAboveTheFold() {
+        let tileRowHeight = ShelfHeroLayout.gridColumnWidth(
+            contentWidth: referenceContentWidth, minimum: 200, spacing: 16)
+            / Theme.tileAspectRatio
+        let used = 16 * 2 + ShelfHeroLayout.welcomeCardCompactHeight
+            + ShelfHeroLayout.sectionSpacing + tileRowHeight
+        XCTAssertLessThanOrEqual(used, referenceViewportHeight)
+    }
+
+    /// And the full card must be shown wherever it does fit: this is a cap,
+    /// not a demotion.
+    func testWelcomeCardKeepsItsDescriptionOnARoomyViewport() {
+        XCTAssertTrue(ShelfHeroLayout.welcomeCardShowsDescription(
+            viewportHeight: 1200,
+            contentWidth: referenceContentWidth,
+            tileMinimumWidth: 200,
+            contentPadding: 16,
+            gridSpacing: 16))
+    }
+
+    /// An unmeasured viewport must not flash a compact card on the first
+    /// frame, matching how `artHeight` treats the same state.
+    func testWelcomeCardKeepsItsDescriptionBeforeTheViewportIsMeasured() {
+        XCTAssertTrue(ShelfHeroLayout.welcomeCardShowsDescription(
+            viewportHeight: 0,
+            contentWidth: 0,
+            tileMinimumWidth: 200,
+            contentPadding: 16,
+            gridSpacing: 16))
+    }
 }

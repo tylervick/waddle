@@ -46,7 +46,7 @@ struct ShelfView: View {
     /// is spec §5's "drops columns rather than shrinking text".
     private var columns: [GridItem] {
         [GridItem(.adaptive(minimum: Theme.gridMinimumTileWidth(for: dynamicTypeSize)),
-                  spacing: 16)]
+                  spacing: gridSpacing)]
     }
 
     var body: some View {
@@ -57,7 +57,7 @@ struct ShelfView: View {
                 case .resume(let item): hero(for: item)
                 case .empty: EmptyView()
                 }
-                LazyVGrid(columns: columns, spacing: 16) {
+                LazyVGrid(columns: columns, spacing: gridSpacing) {
                     ForEach(items) { item in
                         tile(for: item)
                     }
@@ -176,6 +176,21 @@ struct ShelfView: View {
     /// width it is not drawn at.
     private var contentPadding: CGFloat { 16 }
 
+    /// Grid gap, shared by the column definition and the row spacing below, so
+    /// the width `ShelfHeroLayout` reasons about is the width actually drawn.
+    private var gridSpacing: CGFloat { 16 }
+
+    /// Whether the welcome card can afford its description line on this
+    /// viewport (spec §4 vs. the shelf staying playable in one tap).
+    private var showsWelcomeDescription: Bool {
+        ShelfHeroLayout.welcomeCardShowsDescription(
+            viewportHeight: viewportHeight,
+            contentWidth: heroContentWidth,
+            tileMinimumWidth: Theme.gridMinimumTileWidth(for: dynamicTypeSize),
+            contentPadding: contentPadding,
+            gridSpacing: gridSpacing)
+    }
+
     /// Gap between the hero's art, title and Continue line.
     private var heroCaptionSpacing: CGFloat { 6 }
 
@@ -204,10 +219,17 @@ struct ShelfView: View {
     private var welcomeCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Waddle").font(.title.bold())
-            Text("Bring your own WADs, or start with the Freedoom games below.")
-                .font(.subheadline)
-                .foregroundStyle(Color.appSecondaryText)
-                .fixedSize(horizontal: false, vertical: true)
+            // Dropped on viewports where the card would otherwise push the
+            // first tile row past the fold -- see
+            // `ShelfHeroLayout.welcomeCardShowsDescription`. The app name and
+            // the button are what spec §4 leads with; the sentence is the part
+            // that can go when "playable in one tap" is the thing at stake.
+            if showsWelcomeDescription {
+                Text("Bring your own WADs, or start with the Freedoom games below.")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.appSecondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Button {
                 showImporter = true
             } label: {

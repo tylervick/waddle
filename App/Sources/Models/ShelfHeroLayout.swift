@@ -46,6 +46,84 @@ enum ShelfHeroLayout {
     /// collapsing into a strip too thin to read as art.
     static let minimumArtHeight: CGFloat = 96
 
+    /// The welcome card's height at the default Dynamic Type size, measured on
+    /// a 408 pt content width (iPhone 17 Pro, the destination `ui-tests.yml`
+    /// runs): app name, a two-line description, the 44 pt button, the two 12 pt
+    /// gaps between them, and 16 pt of padding top and bottom.
+    ///
+    /// A measured constant rather than a computed one, and deliberately so:
+    /// what is needed here is a *decision* taken before the card is laid out,
+    /// and measuring the real card to decide how to build it is a layout
+    /// feedback loop. It is used only to compare against the budget below, so
+    /// being a few points off moves the device size at which the card goes
+    /// compact -- it cannot produce a card that does not fit.
+    static let welcomeCardFullHeight: CGFloat = 184
+
+    /// The same card without its description line. This is what the card
+    /// costs once `welcomeCardShowsDescription` says no.
+    static let welcomeCardCompactHeight: CGFloat = 138
+
+    /// The width one grid column gets, given the width available to the grid
+    /// and the adaptive minimum `ShelfView` asks for. Mirrors what
+    /// `GridItem(.adaptive(minimum:spacing:))` resolves to: as many columns as
+    /// fit at that minimum, sharing the width left after the gaps between them.
+    ///
+    /// The shelf needs this because the first tile row's *height* is what the
+    /// hero zone has to leave room for, and that height follows from the
+    /// column width via `Theme.tileAspectRatio`.
+    static func gridColumnWidth(contentWidth: CGFloat,
+                                minimum: CGFloat,
+                                spacing: CGFloat) -> CGFloat {
+        guard contentWidth > 0, minimum > 0 else { return 0 }
+        let columns = max(1, (contentWidth + spacing) / (minimum + spacing))
+        let count = max(1, columns.rounded(.down))
+        return (contentWidth - spacing * (count - 1)) / count
+    }
+
+    /// Whether the welcome card can afford its description line.
+    ///
+    /// ## Why the welcome card needs a budget at all
+    ///
+    /// The Continue hero has had one since `artHeight` above: it is capped so
+    /// the first tile row stays reachable. The welcome card was added to the
+    /// same zone (spec §4) without one, and on the reference phone the numbers
+    /// do not work out -- a 408 pt content width resolves to a single 544 pt
+    /// tile, and 184 pt of card above it puts the row's bottom past the fold.
+    /// The tile is still on screen and still in the accessibility hierarchy, so
+    /// `minimumGridPeek` is satisfied and reports nothing wrong; what is lost is
+    /// the row being *tappable*, which is what that peek exists to protect.
+    /// `EngineSmokeTests` caught it as a tap that synthesized cleanly and
+    /// activated nothing.
+    ///
+    /// Dropping the description keeps the two elements spec §4 leads with --
+    /// the app name and the primary Add Your Games button -- and buys back the
+    /// 46 pt that makes the row fit.
+    ///
+    /// - Parameters:
+    ///   - viewportHeight: height visible without scrolling. Zero or
+    ///     non-finite means "not measured yet"; the card keeps its full form
+    ///     rather than flashing compact on the first frame.
+    ///   - contentWidth: width available to the grid, i.e. the viewport less
+    ///     safe-area and padding.
+    ///   - tileMinimumWidth: the adaptive minimum the grid was built with.
+    ///   - contentPadding: the padding around the whole scrolling column,
+    ///     which the first row has to clear at the bottom as well as the top.
+    ///   - gridSpacing: the gap between grid columns.
+    static func welcomeCardShowsDescription(viewportHeight: CGFloat,
+                                            contentWidth: CGFloat,
+                                            tileMinimumWidth: CGFloat,
+                                            contentPadding: CGFloat,
+                                            gridSpacing: CGFloat) -> Bool {
+        guard viewportHeight.isFinite, viewportHeight > 0 else { return true }
+        let tileRowHeight = gridColumnWidth(contentWidth: contentWidth,
+                                            minimum: tileMinimumWidth,
+                                            spacing: gridSpacing) / Theme.tileAspectRatio
+        // Both paddings: the row has to end above the fold, not merely start
+        // above it, and the column's bottom padding sits below the row.
+        let budget = viewportHeight - contentPadding * 2 - sectionSpacing - tileRowHeight
+        return budget >= welcomeCardFullHeight
+    }
+
     /// Height for the hero's art.
     ///
     /// - Parameters:
