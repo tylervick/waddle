@@ -42,8 +42,32 @@ enum Theme {
     /// of them into the same screen — and the type inside each tile keeps
     /// whatever size Dynamic Type asked for instead of being squeezed to fit a
     /// column count chosen for smaller text.
+    ///
+    /// ## Why the standard floor is 150 and not 200
+    ///
+    /// A floor of 200 resolved to **one** column on every iPhone this app
+    /// supports, not just narrow ones: the widest is 440 pt, which leaves
+    /// 408 pt of content, and 408 cannot hold two 200 pt columns plus the
+    /// 16 pt gap. One column means the first tile row is 3:4 of the full
+    /// content width — 544 pt on that widest phone — which is most of the
+    /// viewport on its own and is what pushed the row's bottom past the fold.
+    ///
+    /// The floor is derived from the *narrowest* supported width rather than
+    /// the reference device. `TARGETED_DEVICE_FAMILY` is `"1,2"` and the
+    /// deployment target is iOS 26.0, whose simulator runtime admits the
+    /// iPhone 12 mini and 13 mini at **360 × 780 pt** — narrower than the
+    /// 375 pt iPhone SE, and the real floor. Two columns there need
+    /// `(360 − 32 − 16) / 2 = 156` pt or less.
+    ///
+    /// 150 rather than 156 on purpose: 156 is the exact boundary, where the
+    /// adaptive fit evaluates to precisely 2.0 columns and any disagreement
+    /// between this arithmetic and SwiftUI's own tips it to one. Landing a
+    /// layout decision on an exact boundary is the mistake this constant
+    /// exists to undo, so it is not repeated here. The usable window is
+    /// roughly 126–156 pt — below 126 the widest phone would gain a third
+    /// column — and 150 sits inside it with room on both sides.
     static func gridMinimumTileWidth(for size: DynamicTypeSize) -> CGFloat {
-        size.isAccessibilitySize ? 320 : 200
+        size.isAccessibilitySize ? 320 : 150
     }
 }
 

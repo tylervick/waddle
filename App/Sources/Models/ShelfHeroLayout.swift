@@ -75,6 +75,23 @@ enum ShelfHeroLayout {
             + welcomeCardRowSpacing * CGFloat(rows.count - 1)
     }
 
+    /// How many columns the adaptive grid resolves to, given the width
+    /// available to it and the minimum `ShelfView` asks for. Mirrors
+    /// `GridItem(.adaptive(minimum:spacing:))`: as many columns of at least
+    /// that width as fit, never fewer than one.
+    ///
+    /// Split out of `gridColumnWidth` below so the count can be asserted
+    /// directly. It is the count, not the width, that the shelf's whole
+    /// above-the-fold problem turns on — one column makes the first row 3:4 of
+    /// the entire content width — and a test that could only infer it from a
+    /// width would not say so.
+    static func gridColumnCount(contentWidth: CGFloat,
+                                minimum: CGFloat,
+                                spacing: CGFloat) -> Int {
+        guard contentWidth > 0, minimum > 0 else { return 1 }
+        return max(1, Int(((contentWidth + spacing) / (minimum + spacing)).rounded(.down)))
+    }
+
     /// The width one grid column gets, given the width available to the grid
     /// and the adaptive minimum `ShelfView` asks for. Mirrors what
     /// `GridItem(.adaptive(minimum:spacing:))` resolves to: as many columns as
@@ -87,13 +104,51 @@ enum ShelfHeroLayout {
                                 minimum: CGFloat,
                                 spacing: CGFloat) -> CGFloat {
         guard contentWidth > 0, minimum > 0 else { return 0 }
-        let count = max(1, ((contentWidth + spacing) / (minimum + spacing)).rounded(.down))
+        let count = CGFloat(gridColumnCount(contentWidth: contentWidth,
+                                            minimum: minimum,
+                                            spacing: spacing))
         return (contentWidth - spacing * (count - 1)) / count
     }
+
+    /// How far above the fold the first tile row's bottom edge has to land.
+    ///
+    /// `heroZoneBudget` below is a *measurement* — how much room the zone has.
+    /// This is the *requirement* placed on it, and the two are deliberately
+    /// separate constants rather than one number that means both.
+    ///
+    /// ## Why a bare fit is not enough
+    ///
+    /// The budget used to be spent down to zero: a hero zone was accepted as
+    /// fitting when the row's bottom landed *exactly* on the fold. On the
+    /// reference phone that left about 16 pt of slack, and 16 pt was not
+    /// enough — `EngineSmokeTests.testEngineBootQuitRelaunchCycle` passed one
+    /// attempt and failed the next on the same commit. A margin that small is
+    /// inside this type's own modelling error, so a layout that "fits" by it
+    /// is really a coin flip.
+    ///
+    /// ## Where the number comes from
+    ///
+    /// 44 pt, spec §5's minimum tap target, reached from two directions:
+    ///
+    /// - The row has to be *tappable* without scrolling, not merely visible.
+    ///   Requiring its bottom edge to clear the fold by a full tap target
+    ///   means the row is never reduced to a sliver that happens to be on
+    ///   screen — which is exactly the state the flaky tap was hitting.
+    /// - It has to absorb the error in `welcomeCardHeight`, which sums
+    ///   `UIFont` line heights while SwiftUI lays out the real card. The
+    ///   largest single thing that estimate can miss is one unmodelled
+    ///   `.subheadline` line of the description (≈20 pt at the default size)
+    ///   plus the button style's own vertical padding (≈14 pt). 44 pt covers
+    ///   both at once, and is nearly three times the 16 pt that demonstrably
+    ///   flaked.
+    static let minimumFoldClearance: CGFloat = Theme.minimumTapTarget
 
     /// How much vertical room the hero zone has before the first tile row
     /// stops fitting above the fold. Both content paddings count: the row has
     /// to *end* above the fold, not merely start above it.
+    ///
+    /// This is the room available, not the room the zone may spend — a zone
+    /// is only accepted if it leaves `minimumFoldClearance` of this unused.
     static func heroZoneBudget(viewportHeight: CGFloat,
                                contentWidth: CGFloat,
                                tileMinimumWidth: CGFloat,
@@ -111,12 +166,14 @@ enum ShelfHeroLayout {
     ///
     /// The Continue hero has had one since `artHeight` above: it is capped so
     /// the first tile row stays reachable. The welcome card was added to the
-    /// same zone (spec §4) without one, and on the reference phone the numbers
-    /// do not work out — a 408 pt content width resolves to a single 544 pt
-    /// tile, and 184 pt of card above it puts the row's bottom past the fold.
-    /// The tile is still on screen and still in the accessibility hierarchy, so
-    /// `minimumGridPeek` is satisfied and reports nothing wrong; what is lost is
-    /// the row being *tappable*, which is what that peek exists to protect.
+    /// same zone (spec §4) without one, and the numbers did not work out: a
+    /// 200 pt adaptive minimum resolved to a single column on *every* iPhone,
+    /// making the first row 3:4 of the whole content width — 544 pt on the
+    /// 440 pt reference phone — and 184 pt of card above that put the row's
+    /// bottom past the fold. The tile is still on screen and still in the
+    /// accessibility hierarchy, so `minimumGridPeek` is satisfied and reports
+    /// nothing wrong; what is lost is the row being *tappable*, which is what
+    /// that peek exists to protect.
     /// `EngineSmokeTests` caught it as a tap that synthesized cleanly and
     /// activated nothing.
     ///
@@ -152,11 +209,15 @@ enum ShelfHeroLayout {
                                             gridSpacing: CGFloat,
                                             fullCardHeight: CGFloat) -> Bool {
         guard viewportHeight.isFinite, viewportHeight > 0 else { return true }
-        return heroZoneBudget(viewportHeight: viewportHeight,
-                              contentWidth: contentWidth,
-                              tileMinimumWidth: tileMinimumWidth,
-                              contentPadding: contentPadding,
-                              gridSpacing: gridSpacing) >= fullCardHeight
+        let budget = heroZoneBudget(viewportHeight: viewportHeight,
+                                    contentWidth: contentWidth,
+                                    tileMinimumWidth: tileMinimumWidth,
+                                    contentPadding: contentPadding,
+                                    gridSpacing: gridSpacing)
+        // `+ minimumFoldClearance`, not a bare `>=`: a card that spends the
+        // budget exactly leaves the tile row ending on the fold, which is the
+        // state that made the tap flaky rather than the state that fixed it.
+        return budget >= fullCardHeight + minimumFoldClearance
     }
 
     /// Height for the hero's art.
