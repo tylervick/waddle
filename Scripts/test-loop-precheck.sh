@@ -127,26 +127,39 @@ grep -q "issue edit 40 --remove-label agent:in-progress" "$TMP/g/gh-calls.log" \
     || fail "stale claim was never actually cleared"
 pass "sweeps a stale claim and then proceeds"
 
-# 8. A stale engine makes every run a 25-minute rebuild inside a 45-minute
-#    budget -- refuse rather than manufacture fake failures.
+# 8. A stale engine WARNS and proceeds -- it used to refuse, and that refusal
+#    cost far more than it saved.
+#
+#    Changed 2026-08-19, deliberately, not to make a test pass. The refusal
+#    avoided a worktree rebuilding the engine it inherited (~100s, run 34's
+#    record) and cost three entire runs -- 45, 49 and 50 each did nothing --
+#    because the fingerprint is working-tree based and the root checkout is the
+#    owner's working copy: an uncommitted edit under Engine/woof is enough to
+#    trip it. A run's worktree is cut from origin/main, so that edit is not even
+#    in the code the run builds.
+#
+#    Every assertion the old case earned is kept: the remedy from
+#    check-engine-fresh.sh must still reach stderr (PR #136 added that, after a
+#    version that told the operator the symptom and swallowed the fix), and it
+#    must still say WHERE to run it. Only the refusal is gone.
 make_fixture "$TMP/h"
 cat > "$TMP/h/issues.json" <<'J'
 [{"number":42,"labels":[{"name":"agent:eligible"},{"name":"size:xs"}]}]
 J
-# The stub emits a remedy on stderr the way the real check-engine-fresh.sh
-# does. Asserting only that the word "engine" appears -- which this case did
-# originally -- passes while the precheck discards that remedy with 2>&1, so
-# the operator is told the symptom and not the fix. This is a state the loop
-# cannot clear itself, so the message is the entire interface a human gets.
 printf '#!/bin/bash\necho "rebuild it with: Scripts/build-engine.sh" >&2\nexit 1\n' \
     > "$TMP/h/Scripts/check-engine-fresh.sh"
-if out=$(run_precheck "$TMP/h" 2>"$TMP/err"); then fail "proceeded with a stale engine"; fi
-grep -q "engine" "$TMP/err" || fail "refusal does not name the engine: $(cat "$TMP/err")"
+out=$(run_precheck "$TMP/h" 2>"$TMP/err") \
+  || fail "refused on a stale engine; it must warn and proceed. stderr: $(cat "$TMP/err")"
+[ "$out" = "42" ] || fail "picked '$out'; expected 42 -- a stale engine must not change selection"
+grep -q "^warning: " "$TMP/err" \
+  || fail "stale engine produced no warning on stderr; got: $(cat "$TMP/err")"
+grep -q "^skip: " "$TMP/err" \
+  && fail "stale engine still refuses; got: $(cat "$TMP/err")"
 grep -q "Scripts/build-engine.sh" "$TMP/err" \
-  || fail "refusal discarded check-engine-fresh's remedy; got: $(cat "$TMP/err")"
+  || fail "warning discarded check-engine-fresh's remedy; got: $(cat "$TMP/err")"
 grep -q "ROOT checkout" "$TMP/err" \
-  || fail "refusal does not say where to run it; got: $(cat "$TMP/err")"
-pass "refuses when the engine is stale, and passes the remedy through"
+  || fail "warning does not say where to run it; got: $(cat "$TMP/err")"
+pass "warns and proceeds when the engine is stale, passing the remedy through"
 
 # 9. An eligible issue with no size label is still reachable, after sized ones.
 make_fixture "$TMP/i"
