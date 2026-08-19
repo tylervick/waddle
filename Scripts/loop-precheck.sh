@@ -51,24 +51,40 @@ NOW_EPOCH="$(to_epoch "$NOW_ISO")"
 
 skip() { echo "skip: $*" >&2; exit 1; }
 
-# 1. Engine freshness in THIS checkout.
+# 1. Engine freshness in THIS checkout -- a WARNING, not a refusal.
 #
 # check-engine-fresh.sh already prints the command that clears this. Passing its
 # output through rather than composing a second copy here is deliberate: two
 # hand-maintained copies of a fix instruction drift, and a message that names a
 # stale remedy is worse than one that names none.
 #
-# Its wording says "before archiving" because archive.sh is its other caller, so
-# the loop's own reason is stated separately rather than restating either. That
-# reason is the part an operator needs: this is a state the loop CANNOT clear
-# itself -- Engine/woof and the engine build are on its never-touch list -- so
-# unlike every other skip here, this one is addressed to a human who has to act.
+# This was a `skip` until 2026-08-19, and the arithmetic behind that was wrong.
+# What refusing avoids is a worktree rebuilding the engine it inherited, measured
+# at roughly 100 seconds in run 34's trial record. What it cost was whole runs:
+# 45, 49 and 50 each refused here and did nothing at all -- about twelve hours of
+# idle loop to avoid five minutes of rebuild.
+#
+# It fired far more often than "somebody let the engine rot" implies, because the
+# fingerprint is WORKING-TREE based (see Scripts/engine-fingerprint.sh) and this
+# root checkout is the owner's own working copy. An uncommitted edit to anything
+# under Engine/woof is enough -- which is precisely the state the owner is in
+# while working on the engine. The loop was gated on the owner not having
+# work in progress.
+#
+# It was also gating on the wrong tree. A run's worktree is cut from
+# origin/main, so the owner's uncommitted engine edits are not in the code the
+# run builds; only the inherited build products are affected, and those are a
+# time cost, never a correctness one.
+#
+# Still warned, not silenced: a stale root does make every worktree pay for a
+# rebuild, and the operator should know. It goes to stderr, where the skip went,
+# so anyone reading the log still sees it.
 if ! engine_msg="$("$ROOT/Scripts/check-engine-fresh.sh" 2>&1)"; then
-    skip "root checkout's engine is stale; every worktree would inherit it and rebuild.
-       The loop cannot clear this itself, and will refuse every run until someone
-       rebuilds in the ROOT checkout (not in a worktree):
+    echo "warning: this run's worktree will rebuild the engine (~100s) because the
+         root checkout's copy is stale. This is NOT a refusal. Clearing it stops
+         every run paying for it -- run this in the ROOT checkout, not a worktree:
 
-$engine_msg"
+$engine_msg" >&2
 fi
 
 # 2. Sweep abandoned per-run worktrees.
