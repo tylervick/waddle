@@ -63,6 +63,11 @@ struct AboutView: View {
          ("OpenAL Soft — LGPL-2.0", "OPENALSOFT-LGPL"),
          ("SONiVOX EAS — Apache-2.0", "SONIVOX-APACHE2"),
          ("SONiVOX EAS — notice", "SONIVOX-NOTICE"),
+         ("libsndfile — LGPL-2.1", "LIBSNDFILE-LGPL"),
+         ("libogg — BSD", "LIBOGG-BSD"),
+         ("libvorbis — BSD", "LIBVORBIS-BSD"),
+         ("libFLAC — BSD", "LIBFLAC-BSD"),
+         ("libopus — BSD", "LIBOPUS-BSD"),
          ("ZIPFoundation — MIT", "ZIPFOUNDATION-MIT")]
     }
 
