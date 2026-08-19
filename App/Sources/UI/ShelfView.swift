@@ -46,7 +46,7 @@ struct ShelfView: View {
     /// is spec §5's "drops columns rather than shrinking text".
     private var columns: [GridItem] {
         [GridItem(.adaptive(minimum: Theme.gridMinimumTileWidth(for: dynamicTypeSize)),
-                  spacing: 16)]
+                  spacing: gridSpacing)]
     }
 
     var body: some View {
@@ -57,7 +57,7 @@ struct ShelfView: View {
                 case .resume(let item): hero(for: item)
                 case .empty: EmptyView()
                 }
-                LazyVGrid(columns: columns, spacing: 16) {
+                LazyVGrid(columns: columns, spacing: gridSpacing) {
                     ForEach(items) { item in
                         tile(for: item)
                     }
@@ -176,6 +176,63 @@ struct ShelfView: View {
     /// width it is not drawn at.
     private var contentPadding: CGFloat { 16 }
 
+    /// Grid gap, shared by the column definition and the row spacing below, so
+    /// the width `ShelfHeroLayout` reasons about is the width actually drawn.
+    private var gridSpacing: CGFloat { 16 }
+
+    /// Whether the welcome card can afford its description line on this
+    /// viewport (spec §4 vs. the shelf staying playable in one tap).
+    ///
+    /// The three heights come from `UIFont` rather than from constants, the
+    /// same way `heroCaptionHeight` below does: every row of the card grows at
+    /// accessibility text sizes, and so does the tile row it has to leave room
+    /// for, so a budget written against the default size would clear a card
+    /// that does not fit.
+    private var showsWelcomeDescription: Bool {
+        ShelfHeroLayout.welcomeCardShowsDescription(
+            viewportHeight: viewportHeight,
+            contentWidth: heroContentWidth,
+            tileMinimumWidth: Theme.gridMinimumTileWidth(for: dynamicTypeSize),
+            contentPadding: contentPadding,
+            gridSpacing: gridSpacing,
+            fullCardHeight: ShelfHeroLayout.welcomeCardHeight(
+                titleHeight: welcomeTitleHeight,
+                descriptionHeight: welcomeDescriptionHeight,
+                buttonHeight: welcomeButtonHeight))
+    }
+
+    /// `.title` — the card's app-name row.
+    private var welcomeTitleHeight: CGFloat {
+        UIFont.preferredFont(forTextStyle: .title1).lineHeight
+    }
+
+    /// `.borderedProminent` with an explicit `minHeight`, so the row is the
+    /// taller of that floor and the label's own line box plus the style's
+    /// vertical padding.
+    private var welcomeButtonHeight: CGFloat {
+        max(Theme.minimumTapTarget,
+            UIFont.preferredFont(forTextStyle: .body).lineHeight + 14)
+    }
+
+    /// The description as it actually wraps at this width and text size —
+    /// two lines by default, more at accessibility sizes, which is the whole
+    /// reason this is measured instead of assumed.
+    private var welcomeDescriptionHeight: CGFloat {
+        let font = UIFont.preferredFont(forTextStyle: .subheadline)
+        let inner = heroContentWidth - ShelfHeroLayout.welcomeCardPadding * 2
+        guard inner > 0 else { return font.lineHeight }
+        let box = (Self.welcomeDescription as NSString).boundingRect(
+            with: CGSize(width: inner, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font],
+            context: nil)
+        return ceil(box.height)
+    }
+
+    /// One copy, because it is both rendered and measured.
+    private static let welcomeDescription =
+        "Bring your own WADs, or start with the Freedoom games below."
+
     /// Gap between the hero's art, title and Continue line.
     private var heroCaptionSpacing: CGFloat { 6 }
 
@@ -204,10 +261,17 @@ struct ShelfView: View {
     private var welcomeCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Waddle").font(.title.bold())
-            Text("Bring your own WADs, or start with the Freedoom games below.")
-                .font(.subheadline)
-                .foregroundStyle(Color.appSecondaryText)
-                .fixedSize(horizontal: false, vertical: true)
+            // Dropped on viewports where the card would otherwise push the
+            // first tile row past the fold -- see
+            // `ShelfHeroLayout.welcomeCardShowsDescription`. The app name and
+            // the button are what spec §4 leads with; the sentence is the part
+            // that can go when "playable in one tap" is the thing at stake.
+            if showsWelcomeDescription {
+                Text(Self.welcomeDescription)
+                    .font(.subheadline)
+                    .foregroundStyle(Color.appSecondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Button {
                 showImporter = true
             } label: {
