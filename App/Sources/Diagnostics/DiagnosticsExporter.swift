@@ -22,8 +22,11 @@ enum DiagnosticsExporter {
 
         // Allowlist copy, not a directory copy: anything else that ever ends
         // up in the diagnostics directory (or a stray WAD) must not ship.
+        // Metric payloads live one directory down and carry their own prefix,
+        // so they need their own entry here rather than arriving for free.
         let bundled = SessionLogCapture.sessionLogs(in: diagnosticsDirectory)
             + DiagnosticsStore.payloadFiles(in: diagnosticsDirectory)
+            + DiagnosticsStore.metricPayloadFiles(in: diagnosticsDirectory)
             + BreadcrumbLog.breadcrumbFiles(in: diagnosticsDirectory)
         for file in bundled {
             // A failed copy fails the whole export: a silently incomplete

@@ -11,6 +11,18 @@ enum DiagnosticsPaths {
             .appendingPathComponent("Diagnostics", isDirectory: true)
     }
 
+    /// Metric payloads get their own subdirectory. This is the guarantee the
+    /// two payload kinds need from each other: MetricKit delivers metrics
+    /// roughly daily and diagnostics only when something goes wrong, so a
+    /// shared retention count would evict every crash report within about
+    /// `maxPayloads` days. Retention prunes by enumerating one directory, so
+    /// keeping the kinds in separate ones means a metric write cannot see --
+    /// let alone delete -- a diagnostic payload, without that guarantee
+    /// resting on filename conventions staying disjoint.
+    static func metricsDirectory(in diagnosticsDirectory: URL) -> URL {
+        diagnosticsDirectory.appendingPathComponent("Metrics", isDirectory: true)
+    }
+
     /// Creates the directory if needed and (re)applies the iCloud-backup
     /// exclusion. Application Support is backed up by default, and
     /// diagnostics leaving the device through a backup would undercut the
