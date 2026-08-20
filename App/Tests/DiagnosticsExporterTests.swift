@@ -79,6 +79,23 @@ final class DiagnosticsExporterTests: XCTestCase {
             "only session logs, payloads, and info.txt may be bundled")
     }
 
+    func testExportBundlesMetricPayloadsAndStillExcludesWADFiles() throws {
+        // Written through the subscriber rather than by hand, so the test
+        // breaks if the metrics directory or prefix ever moves.
+        DiagnosticsMetricSubscriber(directory: tmp).saveMetricPayloadData(
+            Data("{\"launch\":1}".utf8),
+            receivedAt: Date(timeIntervalSince1970: 1_770_000_000))
+        try Data("IWAD....".utf8).write(to: tmp.appendingPathComponent("stray.wad"))
+
+        let zip = try DiagnosticsExporter.export(diagnosticsDirectory: tmp,
+                                                 libraryLines: [])
+        let names = try zipEntryNames(zip)
+        XCTAssertEqual(names.filter { $0.hasPrefix(DiagnosticsStore.metricPrefix) }.count, 1,
+            "metric payloads are the signal for startup, memory and hang regressions")
+        XCTAssertFalse(names.contains("stray.wad"),
+            "bundling a new payload kind must not widen the allowlist to WAD content")
+    }
+
     func testReclaimStaleExportsRemovesOnlyOldDirectories() throws {
         let old = tmp.appendingPathComponent("diagnostics-export-old", isDirectory: true)
         let fresh = tmp.appendingPathComponent("diagnostics-export-fresh", isDirectory: true)
