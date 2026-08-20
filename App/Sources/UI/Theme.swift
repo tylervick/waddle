@@ -53,7 +53,8 @@ enum Theme {
     /// viewport on its own and is what pushed the row's bottom past the fold.
     ///
     /// The floor is derived from the *narrowest* supported width rather than
-    /// the reference device. `TARGETED_DEVICE_FAMILY` is `"1,2"` and the
+    /// the widest, or the one CI happens to run.
+    /// `TARGETED_DEVICE_FAMILY` is `"1,2"` and the
     /// deployment target is iOS 26.0, whose simulator runtime admits the
     /// iPhone 12 mini and 13 mini at **360 × 780 pt** — narrower than the
     /// 375 pt iPhone SE, and the real floor. Two columns there need

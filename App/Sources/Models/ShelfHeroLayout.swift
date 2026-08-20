@@ -120,9 +120,9 @@ enum ShelfHeroLayout {
     ///
     /// The budget used to be spent down to zero: a hero zone was accepted as
     /// fitting when the row's bottom landed *exactly* on the fold. On the
-    /// reference phone that left about 16 pt of slack, and 16 pt was not
-    /// enough — `EngineSmokeTests.testEngineBootQuitRelaunchCycle` passed one
-    /// attempt and failed the next on the same commit. A margin that small is
+    /// geometry #204 measured that left about 16 pt of slack, and 16 pt was
+    /// not enough — `EngineSmokeTests.testEngineBootQuitRelaunchCycle`
+    /// passed one attempt and failed the next on the same commit. A margin that small is
     /// inside this type's own modelling error, so a layout that "fits" by it
     /// is really a coin flip.
     ///
@@ -169,7 +169,7 @@ enum ShelfHeroLayout {
     /// same zone (spec §4) without one, and the numbers did not work out: a
     /// 200 pt adaptive minimum resolved to a single column on *every* iPhone,
     /// making the first row 3:4 of the whole content width — 544 pt on the
-    /// 440 pt reference phone — and 184 pt of card above that put the row's
+    /// widest phone, at 440 pt — and 184 pt of card above that put the row's
     /// bottom past the fold. The tile is still on screen and still in the
     /// accessibility hierarchy, so `minimumGridPeek` is satisfied and reports
     /// nothing wrong; what is lost is the row being *tappable*, which is what

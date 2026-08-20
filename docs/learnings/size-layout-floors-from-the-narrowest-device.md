@@ -43,6 +43,16 @@ Two surprises came out of doing that, and both change the answer:
 width with its provenance, and the column-count assertions run over all of them
 rather than over a chosen one.
 
+The mix-up is contagious, so the fixture no longer lets a comment assert a
+device identity. `SupportedDevice.uiTestsDestination` (402 × 874,
+`SIMULATOR_DEVICE`) and `SupportedDevice.widestPhone` (440 × 956) are each
+declared once and referred to by name. The welcome-card budget cases had
+inherited the mislabel from PR #203 — "iPhone 17 Pro … 440 pt wide", so 408 pt
+of content — and were exercising the widest phone while calling it the CI one.
+They run at the CI device's own geometry now, which is the tighter of the two:
+370 pt of content makes a shorter tile row, but the viewport is 82 pt shorter
+still, so the hero zone has ~195 pt rather than ~226.
+
 ## Do not land the decision on the boundary, in either place
 
 Two columns at 360 pt need a floor of at most `(360 − 32 − 16) / 2 = 156` pt.
@@ -53,9 +63,9 @@ it back to one. The floor is 150, inside a usable window of roughly 126–156.
 
 The same mistake in the other dimension is what made PR #203 flaky rather than
 fixed. Its budget accepted a hero zone when the first tile row ended *exactly*
-on the fold, which on the CI device left about 16 pt of slack — inside
-`welcomeCardHeight`'s own modelling error, since that height is summed from
-`UIFont` line heights while SwiftUI lays out the real card. Two attempts of one
+on the fold, which on the geometry #204 measured left about 16 pt of slack —
+inside `welcomeCardHeight`'s own modelling error, since that height is summed
+from `UIFont` line heights while SwiftUI lays out the real card. Two attempts of one
 `ui-tests.yml` run on one commit (`32282595546`, `9584cf29`) disagreed with each
 other: one tap landed, the next did not.
 
@@ -72,13 +82,21 @@ measurement's own error, or "it fits" means "it fits about half the time".
 
 A column-count or margin test written against current behaviour passes whether
 or not the behaviour is right. Both were checked by reverting the constant and
-watching them fail: floor back to 200 → nine tests red; clearance to 0 →
-`testAZoneThatOnlyJustFitsIsRejected` red. Restore, green.
+watching them fail: floor back to 200 → nine tests red; clearance to 0 → three
+red. Restore, green.
+
+Which device a case runs at decides whether it discriminates at all. One of
+those three — the welcome card's budget on the CI phone — passed at the
+mislabelled 440 pt geometry with 71 pt to spare, so it held whether the
+clearance was 44 pt or 0. At the CI device's real 370 × 744 it has 30 pt of
+margin and goes red when the clearance does. A fixture that names the wrong
+device does not merely mis-document the case; it can quietly stop testing it.
 
 One of those first drafts asserted on the exact boundary
 (`budget == card + clearance`) and failed: a tile row is 261.33 pt at the
-reference width, which no binary float holds exactly. Sit a point either side of
-a boundary rather than on it — in the tests as much as in the constants.
+widest phone's 408 pt of content, which no binary float holds exactly. Sit a
+point either side of a boundary rather than on it — in the tests as much as in
+the constants.
 
 Related: [hero-zone-must-leave-a-tappable-tile-row.md](hero-zone-must-leave-a-tappable-tile-row.md),
 which is the first half of this story, and

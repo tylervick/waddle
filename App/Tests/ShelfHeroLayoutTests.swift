@@ -65,6 +65,16 @@ private struct SupportedDevice {
     var contentWidth: CGFloat { width - ShelfLayoutFixture.contentPadding * 2 }
     var viewportHeight: CGFloat { height - chrome }
 
+    /// `ui-tests.yml`'s `SIMULATOR_DEVICE`, and the widest phone the target
+    /// admits. They are *different devices*, and conflating them is the
+    /// mistake #204's measurement table made -- it reads "iPhone 17 Pro
+    /// (440 x 956 pt)", which is the Pro Max's geometry under the Pro's name.
+    /// Both are named here so no assertion below has to spell either out.
+    static let uiTestsDestination = SupportedDevice(name: "iPhone 16 Pro/17/17 Pro",
+                                                    width: 402, height: 874, chrome: 130)
+    static let widestPhone = SupportedDevice(name: "iPhone 16/17 Pro Max",
+                                             width: 440, height: 956, chrome: 130)
+
     static let allPhones: [SupportedDevice] = [
         // The floor, and the reason this list exists at all.
         SupportedDevice(name: "iPhone 12/13 mini", width: 360, height: 780, chrome: 130),
@@ -72,14 +82,12 @@ private struct SupportedDevice {
         SupportedDevice(name: "iPhone 11 Pro", width: 375, height: 812, chrome: 130),
         SupportedDevice(name: "iPhone 12/13/14/16e", width: 390, height: 844, chrome: 130),
         SupportedDevice(name: "iPhone 14 Pro/15/16", width: 393, height: 852, chrome: 130),
-        // ui-tests.yml's own destination.
-        SupportedDevice(name: "iPhone 16 Pro/17/17 Pro", width: 402, height: 874, chrome: 130),
+        uiTestsDestination,
         SupportedDevice(name: "iPhone 11/11 Pro Max", width: 414, height: 896, chrome: 130),
         SupportedDevice(name: "iPhone Air", width: 420, height: 912, chrome: 130),
         SupportedDevice(name: "iPhone 12/13/14 Pro Max", width: 428, height: 926, chrome: 130),
         SupportedDevice(name: "iPhone 14 Pro Max/15/16 Plus", width: 430, height: 932, chrome: 130),
-        // The reference width the issue's measurements were taken at.
-        SupportedDevice(name: "iPhone 16/17 Pro Max", width: 440, height: 956, chrome: 130),
+        widestPhone,
     ]
 
     /// Distinct iPad point widths from the same runtime, portrait and
@@ -281,12 +289,17 @@ final class ShelfHeroLayoutTests: XCTestCase {
 
     // MARK: The welcome card's budget (spec §4)
 
-    /// The reference viewport: iPhone 17 Pro portrait, which is what
-    /// `ui-tests.yml` runs `EngineSmokeTests` on. 440 pt wide less 16 pt of
-    /// padding each side, and the scroll view's height less its safe-area
-    /// insets.
-    private let referenceContentWidth: CGFloat = 408
-    private let referenceViewportHeight: CGFloat = 754
+    /// The phone `ui-tests.yml` runs `EngineSmokeTests` on, which is where
+    /// the flaky tap was observed: `SIMULATOR_DEVICE` is `iPhone 17 Pro`, so
+    /// 402 x 874 pt less the padding and chrome `SupportedDevice` models.
+    ///
+    /// Taken from that type rather than written out, because the previous
+    /// spelling of it -- 408 pt of content, i.e. a 440 pt device -- carried
+    /// #204's Pro/Pro Max mix-up into the fixture and made this the *widest*
+    /// phone while calling it the CI one. The two cases are separate below,
+    /// each under its own name.
+    private let ciPhone = SupportedDevice.uiTestsDestination
+    private let widestPhone = SupportedDevice.widestPhone
 
     /// The card at the default text size: `.title` over a two-line
     /// `.subheadline` over the 44 pt button.
@@ -304,16 +317,17 @@ final class ShelfHeroLayoutTests: XCTestCase {
     }
 
     func testAdaptiveColumnWidthMatchesASingleFullWidthColumn() {
-        // 408 pt cannot fit two 200 pt columns plus a 16 pt gap, so the grid
-        // resolves to one column spanning the whole width -- which is what
-        // makes the first tile row 544 pt tall.
-        XCTAssertEqual(ShelfHeroLayout.gridColumnWidth(contentWidth: 408,
+        // Even the widest phone's 408 pt of content cannot fit two 200 pt
+        // columns plus a 16 pt gap, so the grid resolved to one column
+        // spanning the whole width -- which is what made the first tile row
+        // 544 pt tall there.
+        XCTAssertEqual(ShelfHeroLayout.gridColumnWidth(contentWidth: widestPhone.contentWidth,
                                                        minimum: 200,
                                                        spacing: 16), 408)
     }
 
     func testAdaptiveColumnWidthSplitsWhenTwoFit() {
-        XCTAssertEqual(ShelfHeroLayout.gridColumnWidth(contentWidth: 408,
+        XCTAssertEqual(ShelfHeroLayout.gridColumnWidth(contentWidth: widestPhone.contentWidth,
                                                        minimum: 190,
                                                        spacing: 16), 196)
     }
@@ -334,13 +348,13 @@ final class ShelfHeroLayoutTests: XCTestCase {
                        40 + ShelfHeroLayout.welcomeCardRowSpacing)
     }
 
-    /// The regression this budget exists for: on the reference phone the full
+    /// The regression this budget exists for: on the phone CI runs, the full
     /// card does not fit above the first tile row, and saying it does is what
     /// left `playFreedoom1` present, on screen, and impossible to activate.
-    func testWelcomeCardDropsItsDescriptionOnTheReferencePhone() {
+    func testWelcomeCardDropsItsDescriptionOnTheCIPhone() {
         XCTAssertFalse(ShelfHeroLayout.welcomeCardShowsDescription(
-            viewportHeight: referenceViewportHeight,
-            contentWidth: referenceContentWidth,
+            viewportHeight: ciPhone.viewportHeight,
+            contentWidth: ciPhone.contentWidth,
             tileMinimumWidth: 200,
             contentPadding: 16,
             gridSpacing: 16,
@@ -355,8 +369,8 @@ final class ShelfHeroLayoutTests: XCTestCase {
                                                         buttonHeight: 44)
         XCTAssertLessThanOrEqual(
             compact,
-            ShelfHeroLayout.heroZoneBudget(viewportHeight: referenceViewportHeight,
-                                           contentWidth: referenceContentWidth,
+            ShelfHeroLayout.heroZoneBudget(viewportHeight: ciPhone.viewportHeight,
+                                           contentWidth: ciPhone.contentWidth,
                                            tileMinimumWidth: 200,
                                            contentPadding: 16,
                                            gridSpacing: 16))
@@ -367,7 +381,7 @@ final class ShelfHeroLayoutTests: XCTestCase {
     func testWelcomeCardKeepsItsDescriptionOnARoomyViewport() {
         XCTAssertTrue(ShelfHeroLayout.welcomeCardShowsDescription(
             viewportHeight: 1200,
-            contentWidth: referenceContentWidth,
+            contentWidth: ciPhone.contentWidth,
             tileMinimumWidth: 200,
             contentPadding: 16,
             gridSpacing: 16,
@@ -393,8 +407,8 @@ final class ShelfHeroLayoutTests: XCTestCase {
     func testWelcomeCardDropsItsDescriptionAtAccessibilitySizes() {
         XCTAssertGreaterThan(accessibilitySizeCard, defaultSizeCard * 1.5)
         XCTAssertFalse(ShelfHeroLayout.welcomeCardShowsDescription(
-            viewportHeight: referenceViewportHeight,
-            contentWidth: referenceContentWidth,
+            viewportHeight: ciPhone.viewportHeight,
+            contentWidth: ciPhone.contentWidth,
             tileMinimumWidth: 320,
             contentPadding: 16,
             gridSpacing: 16,
@@ -406,7 +420,7 @@ final class ShelfHeroLayoutTests: XCTestCase {
     func testWelcomeCardKeepsItsDescriptionAtAccessibilitySizesWhenItFits() {
         XCTAssertTrue(ShelfHeroLayout.welcomeCardShowsDescription(
             viewportHeight: 1600,
-            contentWidth: referenceContentWidth,
+            contentWidth: ciPhone.contentWidth,
             tileMinimumWidth: 320,
             contentPadding: 16,
             gridSpacing: 16,
@@ -448,8 +462,8 @@ final class ShelfHeroLayoutTests: XCTestCase {
 
     /// 360 pt is the floor, and it is not the iPhone SE. The iOS 26 runtime
     /// still lists the 12 mini and 13 mini, so a floor derived from the 375 pt
-    /// SE -- or from the 440 pt reference device the issue's measurements were
-    /// taken at -- would be derived from the wrong device.
+    /// SE -- or from the 440 pt widest phone, which is the geometry #204's
+    /// measurements were taken at -- would be derived from the wrong device.
     func testTheNarrowestSupportedWidthIsWhatTheFloorIsDerivedFrom() {
         let narrowest = SupportedDevice.allPhones.map(\.width).min()
         XCTAssertEqual(narrowest, 360)
@@ -531,7 +545,7 @@ final class ShelfHeroLayoutTests: XCTestCase {
 
     private func showsDescription(budget: CGFloat,
                                   cardHeight: CGFloat,
-                                  contentWidth: CGFloat = 408,
+                                  contentWidth: CGFloat = SupportedDevice.widestPhone.contentWidth,
                                   minimum: CGFloat = 150) -> Bool {
         ShelfHeroLayout.welcomeCardShowsDescription(
             viewportHeight: viewportHeight(forBudget: budget,
@@ -546,9 +560,9 @@ final class ShelfHeroLayoutTests: XCTestCase {
 
     /// The second half of the defect, and the one a column count alone does
     /// not reach: a hero zone used to be accepted when the first tile row
-    /// ended *exactly* on the fold. On the reference phone that left about
-    /// 16 pt of slack, which is how a layout that measured as fitting still
-    /// produced a tap that synthesized cleanly and activated nothing.
+    /// ended *exactly* on the fold. On the geometry #204 measured that left
+    /// about 16 pt of slack, which is how a layout that measured as fitting
+    /// still produced a tap that synthesized cleanly and activated nothing.
     ///
     /// Set `ShelfHeroLayout.minimumFoldClearance` to 0 and this is the
     /// assertion that fails: 16 pt of margin goes back to counting as a fit.
@@ -563,10 +577,10 @@ final class ShelfHeroLayoutTests: XCTestCase {
     /// A point *over* the clearance rather than exactly on it, and the
     /// companion below sits a point under: the two together pin the boundary
     /// to within 2 pt without asserting on an equality. A tile row is
-    /// 261.33 pt at the reference width, which no binary float holds exactly,
-    /// so a test written on the boundary itself would be measuring `Double`'s
-    /// rounding rather than this type's rule -- and would fail, as the first
-    /// draft of it did.
+    /// 261.33 pt at the widest phone's 408 pt of content, which no binary
+    /// float holds exactly, so a test written on the boundary itself would be
+    /// measuring `Double`'s rounding rather than this type's rule -- and would
+    /// fail, as the first draft of it did.
     func testAZoneWithTheClearanceIsAccepted() {
         let card = ShelfLayoutFixture.fullCardHeight
         XCTAssertTrue(showsDescription(
