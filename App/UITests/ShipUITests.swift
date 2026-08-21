@@ -26,12 +26,16 @@ final class ShipUITests: XCTestCase {
         // The Licenses section may start below the fold (guaranteed in
         // landscape, possible in portrait), and List rows are lazy -- they
         // don't exist in the hierarchy until scrolled on-screen.
-        let gplRow = app.descendants(matching: .any)["Waddle & Woof! — GPL-2.0"]
+        // GPL-3.0, not 2.0, since 35a4561: the Apache-2.0 SONiVOX EAS
+        // dependency required the relicense, and this label is the app's
+        // user-facing statement of it. If this row rename fails again, check
+        // AboutView.licenseFiles before suspecting the test.
+        let gplRow = app.descendants(matching: .any)["Waddle & Woof! — GPL-3.0"]
         var swipes = 0
         while !gplRow.exists && swipes < 6 {
             aboutList.swipeUp()
             swipes += 1
         }
-        XCTAssertTrue(gplRow.exists, "GPL-2.0 license row never appeared")
+        XCTAssertTrue(gplRow.exists, "GPL-3.0 license row never appeared")
     }
 }
