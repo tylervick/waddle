@@ -21,7 +21,11 @@
 # grouping signal and dropped from the visible text along with PR numbers.
 # When a change came through a pull request whose body yields a usable first
 # sentence, that plain-language sentence replaces the commit subject; every
-# fetch failure falls back to the subject (see pr_fetch/pr_summary). A merge
+# fetch failure falls back to the subject (see pr_fetch/pr_summary). A
+# BOT-authored body is exempt and keeps its subject: its opener is generated
+# boilerplate, identical across every one of its pull requests, and using it
+# gave build 214 six consecutive copies of the same bullet (issue #194; see
+# pr_author_is_bot). A merge
 # commit whose body is empty recovers its title from the PR, or from the
 # merged branch's tip commit, never from git's own "Merge pull request"
 # subject (issue #102; see changelog). --print and the attach path share this
@@ -113,6 +117,42 @@ except Exception:
 if not title:
     sys.exit(1)
 sys.stdout.buffer.write(title.encode("utf-8"))
+'
+}
+
+# Whether a pr_fetch response's author is a bot, read from the same response
+# the title and the summary ride on. A bot's body is GENERATED text with a
+# fixed opener, not a human explaining a change, so pr_summary is skipped for
+# one and the commit subject stands instead -- the existing no-summary path.
+# Without this every Renovate pull request contributed the identical bullet
+# "This PR contains the following updates:", six consecutively in build 214's
+# shipped notes (issue #194): its table is correctly skipped, so that
+# boilerplate opener IS the first and only prose paragraph, and the 15..240
+# guard admits it happily.
+#
+# Two independent signals, either sufficient: GitHub reports an App's author
+# as type "Bot", and spells its login with a "[bot]" suffix that no human
+# account can hold (GitHub rejects brackets in usernames). Keying on the
+# literal boilerplate sentence instead would be wrong twice over -- Renovate's
+# wording is not ours to depend on, and the next bot's differs.
+#
+# Exit 1 -- "not a bot", the conservative answer -- on any parse failure or
+# absent user field, so an unreadable response keeps today's behaviour and
+# falls through to pr_summary, which fails on it in turn and lands on the
+# subject. stdin is read to completion before any exit: quitting early would
+# break printf's pipe and, under pipefail, fail the whole pipeline (see
+# docs/learnings/pipefail-with-early-exit-consumer.md).
+pr_author_is_bot() { # reads the pr_fetch response on stdin
+    python3 -c '
+import json, sys
+raw = sys.stdin.buffer.read()
+try:
+    user = json.loads(raw.decode("utf-8")).get("user") or {}
+    login = (user.get("login") or "").strip()
+    kind = (user.get("type") or "").strip()
+except Exception:
+    sys.exit(1)
+sys.exit(0 if kind == "Bot" or login.endswith("[bot]") else 1)
 '
 }
 
@@ -264,7 +304,13 @@ changelog() { # range (may be empty, meaning "recent history")
             if [ "$fetch_done" -eq 0 ]; then
                 resp="$(pr_fetch "$REPO_SLUG" "$num")" || resp=""
             fi
-            if [ -n "$resp" ] && summary="$(printf '%s' "$resp" | pr_summary)" && [ -n "$summary" ]; then
+            if [ -n "$resp" ] && printf '%s' "$resp" | pr_author_is_bot; then
+                # A bot: keep the subject, which names the actual dependency.
+                # NOT counted as a fallback -- the fetch succeeded and the
+                # summary was declined, so the stderr note below would
+                # otherwise report an API problem that never happened.
+                :
+            elif [ -n "$resp" ] && summary="$(printf '%s' "$resp" | pr_summary)" && [ -n "$summary" ]; then
                 text="$summary"
             else
                 FETCH_FALLBACK=$((FETCH_FALLBACK + 1))

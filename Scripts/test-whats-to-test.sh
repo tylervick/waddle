@@ -673,4 +673,108 @@ l_docs="$(echo "$out" | grep -nF -- "- Record the loop keyword exclusions" | cut
     || fail "the docs-prefixed empty-body merge was not grouped behind the scenes; got: $out"
 pass "groups a docs-prefixed empty-body merge behind the scenes via its recovered title"
 
+
+# 34. THE DUPLICATE-BULLET CASE (issue #194): every Renovate pull request body
+#     opens with the same boilerplate sentence, so taking the first prose
+#     paragraph gave every dependency update an IDENTICAL bullet -- six of
+#     them in build 214's shipped notes. A bot-authored body is generated
+#     text, not a human explaining a change, so the summary is skipped for
+#     bot authors and the commit subject (which names the actual dependency)
+#     stands. Two bots with byte-identical bodies must therefore produce two
+#     DIFFERENT bullets, and the boilerplate must not appear at all. The
+#     no-repeated-bullet assertion is the definition of done stated directly,
+#     rather than inferred from the two greps above it.
+r="$(make_repo botdupes 'merge_pr 150 "chore(deps): update actions/cache action to v6"; merge_pr 151 "chore(deps): update dependency zipfoundation to v0.9"')"
+stub_curl "$r"
+(cd "$r" && git remote add origin https://github.com/tylervick/waddle.git)
+renovate_body='{"user":{"login":"renovate[bot]","type":"Bot"},"body":"This PR contains the following updates:\n\n| Package | Type | Update |\n| --- | --- | --- |\n| actions/cache | action | major |\n"}'
+printf '%s' "$renovate_body" > "$r/pr.150.json"
+printf '%s' "$renovate_body" > "$r/pr.151.json"
+out="$(print_stubbed "$r")" || fail "botdupes case exited non-zero: $out"
+echo "$out" | grep -qF "This PR contains the following updates" \
+    && fail "a bot's boilerplate opener was used as a bullet; got: $out"
+echo "$out" | grep -qF -- "- Update actions/cache action to v6" \
+    || fail "the first bot PR did not fall back to its commit subject; got: $out"
+echo "$out" | grep -qF -- "- Update dependency zipfoundation to v0.9" \
+    || fail "the second bot PR did not fall back to its commit subject; got: $out"
+dupe="$(echo "$out" | grep '^- ' | sort | uniq -d)"
+[ -z "$dupe" ] || fail "the notes repeat a bullet: $dupe; got: $out"
+pass "gives two bot pull requests with identical bodies two distinct bullets"
+
+# 35. The bot rule discriminates on the AUTHOR, not on the body text and not
+#     on the mere presence of a user field: a human-authored pull request in
+#     the same range still gets its body summary, which is the behaviour
+#     issue #93 added and #194 must not regress. Case 28 already covers a
+#     fixture with no user field at all (absence reads as human); this one
+#     pins an explicit "type":"User" so a check written backwards -- skipping
+#     everyone who HAS a user field -- fails here rather than shipping.
+r="$(make_repo bothuman 'merge_pr 152 "chore(deps): update dependency zipfoundation to v0.9"; merge_pr 153 "fix(ui): terse subject"')"
+stub_curl "$r"
+(cd "$r" && git remote add origin https://github.com/tylervick/waddle.git)
+printf '%s' '{"user":{"login":"renovate[bot]","type":"Bot"},"body":"This PR contains the following updates:\n"}' > "$r/pr.152.json"
+printf '%s' '{"user":{"login":"tylervick","type":"User"},"body":"The File in use alert now names every blocked file, so a tester can see which import is stuck.\n"}' > "$r/pr.153.json"
+out="$(print_stubbed "$r")" || fail "bothuman case exited non-zero: $out"
+echo "$out" | grep -qF -- "- The File in use alert now names every blocked file, so a tester can see which import is stuck." \
+    || fail "a human-authored PR lost its body summary; got: $out"
+echo "$out" | grep -qF "terse subject" && fail "the human PR fell back to its commit subject; got: $out"
+echo "$out" | grep -qF -- "- Update dependency zipfoundation to v0.9" \
+    || fail "the bot PR did not fall back to its commit subject; got: $out"
+pass "keeps the body summary for a human-authored pull request alongside a bot's"
+
+# 36. A bot pull request whose fallback subject is used is still grouped by
+#     that subject's own prefix -- chore(deps) behind the scenes -- rather
+#     than drifting into "In the app:" where an unparsed title defaults.
+#     Suppressing the summary must not disturb the grouping issue #93 built.
+r="$(make_repo botgroup 'merge_pr 154 "chore(deps): update actions/cache action to v6"; merge_pr 155 "fix(ui): keep one app-facing change"')"
+stub_curl "$r"
+(cd "$r" && git remote add origin https://github.com/tylervick/waddle.git)
+printf '%s' '{"user":{"login":"renovate[bot]","type":"Bot"},"body":"This PR contains the following updates:\n"}' > "$r/pr.154.json"
+printf '%s' '{"body":""}' > "$r/pr.155.json"
+out="$(print_stubbed "$r")" || fail "botgroup case exited non-zero: $out"
+app_h="$(echo "$out" | grep -n "^In the app:" | cut -d: -f1)"
+oth_h="$(echo "$out" | grep -n "^Behind the scenes:" | cut -d: -f1)"
+l_dep="$(echo "$out" | grep -nF -- "- Update actions/cache action to v6" | cut -d: -f1)"
+l_app="$(echo "$out" | grep -nF -- "- Keep one app-facing change" | cut -d: -f1)"
+[ -n "$app_h" ] && [ -n "$oth_h" ] || fail "missing a section heading; got: $out"
+[ -n "$l_dep" ] || fail "the bot bullet vanished entirely; got: $out"
+[ "$l_dep" -gt "$oth_h" ] || fail "the bot's dependency bullet is not behind the scenes; got: $out"
+[ "$l_app" -gt "$app_h" ] && [ "$l_app" -lt "$oth_h" ] \
+    || fail "the app-facing bullet left 'In the app:'; got: $out"
+pass "groups a bot pull request by its fallback subject's own prefix"
+
+# 37. Bot detection does not depend on the "[bot]" login suffix alone: a
+#     response carrying only "type":"Bot" is skipped too. The suffix and the
+#     type are two independent signals and either suffices, so a self-hosted
+#     or renamed bot -- whose boilerplate will not be Renovate's -- does not
+#     reintroduce the repeated bullet. The issue forbids keying on the
+#     literal sentence for the same reason.
+r="$(make_repo bottype 'merge_pr 156 "chore(deps): update dependency swiftlint to v0.6"')"
+stub_curl "$r"
+(cd "$r" && git remote add origin https://github.com/tylervick/waddle.git)
+printf '%s' '{"user":{"login":"some-ci-app","type":"Bot"},"body":"Automated dependency update produced by a bot with its own boilerplate opener.\n"}' > "$r/pr.156.json"
+out="$(print_stubbed "$r")" || fail "bottype case exited non-zero: $out"
+echo "$out" | grep -qF "Automated dependency update produced by a bot" \
+    && fail "a user typed Bot was treated as human; got: $out"
+echo "$out" | grep -qF -- "- Update dependency swiftlint to v0.6" \
+    || fail "did not fall back to the commit subject; got: $out"
+pass "treats a user typed Bot as a bot even without the [bot] login suffix"
+
+# 38. The mirror of case 37, and the other half of "either signal suffices":
+#     a response carrying only the "[bot]" login suffix -- no "type" field at
+#     all, the shape a response reduced in transit can take -- is skipped too.
+#     Without this the suffix branch is untested: deleting it from
+#     pr_author_is_bot leaves cases 34-37 green, because every other bot
+#     fixture also sets "type":"Bot" and would be caught by the type check
+#     alone.
+r="$(make_repo botlogin 'merge_pr 157 "chore(deps): update dependency swiftformat to v0.5"')"
+stub_curl "$r"
+(cd "$r" && git remote add origin https://github.com/tylervick/waddle.git)
+printf '%s' '{"user":{"login":"dependabot[bot]"},"body":"Bumps swiftformat from 0.4 to 0.5, with its own boilerplate opener.\n"}' > "$r/pr.157.json"
+out="$(print_stubbed "$r")" || fail "botlogin case exited non-zero: $out"
+echo "$out" | grep -qF "Bumps swiftformat from 0.4 to 0.5" \
+    && fail "a [bot] login suffix without a type was treated as human; got: $out"
+echo "$out" | grep -qF -- "- Update dependency swiftformat to v0.5" \
+    || fail "did not fall back to the commit subject; got: $out"
+pass "treats a [bot] login suffix as a bot even with no type field"
+
 echo "All whats-to-test tests passed."
