@@ -348,32 +348,39 @@ final class ShelfHeroLayoutTests: XCTestCase {
                        40 + ShelfHeroLayout.welcomeCardRowSpacing)
     }
 
-    /// The regression this budget exists for: on the phone CI runs, the full
-    /// card does not fit above the first tile row, and saying it does is what
-    /// left `playFreedoom1` present, on screen, and impossible to activate.
-    func testWelcomeCardDropsItsDescriptionOnTheCIPhone() {
+    /// The regression this budget exists for -- a full card that does not fit
+    /// above the first tile row, which left `playFreedoom1` present, on
+    /// screen, and impossible to activate -- anchored to where the shipping
+    /// geometry is still that tight. At 4:3 tiles every portrait phone
+    /// affords the full card (`testEverySupportedPhoneClearsTheFoldWithTheFullCard`
+    /// pins that); a landscape phone's 375 pt viewport does not, so the
+    /// description is what gives.
+    func testWelcomeCardDropsItsDescriptionOnALandscapePhone() {
         XCTAssertFalse(ShelfHeroLayout.welcomeCardShowsDescription(
-            viewportHeight: ciPhone.viewportHeight,
-            contentWidth: ciPhone.contentWidth,
-            tileMinimumWidth: 200,
+            viewportHeight: Viewport.landscapePhone.height,
+            contentWidth: Viewport.landscapePhone.contentWidth,
+            tileMinimumWidth: Theme.gridMinimumTileWidth(for: .large),
             contentPadding: 16,
             gridSpacing: 16,
             fullCardHeight: defaultSizeCard))
     }
 
     /// The compact card must actually solve it -- a budget that both forms
-    /// fail is a cap that only looks like one.
+    /// fail is a cap that only looks like one. Same geometry, and the full
+    /// clearance: dropping the description has to leave the row tappable,
+    /// not merely visible.
     func testCompactWelcomeCardLeavesTheFirstRowAboveTheFold() {
         let compact = ShelfHeroLayout.welcomeCardHeight(titleHeight: 41,
                                                         descriptionHeight: 0,
                                                         buttonHeight: 44)
-        XCTAssertLessThanOrEqual(
-            compact,
-            ShelfHeroLayout.heroZoneBudget(viewportHeight: ciPhone.viewportHeight,
-                                           contentWidth: ciPhone.contentWidth,
-                                           tileMinimumWidth: 200,
-                                           contentPadding: 16,
-                                           gridSpacing: 16))
+        let budget = ShelfHeroLayout.heroZoneBudget(
+            viewportHeight: Viewport.landscapePhone.height,
+            contentWidth: Viewport.landscapePhone.contentWidth,
+            tileMinimumWidth: Theme.gridMinimumTileWidth(for: .large),
+            contentPadding: 16,
+            gridSpacing: 16)
+        XCTAssertGreaterThanOrEqual(budget - compact,
+                                    ShelfHeroLayout.minimumFoldClearance)
     }
 
     /// And the full card must be shown wherever it does fit: this is a cap,

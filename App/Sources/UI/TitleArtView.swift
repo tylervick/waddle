@@ -16,7 +16,7 @@ import SwiftUI
 struct TitleArtView: View {
     let item: PlayableItem
     let library: LibraryService
-    /// Width-to-height ratio of the shape the art fills: 3:4 on tiles, the
+    /// Width-to-height ratio of the shape the art fills: 4:3 on tiles, the
     /// art's own ~1.6:1 on the full-width hero (`Theme`).
     var aspectRatio: CGFloat = Theme.tileAspectRatio
     /// When set, the art fills a box of exactly this height at whatever width
@@ -49,8 +49,12 @@ struct TitleArtView: View {
             }
         }
         .modifier(ArtShape(aspectRatio: aspectRatio, height: height))
-        // TITLEPIC is landscape and tiles are portrait, so `scaledToFill`
-        // overflows by design; clip it to the tile before anyone rounds it.
+        // `scaledToFill` can still overflow the frame it is given, so clip it
+        // before anyone rounds it. On a 4:3 tile what overflows is only the gap
+        // between TITLEPIC's stored 8:5 pixels and the 4:3 Doom displays them
+        // at — 83% of the width survives, against 47% while tiles were 3:4.
+        // Closing the last 17% would mean drawing the art aspect-corrected
+        // rather than filling with it; see `PlayableTileLayout`.
         .clipped()
         .task(id: item.id) {
             // Recycled tiles reuse this view for a new item; drop the previous

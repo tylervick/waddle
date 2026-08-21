@@ -133,6 +133,29 @@ on 3:4 tiles, title on a bottom scrim, one shared corner radius. Items with
 no decodable art get a flat dark tile with the title — no fake art. Presets
 wear their IWAD's art.
 
+**Amended 2026-08-18** (#199): tiles are **4:3**, not 3:4. The portrait shape
+was chosen without weighing it against the art it holds: TITLEPIC is landscape,
+so `scaledToFill` centre-cropped it and only the middle **47%** of each image
+was ever visible — usually straight through the wordmark that identifies the
+game. The fraction came from the aspect mismatch alone, so it was identical at
+every tile size and no column-count fix could touch it. 4:3 is the aspect Doom
+*displays* TITLEPIC at rather than the 8:5 its 320×200 pixels are stored as:
+tapping a tile launches Woof, which renders that art aspect-corrected, so the
+tile now looks like the game it launches. This is the first place the project
+takes a position on pixel aspect at all.
+
+Two things were traded for it, both knowingly. **The title stays on the scrim
+and is now limited to one line**, so long preset names — "Freedoom Phase 2 +
+SCYTHE" — truncate. Moving the title below the art was considered and rejected:
+it would undo the on-art scrim this section introduced, and would restructure
+the no-art fallback tile, which relies on the scrim to place its title. The
+truncation does not reach VoiceOver, whose label sits on the wrapping `Button`
+and replaces the tile's contents. **The scrim also had to shrink** — it does not
+scale with the tile, and at 4:3 a two-column iPhone tile is 172 × 129 pt, where
+the old 60 pt scrim covered 47% of the card for one line of text. It is now
+capped at 40% of the tile height at one line, held by `PlayableTileLayout` and
+pinned by `PlayableTileLayoutTests`.
+
 **Native underneath.** SF type with Dynamic Type respected — the grid drops
 columns at accessibility sizes rather than shrinking text. 44 pt minimum
 targets. VoiceOver labels on tiles ("DOOM II, last played yesterday").
