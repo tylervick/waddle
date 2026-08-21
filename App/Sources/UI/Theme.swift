@@ -19,10 +19,19 @@ enum Theme {
     /// else the shell rounds use this — not a per-view literal.
     static let cornerRadius: CGFloat = 14
 
-    /// Grid tiles are 3:4 portrait (spec §5). TITLEPIC art is natively
-    /// landscape, so `TitleArtView` fills and crops into this shape rather
-    /// than letterboxing it.
-    static let tileAspectRatio: CGFloat = 3.0 / 4.0
+    /// Grid tiles are 4:3 (spec §5, amended 2026-08-18), which is the shape
+    /// Doom *displays* TITLEPIC at — not the 8:5 its 320×200 pixels are
+    /// stored as. Tapping a tile launches Woof, which renders that art
+    /// aspect-corrected, so a tile cut to the same 4:3 looks like the game it
+    /// launches.
+    ///
+    /// This was 3:4 portrait, which cost more than it looked: TITLEPIC is
+    /// landscape, so `scaledToFill` centre-cropped it into a portrait frame
+    /// and left only 47% of each image's width visible — usually straight
+    /// through the wordmark that identifies the game. The fraction came from
+    /// the aspect mismatch alone, so it was the same at every tile size.
+    /// `PlayableTileLayout` holds the arithmetic and the tests that pin it.
+    static let tileAspectRatio: CGFloat = 4.0 / 3.0
 
     /// The hero keeps TITLEPIC's own ~1.6:1 instead: it "spans the width"
     /// (spec §5) rather than being a tile, and cropping a full-width banner to
