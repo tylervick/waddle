@@ -49,3 +49,9 @@ layout suite is built on. What went wrong was a claim in an issue body, and
 itself on the never-modify list.
 
 **Provenance:** agent loop run 58, issue #199, 2026-08-21.
+
+**Resolved 2026-08-21, interactively:** the test was re-anchored, not retired —
+renamed `testWelcomeCardDropsItsDescriptionOnALandscapePhone` and moved to the
+landscape-phone viewport at the shipping tile floor, the geometry where the
+full card still genuinely does not fit at 4:3. Its compact-card companion moved
+with it and now asserts the full fold clearance in the same geometry.
