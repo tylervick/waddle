@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 @testable import Waddle
 
@@ -182,6 +183,149 @@ final class ShelfHeroLayoutTests: XCTestCase {
         for height in stride(from: 200.0, through: 2000.0, by: 50.0) {
             let viewport = Viewport(contentWidth: 800, height: height)
             XCTAssertLessThanOrEqual(artHeight(viewport), viewport.naturalArtHeight)
+        }
+    }
+
+    // MARK: - The welcome card (#183)
+
+    /// `.borderedProminent`'s own vertical padding around its label, on top of
+    /// the `Theme.minimumTapTarget` floor the label already claims. Measured
+    /// from the rendered hierarchy, the way `PlayableDetailLayout`'s row
+    /// figures were, and tolerated a few points either way like everything
+    /// else here.
+    private static let buttonChrome: CGFloat = 14
+
+    /// What the real card measures at a given content size: the three rows
+    /// `ShelfView` draws, at the line heights `UIFont` reports for that size.
+    /// Derived rather than pinned, so this keeps describing the card if a
+    /// future OS changes a font's metrics.
+    ///
+    /// - Parameter bodyLines: how many lines the explanatory sentence wraps to
+    ///   at the viewport's width — one on a wide landscape phone, more as the
+    ///   width narrows or the type grows.
+    private func naturalCardHeight(_ category: UIContentSizeCategory,
+                                   bodyLines: Int) -> CGFloat {
+        let traits = UITraitCollection(preferredContentSizeCategory: category)
+        let body = UIFont.preferredFont(forTextStyle: .subheadline, compatibleWith: traits).lineHeight
+        let label = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits).lineHeight
+        return ShelfHeroLayout.welcomeCardNaturalHeight(
+            nameLineHeight: UIFont.preferredFont(forTextStyle: .title1,
+                                                 compatibleWith: traits).lineHeight,
+            bodyHeight: body * CGFloat(bodyLines),
+            buttonHeight: max(Theme.minimumTapTarget, label) + Self.buttonChrome)
+    }
+
+    private func cardHeight(_ viewport: Viewport, natural: CGFloat) -> CGFloat {
+        ShelfHeroLayout.welcomeCardHeight(naturalHeight: natural,
+                                          viewportHeight: viewport.height)
+    }
+
+    /// Height left for the grid once the card and the gap below it have taken
+    /// their share. The card holds its own title, line and button, so unlike
+    /// the hero there is no separate caption to subtract.
+    private func cardGridBand(_ viewport: Viewport, natural: CGFloat) -> CGFloat {
+        viewport.height - cardHeight(viewport, natural: natural) - ShelfHeroLayout.sectionSpacing
+    }
+
+    /// The defect, stated as geometry. At an accessibility type size the card's
+    /// three rows are two to three times their default height, and on a
+    /// landscape phone that unbounded card leaves the first tile row below the
+    /// fold — where a `LazyVGrid` never instantiates it, so it cannot be
+    /// long-pressed or even found. Remove the ceiling from
+    /// `ShelfHeroLayout.welcomeCardMaxHeight` and this is the assertion that
+    /// fails.
+    func testLandscapePhoneWelcomeCardLeavesTheFirstTileRowAboveTheFold() {
+        let viewport = Viewport.landscapePhone
+        // Two lines: at ~806 pt of content width the sentence sits on one at
+        // the default type size, and wraps once the type grows. Two is the
+        // conservative read of how far it wraps at AX5.
+        let natural = naturalCardHeight(.accessibilityExtraExtraExtraLarge, bodyLines: 2)
+
+        // The premise: without a ceiling there would not have been room.
+        XCTAssertGreaterThan(natural + ShelfHeroLayout.sectionSpacing
+                                + ShelfHeroLayout.minimumGridPeek,
+                             viewport.height)
+
+        XCTAssertGreaterThanOrEqual(cardGridBand(viewport, natural: natural),
+                                    ShelfHeroLayout.minimumGridPeek)
+        // And that band clears spec §5's target, so the row is tappable
+        // without scrolling rather than merely peeking.
+        XCTAssertGreaterThan(cardGridBand(viewport, natural: natural), Theme.minimumTapTarget)
+    }
+
+    /// The card's own three rows stay in frame: the ceiling never drops below
+    /// the floor that holds them, so bounding the card cannot crop the app
+    /// name, the line, or the Add Your Games button off it.
+    func testWelcomeCardCeilingNeverDropsBelowItsOwnRows() {
+        for viewport in [Viewport.landscapePhone, .portraitPhone, .portraitPad, .landscapePad] {
+            let ceiling = try? XCTUnwrap(
+                ShelfHeroLayout.welcomeCardMaxHeight(viewportHeight: viewport.height))
+            XCTAssertGreaterThanOrEqual(ceiling ?? 0,
+                                        ShelfHeroLayout.minimumWelcomeCardHeight)
+        }
+        // The floor is a real measurement of those rows, not a round number:
+        // it has to hold the default-size card, and specifically the wrapped
+        // two-line shape it takes at the narrow widths where a viewport short
+        // enough to reach the floor actually occurs.
+        XCTAssertGreaterThanOrEqual(ShelfHeroLayout.minimumWelcomeCardHeight,
+                                    naturalCardHeight(.large, bodyLines: 2))
+    }
+
+    /// Where the card already fit, it is untouched — the ceiling is inert at
+    /// the default type size on every device but the shortest.
+    func testWelcomeCardIsUnchangedAtPortraitAndPadBounds() {
+        for viewport in [Viewport.portraitPhone, .portraitPad, .landscapePad] {
+            let natural = naturalCardHeight(.large, bodyLines: 2)
+            XCTAssertEqual(cardHeight(viewport, natural: natural), natural, accuracy: 0.001,
+                           "card shrunk at \(viewport.height) pt of viewport")
+        }
+    }
+
+    /// Including the landscape phone at the default type size, which is the
+    /// size the issue's own repro ran at: the card measures well under the room
+    /// available, so this change moves nothing there.
+    func testWelcomeCardIsUnchangedOnALandscapePhoneAtDefaultType() {
+        let viewport = Viewport.landscapePhone
+        let natural = naturalCardHeight(.large, bodyLines: 1)
+        XCTAssertEqual(cardHeight(viewport, natural: natural), natural, accuracy: 0.001)
+        XCTAssertGreaterThan(cardGridBand(viewport, natural: natural),
+                             ShelfHeroLayout.minimumGridPeek)
+    }
+
+    /// The first frame, before `onGeometryChange` has reported anything. An
+    /// unmeasured viewport must read as "no ceiling known yet" and not as "no
+    /// room at all".
+    func testUnmeasuredViewportImposesNoWelcomeCardCeiling() {
+        // nil, not .infinity: `.frame(maxHeight: .infinity)` would stretch the
+        // card to fill instead of leaving it alone.
+        XCTAssertNil(ShelfHeroLayout.welcomeCardMaxHeight(viewportHeight: 0))
+        XCTAssertNil(ShelfHeroLayout.welcomeCardMaxHeight(viewportHeight: .infinity))
+        let natural = naturalCardHeight(.large, bodyLines: 2)
+        XCTAssertEqual(ShelfHeroLayout.welcomeCardHeight(naturalHeight: natural,
+                                                         viewportHeight: 0),
+                       natural, accuracy: 0.001)
+    }
+
+    /// A viewport too short to hold both. The order of surrender matches the
+    /// hero's: the card keeps the height its rows need and the grid goes back
+    /// to being reached by scrolling, rather than the card losing a row.
+    func testVeryShortViewportFloorsTheWelcomeCardAndYieldsTheGridBand() {
+        let cramped = Viewport(contentWidth: 700, height: 200)
+        let natural = naturalCardHeight(.accessibilityExtraExtraExtraLarge, bodyLines: 2)
+        XCTAssertEqual(cardHeight(cramped, natural: natural),
+                       ShelfHeroLayout.minimumWelcomeCardHeight, accuracy: 0.001)
+        XCTAssertLessThan(cardGridBand(cramped, natural: natural),
+                          ShelfHeroLayout.minimumGridPeek)
+    }
+
+    /// The ceiling only ever takes height away, and never stretches a short
+    /// card to fill a tall screen.
+    func testWelcomeCardCeilingNeverGrowsTheCard() {
+        let natural = naturalCardHeight(.large, bodyLines: 1)
+        for height in stride(from: 200.0, through: 2000.0, by: 50.0) {
+            XCTAssertLessThanOrEqual(
+                ShelfHeroLayout.welcomeCardHeight(naturalHeight: natural, viewportHeight: height),
+                natural)
         }
     }
 }

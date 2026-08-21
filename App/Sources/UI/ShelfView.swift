@@ -202,7 +202,7 @@ struct ShelfView: View {
     /// control acts, so a reader dragging the shelf past it cannot start a file
     /// picker by accident.
     private var welcomeCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: ShelfHeroLayout.welcomeCardSpacing) {
             Text("Waddle").font(.title.bold())
             Text("Bring your own WADs, or start with the Freedoom games below.")
                 .font(.subheadline)
@@ -227,8 +227,22 @@ struct ShelfView: View {
             .foregroundStyle(.black)
             .accessibilityIdentifier("addYourGamesButton")
         }
-        .padding(16)
+        .padding(ShelfHeroLayout.welcomeCardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Bounded against the viewport for the same reason the Continue hero
+        // is, and by the same arithmetic: this card occupies that same zone on
+        // a factory-state library, and a top zone that fills the screen leaves
+        // the LazyVGrid below it uninstantiated -- so the first tile row is not
+        // merely out of sight but absent from the accessibility hierarchy, and
+        // cannot be tapped or long-pressed at all. Inert at the default type
+        // size, where the card already fits; it binds at accessibility sizes.
+        // `ShelfHeroLayout` owns that arithmetic and is where it is tested.
+        //
+        // Top-aligned: when the ceiling does bind, the rows that stay in frame
+        // must be the ones from the top -- name first -- not a centred slice
+        // with the name cropped off.
+        .frame(maxHeight: ShelfHeroLayout.welcomeCardMaxHeight(viewportHeight: viewportHeight),
+               alignment: .top)
         .background(Color.appSurface,
                     in: RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
         .accessibilityIdentifier("welcomeCard")
