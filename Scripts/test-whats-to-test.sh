@@ -759,4 +759,22 @@ echo "$out" | grep -qF -- "- Update dependency swiftlint to v0.6" \
     || fail "did not fall back to the commit subject; got: $out"
 pass "treats a user typed Bot as a bot even without the [bot] login suffix"
 
+# 38. The mirror of case 37, and the other half of "either signal suffices":
+#     a response carrying only the "[bot]" login suffix -- no "type" field at
+#     all, the shape a response reduced in transit can take -- is skipped too.
+#     Without this the suffix branch is untested: deleting it from
+#     pr_author_is_bot leaves cases 34-37 green, because every other bot
+#     fixture also sets "type":"Bot" and would be caught by the type check
+#     alone.
+r="$(make_repo botlogin 'merge_pr 157 "chore(deps): update dependency swiftformat to v0.5"')"
+stub_curl "$r"
+(cd "$r" && git remote add origin https://github.com/tylervick/waddle.git)
+printf '%s' '{"user":{"login":"dependabot[bot]"},"body":"Bumps swiftformat from 0.4 to 0.5, with its own boilerplate opener.\n"}' > "$r/pr.157.json"
+out="$(print_stubbed "$r")" || fail "botlogin case exited non-zero: $out"
+echo "$out" | grep -qF "Bumps swiftformat from 0.4 to 0.5" \
+    && fail "a [bot] login suffix without a type was treated as human; got: $out"
+echo "$out" | grep -qF -- "- Update dependency swiftformat to v0.5" \
+    || fail "did not fall back to the commit subject; got: $out"
+pass "treats a [bot] login suffix as a bot even with no type field"
+
 echo "All whats-to-test tests passed."
