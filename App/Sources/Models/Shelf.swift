@@ -105,4 +105,33 @@ enum Shelf {
                           hasResumableSave: (PlayableItem) -> Bool) -> TapAction {
         hasResumableSave(item) ? .actionSheet : .launchNewGame
     }
+
+    /// What the grid shows under the hero zone: everything in shelf order,
+    /// minus the item the Continue hero is already presenting (spec §2,
+    /// amended 2026-08-21). Before the amendment the hero's game appeared
+    /// twice on one screen — huge above the fold and again as the first tile
+    /// directly beneath itself. Every interaction the removed tile offered
+    /// moves onto the hero: tap is Continue, and the hero now carries the
+    /// same long-press context menu a tile has, so New Game, Details and
+    /// Remove stay exactly one gesture away.
+    static func gridItems(from items: [PlayableItem], heroZone: HeroZone) -> [PlayableItem] {
+        let ordered = self.ordered(items)
+        guard case .resume(let hero) = heroZone else { return ordered }
+        return ordered.filter { (item: PlayableItem) -> Bool in
+            item.id != hero.id
+        }
+    }
+
+    /// Whether the grid ends with the ghost "Add Games" hint tile (spec §5,
+    /// amended 2026-08-21). Shown while the library is small enough that the
+    /// shelf is mostly empty page — the hint fills the next natural slot in
+    /// the grid's rhythm and gives the dark field below it a reason to read
+    /// as intentional. It disappears once real games occupy the space, so a
+    /// full shelf is never haunted by a permanent ad for the importer.
+    ///
+    /// The threshold counts *library items*, not grid tiles: a hero taking
+    /// its game out of the grid does not change how full the library is.
+    static func showsAddHint(itemCount: Int) -> Bool {
+        itemCount < 4
+    }
 }

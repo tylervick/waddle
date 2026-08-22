@@ -58,6 +58,19 @@ once real games arrive.
 - **Details** is today's `PlayableDetailView` (saves list, control-scheme
   override, create-preset-from-this), reached only through these affordances.
 
+**Amended 2026-08-21** (design pass): two changes to what the grid contains.
+The hero's game no longer repeats as a tile — "every playable item" becomes
+*every playable item the hero zone is not already presenting* (`Shelf.gridItems`).
+Before this, a returning player's screen led with the same game twice, huge
+and then again as the first tile directly beneath itself. Nothing is lost:
+the hero now carries the same long-press context menu a tile has, so New
+Game, Details and Remove stay one gesture away on the hero itself. And while
+the library holds fewer than four items, the grid ends with a ghost **Add
+Games** tile (`Shelf.showsAddHint`) — same slot and shape as a real tile,
+drawn as a dashed outline, same action as **Add Your Games** — so a
+near-empty shelf reads as an invitation rather than abandoned space. It
+disappears once real games occupy the room.
+
 ## 3. The two doors
 
 **Gear — player settings, as a sheet.** Holds what the Play-tab gear menu
@@ -90,6 +103,16 @@ non-bundled item exists or any save exists (whichever comes first), and the
 zone thereafter shows the Continue hero when §2's rule is met, else nothing.
 The AirDrop/share-sheet import path needs no design change; it already works
 before the app is first opened.
+
+**Amended 2026-08-21** (design pass): the card no longer carries the app
+name. The navigation title directly above it already says "Waddle", and a
+first launch greeted the player with the name twice in a row. The card is
+now the one-line tagline over the button; the compact form — what remains on
+a viewport too tight for the tagline (`welcomeCardShowsDescription`) — is
+the button alone. A side effect worth recording: the shorter card fits with
+its tagline in far more geometries, including every supported portrait
+iPhone at accessibility text sizes except within a few points of the fold
+boundary on the 360 pt mini.
 
 **Freedoom presence, resolved** (closes the 2026-07-31 onboarding thread by
 deciding all three mechanisms it weighed):
@@ -155,6 +178,32 @@ scale with the tile, and at 4:3 a two-column iPhone tile is 172 × 129 pt, where
 the old 60 pt scrim covered 47% of the card for one line of text. It is now
 capped at 40% of the tile height at one line, held by `PlayableTileLayout` and
 pinned by `PlayableTileLayoutTests`.
+
+**Amended 2026-08-21** (design pass): five visual corrections, found the day
+the shelf first rendered in an Xcode canvas rather than through geometry
+assertions. **Containment:** the "no padding between tiles" complaint turned
+out to be a rendering defect, not a spacing value — `TitleArtView`'s
+`scaledToFill` bitmap negotiated each tile's size past its grid cell
+(measured: ~190 pt of tile in a 175 pt cell), so every tile painted over the
+gap beside it and no gap constant could help. The surface color now owns the
+tile's shape alone and the art draws as an overlay, which cannot influence
+layout; `PlayTabTests/testTilesStayInsideTheirGridCells` measures the live
+hierarchy so this cannot silently return. **Rhythm:** beneath that defect
+the screen also sat on one uniform 16 pt beat — outer padding, grid gap,
+card padding all equal — which reads as no spacing even when rendered
+correctly; the grid gap is now 20 pt and the zone break (`sectionSpacing`)
+32 pt, so the intervals form a scale. **Edges:** every art tile wears a 1 pt white
+hairline at 12% (`Theme.tileHairline*`) and the shared corner radius is
+16 pt; edge-to-edge art on a near-black page has no boundary of its own, and
+without one, adjacent tiles read as a single continuous poster whatever the
+gap. **Scrim:** the two-stop 0→0.85 gradient put the title's baseline in its
+thin half, printing type straight onto the art's own wordmark; the ramp is
+now weighted (0 → 0.75 at 55% → 0.92) so the text has a bed. Same height,
+same 40% ceiling. **The capped hero letterboxes:** filling a short box
+cropped TITLEPIC to an unreadable band on landscape phones, defeating the
+art-forward premise exactly where the cap binds; the whole image now fits
+the capped height over a dimmed blur of itself, and where the cap is not
+binding, fit and fill coincide — portrait is pixel-identical.
 
 **Native underneath.** SF type with Dynamic Type respected — the grid drops
 columns at accessibility sizes rather than shrinking text. 44 pt minimum

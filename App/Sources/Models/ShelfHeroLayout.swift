@@ -23,7 +23,13 @@ enum ShelfHeroLayout {
     /// Vertical gap between the hero and the grid below it. `ShelfView`'s own
     /// `VStack` reads this, so the space reserved here and the space actually
     /// drawn cannot drift apart.
-    static let sectionSpacing: CGFloat = 24
+    ///
+    /// 32, not the grid's own gap: the 2026-08-21 design pass found the whole
+    /// screen sitting on one uniform 16 pt beat (outer padding = grid gap =
+    /// card padding), which is what made the shelf read as unspaced even
+    /// though every gap was present. The zone break is the largest interval
+    /// in that rhythm on purpose.
+    static let sectionSpacing: CGFloat = 32
 
     /// How much of the first tile row has to stay above the fold. More than
     /// double spec §5's 44 pt minimum target, which is the bar it has to
@@ -53,23 +59,27 @@ enum ShelfHeroLayout {
     static let welcomeCardPadding: CGFloat = 16
     static let welcomeCardRowSpacing: CGFloat = 12
 
-    /// The card's height, from the three rows whose heights follow the
-    /// reader's text size.
+    /// The card's height, from the rows whose heights follow the reader's
+    /// text size.
+    ///
+    /// Two rows, not three, since the 2026-08-21 design pass: the card's app
+    /// name duplicated the navigation title sitting directly above it, so the
+    /// name now lives only in the bar and the card is the tagline over the
+    /// button (spec §4, amended). The compact form is the button alone.
     ///
     /// Measured rather than assumed, for the same reason `artHeight` takes a
-    /// `captionHeight` instead of hard-coding one: the app name, the
-    /// description and the button label all grow at accessibility sizes, and a
-    /// budget written against the default size would clear a card half again
-    /// as tall and put the first tile row right back below the fold.
+    /// `captionHeight` instead of hard-coding one: the description and the
+    /// button label both grow at accessibility sizes, and a budget written
+    /// against the default size would clear a card half again as tall and put
+    /// the first tile row right back below the fold.
     ///
     /// - Parameter descriptionHeight: zero for the compact form — the card
-    ///   without its description line — which also drops one row gap.
-    static func welcomeCardHeight(titleHeight: CGFloat,
-                                  descriptionHeight: CGFloat,
+    ///   without its description line — which also drops the row gap.
+    static func welcomeCardHeight(descriptionHeight: CGFloat,
                                   buttonHeight: CGFloat) -> CGFloat {
         let rows = descriptionHeight > 0
-            ? [titleHeight, descriptionHeight, buttonHeight]
-            : [titleHeight, buttonHeight]
+            ? [descriptionHeight, buttonHeight]
+            : [buttonHeight]
         return welcomeCardPadding * 2
             + rows.reduce(0, +)
             + welcomeCardRowSpacing * CGFloat(rows.count - 1)
@@ -177,8 +187,9 @@ enum ShelfHeroLayout {
     /// `EngineSmokeTests` caught it as a tap that synthesized cleanly and
     /// activated nothing.
     ///
-    /// Dropping the description keeps the two elements spec §4 leads with —
-    /// the app name and the primary **Add Your Games** button.
+    /// Dropping the description keeps the element spec §4 leads with — the
+    /// primary **Add Your Games** button. (The app name left the card in the
+    /// 2026-08-21 amendment; the navigation title carries it.)
     ///
     /// ## Where this stops
     ///

@@ -37,25 +37,28 @@ struct TitleArtView: View {
     }
 
     var body: some View {
-        ZStack {
-            // The flat elevated tile is the floor, drawn unconditionally: it is
-            // where a failed decode settles, so a tile that is still decoding
-            // already shows the shape it may keep.
-            Color.appSurface
-            if let artImage {
-                Image(decorative: artImage, scale: 1)
-                    .resizable()
-                    .scaledToFill()
-            }
-        }
-        .modifier(ArtShape(aspectRatio: aspectRatio, height: height))
-        // `scaledToFill` can still overflow the frame it is given, so clip it
-        // before anyone rounds it. On a 4:3 tile what overflows is only the gap
-        // between TITLEPIC's stored 8:5 pixels and the 4:3 Doom displays them
-        // at — 83% of the width survives, against 47% while tiles were 3:4.
-        // Closing the last 17% would mean drawing the art aspect-corrected
-        // rather than filling with it; see `PlayableTileLayout`.
-        .clipped()
+        // The bitmap takes no part in sizing. A resizable `scaledToFill`
+        // image reports its own filled size upward, and that negotiation let
+        // every art tile grow past its grid cell and paint over the gaps —
+        // measured 2026-08-21 at ~190 pt of tile in a 175 pt cell, which is
+        // the literal mechanism behind "there is no padding between the
+        // tiles": each tile's overflow ate the gap beside it, and no gap
+        // constant could ever widen what was being painted over. So the flat
+        // elevated surface — a color, whose size is exactly what it is
+        // proposed, and the floor a failed decode settles on regardless —
+        // owns the shape alone, and the art is an overlay, which cannot
+        // influence layout and is clipped to the shape's bounds.
+        Color.appSurface
+            .modifier(ArtShape(aspectRatio: aspectRatio, height: height))
+            .overlay { artOverlay }
+            // `scaledToFill` still overpaints the bounds it was offered, so
+            // clip before anyone rounds it. On a 4:3 tile what overflows is
+            // only the gap between TITLEPIC's stored 8:5 pixels and the 4:3
+            // Doom displays them at — 83% of the width survives, against 47%
+            // while tiles were 3:4. Closing the last 17% would mean drawing
+            // the art aspect-corrected rather than filling with it; see
+            // `PlayableTileLayout`.
+            .clipped()
         .task(id: item.id) {
             // Recycled tiles reuse this view for a new item; drop the previous
             // item's art immediately so it never lingers (or stays forever when
@@ -71,6 +74,68 @@ struct TitleArtView: View {
             guard !Task.isCancelled else { return }
             image = loaded
         }
+    }
+
+    /// The art layers, drawn over the sized surface. An overlay is proposed
+    /// exactly the surface's bounds and can never argue about them — and no
+    /// layer in here may exceed those bounds either, because a `scaledToFill`
+    /// image's oversized node leaks into the *accessibility* frame even under
+    /// `.clipped()` (clipping affects drawing, never element frames). That
+    /// leak is what made every tile's — and the hero's — reported frame the
+    /// bitmap's 8:5 fill box instead of the view: XCUITest measured 210 pt
+    /// buttons in 175 pt cells, overlapping by 15 pt, and the EngineSmoke
+    /// "not hittable" flake's `{{-84.3, …}, {377.7, 236}}` frame is the same
+    /// arithmetic on the hero. So the fill crop happens in Core Graphics
+    /// (`croppedToAspect`) and every `Image` here is a plain `resizable()`
+    /// stretch or a `scaledToFit` — shapes that never outgrow their proposal.
+    @ViewBuilder
+    private var artOverlay: some View {
+        if let artImage {
+            if height != nil {
+                // The capped path letterboxes (spec §5, amended 2026-08-21):
+                // filling a short box used to crop TITLEPIC to a horizontal
+                // band — on a landscape phone the hero became an unreadable
+                // smear, which defeats the one thing an art-forward hero is
+                // for. The whole image now fits the capped height, centred
+                // over a dimmed blur of itself filling the rest of the width.
+                // When the cap is not binding, fit and fill coincide and the
+                // blur is invisible — portrait renders exactly as before.
+                GeometryReader { geo in
+                    ZStack {
+                        Image(decorative: Self.croppedToAspect(
+                                artImage, geo.size.width / max(geo.size.height, 1)),
+                              scale: 1)
+                            .resizable()
+                            .blur(radius: 24)
+                            .opacity(0.45)
+                        Image(decorative: artImage, scale: 1)
+                            .resizable()
+                            .scaledToFit()
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                }
+            } else {
+                Image(decorative: Self.croppedToAspect(artImage, aspectRatio), scale: 1)
+                    .resizable()
+            }
+        }
+    }
+
+    /// The centre crop `scaledToFill` would have shown, taken in Core
+    /// Graphics so SwiftUI never meets a bitmap wider than its box. On a 4:3
+    /// tile this is the same 83%-of-width crop the fill produced — see the
+    /// note on `.clipped()` above. `CGImage.cropping` fails only on
+    /// degenerate rects; the uncropped image is the honest fallback, costing
+    /// at worst the old overflow for one frame of one tile.
+    private static func croppedToAspect(_ image: CGImage, _ ratio: CGFloat) -> CGImage {
+        let w = CGFloat(image.width), h = CGFloat(image.height)
+        guard ratio > 0, w > 0, h > 0 else { return image }
+        var cropW = w, cropH = h
+        if w / h > ratio { cropW = h * ratio } else { cropH = w / ratio }
+        let rect = CGRect(x: ((w - cropW) / 2).rounded(.down),
+                          y: ((h - cropH) / 2).rounded(.down),
+                          width: cropW.rounded(.down), height: cropH.rounded(.down))
+        return image.cropping(to: rect) ?? image
     }
 
     /// Sizes the art either by ratio or by an explicit height. Which branch a

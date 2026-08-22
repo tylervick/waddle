@@ -58,8 +58,14 @@ struct ShelfView: View {
                 case .empty: EmptyView()
                 }
                 LazyVGrid(columns: columns, spacing: gridSpacing) {
-                    ForEach(items) { item in
+                    // Not `items`: the hero's game would otherwise repeat as
+                    // the first tile directly beneath itself. `Shelf.gridItems`
+                    // owns that rule and is where it is tested.
+                    ForEach(Shelf.gridItems(from: items, heroZone: zone)) { item in
                         tile(for: item)
+                    }
+                    if Shelf.showsAddHint(itemCount: items.count) {
+                        addHintTile
                     }
                 }
             }
@@ -178,13 +184,20 @@ struct ShelfView: View {
 
     /// Grid gap, shared by the column definition and the row spacing below, so
     /// the width `ShelfHeroLayout` reasons about is the width actually drawn.
-    private var gridSpacing: CGFloat { 16 }
+    ///
+    /// 20, deliberately off the outer padding's 16: with every interval equal
+    /// the screen has no rhythm, and between two edge-to-edge art tiles a
+    /// 16 pt gap disappears entirely (2026-08-21 design pass). Two columns
+    /// still fit the narrowest supported phone — the 360 pt mini gives
+    /// (328 − 20) / 2 = 154 pt tiles against the 150 pt floor, and
+    /// `ShelfHeroLayoutTests` pins that arithmetic off its boundary.
+    private var gridSpacing: CGFloat { 20 }
 
     /// Whether the welcome card can afford its description line on this
     /// viewport (spec §4 vs. the shelf staying playable in one tap).
     ///
-    /// The three heights come from `UIFont` rather than from constants, the
-    /// same way `heroCaptionHeight` below does: every row of the card grows at
+    /// The heights come from `UIFont` rather than from constants, the same
+    /// way `heroCaptionHeight` below does: every row of the card grows at
     /// accessibility text sizes, and so does the tile row it has to leave room
     /// for, so a budget written against the default size would clear a card
     /// that does not fit.
@@ -196,14 +209,8 @@ struct ShelfView: View {
             contentPadding: contentPadding,
             gridSpacing: gridSpacing,
             fullCardHeight: ShelfHeroLayout.welcomeCardHeight(
-                titleHeight: welcomeTitleHeight,
                 descriptionHeight: welcomeDescriptionHeight,
                 buttonHeight: welcomeButtonHeight))
-    }
-
-    /// `.title` — the card's app-name row.
-    private var welcomeTitleHeight: CGFloat {
-        UIFont.preferredFont(forTextStyle: .title1).lineHeight
     }
 
     /// `.borderedProminent` with an explicit `minHeight`, so the row is the
@@ -259,13 +266,15 @@ struct ShelfView: View {
     /// control acts, so a reader dragging the shelf past it cannot start a file
     /// picker by accident.
     private var welcomeCard: some View {
+        // No app-name row (spec §4, amended 2026-08-21): the navigation title
+        // directly above this card already says "Waddle", and a first launch
+        // was greeting the player with the name twice in a row.
         VStack(alignment: .leading, spacing: 12) {
-            Text("Waddle").font(.title.bold())
             // Dropped on viewports where the card would otherwise push the
             // first tile row past the fold -- see
-            // `ShelfHeroLayout.welcomeCardShowsDescription`. The app name and
-            // the button are what spec §4 leads with; the sentence is the part
-            // that can go when "playable in one tap" is the thing at stake.
+            // `ShelfHeroLayout.welcomeCardShowsDescription`. The button is
+            // what spec §4 leads with; the sentence is the part that can go
+            // when "playable in one tap" is the thing at stake.
             if showsWelcomeDescription {
                 Text(Self.welcomeDescription)
                     .font(.subheadline)
@@ -343,6 +352,35 @@ struct ShelfView: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("continueHero")
         .accessibilityLabel("Continue \(TileAccessibility.label(for: item))")
+        .contextMenu { contextMenuItems(for: item) }
+    }
+
+    /// The ghost tile closing a small library's grid (spec §5, amended
+    /// 2026-08-21): the same slot, shape and radius as a real tile, drawn as
+    /// an outline so it reads as an invitation rather than a game. Same
+    /// action as **Add Your Games**; `Shelf.showsAddHint` decides when it
+    /// appears at all.
+    private var addHintTile: some View {
+        Button {
+            showImporter = true
+        } label: {
+            RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
+                .strokeBorder(Color.appSecondaryText.opacity(0.35),
+                              style: StrokeStyle(lineWidth: 1, dash: [6, 5]))
+                .aspectRatio(Theme.tileAspectRatio, contentMode: .fit)
+                .overlay {
+                    VStack(spacing: 8) {
+                        Image(systemName: "plus")
+                            .font(.title2)
+                        Text("Add Games")
+                            .font(.subheadline)
+                    }
+                    .foregroundStyle(Color.appSecondaryText)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("addGamesHintTile")
+        .accessibilityLabel("Add Games")
     }
 
     private func tile(for item: PlayableItem) -> some View {
@@ -362,19 +400,26 @@ struct ShelfView: View {
         // already owns this tile's identifier and traits, and making the tile
         // its own accessibility element would split the two apart.
         .accessibilityLabel(TileAccessibility.label(for: item))
-        .contextMenu {
-            if hasResumableSave(item) {
-                Button("Continue") { play(item, mode: .continueNewest) }
-            }
-            Button("New Game") { play(item, mode: .newGame) }
-            Button("Details") { detailItem = item }
-            if case .preset(let loadout) = item {
-                Button("Edit") { editorLoadout = loadout }
-            }
-            Button("Remove from Shelf", role: .destructive) {
-                try? library.hide(item)
-                refresh()
-            }
+        .contextMenu { contextMenuItems(for: item) }
+    }
+
+    /// One menu for every presentation of an item. The hero needs it too
+    /// since spec §2's 2026-08-21 amendment: its game no longer repeats as a
+    /// tile, so this menu is where that game's New Game, Details and Remove
+    /// live — losing the tile must not lose the gestures.
+    @ViewBuilder
+    private func contextMenuItems(for item: PlayableItem) -> some View {
+        if hasResumableSave(item) {
+            Button("Continue") { play(item, mode: .continueNewest) }
+        }
+        Button("New Game") { play(item, mode: .newGame) }
+        Button("Details") { detailItem = item }
+        if case .preset(let loadout) = item {
+            Button("Edit") { editorLoadout = loadout }
+        }
+        Button("Remove from Shelf", role: .destructive) {
+            try? library.hide(item)
+            refresh()
         }
     }
 
