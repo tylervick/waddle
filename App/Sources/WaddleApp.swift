@@ -4,16 +4,37 @@ import SwiftUI
 
 @main
 struct WaddleApp: App {
-    let container: ModelContainer
-    let library: LibraryService
-    let importer: ImportService
+    /// Nil in exactly one process: Xcode's preview host — see `init`.
+    let container: ModelContainer?
+    let library: LibraryService?
+    let importer: ImportService?
     @Environment(\.scenePhase) private var scenePhase
     @State private var isAdopting = false
     @State private var adoptionQueued = false
 
     init() {
+        // The canvas boots this app only as a host for #Preview content; its
+        // own scene is never what renders there. Creating the real
+        // ModelContainer on that boot path crashes the host outright on
+        // current tooling — 2026-08-21 produced six crash reports in one
+        // evening, every one a SwiftData assertion under `App.main()` via
+        // XOJITExecutor (Xcode 26.2, iOS 26.3.1 simruntime), and a crashing
+        // host loops instead of rendering anything. So under previews the app
+        // opens no store, subscribes nothing, and records no breadcrumbs;
+        // previews build their own in-memory fixtures (`ShelfPreviews.swift`)
+        // inside the preview bodies, which is the path that has never crashed.
+        // The env var is set by Xcode for every preview host process and by
+        // nothing else; the gate compiles away outside DEBUG regardless.
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1" {
+            container = nil
+            library = nil
+            importer = nil
+            return
+        }
+        #endif
         do {
-            container = try ModelContainer(for: WADFile.self, Loadout.self)
+            let container = try ModelContainer(for: WADFile.self, Loadout.self)
             let context = ModelContext(container)
             let store = WADStore.default
 
@@ -33,8 +54,8 @@ struct WaddleApp: App {
             }
             #endif
 
-            library = LibraryService(context: context, store: store)
-            importer = ImportService(library: library, store: store)
+            let library = LibraryService(context: context, store: store)
+            let importer = ImportService(library: library, store: store)
             try library.seedBundledContentIfNeeded()
             try library.reconcileBundledBaseGameLoadouts()
 
@@ -53,6 +74,10 @@ struct WaddleApp: App {
                 try? library.seedContinueSaveForCapture()
             }
             #endif
+
+            self.container = container
+            self.library = library
+            self.importer = importer
         } catch {
             fatalError("SwiftData container failed: \(error)")
         }
@@ -65,24 +90,33 @@ struct WaddleApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(library: library, importer: importer)
-                .task { await runAdoption() }
-                .onChange(of: scenePhase) { oldPhase, newPhase in
-                    BreadcrumbLog.shared.record(
-                        .scenePhase(from: Self.phaseName(oldPhase),
-                                    to: Self.phaseName(newPhase)))
-                    // Launch is covered by .task above; this catches files dropped
-                    // into Documents via the Files app while we were backgrounded.
-                    guard oldPhase == .background, newPhase == .active else { return }
-                    Task { await runAdoption() }
-                }
-                .onOpenURL { url in
-                    let outcome = importer.importFiles(at: [url])
-                    ImportNotices.shared.post(outcome: outcome)
-                    NotificationCenter.default.post(name: .libraryDidChange, object: nil)
-                }
+            // `SceneBuilder` cannot branch, so the preview-host split lives
+            // here and `.modelContainer` rides the root view instead of the
+            // scene — same environment, one window either way.
+            if let container, let library, let importer {
+                ContentView(library: library, importer: importer)
+                    .task { await runAdoption() }
+                    .onChange(of: scenePhase) { oldPhase, newPhase in
+                        BreadcrumbLog.shared.record(
+                            .scenePhase(from: Self.phaseName(oldPhase),
+                                        to: Self.phaseName(newPhase)))
+                        // Launch is covered by .task above; this catches files dropped
+                        // into Documents via the Files app while we were backgrounded.
+                        guard oldPhase == .background, newPhase == .active else { return }
+                        Task { await runAdoption() }
+                    }
+                    .onOpenURL { url in
+                        let outcome = importer.importFiles(at: [url])
+                        ImportNotices.shared.post(outcome: outcome)
+                        NotificationCenter.default.post(name: .libraryDidChange, object: nil)
+                    }
+                    .modelContainer(container)
+            } else {
+                // The preview host's scene, which the canvas never shows —
+                // it renders the #Preview content in its place.
+                Color.black.ignoresSafeArea()
+            }
         }
-        .modelContainer(container)
     }
 
     /// ScenePhase has no textual form worth leaning on, so the three cases
@@ -107,6 +141,7 @@ struct WaddleApp: App {
     // still followed by a scan + refresh.
     @MainActor
     private func runAdoption() async {
+        guard let importer else { return }
         guard !isAdopting else { adoptionQueued = true; return }
         isAdopting = true
         defer { isAdopting = false }

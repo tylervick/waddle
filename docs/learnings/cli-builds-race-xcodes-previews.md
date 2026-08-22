@@ -1,40 +1,46 @@
-# A CLI xcodebuild sharing DerivedData with an open Xcode races its preview builds
+# The preview host crashes in App.main() — gate app startup, and don't share DerivedData
 
-Running `xcodebuild` from a terminal while Xcode has the same project open —
-especially right after `mise run generate` rewrites the project file — makes
-two build systems fight over one build database. It presents as two different
-failures, minutes apart, neither of which names the other:
+Two related traps from one evening (2026-08-21), with the misattribution
+between them recorded on purpose.
 
-- The CLI run dies with `unable to attach DB: … build.db: database is locked.
-  Possibly there are two concurrent builds running in the same filesystem
-  location.`
-- Xcode's **preview session crashes at app launch** with a SwiftData
-  assertion under `App.main()` (`EXC_BREAKPOINT` in `_assertionFailure` ←
-  SwiftData ← XOJITExecutor frames): the canvas relaunched the app against
-  the half-consistent build state the race left behind. Observed 2026-08-21
-  at 21:46, timestamp-matched to the locked-DB CLI failure of the same
-  minute. The crash report blames SwiftData; the cause was the collision.
+**The crash.** Xcode's canvas boots the real app as a host for `#Preview`
+content, and on current tooling (Xcode 26.2, iOS 26.3.1 simruntime) the
+`ModelContainer(for:)` in `WaddleApp.init` intermittently dies there:
+`EXC_BREAKPOINT` in `_assertionFailure` ← SwiftData ← `static App.main()` ←
+XOJITExecutor, reported once as `Not a PersistentModel Type - WADFile`. Six
+crash reports in one evening, bracketing one fully-working session — and a
+crashing host loops (relaunch, assert, repeat), which the canvas shows as a
+"Booting"/"Preparing" hang with a stale render behind an error banner.
 
-**The fix is isolation, not sequencing.** Give CLI runs their own
-`-derivedDataPath` (a scratch directory) whenever Xcode is or may be open.
-The first such build is cold — a few minutes with the engine framework
-already in `Vendor/out/` — and every later run is warm. Trying to take turns
-with Xcode instead is a losing game: it rebuilds in the background whenever
-the project or files change, which is exactly when you want to run tests.
+Two environmental remedies each appeared to work once and did not hold:
+clearing the preview simulators (`xcrun simctl --set previews delete all`)
+and eliminating a concurrent CLI build. The crash recurred at 20:36 and
+21:24 with neither in play, which is what ruled both out as the cause.
 
-Related but distinct: `killed-xcodebuild-wedges-coresimulator.md` covers a
-*killed* session wedging CoreSimulator itself. This one needs no kill —
-two live build systems are enough — and recovery needs no service restart,
-just isolation and a canvas Resume.
+**The durable fix is to remove the crashing call from the boot path**:
+`WaddleApp.init` returns empty (nil container/library/importer, no stores,
+no MetricKit, no breadcrumbs) when `XCODE_RUNNING_FOR_PREVIEWS == "1"`, and
+the scene renders a placeholder the canvas never shows. Previews build their
+own in-memory fixtures inside `#Preview` bodies (`ShelfPreviews.swift`) —
+the path that has never crashed. The env var is set by Xcode for every
+preview host process and nothing else; the gate is `#if DEBUG` besides.
 
-A second thing the incident showed: the SwiftData-under-previews assertion
-("Not a PersistentModel Type", or an anonymous SwiftData
-`_assertionFailure` under `App.main()`) is an environmental flake of the
-XOJIT preview bootstrap, seen once from stale preview caches after a
-component install and once from this race — never from app code. If it fires
-without a collision to blame, clear the preview simulators
-(`xcrun simctl --set previews delete all`) and retry before reading the
-stack as a Waddle bug.
+**The separate, real trap:** a CLI `xcodebuild` sharing DerivedData with an
+open Xcode — especially right after `mise run generate` rewrites the
+project — fails with `build.db: database is locked. Possibly there are two
+concurrent builds running in the same filesystem location`, and leaves
+Xcode's own build in a state worth distrusting. Give CLI runs their own
+`-derivedDataPath` scratch directory whenever Xcode is or may be open; the
+first build is cold, every later one is warm, and there is no turn-taking
+game to lose.
+
+**The misattribution worth remembering:** the first crash was blamed on
+stale preview caches, the fourth on the DerivedData collision — each because
+a plausible environmental event sat right next to it in time, and each
+"confirmed" by one lucky retry. What broke both stories was the crash count:
+timestamps accumulate in `~/Library/Logs/DiagnosticReports/Waddle-*.ips`,
+and two of six fell where neither story could reach. Count the reports
+before believing a coincidence.
 
 **Provenance:** the 2026-08-21 design pass, working the shelf branch under
 the same Xcode that was rendering `ShelfPreviews.swift`.
