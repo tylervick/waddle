@@ -1,6 +1,42 @@
 import XCTest
 
 final class PlayTabTests: XCTestCase {
+    /// Every art tile stays inside its grid cell. The 2026-08-21 design pass
+    /// measured ~190 pt of tile in a 175 pt cell: the `scaledToFill` bitmap
+    /// negotiated the tile's size past its column, every tile painted over
+    /// the gap beside it, and no spacing constant could widen what was being
+    /// painted over — the shelf read as having no padding at any gap value.
+    /// Pure-geometry tests cannot see a rendered frame, so this measures the
+    /// live accessibility hierarchy, the way `LiveDeviceOverlayLayoutTests`
+    /// measures the overlay. Reintroduce image-driven sizing in
+    /// `TitleArtView` and the gap and margin assertions here both fail.
+    @MainActor
+    func testTilesStayInsideTheirGridCells() {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
+        app.launch()
+        let one = app.buttons["playFreedoom1"]
+        XCTAssertTrue(one.waitForExistence(timeout: 10))
+        // Phase 2 has no stable identifier (only Phase 1 is load-bearing for
+        // launch tests), so find it by its accessibility label.
+        let two = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH 'Freedoom Phase 2'")).firstMatch
+        XCTAssertTrue(two.waitForExistence(timeout: 5))
+
+        let lhs = one.frame, rhs = two.frame
+        // Same row (portrait phones and every iPad width give at least two
+        // columns, pinned by ShelfHeroLayoutTests), so these are neighbours.
+        XCTAssertEqual(lhs.minY, rhs.minY, accuracy: 2, "tiles are not in one row")
+        // The gap must survive rendering: 20 pt by Theme; anything under 12
+        // means a tile is painting over it (the defect measured 5 pt).
+        XCTAssertGreaterThanOrEqual(rhs.minX - lhs.maxX, 12,
+                                    "inter-tile gap collapsed: \(lhs) vs \(rhs)")
+        // The leading content margin must survive too: 16 pt by ShelfView;
+        // the defect left 8.5. And the two cells must be the same width.
+        XCTAssertGreaterThanOrEqual(lhs.minX, 12, "leading margin collapsed: \(lhs)")
+        XCTAssertEqual(lhs.width, rhs.width, accuracy: 1)
+    }
+
     @MainActor
     func testBaseGameDetailControlsOverridePersists() {
         let app = XCUIApplication()

@@ -179,12 +179,20 @@ the old 60 pt scrim covered 47% of the card for one line of text. It is now
 capped at 40% of the tile height at one line, held by `PlayableTileLayout` and
 pinned by `PlayableTileLayoutTests`.
 
-**Amended 2026-08-21** (design pass): four visual corrections, found the day
+**Amended 2026-08-21** (design pass): five visual corrections, found the day
 the shelf first rendered in an Xcode canvas rather than through geometry
-assertions. **Rhythm:** the screen sat on one uniform 16 pt beat — outer
-padding, grid gap, card padding all equal — which reads as no spacing at
-all; the grid gap is now 20 pt and the zone break (`sectionSpacing`) 32 pt,
-so the intervals form a scale. **Edges:** every art tile wears a 1 pt white
+assertions. **Containment:** the "no padding between tiles" complaint turned
+out to be a rendering defect, not a spacing value — `TitleArtView`'s
+`scaledToFill` bitmap negotiated each tile's size past its grid cell
+(measured: ~190 pt of tile in a 175 pt cell), so every tile painted over the
+gap beside it and no gap constant could help. The surface color now owns the
+tile's shape alone and the art draws as an overlay, which cannot influence
+layout; `PlayTabTests/testTilesStayInsideTheirGridCells` measures the live
+hierarchy so this cannot silently return. **Rhythm:** beneath that defect
+the screen also sat on one uniform 16 pt beat — outer padding, grid gap,
+card padding all equal — which reads as no spacing even when rendered
+correctly; the grid gap is now 20 pt and the zone break (`sectionSpacing`)
+32 pt, so the intervals form a scale. **Edges:** every art tile wears a 1 pt white
 hairline at 12% (`Theme.tileHairline*`) and the shared corner radius is
 16 pt; edge-to-edge art on a near-black page has no boundary of its own, and
 without one, adjacent tiles read as a single continuous poster whatever the
