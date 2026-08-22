@@ -17,7 +17,15 @@ import SwiftUI
 enum Theme {
     /// The one shared corner radius (spec §5). Tiles, the hero, and anything
     /// else the shell rounds use this — not a per-view literal.
-    static let cornerRadius: CGFloat = 14
+    static let cornerRadius: CGFloat = 16
+
+    /// The hairline that gives art tiles an edge (spec §5, amended
+    /// 2026-08-21). Edge-to-edge art on a near-black page has no boundary of
+    /// its own, so adjacent tiles read as one continuous poster no matter how
+    /// wide the gap between them is — the stroke, not the gap, is what makes
+    /// a tile an object.
+    static let tileHairlineWidth: CGFloat = 1
+    static let tileHairlineOpacity: CGFloat = 0.12
 
     /// Grid tiles are 4:3 (spec §5, amended 2026-08-18), which is the shape
     /// Doom *displays* TITLEPIC at — not the 8:5 its 320×200 pixels are

@@ -43,9 +43,29 @@ struct TitleArtView: View {
             // already shows the shape it may keep.
             Color.appSurface
             if let artImage {
-                Image(decorative: artImage, scale: 1)
-                    .resizable()
-                    .scaledToFill()
+                if height != nil {
+                    // The capped path letterboxes (spec §5, amended
+                    // 2026-08-21): filling a short box used to crop TITLEPIC
+                    // to a horizontal band — on a landscape phone the hero
+                    // became an unreadable smear, which defeats the one thing
+                    // an art-forward hero is for. The whole image now fits the
+                    // capped height, centred over a dimmed blur of itself
+                    // filling the rest of the width. When the cap is not
+                    // binding, fit and fill coincide and the blur is invisible
+                    // — portrait renders exactly as before.
+                    Image(decorative: artImage, scale: 1)
+                        .resizable()
+                        .scaledToFill()
+                        .blur(radius: 24)
+                        .opacity(0.45)
+                    Image(decorative: artImage, scale: 1)
+                        .resizable()
+                        .scaledToFit()
+                } else {
+                    Image(decorative: artImage, scale: 1)
+                        .resizable()
+                        .scaledToFill()
+                }
             }
         }
         .modifier(ArtShape(aspectRatio: aspectRatio, height: height))

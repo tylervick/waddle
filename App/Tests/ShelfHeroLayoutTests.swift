@@ -27,6 +27,13 @@ private struct Viewport {
     /// navigation bar and a 21 pt home indicator.
     static let landscapePhone = Viewport(contentWidth: 956 - 59 * 2 - 32,
                                          height: 440 - 44 - 21)
+    /// iPhone 17 Pro landscape: 874x402 pt, with the same sensor-housing and
+    /// chrome subtractions as `landscapePhone` above. Not the widest phone --
+    /// the point of this fixture is a landscape viewport whose welcome-card
+    /// verdict sits well clear of the fold boundary, where the Pro Max's
+    /// landed within a point of it after the 2026-08-21 design pass.
+    static let landscapeProPhone = Viewport(contentWidth: 874 - 59 * 2 - 32,
+                                            height: 402 - 44 - 21)
     /// iPhone 17 Pro portrait: 1206x2622@3 = 402x874 pt.
     static let portraitPhone = Viewport(contentWidth: 402 - 32,
                                         height: 874 - 96 - 34)
@@ -74,11 +81,16 @@ private struct SupportedDevice {
                                                     width: 402, height: 874, chrome: 130)
     static let widestPhone = SupportedDevice(name: "iPhone 16/17 Pro Max",
                                              width: 440, height: 956, chrome: 130)
+    /// The shortest supported viewport (551 pt) — the home-button SE. Height,
+    /// not width, is what decides whether the welcome card affords its rows,
+    /// so the card's tightest portrait geometry is this one, not the mini's.
+    static let shortestPhone = SupportedDevice(name: "iPhone SE (2nd/3rd gen)",
+                                               width: 375, height: 667, chrome: 116)
 
     static let allPhones: [SupportedDevice] = [
         // The floor, and the reason this list exists at all.
         SupportedDevice(name: "iPhone 12/13 mini", width: 360, height: 780, chrome: 130),
-        SupportedDevice(name: "iPhone SE (2nd/3rd gen)", width: 375, height: 667, chrome: 116),
+        shortestPhone,
         SupportedDevice(name: "iPhone 11 Pro", width: 375, height: 812, chrome: 130),
         SupportedDevice(name: "iPhone 12/13/14/16e", width: 390, height: 844, chrome: 130),
         SupportedDevice(name: "iPhone 14 Pro/15/16", width: 393, height: 852, chrome: 130),
@@ -107,34 +119,35 @@ private struct SupportedDevice {
 /// `.padding()` literals in the first place.
 private enum ShelfLayoutFixture {
     static let contentPadding: CGFloat = 16
-    static let gridSpacing: CGFloat = 16
+    /// 20, off the outer padding's 16 since the 2026-08-21 design pass —
+    /// restating `ShelfView`'s value, like everything else here.
+    static let gridSpacing: CGFloat = 20
 
     /// The card's rows at the default text size, rounded from the `UIFont`
-    /// line heights `ShelfView` measures: `.title1` for the app name, two
-    /// wrapped `.subheadline` lines for the description, and the button at its
-    /// 44 pt tap-target floor.
+    /// line heights `ShelfView` measures: two wrapped `.subheadline` lines
+    /// for the description, and the button at its 44 pt tap-target floor.
+    /// Two rows, not three, since the 2026-08-21 amendment removed the app
+    /// name that duplicated the navigation title.
     ///
     /// Passed as explicit numbers, not read from `UIFont`, for the reason the
     /// rest of this file supplies bounds rather than rendering a screen: the
     /// real ones follow whatever Dynamic Type setting the simulator happens to
     /// be in, and a test that changes answer with a device setting proves
     /// nothing.
-    /// The same three numbers `defaultSizeCard` below uses, kept identical on
+    /// The same numbers `defaultSizeCard` below uses, kept identical on
     /// purpose: two fixtures for one card would drift.
-    static let titleHeight: CGFloat = 41
     static let descriptionHeight: CGFloat = 40
     static let buttonHeight: CGFloat = 44
 
     static var fullCardHeight: CGFloat {
-        ShelfHeroLayout.welcomeCardHeight(titleHeight: titleHeight,
-                                          descriptionHeight: descriptionHeight,
+        ShelfHeroLayout.welcomeCardHeight(descriptionHeight: descriptionHeight,
                                           buttonHeight: buttonHeight)
     }
 
-    /// The card without its description — the smallest form the zone has.
+    /// The card without its description — the smallest form the zone has,
+    /// now the button alone.
     static var compactCardHeight: CGFloat {
-        ShelfHeroLayout.welcomeCardHeight(titleHeight: titleHeight,
-                                          descriptionHeight: 0,
+        ShelfHeroLayout.welcomeCardHeight(descriptionHeight: 0,
                                           buttonHeight: buttonHeight)
     }
 }
@@ -301,18 +314,16 @@ final class ShelfHeroLayoutTests: XCTestCase {
     private let ciPhone = SupportedDevice.uiTestsDestination
     private let widestPhone = SupportedDevice.widestPhone
 
-    /// The card at the default text size: `.title` over a two-line
-    /// `.subheadline` over the 44 pt button.
+    /// The card at the default text size: a two-line `.subheadline` over the
+    /// 44 pt button (no app-name row since the 2026-08-21 amendment).
     private var defaultSizeCard: CGFloat {
-        ShelfHeroLayout.welcomeCardHeight(titleHeight: 41,
-                                          descriptionHeight: 40,
+        ShelfHeroLayout.welcomeCardHeight(descriptionHeight: 40,
                                           buttonHeight: 44)
     }
 
     /// The same card at an accessibility text size, where every row grows.
     private var accessibilitySizeCard: CGFloat {
-        ShelfHeroLayout.welcomeCardHeight(titleHeight: 68,
-                                          descriptionHeight: 172,
+        ShelfHeroLayout.welcomeCardHeight(descriptionHeight: 172,
                                           buttonHeight: 76)
     }
 
@@ -339,8 +350,7 @@ final class ShelfHeroLayoutTests: XCTestCase {
     }
 
     func testCompactCardIsShorterThanTheFullOne() {
-        let compact = ShelfHeroLayout.welcomeCardHeight(titleHeight: 41,
-                                                        descriptionHeight: 0,
+        let compact = ShelfHeroLayout.welcomeCardHeight(descriptionHeight: 0,
                                                         buttonHeight: 44)
         XCTAssertLessThan(compact, defaultSizeCard)
         // One row and one gap gone, nothing else.
@@ -353,15 +363,22 @@ final class ShelfHeroLayoutTests: XCTestCase {
     /// screen, and impossible to activate -- anchored to where the shipping
     /// geometry is still that tight. At 4:3 tiles every portrait phone
     /// affords the full card (`testEverySupportedPhoneClearsTheFoldWithTheFullCard`
-    /// pins that); a landscape phone's 375 pt viewport does not, so the
+    /// pins that); a 17 Pro landscape viewport (337 pt against a 148.5 pt
+    /// budget for a 128 pt card plus the 44 pt clearance) does not, so the
     /// description is what gives.
+    ///
+    /// The 17 Pro, not the Pro Max: after the 2026-08-21 design pass the Pro
+    /// Max's landscape verdict lands within a point of the fold boundary --
+    /// inside this type's own modelling error -- and a device anchor that
+    /// close is measuring rounding, not the rule. The exact boundary is
+    /// pinned by the constructed-budget cases below.
     func testWelcomeCardDropsItsDescriptionOnALandscapePhone() {
         XCTAssertFalse(ShelfHeroLayout.welcomeCardShowsDescription(
-            viewportHeight: Viewport.landscapePhone.height,
-            contentWidth: Viewport.landscapePhone.contentWidth,
+            viewportHeight: Viewport.landscapeProPhone.height,
+            contentWidth: Viewport.landscapeProPhone.contentWidth,
             tileMinimumWidth: Theme.gridMinimumTileWidth(for: .large),
-            contentPadding: 16,
-            gridSpacing: 16,
+            contentPadding: ShelfLayoutFixture.contentPadding,
+            gridSpacing: ShelfLayoutFixture.gridSpacing,
             fullCardHeight: defaultSizeCard))
     }
 
@@ -370,15 +387,14 @@ final class ShelfHeroLayoutTests: XCTestCase {
     /// clearance: dropping the description has to leave the row tappable,
     /// not merely visible.
     func testCompactWelcomeCardLeavesTheFirstRowAboveTheFold() {
-        let compact = ShelfHeroLayout.welcomeCardHeight(titleHeight: 41,
-                                                        descriptionHeight: 0,
+        let compact = ShelfHeroLayout.welcomeCardHeight(descriptionHeight: 0,
                                                         buttonHeight: 44)
         let budget = ShelfHeroLayout.heroZoneBudget(
-            viewportHeight: Viewport.landscapePhone.height,
-            contentWidth: Viewport.landscapePhone.contentWidth,
+            viewportHeight: Viewport.landscapeProPhone.height,
+            contentWidth: Viewport.landscapeProPhone.contentWidth,
             tileMinimumWidth: Theme.gridMinimumTileWidth(for: .large),
-            contentPadding: 16,
-            gridSpacing: 16)
+            contentPadding: ShelfLayoutFixture.contentPadding,
+            gridSpacing: ShelfLayoutFixture.gridSpacing)
         XCTAssertGreaterThanOrEqual(budget - compact,
                                     ShelfHeroLayout.minimumFoldClearance)
     }
@@ -409,16 +425,26 @@ final class ShelfHeroLayoutTests: XCTestCase {
 
     /// The accessibility case, which a budget written against default-size
     /// constants gets wrong in the dangerous direction: the card grows, the
-    /// adaptive minimum grows with it, and a fixed 184 pt would have cleared a
-    /// card more than twice that tall.
+    /// adaptive minimum grows with it, and a fixed cap would have cleared a
+    /// card more than twice the default's height.
+    ///
+    /// Anchored to the shortest phone since the 2026-08-21 design pass: with
+    /// the app-name row gone the card shrank enough that the CI phone -- and,
+    /// by about 4 pt, even the 360 pt mini -- affords the full card at
+    /// accessibility sizes. The mini's verdict now sits inside this type's
+    /// modelling error, so no device test asserts it in either direction;
+    /// the rule's exact boundary is pinned by the constructed-budget cases
+    /// above, and which way a genuinely tight zone gives -- description
+    /// first, row never -- is what this case pins, on a device where the
+    /// margin is wide (the SE's 551 pt viewport, ~106 pt short of fitting).
     func testWelcomeCardDropsItsDescriptionAtAccessibilitySizes() {
         XCTAssertGreaterThan(accessibilitySizeCard, defaultSizeCard * 1.5)
         XCTAssertFalse(ShelfHeroLayout.welcomeCardShowsDescription(
-            viewportHeight: ciPhone.viewportHeight,
-            contentWidth: ciPhone.contentWidth,
+            viewportHeight: SupportedDevice.shortestPhone.viewportHeight,
+            contentWidth: SupportedDevice.shortestPhone.contentWidth,
             tileMinimumWidth: 320,
-            contentPadding: 16,
-            gridSpacing: 16,
+            contentPadding: ShelfLayoutFixture.contentPadding,
+            gridSpacing: ShelfLayoutFixture.gridSpacing,
             fullCardHeight: accessibilitySizeCard))
     }
 
@@ -476,21 +502,21 @@ final class ShelfHeroLayoutTests: XCTestCase {
         XCTAssertEqual(narrowest, 360)
 
         // Two columns at that width need a floor of at most
-        // (360 - 32 - 16) / 2 = 156 pt.
+        // (360 - 32 - 20) / 2 = 154 pt.
         let narrowestContent: CGFloat = 360 - ShelfLayoutFixture.contentPadding * 2
         let widest = (narrowestContent - ShelfLayoutFixture.gridSpacing) / 2
-        XCTAssertEqual(widest, 156)
+        XCTAssertEqual(widest, 154)
         XCTAssertLessThanOrEqual(Theme.gridMinimumTileWidth(for: .large), widest)
     }
 
-    /// And strictly below it, not on it. 156 pt is the exact boundary, where
+    /// And strictly below it, not on it. 154 pt is the exact boundary, where
     /// the adaptive fit evaluates to precisely 2.0 columns; a layout decision
     /// balanced on an equality is the shape of defect this whole issue is, so
     /// the constant has to sit clear of it. Shaving 8 pt off the narrowest
     /// content width must still leave two columns.
     func testTheFloorIsNotBalancedOnTheTwoColumnBoundary() {
         let narrowestContent: CGFloat = 360 - ShelfLayoutFixture.contentPadding * 2
-        XCTAssertLessThan(Theme.gridMinimumTileWidth(for: .large), 156)
+        XCTAssertLessThan(Theme.gridMinimumTileWidth(for: .large), 154)
         XCTAssertEqual(standardColumns(narrowestContent - 8), 2)
     }
 
@@ -656,21 +682,15 @@ final class ShelfHeroLayoutTests: XCTestCase {
         }
     }
 
-    /// At an accessibility size the shelf goes back to one column by design,
-    /// and the zone is genuinely tight -- this pins which way it gives. The
-    /// description goes, exactly as `welcomeCardShowsDescription` documents,
-    /// rather than the row being declared to fit.
-    func testAccessibilitySizeDropsTheDescriptionAtTheNarrowestWidth() {
-        let device = SupportedDevice.allPhones[0]
-        XCTAssertEqual(device.width, 360)
-        XCTAssertFalse(ShelfHeroLayout.welcomeCardShowsDescription(
-            viewportHeight: device.viewportHeight,
-            contentWidth: device.contentWidth,
-            tileMinimumWidth: Theme.gridMinimumTileWidth(for: .accessibility3),
-            contentPadding: ShelfLayoutFixture.contentPadding,
-            gridSpacing: ShelfLayoutFixture.gridSpacing,
-            fullCardHeight: accessibilitySizeCard))
-    }
+    // The mini-anchored accessibility drop case that used to sit here was
+    // retired by the 2026-08-21 design pass, not weakened: removing the
+    // card's app-name row moved the mini's verdict to within ~4 pt of the
+    // fold boundary, inside this type's modelling error, where a device
+    // assertion measures rounding rather than the rule. Which way a tight
+    // zone gives is still pinned -- by
+    // `testWelcomeCardDropsItsDescriptionAtAccessibilitySizes` on the SE,
+    // whose margin is ~106 pt -- and the exact boundary by the
+    // constructed-budget cases.
 
     // MARK: - iPad
 
@@ -680,11 +700,15 @@ final class ShelfHeroLayoutTests: XCTestCase {
     /// supported surface and not a side effect.
     ///
     /// The counts land between 4 (iPad mini portrait) and 8 (13-inch
-    /// landscape), where they used to be 3 to 6.
+    /// landscape). Restated for the 20 pt gap of the 2026-08-21 design pass,
+    /// which costs 1024, 1180, 1194 and 1366 pt one column each against the
+    /// 16 pt table. (1032 pt resolves to exactly 6.0 columns — an equality,
+    /// but one between integers, so it is deterministic rather than balanced
+    /// on float rounding.)
     func testIPadColumnCountsAreStated() {
         let expected: [CGFloat: Int] = [744: 4, 768: 4, 810: 4, 820: 4, 834: 4,
-                                        1024: 6, 1032: 6, 1133: 6, 1180: 7,
-                                        1194: 7, 1210: 7, 1366: 8, 1376: 8]
+                                        1024: 5, 1032: 6, 1133: 6, 1180: 6,
+                                        1194: 6, 1210: 7, 1366: 7, 1376: 8]
         for width in SupportedDevice.padWidths {
             let content = width - ShelfLayoutFixture.contentPadding * 2
             XCTAssertEqual(standardColumns(content), expected[width], "\(width) pt")
@@ -692,12 +716,13 @@ final class ShelfHeroLayoutTests: XCTestCase {
     }
 
     /// And that they stay sane. "Sane" is stated as a band rather than a
-    /// feeling: an iPad tile lands between 150 and 190 pt, against 156 to
-    /// 196 pt on a phone. The shelf trades iPad's oversized 207-257 pt tiles
-    /// for tiles about the size of a phone's, which is a consistent shelf
-    /// rather than a shrunken one -- and on a 13-inch iPad, 154 pt is still
-    /// physically larger than the 156 pt tile on a mini, because the points
-    /// are further apart.
+    /// feeling: an iPad tile lands between 150 and 190 pt, against 154 to
+    /// 194 pt on a phone (the 20 pt gap of the 2026-08-21 design pass shaved
+    /// 2 pt off both phone ends). The shelf trades iPad's oversized
+    /// 207-257 pt tiles for tiles about the size of a phone's, which is a
+    /// consistent shelf rather than a shrunken one -- and an iPad's 150 pt
+    /// tile is still physically larger than a mini's 154 pt one, because the
+    /// points are further apart.
     func testIPadTilesStayInTheSameSizeBandAsPhoneTiles() {
         for width in SupportedDevice.padWidths {
             let tile = ShelfHeroLayout.gridColumnWidth(

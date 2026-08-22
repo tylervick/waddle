@@ -19,6 +19,15 @@ struct PlayableTileView: View {
         TitleArtView(item: item, library: library)
             .overlay(alignment: .bottom) { scrim }
             .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
+            // The hairline that makes the tile an object (spec §5, amended
+            // 2026-08-21): edge-to-edge art against the near-black page has
+            // no boundary of its own, so without a stroke two adjacent tiles
+            // read as one continuous poster whatever the gap between them.
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
+                    .strokeBorder(.white.opacity(Theme.tileHairlineOpacity),
+                                  lineWidth: Theme.tileHairlineWidth)
+            )
     }
 
     /// The title's bed: a bottom-anchored gradient dark enough to keep white
@@ -54,7 +63,16 @@ struct PlayableTileView: View {
         .padding(.top, PlayableTileLayout.scrimTopPadding)
         .padding(.bottom, PlayableTileLayout.scrimBottomPadding)
         .background(
-            LinearGradient(colors: [.black.opacity(0), .black.opacity(0.85)],
+            // Weighted stops, not a linear two-stop ramp: with 0 → 0.85 the
+            // title's baseline sat in the ramp's thin half and the type read
+            // as printed straight on the art, colliding with the wordmark
+            // TITLEPIC itself carries (2026-08-21 design pass). Pulling the
+            // bed to near-full density by the title's top keeps the fade but
+            // gives the text an actual ground. Same height, same ceiling —
+            // `PlayableTileLayout`'s numbers are untouched.
+            LinearGradient(stops: [.init(color: .black.opacity(0), location: 0),
+                                   .init(color: .black.opacity(0.75), location: 0.55),
+                                   .init(color: .black.opacity(0.92), location: 1)],
                            startPoint: .top, endPoint: .bottom)
         )
     }

@@ -233,6 +233,78 @@ final class ShelfTests: XCTestCase {
         XCTAssertEqual(try zone(), .empty)
     }
 
+    // MARK: - Grid contents
+
+    /// Spec §2, amended 2026-08-21: the hero's game does not repeat as a tile
+    /// directly beneath itself. Revert `Shelf.gridItems` to returning
+    /// `ordered` unconditionally and this is the assertion that fails.
+    func testGridOmitsTheItemTheHeroIsShowing() throws {
+        let other = try service.registerImported(filename: "other.wad", sha1: "o",
+                                                 kind: WADKind.iwad.rawValue, family: "doom")
+        let played = try service.registerImported(filename: "played.wad", sha1: "p",
+                                                  kind: WADKind.iwad.rawValue, family: "doom")
+        try service.markPlayed(played, at: Date(timeIntervalSince1970: 100))
+
+        let items = try service.shelfItems()
+        let zone = Shelf.heroZone(from: items, isFactoryState: false) {
+            $0.id == "wad-\(played.id)"
+        }
+        let grid = Shelf.gridItems(from: items, heroZone: zone)
+
+        XCTAssertEqual(zone, .resume(items.first { $0.id == "wad-\(played.id)" }!))
+        XCTAssertEqual(grid.map(\.id), ["wad-\(other.id)"])
+    }
+
+    /// Without a hero, the grid is the whole shelf in shelf order — the
+    /// welcome card and the empty zone take nothing out of it.
+    func testGridKeepsEveryItemWhenTheZoneHasNoHero() throws {
+        _ = try service.registerImported(filename: "beta.wad", sha1: "b",
+                                         kind: WADKind.iwad.rawValue, family: "doom")
+        _ = try service.registerImported(filename: "alpha.wad", sha1: "a",
+                                         kind: WADKind.iwad.rawValue, family: "doom")
+
+        let items = try service.shelfItems()
+        for zone in [Shelf.HeroZone.welcome, .empty] {
+            XCTAssertEqual(Shelf.gridItems(from: items, heroZone: zone).map(\.id),
+                           Shelf.ordered(items).map(\.id))
+        }
+    }
+
+    /// Removing the hero must not disturb the order of what remains.
+    func testGridKeepsShelfOrderAroundTheRemovedHero() throws {
+        let zulu = try service.registerImported(filename: "zulu.wad", sha1: "z",
+                                                kind: WADKind.iwad.rawValue, family: "doom")
+        let alpha = try service.registerImported(filename: "alpha.wad", sha1: "a",
+                                                 kind: WADKind.iwad.rawValue, family: "doom")
+        let hero = try service.registerImported(filename: "hero.wad", sha1: "h",
+                                                kind: WADKind.iwad.rawValue, family: "doom")
+        try service.markPlayed(zulu, at: Date(timeIntervalSince1970: 100))
+        try service.markPlayed(hero, at: Date(timeIntervalSince1970: 200))
+
+        let items = try service.shelfItems()
+        let zone = Shelf.heroZone(from: items, isFactoryState: false) {
+            $0.id == "wad-\(hero.id)"
+        }
+
+        // Played-then-alphabetical, minus the hero: zulu leads, alpha follows.
+        XCTAssertEqual(Shelf.gridItems(from: items, heroZone: zone).map(\.id),
+                       ["wad-\(zulu.id)", "wad-\(alpha.id)"])
+    }
+
+    // MARK: - Add-games hint tile
+
+    /// Spec §5, amended 2026-08-21: the ghost tile fills the next grid slot
+    /// while the library is small, and leaves once real games occupy the
+    /// space. Both sides of the threshold, so a rule inverted to `>= 4` — or
+    /// hardcoded to either answer — fails here.
+    func testAddHintShowsOnlyWhileTheLibraryIsSmall() {
+        XCTAssertTrue(Shelf.showsAddHint(itemCount: 0))
+        XCTAssertTrue(Shelf.showsAddHint(itemCount: 2))
+        XCTAssertTrue(Shelf.showsAddHint(itemCount: 3))
+        XCTAssertFalse(Shelf.showsAddHint(itemCount: 4))
+        XCTAssertFalse(Shelf.showsAddHint(itemCount: 9))
+    }
+
     // MARK: - Tap resolution
 
     func testTapWithASaveOpensTheActionSheet() throws {
