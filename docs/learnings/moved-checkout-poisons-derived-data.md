@@ -37,12 +37,30 @@ trains exactly that instinct for a different symptom. The discriminator is
 cheap and unambiguous:
 
 ```sh
-grep -rl "<the old path>" App/build | head
+old_path="/Users/tyler/Documents/doom-ios-2026"   # wherever the tree used to live
+grep -rlF -- "$old_path" App/build
 ```
 
-Any hit means the tree was moved and the cache is poisoned. More generally,
-before blaming a diff for `Unable to find module dependency`, scan the build
-log for `located outside of the allowed root paths` — its presence settles it.
+Any hit means the tree was moved and the cache is poisoned.
+
+**No `| head`,** for two separate reasons this repo has already paid for.
+`head` masks `grep`'s exit status, and a masked query status is how a check
+fails open (`docs/learnings/masked-exit-status-fails-open.md` — four times
+now). And under `pipefail`, `head` closing the pipe kills `grep` with SIGPIPE
+so it exits 141 *on a match*, inverting the check
+(`docs/learnings/pipefail-with-early-exit-consumer.md`). That second one is
+**size-dependent — it only bites above ~64K of output**
+(`docs/learnings/pipefail-turns-an-early-quit-into-a-failure.md`), which is
+exactly what makes it dangerous here: a one-file test case exits 0 and looks
+fine, while a real poisoned `App/build` matches hundreds of files, crosses the
+buffer, and reports healthy. Measured 2026-09-16: the `| head` form returned 0
+against a single planted match, so testing it small proves nothing.
+
+`-F` because a path is a fixed string, and `--` because it starts with `/`.
+
+More generally, before blaming a diff for `Unable to find module dependency`,
+scan the build log for `located outside of the allowed root paths` — the error
+alone has several causes, but that warning settles it.
 
 Related: `docs/learnings/cli-builds-race-xcodes-previews.md` gives CLI builds
 their own `-derivedDataPath` for a different reason (Xcode previews racing the
