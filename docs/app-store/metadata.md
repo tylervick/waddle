@@ -12,14 +12,19 @@ available** — see the availability finding below. Everything internal (bundle
 ID, target, repo) stays plain `Waddle`; only the App Store *display name*
 carries the suffix.
 
-> **The live record does not say this yet (checked 2026-08-17).** App Store
-> Connect still carries the pre-2026-08-16 wordmark spelling of the name, with
-> the same `: WAD Player` suffix. Version 1.0 is in `WAITING_FOR_REVIEW`, and app names are
-> only editable while a version is editable, so the `PATCH` was deliberately
-> not attempted: forcing it would mean pulling 1.0 out of review and forfeiting
-> its queue position. **The rename rides with the next version.** Until then
-> this section records the decision, not the live state — everything else in
-> the repo already matches it.
+> **Done 2026-09-16, with version 1.1.** The live record carried the
+> pre-2026-08-16 wordmark spelling through all of 1.0, because app names are
+> only editable while a version is editable and 1.0 spent its whole life in
+> review or released. Version 1.1 created a second, editable `appInfo`
+> (`67d33a97-…`, `PREPARE_FOR_SUBMISSION`), and `PATCH
+> /v1/appInfoLocalizations/{id}` on **its** en-US localization took the name
+> to **Waddle: WAD Player**. The released 1.0 record still reads the wordmark
+> spelling and will until 1.1 ships — that is expected, not drift.
+>
+> No duplicate-name rejection: display names match case-insensitively, so the
+> new casing resolves to the name this account already holds. That is also why
+> this was never the same request as the bare "Waddle" below, which is taken by
+> another account.
 
 **Availability (tested 2026-07-30, against the live ASC record).** Renaming
 the App Store Connect record to plain "Waddle" was attempted via the API —
@@ -108,9 +113,19 @@ chars).
 
 ## 3. Promotional text (170 chars max)
 
-> Freedoom out of the box - or import your own WADs. A faithful
-> Boom/MBF21 source port with touch controls, game controllers, and
-> keyboard support. *(151 chars)*
+> Freedoom out of the box - or import the WADs you already own. Boom/MBF21
+> compatible, with touch controls, game controllers, hardware keyboards, and
+> music that plays. *(165 chars)*
+
+**Entered for the first time 2026-09-16, with version 1.1.** The field was
+empty on the live record through all of 1.0 — this section drafted it and
+nobody ever pasted it in. The wording also drops the earlier draft's "a
+faithful Boom/MBF21 source port": describing the app as a source port is the
+framing that drew the 4.3(a) rejection
+(`docs/learnings/app-review-notes-argue-the-wrong-guideline.md`), and this was
+the last surface still carrying it. "Boom/MBF21 compatible" keeps the signal
+that matters to a Doom player and drops the self-label. Promotional text is
+editable **without** a review, so it can be changed between releases.
 
 ## 4. Description
 
@@ -426,6 +441,23 @@ APIs at all.
 
 Captured by `Scripts/capture-screenshots.sh` into
 `docs/app-store/screenshots/<device>/` (see the script header for how).
+
+**Re-captured 2026-09-16 for version 1.1 (#127).** The 1.0 set photographed
+the retired two-tab shell; every shot in both device sets was replaced with
+the shelf UI that ships in build 247. Filenames are unchanged and now describe
+their slot rather than their screen (`01-play-tab.png` is the shelf) — they are
+upload identifiers, and renaming them would churn the pinned slot order for no
+gain.
+
+**A full 6-for-6 swap cannot upload before it deletes.** An
+`appScreenshotSet` holds at most **10**, so committing six new shots into a set
+that still holds six old ones fails the fifth with `409
+STATE_ERROR.SCREENSHOT_TOO_MANY`. That inverts the usual rule of committing the
+new asset before deleting the old one. It is safe here only because a new
+version's sets are *copies*: version 1.1's sets (`d70a30ed`, `6a46bc10`) are
+distinct ids from released 1.0's (`14c9f827`, `075b4a2b`), so deleting from the
+former cannot touch the live listing. Confirm that id distinction before
+deleting anything.
 
 **Re-captured 2026-07-30** against the reworked UI (#8/#9/#10). The
 original 2026-07-18 set photographed the retired loadout grid and the

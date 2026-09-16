@@ -2,7 +2,8 @@
 
 [![CI](https://github.com/tylervick/waddle/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tylervick/waddle/actions/workflows/ci.yml)
 
-A free, open-source Doom source-port app for iPhone and iPad, built on
+A free, open-source WAD player for iPhone and iPad: a game library, a preset
+system and touch controls built around
 [Woof!](https://github.com/fabiangreffrath/woof) (Boom/MBF21 compatibility).
 Bundles [Freedoom](https://freedoom.github.io/) so it plays out of the box;
 import your own WADs — commercial IWADs you own, community megawads,
@@ -12,7 +13,7 @@ DeHackEd patches — for everything else.
   <img src="docs/app-store/screenshots/iphone-6.9/05-ingame.png"
        alt="In-game: Freedoom Phase 1 with the touch control overlay" width="49%">
   <img src="docs/app-store/screenshots/iphone-6.9/01-play-tab.png"
-       alt="Play tab: recently played, base games and presets" width="49%">
+       alt="The shelf: Continue hero, then base games and presets" width="49%">
 </p>
 
 ## What Waddle replaces, and the parity bar it answers to
