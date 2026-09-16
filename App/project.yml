@@ -58,7 +58,15 @@ targets:
     settings:
       base:
         CURRENT_PROJECT_VERSION: 6
-        MARKETING_VERSION: "1.0"
+        # The App Store version this binary is for, as
+        # CFBundleShortVersionString. It must be strictly HIGHER than the
+        # newest approved version on the store, or the submission is bounced
+        # by automated validation seconds after it reaches Waiting for Review
+        # -- ITMS-90062, and the version lands in Invalid Binary. CI derives
+        # the *build* number on its own; this one is a deliberate edit, and it
+        # has to land BEFORE the build that carries the new version is cut.
+        # See docs/learnings/marketing-version-must-lead-the-store.md.
+        MARKETING_VERSION: "1.1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # The one accent of spec §5's visual system, named once in the
         # asset catalog (App/Assets.xcassets/AccentColor.colorset). Setting it
