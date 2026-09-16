@@ -13,7 +13,10 @@ import XCTest
 /// points either way rather than pinning a rendered result. What matters is
 /// the relationship between the hero and the space around it, which is what
 /// `ShelfHeroLayout` decides.
-private struct Viewport {
+// Internal for the same reason SupportedDevice is: the landscape fixtures are
+// where an accessibility-size caption actually changes the hero's art height,
+// so AccessibilityTextSizeLayoutTests drives these exact viewports.
+struct Viewport {
     let contentWidth: CGFloat
     let height: CGFloat
 
@@ -55,7 +58,10 @@ private struct Viewport {
 /// `"1,2"` and the target is iOS 26.0, and that runtime still lists the
 /// iPhone 12 mini and 13 mini: **360 pt**, narrower than the 375 pt iPhone SE,
 /// and the real floor this grid has to work at.
-private struct SupportedDevice {
+// Deliberately not `private`: AccessibilityTextSizeLayoutTests drives the same
+// devices and the same two ShelfView constants at accessibility text sizes, and
+// a second copy of either would drift from this one.
+struct SupportedDevice {
     let name: String
     let width: CGFloat
     let height: CGFloat
@@ -117,7 +123,7 @@ private struct SupportedDevice {
 /// restated rather than reached into — the risk of them drifting apart is why
 /// `contentPadding` and `gridSpacing` are named there instead of being inline
 /// `.padding()` literals in the first place.
-private enum ShelfLayoutFixture {
+enum ShelfLayoutFixture {
     static let contentPadding: CGFloat = 16
     /// 20, off the outer padding's 16 since the 2026-08-21 design pass —
     /// restating `ShelfView`'s value, like everything else here.

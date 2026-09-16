@@ -81,4 +81,40 @@ private struct ShelfPreviewHost: View {
 #Preview("Continue hero, landscape", traits: .landscapeLeft) {
     ShelfPreviewHost(fixture: ShelfPreviewFixture.continueHero())
 }
+
+// MARK: - Accessibility text sizes (issue #216)
+//
+// `AccessibilityTextSizeLayoutTests` pins the arithmetic at these sizes, but
+// `docs/learnings/geometry-tests-cannot-see-the-screen.md` is the standing
+// reminder that green numbers say nothing about the composed screen — five
+// visual defects shipped under all-green geometry tests. These are where an
+// eye plugs in.
+//
+// `.accessibility3` rather than the largest size: it is the first size past
+// `isAccessibilitySize`, so it is where the 150 → 320 pt column floor drops
+// the grid to one column and the tile row becomes 4:3 of the whole content
+// width. The largest size only makes an already-decided layout taller.
+
+/// First launch at an accessibility size — the welcome card's description is
+/// the first thing the budget gives up.
+#Preview("Factory state, accessibility3") {
+    ShelfPreviewHost(fixture: ShelfPreviewFixture.factory())
+        .dynamicTypeSize(.accessibility3)
+}
+
+/// The tightest combination the shelf has: a short landscape viewport *and* an
+/// accessibility text size, which is the pair that drives the hero's art onto
+/// its 96 pt floor and spends the grid's peek to get there.
+#Preview("Continue hero, landscape, accessibility3", traits: .landscapeLeft) {
+    ShelfPreviewHost(fixture: ShelfPreviewFixture.continueHero())
+        .dynamicTypeSize(.accessibility3)
+}
+
+/// The ceiling, portrait: nothing about the layout is still deciding here, so
+/// what this checks is purely that text at the largest supported size is not
+/// clipped or overlapping.
+#Preview("Continue hero, accessibility5") {
+    ShelfPreviewHost(fixture: ShelfPreviewFixture.continueHero())
+        .dynamicTypeSize(.accessibility5)
+}
 #endif
