@@ -298,4 +298,79 @@ final class AccessibilityTextSizeLayoutTests: XCTestCase {
                                         Theme.minimumTapTarget, "\(category.rawValue)")
         }
     }
+
+    // MARK: - The detail page, the other screen with a computed floor
+
+    /// `PlayableDetailView` measures its caption from `UIFont` exactly as
+    /// `ShelfView` does, and `PlayableDetailLayout.artHeight` caps the header
+    /// art against it. `defaultCaptionHeight` hard-codes 26.3/20.3 pt line
+    /// heights for the default size; nothing exercised the real ones.
+    ///
+    /// Two primary buttons, not one: `captionHeight` charges per button, so a
+    /// resumable save is the taller and therefore harder case, and it is the
+    /// state the shelf's Continue hero routes into.
+    private func detailCaption(_ category: UIContentSizeCategory) -> CGFloat {
+        let traits = TextMetrics.traits(category)
+        return PlayableDetailLayout.captionHeight(
+            titleLineHeight: UIFont.preferredFont(forTextStyle: .title2,
+                                                  compatibleWith: traits).lineHeight,
+            buttonLineHeight: UIFont.preferredFont(forTextStyle: .body,
+                                                   compatibleWith: traits).lineHeight,
+            primaryButtonCount: 2)
+    }
+
+    /// The hard-coded default must still match what `UIFont` reports, or
+    /// `defaultCaptionHeight` is describing a header nobody renders.
+    func testTheDetailPagesDefaultCaptionStillMatchesUIFont() {
+        let measured = PlayableDetailLayout.captionHeight(
+            titleLineHeight: UIFont.preferredFont(
+                forTextStyle: .title2, compatibleWith: TextMetrics.traits(.large)).lineHeight,
+            buttonLineHeight: UIFont.preferredFont(
+                forTextStyle: .body, compatibleWith: TextMetrics.traits(.large)).lineHeight,
+            primaryButtonCount: 1)
+        XCTAssertEqual(measured, PlayableDetailLayout.defaultCaptionHeight, accuracy: 2)
+    }
+
+    /// The caption is charged against the art here too, so a bigger caption
+    /// shrinks it — and it stops at the floor rather than going under.
+    func testDetailArtShrinksWithTheCaptionAndStopsAtItsFloor() {
+        for device in SupportedDevice.allPhones {
+            let small = ShelfHeroLayoutProbe.detailArt(device, caption: detailCaption(.large))
+            let large = ShelfHeroLayoutProbe.detailArt(
+                device, caption: detailCaption(.accessibilityExtraExtraExtraLarge))
+            XCTAssertLessThanOrEqual(large, small, "\(device.name)")
+            XCTAssertGreaterThanOrEqual(large, PlayableDetailLayout.minimumArtHeight,
+                                        "\(device.name)")
+        }
+    }
+
+    /// The property the cap exists for: whatever the text size, the art must
+    /// not eat the room the controls below it need. The art is capped so the
+    /// controls keep `minimumControlsPeek`; where the floor wins instead, what
+    /// is left must still clear a tap target, or the first control is
+    /// unreachable — the detail-page twin of the shelf's fold rule, and the
+    /// defect `PlayableDetailLayout` was extracted to fix.
+    func testDetailControlsStayReachableAtEveryAccessibilitySize() {
+        for device in SupportedDevice.allPhones {
+            for category in TextMetrics.accessibilityCategories {
+                let caption = detailCaption(category)
+                let art = ShelfHeroLayoutProbe.detailArt(device, caption: caption)
+                let peek = device.viewportHeight - caption - art
+                XCTAssertGreaterThanOrEqual(
+                    peek, Theme.minimumTapTarget,
+                    "\(device.name) @ \(category.rawValue): controls peek \(peek)")
+            }
+        }
+    }
+}
+
+/// Named rather than inlined so the three detail tests above cannot disagree
+/// about which width the art is drawn at.
+private enum ShelfHeroLayoutProbe {
+    static func detailArt(_ device: SupportedDevice, caption: CGFloat) -> CGFloat {
+        PlayableDetailLayout.artHeight(
+            contentWidth: device.contentWidth - PlayableDetailLayout.rowHorizontalInset * 2,
+            viewportHeight: device.viewportHeight,
+            captionHeight: caption)
+    }
 }

@@ -12,8 +12,11 @@ import SwiftUI
 /// only ever matters for *imported* files, and these fixtures import nothing.
 /// Bundled WADs resolve straight into the app bundle's GameData/, which the
 /// preview host loads like any other run of the target.
+// Internal, not private: ScreenPreviews.swift builds the detail page, preset
+// editor and Control Feel from the same in-memory library, and a second copy
+// of this fixture would drift from it.
 @MainActor
-private enum ShelfPreviewFixture {
+enum ShelfPreviewFixture {
     /// A factory-state library: bundled base games registered, nothing played,
     /// no saves — the shelf a first launch shows, welcome card and all.
     static func factory() -> (library: LibraryService, importer: ImportService) {
