@@ -1,5 +1,5 @@
 [tools]
-cmake = "4.4.2"
+cmake = "4.4.3"
 ninja = "1.13.2"
 xcodegen = "2.46.0"
 
