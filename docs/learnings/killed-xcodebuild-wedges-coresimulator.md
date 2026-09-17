@@ -40,6 +40,40 @@ killall -9 com.apple.CoreSimulator.CoreSimulatorService
 `launchd` restarts the service on next use, so nothing needs starting by hand.
 Re-run the suite after this and the phantom failures are gone.
 
+**When that is not enough either (observed 2026-09-16).** The sequence above
+cleared the wedge once, then the very next run re-wedged, and running it a
+second and third time did nothing — three consecutive `test` invocations all
+died at `Busy ("Application failed preflight checks")` before any assertion.
+What did clear it was erasing the device and booting it explicitly *before*
+handing it to `xcodebuild`, then addressing that device by UDID rather than by
+name:
+
+```bash
+pkill -f xcodebuild; pkill -f XCTRunner; killall -9 Simulator
+xcrun simctl shutdown all
+UDID=$(xcrun simctl list devices available -j | ...)   # the device you test on
+xcrun simctl erase "$UDID"
+killall -9 com.apple.CoreSimulator.CoreSimulatorService
+sleep 6
+xcrun simctl boot "$UDID"                              # boot it yourself, then wait
+sleep 10
+xcodebuild ... -destination "platform=iOS Simulator,id=$UDID" ...
+```
+
+`erase` is what the service-restart alone does not do — it discards the
+device's installed-app state, which is where the failed install that produces
+`Busy` actually lives. Pre-booting matters too: letting `xcodebuild` boot a
+cold device as part of the run is when the race is most likely to recur.
+
+**What re-wedges it.** Starting sessions back to back, and killing one that is
+mid-flight. A `test` invocation that hits a command timeout is a kill, so a
+tight timeout around a long `xcodebuild` run is itself a cause. Give these runs
+generous timeouts and let them finish; the wedge costs far more than the wait.
+
+Note this is not a *unit*-test-free problem: `WaddleTests` is hosted by the app
+target, so even a pure-arithmetic suite has to launch the app and is blocked by
+exactly the same wedge.
+
 **Not an executable check.** The condition is only observable by *attempting* a
 launch, which the suite already does — a guard could not learn anything the
 tests do not already surface a few seconds later, and would cost a simulator
