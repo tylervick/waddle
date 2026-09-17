@@ -41,6 +41,13 @@ import XCTest
 @MainActor
 final class OverlayButtonAccessibilityTraitTests: XCTestCase {
 
+    /// A button at the size the overlay actually installs one, with the press
+    /// handler stubbed — nothing here activates anything, these tests only read
+    /// what the control advertises to VoiceOver.
+    ///
+    /// 84 pt matches `OverlayButtonHitAreaTests`' fixture rather than picking a
+    /// fresh number: the traits do not vary with size, so a second size would
+    /// imply a dependency that is not there.
     private func makeButton(_ title: String = "FIRE") -> OverlayButton {
         OverlayButton(title: title, size: 84) { _ in }
     }
