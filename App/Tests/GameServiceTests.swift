@@ -71,6 +71,8 @@ final class GameServiceTests: XCTestCase {
     func testSeederCreatesOneBaseGamePerBundledIWAD() throws {
         try service.seedBundledContentIfNeeded()
         try service.seedBundledContentIfNeeded()   // idempotent
+        XCTAssertEqual(try service.allWADs().filter(\.isBundled).map(\.filename).sorted(),
+                       ["freedoom1.wad", "freedoom2.wad"])
         let games = try service.games()
         XCTAssertEqual(games.map(\.name).sorted(), ["Freedoom Phase 1", "Freedoom Phase 2"])
         for game in games {
