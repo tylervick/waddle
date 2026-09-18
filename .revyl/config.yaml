@@ -7,10 +7,18 @@ build:
     profiles:
         development:
             ios:
-                # Deployment target is iOS 26.0 (App/project.yml), so the
-                # runner image must carry Xcode 26.x. Unverified: the CLI
-                # offers no way to list valid image keys; this one is taken
-                # from the `--image` example in `revyl build --help`.
+                # Required before a remote build is submitted: it binds this
+                # recipe to the Revyl app that receives the artifact.
+                # project.id above identifies the PROJECT, not the app, and a
+                # remote build with no app_id is rejected before the runner
+                # ever executes build_commands. A local build may omit it.
+                app_id: "8d5b0635-f1df-4a9f-8978-366771843c12"
+                # Matches XCODE_VERSION in ci.yml, cold-build.yml and
+                # testflight.yml, so the runner compiles with the same Xcode
+                # the project is already built and shipped with. Revyl's
+                # default image is ios-macos-26-xcode-26.5; pinning keeps the
+                # two in step, and a bump belongs here and in those workflows
+                # together.
                 image: ios-macos-26-xcode-26.2
                 # build-deps.sh clones and compiles SDL3, OpenAL Soft,
                 # sonivox, ogg, vorbis, sndfile, FLAC and opus from source for
