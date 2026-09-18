@@ -134,13 +134,16 @@ final class GameMigrationTests: XCTestCase {
     func testMigrationRunsOnce() throws {
         let wad = try legacyIWAD("doom2.wad")
         try service.migrateToGames(defaults: defaults)
-        // Simulate the player hiding the game after migration, then a relaunch.
+        // Delete the migrated game, then relaunch: the legacy IWAD row is
+        // still there and would be re-migrated if anything but the flag
+        // were what stopped a second run (the per-id guard can't catch
+        // this, since the id it would check no longer exists).
         let game = try XCTUnwrap(try service.game(id: wad.id))
-        try service.hide(game)
+        context.delete(game)
+        try context.save()
         try service.migrateToGames(defaults: defaults)
-        XCTAssertEqual(try service.games().count, 1)
-        XCTAssertTrue(try XCTUnwrap(try service.game(id: wad.id)).isHidden,
-                      "a second run must not rewrite the game from the legacy fields")
+        XCTAssertTrue(try service.games().isEmpty,
+                      "the flag, not the id guard, must stop a second run — the legacy IWAD row is still there and would be re-migrated otherwise")
     }
 
     func testMigrationIsANoOpOnAFreshStore() throws {
@@ -158,6 +161,8 @@ final class GameMigrationTests: XCTestCase {
         try context.save()
         try service.migrateToGames(defaults: defaults)
         XCTAssertEqual(try service.games().count, 1)
+        XCTAssertFalse(try XCTUnwrap(try service.game(id: wad.id)).isHidden,
+                       "the existing game wins outright: legacy fields are not copied onto it")
     }
 
     /// The upgrade path end to end, in the order `WaddleApp` runs it: legacy
