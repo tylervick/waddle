@@ -2,13 +2,6 @@ import XCTest
 @testable import Waddle
 
 final class LaunchArgumentsTests: XCTestCase {
-    private func resolver(_ map: [UUID: String]) -> (UUID) throws -> URL {
-        { id in
-            guard let path = map[id] else { throw LaunchArgumentsError.missingWAD(id) }
-            return URL(fileURLWithPath: path)
-        }
-    }
-
     func testBuildBaseGameOnlyArgv() throws {
         let saveID = UUID()
         let args = try LaunchArguments.build(

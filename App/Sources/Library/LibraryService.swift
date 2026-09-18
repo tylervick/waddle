@@ -452,7 +452,7 @@ final class LibraryService {
 
     // MARK: Saves
 
-    /// A single visible save file in a playable item's saves directory (see
+    /// A single visible save file in a game's saves directory (see
     /// `savesDirectory(forGameID:)`); `id` is the filename.
     struct SaveSlot: Identifiable, Equatable {
         let id: String
