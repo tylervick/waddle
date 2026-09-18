@@ -9,12 +9,11 @@ struct ImportOutcome: Equatable {
     /// `duplicates` simply append — every entry there already names a
     /// distinct stored file. `rejected` is keyed by the candidate's own
     /// filename, so two independent candidates (e.g. two different zips)
-    /// can each reject an entry under the identical basename; both
-    /// LibraryView.summary(of:) and ImportNotices.summary(of:quarantines:)
-    /// read `rejected` (the former lists every key/value to the user, the
-    /// latter just counts them), so silently overwriting on collision would
-    /// both hide one file's reason and undercount "N failed" — uniquify the
-    /// same way moveToImportFailed already does for on-disk name clashes.
+    /// can each reject an entry under the identical basename;
+    /// `ImportNotices.summary(of:quarantines:)` counts `rejected` for its
+    /// "N failed" banner, so silently overwriting on collision would
+    /// undercount — uniquify the same way moveToImportFailed already does
+    /// for on-disk name clashes.
     mutating func merge(_ other: ImportOutcome) {
         imported += other.imported
         duplicates += other.duplicates

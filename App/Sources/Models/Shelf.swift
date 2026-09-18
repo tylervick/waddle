@@ -2,7 +2,7 @@ import Foundation
 
 /// The shelf's composition rules, factored out of `ShelfView` so they can be
 /// tested without a view harness (the repo has none -- see the note in
-/// `LibraryView.deleting`). `ShelfView` calls these and does nothing else to
+/// `FilesView.deleting`). `ShelfView` calls these and does nothing else to
 /// decide what it shows, so a test over these functions is a test of the
 /// screen's behaviour rather than of a helper the screen might bypass.
 ///

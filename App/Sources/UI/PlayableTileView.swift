@@ -32,6 +32,8 @@ struct PlayableTileView: View {
                 if game.baseID == nil {
                     Text("Needs a base game")
                         .font(.caption2.bold())
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
                         .background(Color.appAccent, in: Capsule())
@@ -40,6 +42,7 @@ struct PlayableTileView: View {
                         .accessibilityIdentifier("unpairedBadge")
                 }
             }
+            .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
     }
 
     /// The title's bed: a bottom-anchored gradient dark enough to keep white

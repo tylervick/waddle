@@ -13,7 +13,7 @@ struct EngineErrorAlert: Equatable {
         let message = (engineMessage?.isEmpty == false)
             ? engineMessage!
             : "The engine reported no details (exit code \(exitCode))."
-        return EngineErrorAlert(title: "Couldn't run this preset",
+        return EngineErrorAlert(title: "Couldn't run this game",
                                 engineMessage: message,
                                 hint: hint(for: message))
     }
@@ -25,7 +25,7 @@ struct EngineErrorAlert: Equatable {
             // the user's own file path, so a case-sensitive check would pick
             // the hint from incidental filename capitalization.
             if message.range(of: "IWAD", options: .caseInsensitive) != nil {
-                return "The base game file wasn't recognized. Pick a supported IWAD (Doom, Doom II, Freedoom…) for this preset."
+                return "The base game file wasn't recognized. Pick a supported IWAD (Doom, Doom II, Freedoom…) for this game."
             }
             return "This usually means the WAD needs a different base game (IWAD). Try pairing it with Doom II / Freedoom Phase 2."
         }

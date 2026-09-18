@@ -54,12 +54,11 @@ final class ImportNoticesTests: XCTestCase {
     }
 
     // Two independent candidates (e.g. two different zips) can each reject
-    // an entry under the identical basename. LibraryView.summary(of:) lists
-    // every rejected key/value to the user, so silently overwriting on
-    // collision would hide one of them; merge uniquifies instead (same
-    // suffixing convention as ImportService.moveToImportFailed uses for
-    // on-disk name clashes) so both survive and the "N failed" count stays
-    // accurate.
+    // an entry under the identical basename. Silently overwriting on
+    // collision would drop one of them from `rejected`; merge uniquifies
+    // instead (same suffixing convention as ImportService.moveToImportFailed
+    // uses for on-disk name clashes) so both survive and the "N failed"
+    // count ImportNotices.summary(of:quarantines:) reports stays accurate.
     func testMergeUniquifiesCollidingRejectedKeys() {
         var aggregate = ImportOutcome()
         aggregate.rejected = ["big.wad": "Entry exceeds the 5 MB import limit."]

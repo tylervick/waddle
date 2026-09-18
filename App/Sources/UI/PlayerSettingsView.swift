@@ -2,8 +2,8 @@ import SwiftUI
 
 /// The gear door (spec §3): everything the Play tab's gear *menu* used to
 /// scatter — touch scheme, Control Feel, Show Debug Info, About — as one small
-/// sheet. Deliberately player-facing only; nothing about managing files lives
-/// here, that is Manage's job.
+/// sheet. Deliberately player-facing only; file storage and hidden games are
+/// pushed from the Library section (spec §3.3); importing is the shelf's Add.
 ///
 /// Both of its destinations were rows in the old gear `Menu`, which could not
 /// host the Control Feel sliders at all (see
@@ -39,6 +39,22 @@ struct PlayerSettingsView: View {
                         Label("Control Feel", systemImage: "slider.horizontal.3")
                     }
                     .accessibilityIdentifier("controlFeelButton")
+                }
+
+                Section("Library") {
+                    NavigationLink {
+                        FilesView(library: library)
+                    } label: {
+                        Label("Files", systemImage: "internaldrive")
+                    }
+                    .accessibilityIdentifier("filesButton")
+
+                    NavigationLink {
+                        HiddenGamesView(library: library)
+                    } label: {
+                        Label("Hidden Games", systemImage: "eye.slash")
+                    }
+                    .accessibilityIdentifier("hiddenGamesButton")
                 }
 
                 Section {

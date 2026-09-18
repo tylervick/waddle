@@ -40,11 +40,11 @@ final class BreadcrumbLogTests: XCTestCase {
 
     func testStuckAlertLeavesAPresentedLineWithNoDismissal() {
         let log = BreadcrumbLog(directory: tmp)
-        log.record(.alertPresented(title: "Couldn't run this preset"))
+        log.record(.alertPresented(title: "Couldn't run this game"))
         log.record(.appLaunch)
 
         let lines = BreadcrumbLog.lines(in: tmp)
-        XCTAssertTrue(lines[0].hasSuffix("alert presented: Couldn't run this preset"), lines[0])
+        XCTAssertTrue(lines[0].hasSuffix("alert presented: Couldn't run this game"), lines[0])
         XCTAssertTrue(lines[1].hasSuffix("app launch"),
             "presented -> launch with no dismissal in between IS the stuck-UI evidence")
         XCTAssertFalse(lines.contains { $0.contains("alert dismissed") })

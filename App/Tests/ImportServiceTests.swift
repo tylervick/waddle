@@ -305,8 +305,8 @@ final class ImportServiceTests: XCTestCase {
 
     /// Spec: "files dropped directly into the container via the iOS Files app
     /// are adopted and simply appear" — an adopted loose PWAD must show up in
-    /// the Library tab's grouped inventory.
-    func testAdoptedLooseFileAppearsInLibraryGroups() async throws {
+    /// Files' grouped inventory.
+    func testAdoptedLooseFileAppearsInFileGroups() async throws {
         let docs = URL.documentsDirectory
         let loose = docs.appendingPathComponent("dropped.wad")
         try makeWAD(magic: "PWAD", lumps: ["MAP01"]).write(to: loose)

@@ -143,8 +143,8 @@ struct WaddleApp: App {
     }
 
     /// One adoption pass: sweep loose files from Documents/Inbox into the
-    /// store, surface the outcome, and nudge LibraryView to refresh (adoption
-    /// can finish after the Library list first rendered). Guarded so a launch
+    /// store, surface the outcome, and nudge the shelf and Files to refresh
+    /// (adoption can finish after they first rendered). Guarded so a launch
     /// pass and a foreground pass can't interleave store writes.
     // An overlapping trigger queues a trailing pass instead of being
     // dropped: a file dropped into Documents after the in-flight pass

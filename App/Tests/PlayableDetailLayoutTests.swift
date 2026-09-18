@@ -129,7 +129,7 @@ final class PlayableDetailLayoutTests: XCTestCase {
     }
 
     /// Accessibility type sizes reserve more, which is the whole reason
-    /// `PlayableDetailView` measures this from `UIFont` instead of taking the
+    /// `GamePageView` measures this from `UIFont` instead of taking the
     /// default constant.
     func testLargerTypeReservesMoreRoom() {
         let ordinary = PlayableDetailLayout.captionHeight(titleLineHeight: 26.3,

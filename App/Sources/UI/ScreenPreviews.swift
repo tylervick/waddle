@@ -10,18 +10,18 @@ import SwiftUI
 /// it is where the layout's *decisions* change rather than merely where text
 /// gets taller.
 ///
-/// Only the detail page has a computed layout floor of its own
-/// (`PlayableDetailLayout`, pinned by `AccessibilityTextSizeLayoutTests`). The
-/// preset editor and Control Feel are stock `Form`s that SwiftUI reflows on its
-/// own, so there is no arithmetic to assert about them — which is exactly why
-/// they need an eye instead, per
+/// Only the game page has a computed layout floor of its own
+/// (`PlayableDetailLayout`, pinned by `AccessibilityTextSizeLayoutTests`).
+/// Control Feel is a stock `Form` that SwiftUI reflows on its own, so there is
+/// no arithmetic to assert about it — which is exactly why it needs an eye
+/// instead, per
 /// `docs/learnings/geometry-tests-cannot-see-the-screen.md`. Control Feel is
 /// the one to look hardest at: `docs/learnings/swiftui-menu-cannot-host-sliders.md`
 /// records that its slider rows already could not live in a `Menu`, and a
 /// slider with an accessibility-size label is the tightest row in the app.
 @MainActor
 private enum ScreenPreviewFixture {
-    /// The first bundled base game, wrapped for the detail page.
+    /// The first bundled base game, wrapped for the game page.
     static func firstBaseGame() -> (game: Game, library: LibraryService)? {
         let fixture = ShelfPreviewFixture.continueHero()
         guard let game = try? fixture.library.shelfGames().first(where: \.isBaseGame) else { return nil }
@@ -29,9 +29,9 @@ private enum ScreenPreviewFixture {
     }
 }
 
-/// A host matching `ContentView`'s: the detail page is pushed, so without a
+/// A host matching `ContentView`'s: the game page is pushed, so without a
 /// stack its toolbar has nowhere to land.
-private struct DetailPreviewHost: View {
+private struct GamePagePreviewHost: View {
     var body: some View {
         if let fixture = ScreenPreviewFixture.firstBaseGame() {
             NavigationStack {
@@ -55,18 +55,18 @@ private struct DetailPreviewHost: View {
 // caption it is capped against grows with Dynamic Type.
 
 #Preview("Game page") {
-    DetailPreviewHost()
+    GamePagePreviewHost()
 }
 
 #Preview("Game page, accessibility3") {
-    DetailPreviewHost()
+    GamePagePreviewHost()
         .dynamicTypeSize(.accessibility3)
 }
 
 /// Short viewport plus large text — where the art cap actually binds, the same
 /// pairing that matters on the shelf.
 #Preview("Game page, landscape, accessibility3", traits: .landscapeLeft) {
-    DetailPreviewHost()
+    GamePagePreviewHost()
         .dynamicTypeSize(.accessibility3)
 }
 
