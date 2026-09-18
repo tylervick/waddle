@@ -66,7 +66,7 @@ final class WADArtworkTests: XCTestCase {
     @MainActor
     func testCandidatesForBaseGameUseIWADItself() throws {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: WADFile.self, Loadout.self, configurations: config)
+        let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self, configurations: config)
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -84,7 +84,7 @@ final class WADArtworkTests: XCTestCase {
     @MainActor
     func testCandidatesForPresetUsesCompositeCacheKey() throws {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: WADFile.self, Loadout.self, configurations: config)
+        let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self, configurations: config)
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }

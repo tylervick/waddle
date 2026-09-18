@@ -34,7 +34,7 @@ struct WaddleApp: App {
         }
         #endif
         do {
-            let container = try ModelContainer(for: WADFile.self, Loadout.self)
+            let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self)
             let context = ModelContext(container)
             let store = WADStore.default
 
@@ -48,6 +48,7 @@ struct WaddleApp: App {
             if ProcessInfo.processInfo.environment["WADDLE_RESET_STORE"] != nil {
                 try? context.delete(model: WADFile.self)
                 try? context.delete(model: Loadout.self)
+                try? context.delete(model: Game.self)
                 try? context.save()
                 try? FileManager.default.removeItem(at: URL.documentsDirectory.appendingPathComponent("WADs", isDirectory: true))
                 try? FileManager.default.removeItem(at: URL.documentsDirectory.appendingPathComponent("Saves", isDirectory: true))

@@ -201,8 +201,11 @@ and the hero read it as today. Deleting a game deletes it. Hiding keeps it.
 - **Delete Game** confirms "Delete <name> and its N saves?" and, when no
   other game uses the game's map-set files, offers **Also Delete
   <file>**. Add-on files are never deleted with a game.
-- **Base games** are hidden, not deleted. Deleting the IWAD itself happens
-  in Files and is blocked while any game uses it.
+- **Base games** are hidden, not deleted. Deleting the IWAD *file* happens in
+  Files: it deletes the IWAD's own base game and that game's saves, and is
+  blocked while any **other** game uses the IWAD. (Without this carve-out an
+  imported IWAD could never be deleted, since its own base game always uses
+  it.)
 - **Delete a file** (Files screen) is blocked while any game uses it.
   Bundled files are never deletable (`LibraryError.wadIsBundled` stays).
 

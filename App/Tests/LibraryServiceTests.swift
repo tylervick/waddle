@@ -19,7 +19,7 @@ final class LibraryServiceTests: XCTestCase {
     // setUp/tearDown pair per test, synchronously in effect.
     override func setUp() async throws {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: WADFile.self, Loadout.self, configurations: config)
+        let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self, configurations: config)
         context = ModelContext(container)
         tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
