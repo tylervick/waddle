@@ -134,8 +134,8 @@ final class LibraryService {
     /// failure so the caller can keep the loadout instead of orphaning saves.
     private func migrateSaves(fromKey old: UUID, toKey new: UUID) throws {
         let fm = FileManager.default
-        let src = Self.savesDirectory(forLoadoutID: old)
-        let dst = Self.savesDirectory(forLoadoutID: new)
+        let src = Self.savesDirectory(forGameID: old)
+        let dst = Self.savesDirectory(forGameID: new)
         guard fm.fileExists(atPath: src.path) else { return }   // nothing to migrate
 
         if !fm.fileExists(atPath: dst.path) {
@@ -360,7 +360,7 @@ final class LibraryService {
     func deleteLoadout(_ loadout: Loadout, deleteSaves: Bool) throws {
         if deleteSaves {
             try? FileManager.default.removeItem(
-                at: Self.savesDirectory(forLoadoutID: loadout.id))
+                at: Self.savesDirectory(forGameID: loadout.id))
         }
         context.delete(loadout)
         try context.save()
@@ -405,7 +405,7 @@ final class LibraryService {
     // MARK: Saves
 
     /// A single visible save file in a playable item's saves directory (see
-    /// `savesDirectory(forLoadoutID:)`); `id` is the filename.
+    /// `savesDirectory(forGameID:)`); `id` is the filename.
     struct SaveSlot: Identifiable, Equatable {
         let id: String
         let modified: Date
@@ -416,7 +416,7 @@ final class LibraryService {
     /// throwing) if the directory is missing or unreadable -- a brand new
     /// item simply has no saves yet.
     func saveSlots(forKey id: UUID) -> [SaveSlot] {
-        let dir = Self.savesDirectory(forLoadoutID: id)
+        let dir = Self.savesDirectory(forGameID: id)
         guard let files = try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: [.contentModificationDateKey],
             options: [.skipsHiddenFiles]) else { return [] }
@@ -433,7 +433,7 @@ final class LibraryService {
     /// a missing file is not an error.
     func deleteSave(_ slot: SaveSlot, forKey id: UUID) {
         try? FileManager.default.removeItem(
-            at: Self.savesDirectory(forLoadoutID: id).appendingPathComponent(slot.id))
+            at: Self.savesDirectory(forGameID: id).appendingPathComponent(slot.id))
     }
 
     // MARK: Paths
@@ -473,13 +473,13 @@ final class LibraryService {
     func seedContinueSaveForCapture() throws {
         guard let item = try recentlyPlayed(limit: 1).first else { return }
         guard saveSlots(forKey: item.savesKey).isEmpty else { return }
-        let dir = Self.savesDirectory(forLoadoutID: item.savesKey)
+        let dir = Self.savesDirectory(forGameID: item.savesKey)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try Data().write(to: dir.appendingPathComponent(EngineSaveSlot.autoSaveFilename))
     }
     #endif
 
-    nonisolated static func savesDirectory(forLoadoutID id: UUID) -> URL {
+    nonisolated static func savesDirectory(forGameID id: UUID) -> URL {
         URL.documentsDirectory
             .appendingPathComponent("Saves", isDirectory: true)
             .appendingPathComponent(id.uuidString, isDirectory: true)

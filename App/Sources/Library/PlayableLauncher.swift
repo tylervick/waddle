@@ -32,13 +32,13 @@ enum PlayableLauncher {
         let loadGameSlot = mode == .continueNewest ? continuableSlot(for: item, library: library) : nil
         switch item {
         case .baseGame(let wad):
-            let args = try LoadoutArguments.build(iwadURL: library.fileURL(for: wad),
+            let args = try LaunchArguments.build(iwadURL: library.fileURL(for: wad),
                                                   saveID: wad.id,
                                                   loadGameSlot: loadGameSlot)
             try library.markPlayed(wad, at: date)
             return LaunchPlan(arguments: args, scheme: scheme)
         case .preset(let loadout):
-            let args = try LoadoutArguments.build(loadout: loadout, resolve: { id in
+            let args = try LaunchArguments.build(loadout: loadout, resolve: { id in
                 guard let wad = try library.wad(id: id) else {
                     throw PlayableLaunchError.missingWAD(id)
                 }
