@@ -57,8 +57,13 @@ struct WaddleApp: App {
 
             let library = LibraryService(context: context, store: store)
             let importer = ImportService(library: library, store: store)
-            try library.seedBundledContentIfNeeded()
+            // Order is load-bearing — see each method's doc comment: the
+            // legacy reconcile removes phantom loadouts before they could
+            // become games, the migration makes every existing row's game
+            // under its old id, and only then does the seeder fill gaps.
             try library.reconcileBundledBaseGameLoadouts()
+            try library.migrateToGames()
+            try library.seedBundledContentIfNeeded()
 
             // Test-only seam, same WADDLE_* family as the reset above. Gives
             // the most-recently-played item a save so the shelf's Continue

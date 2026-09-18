@@ -145,6 +145,53 @@ final class LibraryService {
         if allMigrationsSucceeded { defaults.set(true, forKey: flagKey) }
     }
 
+    /// One-time migration onto `Game` (spec §5). Every IWAD row becomes its
+    /// base game and every `Loadout` becomes a game, **each under its old id**,
+    /// so `Documents/Saves/<id>/` stays exactly where the previous build left
+    /// it and a player updating mid-campaign gets their Continue hero back.
+    /// Present PWADs are re-parsed to fill `hasMaps`; a missing or unreadable
+    /// file keeps the default.
+    ///
+    /// Runs at most once per install (persisted flag), and never overwrites a
+    /// game that already exists — the legacy fields are copied only into games
+    /// this call creates. The `Loadout` rows and `WADFile`'s moved fields are
+    /// left in place: written by nothing from here on, dropped by a later
+    /// release. Same pattern as `reconcileBundledBaseGameLoadouts`, and it
+    /// must run after it (so phantom loadouts are gone) and **before**
+    /// `seedBundledContentIfNeeded()` (so the bundled rows' games are made here,
+    /// with their flags, rather than blank by the seeder).
+    func migrateToGames(defaults: UserDefaults = .standard) throws {
+        let flagKey = "didMigrateToGames"
+        guard !defaults.bool(forKey: flagKey) else { return }
+
+        for wad in try allWADs() where wad.kindRaw == WADKind.iwad.rawValue {
+            guard try game(id: wad.id) == nil else { continue }
+            let game = Game.baseGame(for: wad)
+            game.schemeOverrideRaw = wad.schemeOverrideRaw
+            game.isHidden = wad.isHidden
+            game.lastPlayed = wad.lastPlayed
+            context.insert(game)
+        }
+        for loadout in try context.fetch(FetchDescriptor<Loadout>()) {
+            guard try game(id: loadout.id) == nil else { continue }
+            context.insert(Game(id: loadout.id, name: loadout.name, baseID: loadout.iwadID,
+                                fileIDs: loadout.pwadIDs + loadout.dehIDs,
+                                complevel: loadout.complevel,
+                                schemeOverrideRaw: loadout.schemeOverrideRaw,
+                                isHidden: loadout.isHidden, lastPlayed: loadout.lastPlayed,
+                                createdAt: loadout.createdAt, isBaseGame: false))
+        }
+        for wad in try allWADs() where wad.kindRaw == WADKind.pwad.rawValue {
+            // Directory only: `WADParser.parse` reads the header and lump table,
+            // and the mapping keeps a 300 MB megawad from becoming one allocation.
+            guard let data = try? Data(contentsOf: fileURL(for: wad), options: .mappedIfSafe),
+                  let parsed = try? WADParser.parse(data) else { continue }
+            wad.hasMaps = WADParser.mapFormat(of: parsed.lumpNames) != .none
+        }
+        try context.save()
+        defaults.set(true, forKey: flagKey)
+    }
+
     /// Moves the legacy per-loadout saves dir onto the base game's saves key.
     /// If the destination already exists, merges file-by-file and never
     /// overwrites an existing base-game save (its version wins; the stale
