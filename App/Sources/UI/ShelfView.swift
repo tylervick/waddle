@@ -2,9 +2,10 @@ import SwiftUI
 import UIKit
 
 /// The home screen (spec §§2–3): a Continue hero, one adaptive grid of every
-/// playable item, and two doors — a gear for player settings and Manage for the
-/// library workspace. Replaces the Play/Library `TabView`; management is
-/// reachable but never on the primary path.
+/// playable item, and two doors — a gear for player settings and Add for the
+/// importer; files and hidden games live under Settings (spec §3.3). Replaces
+/// the Play/Library `TabView`; management is reachable but never on the
+/// primary path.
 ///
 /// Composition is decided entirely by `LibraryService.shelfGames()` and the
 /// pure functions in `Shelf`, which is what the hermetic tests exercise.
@@ -18,16 +19,15 @@ struct ShelfView: View {
     /// `Shelf.heroZone` decides; this only holds the answer.
     @State private var zone: Shelf.HeroZone = .empty
     @State private var showImporter = false
-    @State private var detailItem: Game?
     /// The item whose tap opened the Continue / New Game / Details sheet.
     @State private var actionItem: Game?
 
-    @State private var editorGame: Game?
-    // Presenting the editor sheet must wait until the detail sheet has fully
-    // dismissed (see `.sheet(item: $detailItem, onDismiss:)` below): setting
-    // `editorGame` and dismissing the detail sheet in the same synchronous
-    // pass is a same-transaction dismiss/present race (fixed once in cfaed69).
-    @State private var pendingEditGame: Game?
+    /// The game whose page is pushed (spec §3.2): one screen for every tile,
+    /// reached by navigation rather than a sheet.
+    @State private var pageGame: Game?
+    /// The non-base game a destructive context-menu tap is confirming removal
+    /// of, via `deleteGamePrompt`.
+    @State private var deleteCandidate: Game?
     @State private var showPlayerSettings = false
     @AppStorage(debugHUDUserDefaultsKey) private var debugHUD: Bool = false
     @State private var errorAlert: EngineErrorAlert?
@@ -87,6 +87,15 @@ struct ShelfView: View {
         .background(Color.appBackground)
         .navigationTitle("Waddle")
         .toolbar { toolbarContent }
+        // Pushed, not presented (spec §3.2): one page for every tile, and no
+        // second sheet to promote after the first dismisses.
+        .navigationDestination(item: $pageGame) { game in
+            GamePageView(game: game, library: library,
+                         onPlay: { play($0, mode: $1) },
+                         onChanged: refresh,
+                         onClose: { pageGame = nil })
+        }
+        .deleteGamePrompt(game: $deleteCandidate, library: library, onDeleted: refresh)
         // .overlay, not .safeAreaInset -- a conditionally-empty safeAreaInset
         // directly above a ScrollView/LazyVGrid crashed SwiftUI's layout engine
         // here (HVGrid.minorGeometry, SwiftUI internal, iOS 26.2 SDK).
@@ -102,27 +111,11 @@ struct ShelfView: View {
         .sheet(isPresented: $showPlayerSettings) {
             PlayerSettingsView(library: library)
         }
-        // The welcome card's Add Your Games opens the same importer Manage's
-        // Import button does, down to the accepted types (spec §4).
+        // The welcome card's Add Your Games opens the same importer the
+        // toolbar's Add button and the ghost tile do, down to the accepted
+        // types (spec §4).
         .wadFileImporter(isPresented: $showImporter, importer: importer) { _ in
             refresh()
-        }
-        .sheet(item: $editorGame, onDismiss: refresh) { game in
-            LoadoutEditorView(library: library, existing: game)
-        }
-        .sheet(item: $detailItem, onDismiss: {
-            // Promote the pending edit only after the detail sheet is fully
-            // gone, keeping the dismiss-then-present pair in separate
-            // transactions.
-            if let game = pendingEditGame {
-                pendingEditGame = nil
-                editorGame = game
-            }
-        }) { item in
-            PlayableDetailView(game: item, library: library,
-                               onPlay: { play($0, mode: $1) },
-                               onEdit: { pendingEditGame = $0 },
-                               onChanged: refresh)
         }
         .confirmationDialog(actionItem?.name ?? "", isPresented: actionDialogBinding,
                             titleVisibility: .visible, presenting: actionItem) { item in
@@ -130,7 +123,7 @@ struct ShelfView: View {
                 .accessibilityIdentifier("continueAction")
             Button("New Game") { play(item, mode: .newGame) }
                 .accessibilityIdentifier("newGameAction")
-            Button("Details") { detailItem = item }
+            Button("Details") { pageGame = item }
                 .accessibilityIdentifier("detailsAction")
         }
         .alert(errorAlert?.title ?? "", isPresented: Binding(
@@ -162,13 +155,14 @@ struct ShelfView: View {
             .accessibilityIdentifier("touchSchemeMenu")
         }
         ToolbarItem(placement: .navigationBarTrailing) {
-            NavigationLink {
-                LibraryView(library: library, importer: importer,
-                            onPlay: { play($0, mode: $1) })
+            Button {
+                showImporter = true
             } label: {
-                Label("Manage", systemImage: "tray.full")
+                Label("Add", systemImage: "plus")
             }
-            .accessibilityIdentifier("manageButton")
+            // The one import door (spec §3.4): the welcome card and the ghost
+            // tile call the same importer.
+            .accessibilityIdentifier("importButton")
         }
     }
 
@@ -388,9 +382,7 @@ struct ShelfView: View {
             switch Shelf.tapAction(for: game, hasResumableSave: hasResumableSave) {
             case .actionSheet: actionItem = game
             case .launchNewGame: play(game, mode: .newGame)
-            // No GamePage view yet (plan 2's later tasks add it) — Details is
-            // the closest existing screen and where the base picker lives.
-            case .openPage: detailItem = game
+            case .openPage: pageGame = game
             }
         } label: {
             PlayableTileView(game: game, library: library)
@@ -416,13 +408,15 @@ struct ShelfView: View {
             Button("Continue") { play(game, mode: .continueNewest) }
         }
         Button("New Game") { play(game, mode: .newGame) }
-        Button("Details") { detailItem = game }
-        if !game.isBaseGame {
-            Button("Edit") { editorGame = game }
-        }
-        Button("Remove from Shelf", role: .destructive) {
-            try? library.hide(game)
-            refresh()
+            .disabled(game.baseID == nil)
+        Button("Details") { pageGame = game }
+        if game.isBaseGame {
+            Button("Hide from Shelf", role: .destructive) {
+                try? library.hide(game)
+                refresh()
+            }
+        } else {
+            Button("Delete", role: .destructive) { deleteCandidate = game }
         }
     }
 
@@ -433,10 +427,8 @@ struct ShelfView: View {
     /// Identifiers the UI tests address tiles by. Kept byte-for-byte through
     /// the Game switch (plan 1); plan 2 renames them with the screens.
     private func accessibilityID(for game: Game) -> String {
-        if game.isBaseGame && game.name == "Freedoom Phase 1" {
-            return "playFreedoom1"
-        }
-        return game.isBaseGame ? "wad-\(game.id)" : "loadout-\(game.name)"
+        if game.isBaseGame && game.name == "Freedoom Phase 1" { return "playFreedoom1" }
+        return "game-\(game.name)"
     }
 
     private func play(_ game: Game, mode: LaunchMode = .newGame) {
