@@ -1,0 +1,57 @@
+project:
+    id: 636d33df-2697-4f07-8f60-a0b5a8657019
+session:
+    idle_timeout_seconds: 1800
+build:
+    framework: ios
+    profiles:
+        development:
+            ios:
+                # Deployment target is iOS 26.0 (App/project.yml), so the
+                # runner image must carry Xcode 26.x. Unverified: the CLI
+                # offers no way to list valid image keys; this one is taken
+                # from the `--image` example in `revyl build --help`.
+                image: ios-macos-26-xcode-26.2
+                # build-deps.sh clones and compiles SDL3, OpenAL Soft,
+                # sonivox, ogg, vorbis, sndfile, FLAC and opus from source for
+                # BOTH iphoneos and iphonesimulator, then build-engine.sh
+                # builds Woof! twice more and assembles the xcframework.
+                # Vendor/ is gitignored, so none of it arrives with the
+                # worktree and a cold runner pays the whole cost every time.
+                # 7200 is an estimate -- this recipe has not been run
+                # end-to-end on a Revyl runner.
+                timeout_seconds: 7200
+                build_commands:
+                    # mise pins cmake/ninja/xcodegen (mise.toml) and owns the
+                    # bootstrap task graph. Not assumed present on the image.
+                    - curl -fsSL https://mise.run | sh
+                    # A no-op under mise's normal mode, where `mise install`
+                    # and `mise run` auto-trust their active config. Kept for
+                    # paranoid mode, which requires explicit content-bound
+                    # trust and cannot prompt on an unattended runner.
+                    - ~/.local/bin/mise trust --yes
+                    - ~/.local/bin/mise install
+                    # bootstrap, not `mise run generate`: GameData/ and
+                    # woof.pk3 are gitignored build outputs, and XcodeGen
+                    # validates its source list before writing anything, so
+                    # generate alone fails spec validation on a fresh
+                    # checkout. See
+                    # docs/learnings/xcodegen-needs-bootstrapped-resources.md.
+                    # bootstrap = build-engine (which depends on build-deps)
+                    # + fetch-freedoom + generate.
+                    - ~/.local/bin/mise run bootstrap
+                    # ENABLE_DEBUG_DYLIB=NO drops Waddle.debug.dylib and
+                    # __preview.dylib, so the artifact is standalone rather
+                    # than the Xcode debug-dylib layout.
+                    #
+                    # CODE_SIGNING_ALLOWED=NO because Debug uses Automatic
+                    # signing, which needs a signed-in Xcode account the
+                    # runner does not have. Simulator builds do not need a
+                    # signature to install.
+                    #
+                    # Debug, not Release, on purpose: Release is Manual
+                    # signing pinned to "Apple Distribution" and the
+                    # "WADdle App Store CI" provisioning profile, neither of
+                    # which exists on a build runner.
+                    - xcodebuild -project App/Waddle.xcodeproj -scheme Waddle -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build ENABLE_DEBUG_DYLIB=NO CODE_SIGNING_ALLOWED=NO
+                output_path: build/Build/Products/Debug-iphonesimulator/Waddle.app
