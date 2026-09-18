@@ -33,8 +33,8 @@ try service.markPlayed(recent, at: Date().addingTimeInterval(200))
 This only bites a comparator with a *mixed-source* fallback (some rows keyed by
 a real explicit date, others falling back to `.now`-stamped `createdAt`) and
 only when a fixture also creates a never-played row to prove the fallback
-ordering. A test that only ever sets `lastPlayed` (no fallback in play, like
-the pre-existing `testAllLoadoutsSortsMostRecentFirst`) never hits it.
+ordering. A test that only ever sets `lastPlayed` (no fallback in play) never
+hits it.
 
 **Provenance:** games-and-files plan 1, Task 3 (`GameServiceTests.
 testGamesSortMostRecentlyPlayedFirstThenNewestCreated`) — the task's own

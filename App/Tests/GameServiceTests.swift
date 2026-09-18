@@ -124,9 +124,11 @@ final class GameServiceTests: XCTestCase {
         // 100/200)` — 1970, long before `base`'s real `createdAt: Date = .now` — so the
         // never-played base game's fallback sort key was numerically the *largest* of
         // the three and it sorted first, not last, failing this test regardless of a
-        // correct `games()` (verified against `LibraryServiceTests.testAllLoadoutsSortsMostRecentFirst`'s
-        // identical comparator shape). These two dates are moved to just after "now" so
-        // both played games' `lastPlayed` outrank `base.createdAt` as the comment intends.
+        // correct `games()` (verified against a test that only ever sets `lastPlayed`,
+        // which never hits this mixed-fallback trap — see docs/learnings/
+        // epoch-fixture-dates-break-now-fallback-sorts.md). These two dates are moved
+        // to just after "now" so both played games' `lastPlayed` outrank `base.createdAt`
+        // as the comment intends.
         try service.markPlayed(old, at: Date().addingTimeInterval(100))
         try service.markPlayed(recent, at: Date().addingTimeInterval(200))
         // The never-played base game sorts by createdAt — behind both played games.
@@ -254,6 +256,20 @@ final class GameServiceTests: XCTestCase {
         try service.deleteWAD(spare)
         XCTAssertNil(try service.wad(id: spare.id))
         XCTAssertFalse(FileManager.default.fileExists(atPath: tmp.appendingPathComponent("spare.wad").path))
+    }
+
+    func testDeleteWADRefusesABundledFileAndKeepsItsGameAndSaves() throws {
+        try service.seedBundledContentIfNeeded()
+        let wad = try XCTUnwrap(try service.allWADs().first { $0.filename == "freedoom1.wad" })
+        let dir = try writeSave(forKey: wad.id)
+
+        XCTAssertThrowsError(try service.deleteWAD(wad)) {
+            XCTAssertEqual($0 as? LibraryError, .wadIsBundled)
+        }
+
+        XCTAssertNotNil(try service.wad(id: wad.id), "the row must survive")
+        XCTAssertNotNil(try service.game(id: wad.id), "its base game must survive")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dir.path), "its save must survive")
     }
 
     // MARK: Factory state (launcher spec §4)

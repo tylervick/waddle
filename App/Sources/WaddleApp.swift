@@ -52,6 +52,11 @@ struct WaddleApp: App {
                 try? context.save()
                 try? FileManager.default.removeItem(at: URL.documentsDirectory.appendingPathComponent("WADs", isDirectory: true))
                 try? FileManager.default.removeItem(at: URL.documentsDirectory.appendingPathComponent("Saves", isDirectory: true))
+                // Clear both migration flags too, so the reset seam yields a
+                // genuinely pre-migration slate rather than one that skips
+                // the seeder's game-creation because a flag survived the wipe.
+                UserDefaults.standard.removeObject(forKey: LibraryService.didMigrateToGamesKey)
+                UserDefaults.standard.removeObject(forKey: LibraryService.didReconcileBundledBaseGameLoadoutsKey)
             }
             #endif
 

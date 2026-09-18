@@ -83,6 +83,11 @@ final class LaunchArgumentsTests: XCTestCase {
         XCTAssertTrue(args[saveIdx + 1].hasSuffix("/Saves/\(game.id.uuidString)"))
         XCTAssertFalse(args.contains("-file"))
         XCTAssertFalse(args.contains("-deh"))
+
+        var isDir: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: LibraryService.savesDirectory(forGameID: game.id).path, isDirectory: &isDir))
+        XCTAssertTrue(isDir.boolValue)
     }
 
     func testUnpairedGameThrowsMissingBase() {

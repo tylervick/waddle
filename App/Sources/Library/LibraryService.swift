@@ -6,6 +6,10 @@ enum LibraryError: Error, Equatable {
     case wadInUse([String])
     /// Base games are hidden, never deleted (spec §4.4).
     case cannotDeleteBaseGame
+    /// Bundled files are never deletable (spec §4.4): they live in the signed
+    /// app bundle, and deleting the row would orphan its base game's saves —
+    /// the seeder would simply re-create both under a fresh id.
+    case wadIsBundled
 }
 
 /// Where a library file's bytes live, from the Library tab's point of view:
@@ -74,6 +78,7 @@ final class LibraryService {
             let wad: WADFile
             if let existing = try wadByFilename(entry.file, bundled: true) {
                 wad = existing
+                wad.hasMaps = true   // IWADs carry maps; upgraded installs must match fresh ones.
             } else {
                 wad = WADFile(filename: entry.file, displayName: entry.title,
                               kindRaw: WADKind.iwad.rawValue,
@@ -88,6 +93,28 @@ final class LibraryService {
         try context.save()
     }
 
+    /// `UserDefaults` keys for the two one-time launch-order migration steps
+    /// (see `WaddleApp`, which also clears both under `WADDLE_RESET_STORE`).
+    static let didReconcileBundledBaseGameLoadoutsKey = "didReconcileBundledBaseGameLoadouts"
+    static let didMigrateToGamesKey = "didMigrateToGames"
+
+    /// Titles the one-door preset flow auto-assigns a modless Freedoom preset,
+    /// which is indistinguishable from the legacy phantom shape (no PWAD/DEH,
+    /// bundled IWAD) `reconcileBundledBaseGameLoadouts` removes.
+    private static let seededTitles: Set<String> = ["Freedoom Phase 1", "Freedoom Phase 2"]
+
+    /// Shape-only test for the legacy phantom: a modless loadout named exactly
+    /// one of `seededTitles` on a *bundled* IWAD. Shared by
+    /// `reconcileBundledBaseGameLoadouts` (which deletes a lone match) and
+    /// `migrateToGames` (which must not turn one into a permanent `Game`
+    /// before the reconcile has had a chance to remove it — see that method's
+    /// doc comment).
+    private func isPhantomBundledLoadout(_ loadout: Loadout) throws -> Bool {
+        guard loadout.pwadIDs.isEmpty && loadout.dehIDs.isEmpty
+                && Self.seededTitles.contains(loadout.name) else { return false }
+        return try wad(id: loadout.iwadID)?.isBundled == true
+    }
+
     /// One-time migration: earlier builds auto-created a Loadout per bundled
     /// Freedoom phase so the base game could launch. Base games are now
     /// directly playable, so these phantom loadouts are removed once; any saves
@@ -95,10 +122,7 @@ final class LibraryService {
     /// WADFile.id), so on-device progress survives. User-authored presets are
     /// never touched.
     ///
-    /// Guarded by a persisted flag so this runs at most once per install: the
-    /// one-door preset flow now auto-names a modless Freedoom preset exactly
-    /// "Freedoom Phase 1"/"Freedoom Phase 2", which is indistinguishable from
-    /// the legacy phantom shape (no PWAD/DEH, bundled IWAD) this removes.
+    /// Guarded by a persisted flag so this runs at most once per install.
     ///
     /// Two safeguards against destroying real user data:
     /// - **Ambiguity:** a legacy install created *exactly one* phantom per
@@ -111,18 +135,14 @@ final class LibraryService {
     ///   the loadout (and retries next launch) rather than orphaning saves.
     /// The flag is set only when every migration succeeded.
     func reconcileBundledBaseGameLoadouts(defaults: UserDefaults = .standard) throws {
-        let flagKey = "didReconcileBundledBaseGameLoadouts"
+        let flagKey = Self.didReconcileBundledBaseGameLoadoutsKey
         guard !defaults.bool(forKey: flagKey) else { return }
-        let seededTitles: Set<String> = ["Freedoom Phase 1", "Freedoom Phase 2"]
 
         // Candidates: modless loadouts with a seeded title on a *bundled* IWAD.
         var phantoms: [Loadout] = []
         for loadout in try context.fetch(FetchDescriptor<Loadout>())
-        where loadout.pwadIDs.isEmpty && loadout.dehIDs.isEmpty
-            && seededTitles.contains(loadout.name) {
-            if let iwad = try wad(id: loadout.iwadID), iwad.isBundled {
-                phantoms.append(loadout)
-            }
+        where try isPhantomBundledLoadout(loadout) {
+            phantoms.append(loadout)
         }
         // Ambiguity guard: only delete a title with a single matching loadout.
         var countByName: [String: Int] = [:]
@@ -158,8 +178,16 @@ final class LibraryService {
     /// must run after it (so phantom loadouts are gone) and **before**
     /// `seedBundledContentIfNeeded()` (so the bundled rows' games are made here,
     /// with their flags, rather than blank by the seeder).
+    ///
+    /// Not gated on the reconcile flag as a whole — that would silently skip
+    /// every user preset forever on an install where the reconcile never
+    /// manages to set it (e.g. a save migration keeps failing). Instead, only
+    /// a loadout that still matches the phantom shape is skipped while the
+    /// reconcile flag is unset, so it is picked up as a game on whatever later
+    /// launch finally reconciles or permanently fails to (in which case it
+    /// migrates as an ordinary, if oddly named, game rather than vanishing).
     func migrateToGames(defaults: UserDefaults = .standard) throws {
-        let flagKey = "didMigrateToGames"
+        let flagKey = Self.didMigrateToGamesKey
         guard !defaults.bool(forKey: flagKey) else { return }
 
         for wad in try allWADs() where wad.kindRaw == WADKind.iwad.rawValue {
@@ -170,8 +198,10 @@ final class LibraryService {
             game.lastPlayed = wad.lastPlayed
             context.insert(game)
         }
+        let reconcileHasRun = defaults.bool(forKey: Self.didReconcileBundledBaseGameLoadoutsKey)
         for loadout in try context.fetch(FetchDescriptor<Loadout>()) {
             guard try game(id: loadout.id) == nil else { continue }
+            if try !reconcileHasRun && isPhantomBundledLoadout(loadout) { continue }
             context.insert(Game(id: loadout.id, name: loadout.name, baseID: loadout.iwadID,
                                 fileIDs: loadout.pwadIDs + loadout.dehIDs,
                                 complevel: loadout.complevel,
@@ -427,14 +457,16 @@ final class LibraryService {
         try context.save()
     }
 
-    /// Deletes a file (spec §4.4). Blocked while any game *other than the
-    /// IWAD's own base game* loads it — that carve-out is what makes an
-    /// imported IWAD deletable at all. Deleting an IWAD takes its base game
-    /// and that game's saves with it. Bundled files keep their bytes (they are
-    /// in the signed app bundle); only the row goes.
+    /// Deletes a file (spec §4.4). Bundled files are never deletable — the
+    /// row stays, since removing it would orphan its base game's saves (the
+    /// seeder would just re-create both under a fresh id). Otherwise blocked
+    /// while any game *other than the IWAD's own base game* loads it — that
+    /// carve-out is what makes an imported IWAD deletable at all. Deleting an
+    /// IWAD takes its base game and that game's saves with it.
     func deleteWAD(_ wad: WADFile) throws {
+        guard !wad.isBundled else { throw LibraryError.wadIsBundled }
         let blockers = try gamesUsing(fileID: wad.id)
-            .filter { !($0.isBaseGame && $0.baseID == wad.id) }
+            .filter { $0.id != wad.id }
         if !blockers.isEmpty {
             throw LibraryError.wadInUse(blockers.map(\.name))
         }
@@ -448,7 +480,6 @@ final class LibraryService {
         context.delete(wad)
         try context.save()
     }
-
 
     // MARK: Saves
 

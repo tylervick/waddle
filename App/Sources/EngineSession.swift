@@ -18,7 +18,7 @@ enum EngineSession {
     /// the engine.
     enum ExitCode {
         /// LaunchArguments.build threw before the engine could even start
-        /// (e.g. a loadout references a WAD that's gone missing from the
+        /// (e.g. a game references a WAD that's gone missing from the
         /// library). Reported by ShelfView.play(_:) in place of a
         /// real engine exit code.
         static let argumentFailure: Int32 = -101

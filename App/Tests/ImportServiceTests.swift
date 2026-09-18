@@ -587,4 +587,28 @@ final class ImportServiceTests: XCTestCase {
         XCTAssertEqual(try library.allWADs().first { $0.filename.hasPrefix("maps") }?.role, .mapSet)
         XCTAssertEqual(try library.allWADs().first { $0.filename.hasPrefix("gfx") }?.role, .addOn)
     }
+
+    /// Same property as `testImportRecordsWhetherAPWADCarriesMaps`, through the
+    /// async `adoptLooseFiles` path (the detached-task branch that scans the
+    /// Files-app drop zone) rather than the synchronous `importFiles`.
+    func testAdoptLooseFilesRecordsWhetherAPWADCarriesMaps() async throws {
+        let docs = URL.documentsDirectory
+        let mapsName = "maps-\(UUID().uuidString).wad"
+        let gfxName = "gfx-\(UUID().uuidString).wad"
+        let mapsURL = docs.appendingPathComponent(mapsName)
+        let gfxURL = docs.appendingPathComponent(gfxName)
+        try makeWAD(magic: "PWAD", lumps: ["MAP01", "THINGS"]).write(to: mapsURL)
+        try makeWAD(magic: "PWAD", lumps: ["TITLEPIC"]).write(to: gfxURL)
+        defer {
+            try? FileManager.default.removeItem(at: mapsURL)
+            try? FileManager.default.removeItem(at: gfxURL)
+        }
+
+        let outcome = await importer.adoptLooseFiles()
+
+        XCTAssertTrue(outcome.imported.contains((mapsName as NSString).deletingPathExtension))
+        XCTAssertTrue(outcome.imported.contains((gfxName as NSString).deletingPathExtension))
+        XCTAssertEqual(try library.allWADs().first { $0.filename == mapsName }?.role, .mapSet)
+        XCTAssertEqual(try library.allWADs().first { $0.filename == gfxName }?.role, .addOn)
+    }
 }

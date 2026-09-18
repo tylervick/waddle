@@ -164,8 +164,14 @@ final class LibraryServiceTests: XCTestCase {
         // is where the in-use rule lives now.
         let pwad = try service.registerImported(filename: "sunlust.wad", sha1: "p1",
                                                 kind: WADKind.pwad.rawValue, family: "doom2")
+        let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i1",
+                                                 kind: WADKind.iwad.rawValue, family: "doom2")
+        try insertLegacyLoadout(name: "Legacy", iwadID: iwad.id, pwadIDs: [pwad.id])
+
         try service.deleteWAD(pwad)
+
         XCTAssertNil(try service.wad(id: pwad.id))
+        XCTAssertEqual(try legacyLoadouts().count, 1, "the tombstone row is untouched and never a blocker")
     }
 
     func testSaveSlotsListsFilesNewestFirst() throws {

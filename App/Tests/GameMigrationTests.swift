@@ -28,11 +28,12 @@ final class GameMigrationTests: XCTestCase {
 
     /// A pre-`Game` row: inserted directly, because `registerImported` now
     /// creates a base game and this suite needs the shape an old build left.
-    private func legacyIWAD(_ filename: String, hidden: Bool = false,
-                            scheme: String? = nil, played: Date? = nil) throws -> WADFile {
-        let wad = WADFile(filename: filename, displayName: (filename as NSString).deletingPathExtension,
+    private func legacyIWAD(_ filename: String, displayName: String? = nil, hidden: Bool = false,
+                            scheme: String? = nil, played: Date? = nil, bundled: Bool = false) throws -> WADFile {
+        let wad = WADFile(filename: filename,
+                          displayName: displayName ?? (filename as NSString).deletingPathExtension,
                           kindRaw: WADKind.iwad.rawValue, sha1: UUID().uuidString,
-                          gameFamilyRaw: GameFamily.doom2.rawValue)
+                          gameFamilyRaw: GameFamily.doom2.rawValue, isBundled: bundled)
         wad.isHidden = hidden
         wad.schemeOverrideRaw = scheme
         wad.lastPlayed = played
@@ -163,6 +164,43 @@ final class GameMigrationTests: XCTestCase {
         XCTAssertEqual(try service.games().count, 1)
         XCTAssertFalse(try XCTUnwrap(try service.game(id: wad.id)).isHidden,
                        "the existing game wins outright: legacy fields are not copied onto it")
+    }
+
+    /// Spec §4.4/§5 interaction: `reconcileBundledBaseGameLoadouts` leaves a
+    /// phantom in place (flag unset) when its saves move fails, so
+    /// `migrateToGames` must not turn it into a permanent `Game` before the
+    /// reconcile gets another chance at it.
+    func testMigrationSkipsAPhantomLoadoutUntilTheReconcileHasRun() throws {
+        let base = try legacyIWAD("freedoom1.wad", displayName: "Freedoom Phase 1", bundled: true)
+        try legacyLoadout(name: "Freedoom Phase 1", iwadID: base.id)
+        try legacyLoadout(name: "Mine", iwadID: base.id)
+
+        try service.migrateToGames(defaults: defaults)
+
+        let games = try service.games()
+        XCTAssertEqual(games.count, 2, "the base game and \"Mine\" only — the phantom must not become a third")
+        XCTAssertFalse(games.contains { $0.name == "Freedoom Phase 1" && !$0.isBaseGame },
+                       "only the base game may carry the seeded title while the reconcile hasn't run")
+        XCTAssertTrue(games.contains { $0.name == "Mine" })
+    }
+
+    /// Once the reconcile has run (flag set), any loadout that still exists
+    /// with the seeded title is no longer a phantom by definition — but the
+    /// property under test here is narrower and more important: a loadout
+    /// that was never phantom-shaped (it carries a file) always migrates,
+    /// reconcile flag or not.
+    func testMigrationMigratesANonPhantomLoadoutEvenWithTheSeededTitle() throws {
+        let base = try legacyIWAD("freedoom1.wad", displayName: "Freedoom Phase 1", bundled: true)
+        let mod = try legacyPWAD("mod.wad")
+        let freshDefaults = UserDefaults(suiteName: "migrate-\(UUID().uuidString)")!
+        freshDefaults.set(true, forKey: LibraryService.didReconcileBundledBaseGameLoadoutsKey)
+        try legacyLoadout(name: "Freedoom Phase 1", iwadID: base.id, pwadIDs: [mod.id])
+
+        try service.migrateToGames(defaults: freshDefaults)
+
+        let games = try service.games()
+        XCTAssertTrue(games.contains { $0.name == "Freedoom Phase 1" && !$0.isBaseGame },
+                      "a loadout with a file is never phantom-shaped, so it always migrates")
     }
 
     /// The upgrade path end to end, in the order `WaddleApp` runs it: legacy
