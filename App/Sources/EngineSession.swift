@@ -17,7 +17,7 @@ enum EngineSession {
     /// (its own generic failure exit) — these values are never returned by
     /// the engine.
     enum ExitCode {
-        /// LoadoutArguments.build threw before the engine could even start
+        /// LaunchArguments.build threw before the engine could even start
         /// (e.g. a loadout references a WAD that's gone missing from the
         /// library). Reported by ShelfView.play(_:) in place of a
         /// real engine exit code.
@@ -55,7 +55,7 @@ enum EngineSession {
     }
 
     /// Boots the engine with a full argv (starting with "woof") and returns
-    /// the engine exit code. Build argv with LoadoutArguments.
+    /// the engine exit code. Build argv with LaunchArguments.
     @discardableResult
     static func play(arguments: [String],
                      scheme: TouchControlScheme = TouchControlScheme.current()) -> Int32 {

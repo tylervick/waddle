@@ -62,7 +62,7 @@ final class LibraryServiceTests: XCTestCase {
         try service.saveChanges()
         let phantom = try service.createLoadout(name: "Freedoom Phase 1",
                                                 iwadID: base.id, pwadIDs: [], dehIDs: [])
-        let oldDir = LibraryService.savesDirectory(forLoadoutID: phantom.id)
+        let oldDir = LibraryService.savesDirectory(forGameID: phantom.id)
         try FileManager.default.createDirectory(at: oldDir, withIntermediateDirectories: true)
         try Data("save".utf8).write(to: oldDir.appendingPathComponent("slot.dsg"))
 
@@ -71,7 +71,7 @@ final class LibraryServiceTests: XCTestCase {
         try service.reconcileBundledBaseGameLoadouts(defaults: d)
 
         XCTAssertTrue(try service.allLoadouts().isEmpty, "phantom loadout not removed")
-        let newDir = LibraryService.savesDirectory(forLoadoutID: base.id)
+        let newDir = LibraryService.savesDirectory(forGameID: base.id)
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: newDir.appendingPathComponent("slot.dsg").path),
             "saves not migrated to base-game key")
@@ -124,12 +124,12 @@ final class LibraryServiceTests: XCTestCase {
         let phantom = try service.createLoadout(name: "Freedoom Phase 1",
                                                 iwadID: base.id, pwadIDs: [], dehIDs: [])
         // Legacy saves under the loadout key: a.dsg (collides) + b.dsg (new).
-        let oldDir = LibraryService.savesDirectory(forLoadoutID: phantom.id)
+        let oldDir = LibraryService.savesDirectory(forGameID: phantom.id)
         try FileManager.default.createDirectory(at: oldDir, withIntermediateDirectories: true)
         try Data("old-a".utf8).write(to: oldDir.appendingPathComponent("a.dsg"))
         try Data("old-b".utf8).write(to: oldDir.appendingPathComponent("b.dsg"))
         // Base game already played: its saves dir exists with a colliding a.dsg.
-        let newDir = LibraryService.savesDirectory(forLoadoutID: base.id)
+        let newDir = LibraryService.savesDirectory(forGameID: base.id)
         try FileManager.default.createDirectory(at: newDir, withIntermediateDirectories: true)
         try Data("base-a".utf8).write(to: newDir.appendingPathComponent("a.dsg"))
 
@@ -171,7 +171,7 @@ final class LibraryServiceTests: XCTestCase {
         let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i2",
                                                 kind: WADKind.iwad.rawValue, family: "doom2")
         let loadout = try service.createLoadout(name: "X", iwadID: iwad.id, pwadIDs: [], dehIDs: [])
-        let saves = LibraryService.savesDirectory(forLoadoutID: loadout.id)
+        let saves = LibraryService.savesDirectory(forGameID: loadout.id)
         try FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
         try Data("save".utf8).write(to: saves.appendingPathComponent("savegame0.dsg"))
         try service.deleteLoadout(loadout, deleteSaves: true)
@@ -231,7 +231,7 @@ final class LibraryServiceTests: XCTestCase {
 
     func testSaveSlotsListsFilesNewestFirst() throws {
         let key = UUID()
-        let dir = LibraryService.savesDirectory(forLoadoutID: key)
+        let dir = LibraryService.savesDirectory(forGameID: key)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let a = dir.appendingPathComponent("a.dsg"); let b = dir.appendingPathComponent("b.dsg")
         try Data().write(to: a); try Data().write(to: b)
@@ -420,7 +420,7 @@ final class LibraryServiceTests: XCTestCase {
         try service.seedBundledContentIfNeeded()
         let freedoom1 = try XCTUnwrap(try service.allWADs().first { $0.filename == "freedoom1.wad" })
         try service.markPlayed(freedoom1)
-        let dir = LibraryService.savesDirectory(forLoadoutID: freedoom1.id)
+        let dir = LibraryService.savesDirectory(forGameID: freedoom1.id)
         defer { try? FileManager.default.removeItem(at: dir) }
 
         XCTAssertNil(EngineSaveSlot.newestLoadGameArgument(in: service.saveSlots(forKey: freedoom1.id)),
@@ -441,7 +441,7 @@ final class LibraryServiceTests: XCTestCase {
         try service.seedBundledContentIfNeeded()
         let freedoom1 = try XCTUnwrap(try service.allWADs().first { $0.filename == "freedoom1.wad" })
         try service.markPlayed(freedoom1)
-        let dir = LibraryService.savesDirectory(forLoadoutID: freedoom1.id)
+        let dir = LibraryService.savesDirectory(forGameID: freedoom1.id)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let real = dir.appendingPathComponent("woofsav03.dsg")
@@ -462,7 +462,7 @@ final class LibraryServiceTests: XCTestCase {
     func testSeedContinueSaveDoesNothingWhenNothingWasPlayed() throws {
         try service.seedBundledContentIfNeeded()
         let freedoom1 = try XCTUnwrap(try service.allWADs().first { $0.filename == "freedoom1.wad" })
-        let dir = LibraryService.savesDirectory(forLoadoutID: freedoom1.id)
+        let dir = LibraryService.savesDirectory(forGameID: freedoom1.id)
         defer { try? FileManager.default.removeItem(at: dir) }
 
         try service.seedContinueSaveForCapture()

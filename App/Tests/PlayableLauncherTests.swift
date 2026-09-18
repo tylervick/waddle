@@ -25,7 +25,7 @@ final class PlayableLauncherTests: XCTestCase {
         XCTAssertEqual(Array(plan.arguments.prefix(3)), ["woof", "-iwad", service.fileURL(for: iwad).path])
         XCTAssertFalse(plan.arguments.contains("-file"))
         // saves dir is keyed by the base game's own WADFile.id
-        XCTAssertTrue(plan.arguments.contains(LibraryService.savesDirectory(forLoadoutID: iwad.id).path))
+        XCTAssertTrue(plan.arguments.contains(LibraryService.savesDirectory(forGameID: iwad.id).path))
         XCTAssertEqual(plan.scheme, .modern)
         XCTAssertEqual(try service.wad(id: iwad.id)?.lastPlayed, when)
     }
@@ -39,7 +39,7 @@ final class PlayableLauncherTests: XCTestCase {
         let plan = try PlayableLauncher.prepare(.preset(preset), library: service, at: when)
         XCTAssertEqual(plan.arguments[1], "-iwad")
         XCTAssertTrue(plan.arguments.contains("-file"))
-        XCTAssertTrue(plan.arguments.contains(LibraryService.savesDirectory(forLoadoutID: preset.id).path))
+        XCTAssertTrue(plan.arguments.contains(LibraryService.savesDirectory(forGameID: preset.id).path))
         XCTAssertEqual(try service.allLoadouts().first(where: { $0.id == preset.id })?.lastPlayed, when)
     }
 
@@ -49,7 +49,7 @@ final class PlayableLauncherTests: XCTestCase {
     /// modification dates, and arranges for the directory to be removed again --
     /// it lives under the app's Documents directory, shared by every test.
     private func writeSaves(_ files: [(String, TimeInterval)], forKey key: UUID) throws {
-        let dir = LibraryService.savesDirectory(forLoadoutID: key)
+        let dir = LibraryService.savesDirectory(forGameID: key)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
         for (name, epoch) in files {
@@ -82,7 +82,7 @@ final class PlayableLauncherTests: XCTestCase {
     func testContinueWithNoSavesIsIdenticalToANewGame() throws {
         let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i", kind: WADKind.iwad.rawValue, family: "doom2")
         addTeardownBlock {
-            try? FileManager.default.removeItem(at: LibraryService.savesDirectory(forLoadoutID: iwad.id))
+            try? FileManager.default.removeItem(at: LibraryService.savesDirectory(forGameID: iwad.id))
         }
         let continueArgs = try PlayableLauncher.prepare(.baseGame(iwad), library: service,
                                                        mode: .continueNewest).arguments

@@ -18,8 +18,8 @@ enum PlayableItem: Identifiable {
 
     /// The saves-directory key for this item: a base game keys its saves off
     /// the IWAD's own id, a preset off the `Loadout`'s id. Matches the `saveID`
-    /// `LoadoutArguments.build` hands to
-    /// `LibraryService.savesDirectory(forLoadoutID:)`, so a launch and a saves
+    /// `LaunchArguments.build` hands to
+    /// `LibraryService.savesDirectory(forGameID:)`, so a launch and a saves
     /// listing always agree on which directory belongs to this item.
     var savesKey: UUID {
         switch self {

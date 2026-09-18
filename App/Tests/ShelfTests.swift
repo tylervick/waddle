@@ -362,7 +362,7 @@ final class ShelfTests: XCTestCase {
     /// directory to be removed again — it lives under the app's Documents
     /// directory, shared by every test.
     private func writeSaves(_ files: [(String, TimeInterval)], forKey key: UUID) throws {
-        let dir = LibraryService.savesDirectory(forLoadoutID: key)
+        let dir = LibraryService.savesDirectory(forGameID: key)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
         for (name, epoch) in files {
