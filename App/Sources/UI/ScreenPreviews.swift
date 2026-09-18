@@ -1,9 +1,9 @@
 #if DEBUG
 import SwiftUI
 
-/// Canvas fixtures for the three screens `ShelfPreviews` does not cover — the
-/// detail page, the preset editor and Control Feel — at the default text size
-/// and at `.accessibility3` (issue #216).
+/// Canvas fixtures for the two screens `ShelfPreviews` does not cover — the
+/// game page and Control Feel — at the default text size and at
+/// `.accessibility3` (issue #216).
 ///
 /// `.accessibility3` rather than the largest size for the same reason the
 /// shelf previews use it: it is the first size past `isAccessibilitySize`, so
@@ -35,11 +35,11 @@ private struct DetailPreviewHost: View {
     var body: some View {
         if let fixture = ScreenPreviewFixture.firstBaseGame() {
             NavigationStack {
-                PlayableDetailView(game: fixture.game,
-                                   library: fixture.library,
-                                   onPlay: { _, _ in },
-                                   onEdit: { _ in },
-                                   onChanged: {})
+                GamePageView(game: fixture.game,
+                             library: fixture.library,
+                             onPlay: { _, _ in },
+                             onChanged: {},
+                             onClose: {})
             }
             .preferredColorScheme(.dark)
         } else {
@@ -48,47 +48,25 @@ private struct DetailPreviewHost: View {
     }
 }
 
-private struct EditorPreviewHost: View {
-    var body: some View {
-        NavigationStack {
-            LoadoutEditorView(library: ShelfPreviewFixture.factory().library,
-                              existing: nil,
-                              seedIWAD: nil)
-        }
-        .preferredColorScheme(.dark)
-    }
-}
-
-// MARK: - Detail page
+// MARK: - Game page
 //
 // The one screen here with arithmetic behind it: the header art is capped
 // against the viewport so the controls below it stay reachable, and the
 // caption it is capped against grows with Dynamic Type.
 
-#Preview("Detail page") {
+#Preview("Game page") {
     DetailPreviewHost()
 }
 
-#Preview("Detail page, accessibility3") {
+#Preview("Game page, accessibility3") {
     DetailPreviewHost()
         .dynamicTypeSize(.accessibility3)
 }
 
 /// Short viewport plus large text — where the art cap actually binds, the same
 /// pairing that matters on the shelf.
-#Preview("Detail page, landscape, accessibility3", traits: .landscapeLeft) {
+#Preview("Game page, landscape, accessibility3", traits: .landscapeLeft) {
     DetailPreviewHost()
-        .dynamicTypeSize(.accessibility3)
-}
-
-// MARK: - Preset editor
-
-#Preview("Preset editor") {
-    EditorPreviewHost()
-}
-
-#Preview("Preset editor, accessibility3") {
-    EditorPreviewHost()
         .dynamicTypeSize(.accessibility3)
 }
 
