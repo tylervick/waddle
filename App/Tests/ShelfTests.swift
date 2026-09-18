@@ -4,7 +4,7 @@ import XCTest
 
 /// Covers the shelf's composition rules (spec §§2, 7): what the grid contains
 /// and in what order, when the Continue hero appears, and what a tap resolves
-/// to. `ShelfView` reads `LibraryService.shelfItems()` and then calls nothing
+/// to. `ShelfView` reads `LibraryService.shelfGames()` and then calls nothing
 /// but `Shelf.ordered` / `Shelf.hero` / `Shelf.tapAction`, so these are the
 /// screen's decisions rather than a helper it could bypass.
 @MainActor
@@ -14,7 +14,7 @@ final class ShelfTests: XCTestCase {
 
     override func setUp() async throws {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: WADFile.self, Loadout.self, configurations: config)
+        let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self, configurations: config)
         tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -39,12 +39,12 @@ final class ShelfTests: XCTestCase {
         // `zulu` is played most recently and must lead, `mid` follows, and only
         // the never-played `alpha` sorts by name — last, despite being first
         // alphabetically overall.
-        try service.markPlayed(mid, at: Date(timeIntervalSince1970: 100))
-        try service.markPlayed(zulu, at: Date(timeIntervalSince1970: 200))
+        try service.markPlayed(try game(mid), at: Date(timeIntervalSince1970: 100))
+        try service.markPlayed(try game(zulu), at: Date(timeIntervalSince1970: 200))
 
-        let ordered = Shelf.ordered(try service.shelfItems())
+        let ordered = Shelf.ordered(try service.shelfGames())
 
-        XCTAssertEqual(ordered.map(\.title), [zulu.displayName, mid.displayName, alpha.displayName])
+        XCTAssertEqual(ordered.map(\.name), [zulu.displayName, mid.displayName, alpha.displayName])
     }
 
     func testShelfOrdersNeverPlayedItemsCaseInsensitivelyByTitle() throws {
@@ -53,7 +53,7 @@ final class ShelfTests: XCTestCase {
         _ = try service.registerImported(filename: "apple.wad", sha1: "a",
                                          kind: WADKind.iwad.rawValue, family: "doom")
 
-        let titles = Shelf.ordered(try service.shelfItems()).map(\.title)
+        let titles = Shelf.ordered(try service.shelfGames()).map(\.name)
 
         // `registerImported` titles an unrecognized WAD by its extension-less
         // filename. These two discriminate: a plain `<` on Strings compares
@@ -65,16 +65,14 @@ final class ShelfTests: XCTestCase {
     func testShelfMixesBaseGamesAndPresetsInOneOrdering() throws {
         let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i",
                                                 kind: WADKind.iwad.rawValue, family: "doom2")
-        let preset = try service.createLoadout(name: "Sunlust", iwadID: iwad.id,
-                                               pwadIDs: [], dehIDs: [])
-        preset.lastPlayed = Date(timeIntervalSince1970: 500)
-        try service.saveChanges()
+        let preset = try service.createGame(name: "Sunlust", baseID: iwad.id, fileIDs: [])
+        try service.markPlayed(preset, at: Date(timeIntervalSince1970: 500))
 
-        let ordered = Shelf.ordered(try service.shelfItems())
+        let ordered = Shelf.ordered(try service.shelfGames())
 
         // The played preset outranks the never-played base game: kind plays no
         // part in the ordering, which is the point of the unified grid.
-        XCTAssertEqual(ordered.map(\.id), ["loadout-\(preset.id)", "wad-\(iwad.id)"])
+        XCTAssertEqual(ordered.map(\.id), [preset.id, iwad.id])
     }
 
     // MARK: - Hidden items
@@ -85,28 +83,27 @@ final class ShelfTests: XCTestCase {
         let removed = try service.registerImported(filename: "removed.wad", sha1: "r",
                                                    kind: WADKind.iwad.rawValue, family: "doom")
 
-        try service.hide(.baseGame(removed))
+        try service.hide(try game(removed))
 
-        let ids = Shelf.ordered(try service.shelfItems()).map(\.id)
-        XCTAssertEqual(ids, ["wad-\(kept.id)"])
-        XCTAssertEqual(try service.hiddenItems().map(\.id), ["wad-\(removed.id)"])
+        let ids = Shelf.ordered(try service.shelfGames()).map(\.id)
+        XCTAssertEqual(ids, [kept.id])
+        XCTAssertEqual(try service.hiddenGames().map(\.id), [removed.id])
 
         // Restore puts it back on the shelf — the round trip Manage's Hidden
         // from Shelf list drives.
-        try service.restore(.baseGame(removed))
-        XCTAssertEqual(Set(Shelf.ordered(try service.shelfItems()).map(\.id)),
-                       ["wad-\(kept.id)", "wad-\(removed.id)"])
+        try service.restore(try game(removed))
+        XCTAssertEqual(Set(Shelf.ordered(try service.shelfGames()).map(\.id)),
+                       [kept.id, removed.id])
     }
 
     func testHiddenPresetIsAbsentFromTheShelf() throws {
         let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i",
                                                 kind: WADKind.iwad.rawValue, family: "doom2")
-        let preset = try service.createLoadout(name: "Hidden", iwadID: iwad.id,
-                                               pwadIDs: [], dehIDs: [])
+        let preset = try service.createGame(name: "Hidden", baseID: iwad.id, fileIDs: [])
 
-        try service.hide(.preset(preset))
+        try service.hide(preset)
 
-        XCTAssertEqual(try service.shelfItems().map(\.id), ["wad-\(iwad.id)"])
+        XCTAssertEqual(try service.shelfGames().map(\.id), [iwad.id])
     }
 
     // MARK: - Continue hero
@@ -116,12 +113,12 @@ final class ShelfTests: XCTestCase {
                                                  kind: WADKind.iwad.rawValue, family: "doom")
         let newest = try service.registerImported(filename: "newest.wad", sha1: "n",
                                                   kind: WADKind.iwad.rawValue, family: "doom")
-        try service.markPlayed(older, at: Date(timeIntervalSince1970: 100))
-        try service.markPlayed(newest, at: Date(timeIntervalSince1970: 200))
+        try service.markPlayed(try game(older), at: Date(timeIntervalSince1970: 100))
+        try service.markPlayed(try game(newest), at: Date(timeIntervalSince1970: 200))
 
-        let hero = Shelf.hero(from: try service.shelfItems()) { $0.id == "wad-\(newest.id)" }
+        let hero = Shelf.hero(from: try service.shelfGames()) { $0.id == newest.id }
 
-        XCTAssertEqual(hero?.id, "wad-\(newest.id)")
+        XCTAssertEqual(hero?.id, newest.id)
     }
 
     func testHeroIsEmptyWhenNothingHasBeenPlayed() throws {
@@ -130,7 +127,7 @@ final class ShelfTests: XCTestCase {
 
         // Even with a resumable save present, a never-played item is not a
         // "last played" item and gets no hero.
-        XCTAssertNil(Shelf.hero(from: try service.shelfItems()) { _ in true })
+        XCTAssertNil(Shelf.hero(from: try service.shelfGames()) { _ in true })
     }
 
     func testHeroIsEmptyWhenTheLastPlayedItemHasNoSave() throws {
@@ -138,36 +135,36 @@ final class ShelfTests: XCTestCase {
                                                  kind: WADKind.iwad.rawValue, family: "doom")
         let newest = try service.registerImported(filename: "newest.wad", sha1: "n",
                                                   kind: WADKind.iwad.rawValue, family: "doom")
-        try service.markPlayed(older, at: Date(timeIntervalSince1970: 100))
-        try service.markPlayed(newest, at: Date(timeIntervalSince1970: 200))
+        try service.markPlayed(try game(older), at: Date(timeIntervalSince1970: 100))
+        try service.markPlayed(try game(newest), at: Date(timeIntervalSince1970: 200))
 
         // `older` has a save and `newest` does not. The hero is *the* last
         // played item or nothing — silently resuming a different game than the
         // one you last played would be worse than an empty zone.
-        XCTAssertNil(Shelf.hero(from: try service.shelfItems()) { $0.id == "wad-\(older.id)" })
+        XCTAssertNil(Shelf.hero(from: try service.shelfGames()) { $0.id == older.id })
     }
 
     /// The hero's save predicate in the app is
-    /// `PlayableLauncher.continuableSlot(for:library:) != nil`, so the offer and
+    /// `GameLauncher.continuableSlot(for:library:) != nil`, so the offer and
     /// the launch cannot disagree. This pins that composition against real save
     /// files rather than a stub closure.
     func testHeroUsesTheSameResumableSaveAnswerAsTheLauncher() throws {
         let wad = try service.registerImported(filename: "doom2.wad", sha1: "i",
                                                kind: WADKind.iwad.rawValue, family: "doom2")
-        try service.markPlayed(wad, at: Date(timeIntervalSince1970: 300))
-        let hasResumableSave = { (item: PlayableItem) -> Bool in
-            PlayableLauncher.continuableSlot(for: item, library: self.service) != nil
+        try service.markPlayed(try game(wad), at: Date(timeIntervalSince1970: 300))
+        let hasResumableSave = { (game: Game) -> Bool in
+            GameLauncher.continuableSlot(for: game, library: self.service) != nil
         }
 
-        XCTAssertNil(Shelf.hero(from: try service.shelfItems(),
+        XCTAssertNil(Shelf.hero(from: try service.shelfGames(),
                                 hasResumableSave: hasResumableSave),
                      "no saves on disk yet, so no hero")
 
         try writeSaves([("woofsav3.dsg", 400)], forKey: wad.id)
 
-        XCTAssertEqual(Shelf.hero(from: try service.shelfItems(),
+        XCTAssertEqual(Shelf.hero(from: try service.shelfGames(),
                                   hasResumableSave: hasResumableSave)?.id,
-                       "wad-\(wad.id)")
+                       wad.id)
     }
 
     // MARK: - First-launch welcome card
@@ -214,20 +211,20 @@ final class ShelfTests: XCTestCase {
         try service.seedBundledContentIfNeeded()
         let freedoom = try XCTUnwrap(try service.allWADs()
             .first { $0.filename == "freedoom2.wad" })
-        try service.markPlayed(freedoom, at: Date(timeIntervalSince1970: 700))
+        try service.markPlayed(try game(freedoom), at: Date(timeIntervalSince1970: 700))
         try writeSaves([("woofsav3.dsg", 800)], forKey: freedoom.id)
 
-        XCTAssertEqual(try zone(), .resume(.baseGame(freedoom)))
+        XCTAssertEqual(try zone(), .resume(try XCTUnwrap(try service.game(id: freedoom.id))))
     }
 
-    /// A mod is never a shelf item, so a rule written over `shelfItems()` would
+    /// A mod is never a shelf item, so a rule written over `shelfGames()` would
     /// keep greeting someone who has already brought their own files in.
     func testAnImportedModEndsFactoryStateThoughItNeverReachesTheShelf() throws {
         try service.seedBundledContentIfNeeded()
         _ = try service.registerImported(filename: "sunlust.wad", sha1: "s",
                                          kind: WADKind.pwad.rawValue, family: "doom2")
 
-        XCTAssertFalse(try service.shelfItems().contains { $0.title == "sunlust" },
+        XCTAssertFalse(try service.shelfGames().contains { $0.name == "sunlust" },
                        "a PWAD is not directly playable and never reaches the shelf")
         XCTAssertFalse(try service.isFactoryState())
         XCTAssertEqual(try zone(), .empty)
@@ -243,16 +240,16 @@ final class ShelfTests: XCTestCase {
                                                  kind: WADKind.iwad.rawValue, family: "doom")
         let played = try service.registerImported(filename: "played.wad", sha1: "p",
                                                   kind: WADKind.iwad.rawValue, family: "doom")
-        try service.markPlayed(played, at: Date(timeIntervalSince1970: 100))
+        try service.markPlayed(try game(played), at: Date(timeIntervalSince1970: 100))
 
-        let items = try service.shelfItems()
+        let items = try service.shelfGames()
         let zone = Shelf.heroZone(from: items, isFactoryState: false) {
-            $0.id == "wad-\(played.id)"
+            $0.id == played.id
         }
         let grid = Shelf.gridItems(from: items, heroZone: zone)
 
-        XCTAssertEqual(zone, .resume(items.first { $0.id == "wad-\(played.id)" }!))
-        XCTAssertEqual(grid.map(\.id), ["wad-\(other.id)"])
+        XCTAssertEqual(zone, .resume(items.first { $0.id == played.id }!))
+        XCTAssertEqual(grid.map(\.id), [other.id])
     }
 
     /// Without a hero, the grid is the whole shelf in shelf order — the
@@ -263,7 +260,7 @@ final class ShelfTests: XCTestCase {
         _ = try service.registerImported(filename: "alpha.wad", sha1: "a",
                                          kind: WADKind.iwad.rawValue, family: "doom")
 
-        let items = try service.shelfItems()
+        let items = try service.shelfGames()
         for zone in [Shelf.HeroZone.welcome, .empty] {
             XCTAssertEqual(Shelf.gridItems(from: items, heroZone: zone).map(\.id),
                            Shelf.ordered(items).map(\.id))
@@ -278,17 +275,17 @@ final class ShelfTests: XCTestCase {
                                                  kind: WADKind.iwad.rawValue, family: "doom")
         let hero = try service.registerImported(filename: "hero.wad", sha1: "h",
                                                 kind: WADKind.iwad.rawValue, family: "doom")
-        try service.markPlayed(zulu, at: Date(timeIntervalSince1970: 100))
-        try service.markPlayed(hero, at: Date(timeIntervalSince1970: 200))
+        try service.markPlayed(try game(zulu), at: Date(timeIntervalSince1970: 100))
+        try service.markPlayed(try game(hero), at: Date(timeIntervalSince1970: 200))
 
-        let items = try service.shelfItems()
+        let items = try service.shelfGames()
         let zone = Shelf.heroZone(from: items, isFactoryState: false) {
-            $0.id == "wad-\(hero.id)"
+            $0.id == hero.id
         }
 
         // Played-then-alphabetical, minus the hero: zulu leads, alpha follows.
         XCTAssertEqual(Shelf.gridItems(from: items, heroZone: zone).map(\.id),
-                       ["wad-\(zulu.id)", "wad-\(alpha.id)"])
+                       [zulu.id, alpha.id])
     }
 
     // MARK: - Add-games hint tile
@@ -312,8 +309,8 @@ final class ShelfTests: XCTestCase {
                                                kind: WADKind.iwad.rawValue, family: "doom2")
         try writeSaves([("woofsav3.dsg", 400)], forKey: wad.id)
 
-        let action = Shelf.tapAction(for: .baseGame(wad)) {
-            PlayableLauncher.continuableSlot(for: $0, library: self.service) != nil
+        let action = Shelf.tapAction(for: try game(wad)) {
+            GameLauncher.continuableSlot(for: $0, library: self.service) != nil
         }
 
         XCTAssertEqual(action, .actionSheet)
@@ -323,8 +320,8 @@ final class ShelfTests: XCTestCase {
         let wad = try service.registerImported(filename: "doom2.wad", sha1: "i",
                                                kind: WADKind.iwad.rawValue, family: "doom2")
 
-        let action = Shelf.tapAction(for: .baseGame(wad)) {
-            PlayableLauncher.continuableSlot(for: $0, library: self.service) != nil
+        let action = Shelf.tapAction(for: try game(wad)) {
+            GameLauncher.continuableSlot(for: $0, library: self.service) != nil
         }
 
         XCTAssertEqual(action, .launchNewGame)
@@ -337,8 +334,8 @@ final class ShelfTests: XCTestCase {
         // sheet would offer a Continue that could not run.
         try writeSaves([("notes.txt", 400)], forKey: wad.id)
 
-        let action = Shelf.tapAction(for: .baseGame(wad)) {
-            PlayableLauncher.continuableSlot(for: $0, library: self.service) != nil
+        let action = Shelf.tapAction(for: try game(wad)) {
+            GameLauncher.continuableSlot(for: $0, library: self.service) != nil
         }
 
         XCTAssertEqual(action, .launchNewGame)
@@ -346,15 +343,22 @@ final class ShelfTests: XCTestCase {
 
     // MARK: - Helpers
 
+    /// The `Game` behind a registered IWAD -- most tests here still register
+    /// a `WADFile` (the fixture shape every test already used) and need the
+    /// `Game` `registerImported` makes for it to call the `Game`-based API.
+    private func game(_ wad: WADFile) throws -> Game {
+        try XCTUnwrap(try service.game(id: wad.id))
+    }
+
     /// The hero zone exactly as `ShelfView.refresh()` resolves it: the same
     /// three service answers, in the same composition. Going through this
     /// rather than passing literals means the welcome-card cases above are
     /// tests of the screen's behaviour against a real store, not of a rule
     /// handed its own conclusion.
     private func zone() throws -> Shelf.HeroZone {
-        Shelf.heroZone(from: try service.shelfItems(),
+        Shelf.heroZone(from: try service.shelfGames(),
                        isFactoryState: try service.isFactoryState()) {
-            PlayableLauncher.continuableSlot(for: $0, library: self.service) != nil
+            GameLauncher.continuableSlot(for: $0, library: self.service) != nil
         }
     }
 
@@ -362,7 +366,7 @@ final class ShelfTests: XCTestCase {
     /// directory to be removed again — it lives under the app's Documents
     /// directory, shared by every test.
     private func writeSaves(_ files: [(String, TimeInterval)], forKey key: UUID) throws {
-        let dir = LibraryService.savesDirectory(forLoadoutID: key)
+        let dir = LibraryService.savesDirectory(forGameID: key)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
         for (name, epoch) in files {

@@ -13,17 +13,17 @@ struct LibraryView: View {
     /// Launching from a Details page opened here goes back through the shelf's
     /// own launcher, so a session started from Manage still reports its exit
     /// code where every other session does.
-    let onPlay: (PlayableItem, LaunchMode) -> Void
+    let onPlay: (Game, LaunchMode) -> Void
 
     @Environment(\.openURL) private var openURL
     @State private var groups: [LibraryGroup] = []
-    @State private var presets: [Loadout] = []
-    @State private var hidden: [PlayableItem] = []
+    @State private var games: [Game] = []
+    @State private var hidden: [Game] = []
     @State private var showImporter = false
     @State private var showCreationFlow = false
-    @State private var editorLoadout: Loadout?
-    @State private var detailItem: PlayableItem?
-    @State private var pendingEditLoadout: Loadout?
+    @State private var editorGame: Game?
+    @State private var detailItem: Game?
+    @State private var pendingEditGame: Game?
     @State private var lastOutcome: ImportOutcome?
     @State private var deleteBlocked: [BlockedFile] = []
 
@@ -84,8 +84,8 @@ struct LibraryView: View {
         var blocked = existing
         for wad in wads {
             do {
-                try library.deleteWAD(wad, force: false)
-            } catch LibraryError.wadReferencedByLoadouts(let names) {
+                try library.deleteWAD(wad)
+            } catch LibraryError.wadInUse(let names) {
                 blocked = blockedFiles(blocked, adding: names, for: wad.filename)
             } catch {}
         }
@@ -151,23 +151,23 @@ struct LibraryView: View {
         .sheet(isPresented: $showCreationFlow, onDismiss: refresh) {
             PresetCreationFlow(library: library)
         }
-        .sheet(item: $editorLoadout, onDismiss: refresh) { loadout in
-            LoadoutEditorView(library: library, existing: loadout)
+        .sheet(item: $editorGame, onDismiss: refresh) { game in
+            LoadoutEditorView(library: library, existing: game)
         }
         .sheet(item: $detailItem, onDismiss: {
             // Promote the pending edit only once the detail sheet is fully
             // gone — presenting the editor in the same synchronous pass as
             // the dismiss is the transaction race cfaed69 fixed on the
             // create path, and `ShelfView` avoids the same way.
-            if let loadout = pendingEditLoadout {
-                pendingEditLoadout = nil
-                editorLoadout = loadout
+            if let game = pendingEditGame {
+                pendingEditGame = nil
+                editorGame = game
             }
             refresh()
         }) { item in
-            PlayableDetailView(item: item, library: library,
+            PlayableDetailView(game: item, library: library,
                                onPlay: { onPlay($0, $1) },
-                               onEdit: { pendingEditLoadout = $0 },
+                               onEdit: { pendingEditGame = $0 },
                                onChanged: refresh)
         }
         .wadFileImporter(isPresented: $showImporter, importer: importer) { outcome in
@@ -194,14 +194,14 @@ struct LibraryView: View {
     /// that page's own Edit button rather than a second route to the editor.
     @ViewBuilder
     private var presetsSection: some View {
-        if !presets.isEmpty {
+        if !games.isEmpty {
             Section("Presets") {
-                ForEach(presets, id: \.id) { loadout in
+                ForEach(games, id: \.id) { game in
                     Button {
-                        detailItem = .preset(loadout)
+                        detailItem = game
                     } label: {
                         HStack {
-                            Text(loadout.name)
+                            Text(game.name)
                             Spacer()
                             Image(systemName: "chevron.right")
                                 .font(.caption).foregroundStyle(.tertiary)
@@ -212,7 +212,7 @@ struct LibraryView: View {
                     // that identifier and stay in the hierarchy behind this
                     // push, so reusing it here would make every UI-test lookup
                     // of a tile ambiguous.
-                    .accessibilityIdentifier("managePreset-\(loadout.name)")
+                    .accessibilityIdentifier("managePreset-\(game.name)")
                 }
             }
         }
@@ -226,18 +226,18 @@ struct LibraryView: View {
     private var hiddenSection: some View {
         if !hidden.isEmpty {
             Section("Hidden from Shelf") {
-                ForEach(hidden) { item in
+                ForEach(hidden, id: \.id) { game in
                     HStack {
-                        Text(item.title)
+                        Text(game.name)
                         Spacer()
                         Button("Restore") {
-                            try? library.restore(item)
+                            try? library.restore(game)
                             refresh()
                         }
                         .buttonStyle(.borderless)
-                        .accessibilityIdentifier("restore-\(item.id)")
+                        .accessibilityIdentifier("restore-\(game.id)")
                     }
-                    .accessibilityIdentifier("hiddenRow-\(item.id)")
+                    .accessibilityIdentifier("hiddenRow-\(game.id)")
                 }
             }
         }
@@ -313,7 +313,7 @@ struct LibraryView: View {
 
     private func refresh() {
         groups = (try? library.libraryGroups()) ?? []
-        presets = (try? library.presets()) ?? []
-        hidden = (try? library.hiddenItems()) ?? []
+        games = ((try? library.games()) ?? []).filter { !$0.isBaseGame && !$0.isHidden }
+        hidden = (try? library.hiddenGames()) ?? []
     }
 }

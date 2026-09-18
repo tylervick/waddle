@@ -14,7 +14,7 @@ final class TileAppearanceTests: XCTestCase {
 
     override func setUp() async throws {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: WADFile.self, Loadout.self, configurations: config)
+        let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self, configurations: config)
         tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -66,19 +66,20 @@ final class TileAppearanceTests: XCTestCase {
         XCTAssertEqual(label, "Freedoom Phase 1")
     }
 
-    func testTileLabelReadsThroughAPlayableItem() throws {
-        // The shelf labels tiles from a `PlayableItem`, so the convenience
-        // overload it actually calls gets its own check rather than being
-        // trusted to match the primitive one. The expected title comes from the
-        // registered row rather than a literal: what is under test is that the
-        // item's own title and play date reach the label, not how the catalog
-        // chose to name this WAD.
+    func testTileLabelReadsThroughAGame() throws {
+        // The shelf labels tiles from a `Game`, so the convenience overload it
+        // actually calls gets its own check rather than being trusted to match
+        // the primitive one. The expected title comes from the registered row
+        // rather than a literal: what is under test is that the game's own
+        // name and play date reach the label, not how the catalog chose to
+        // name this WAD.
         let wad = try service.registerImported(filename: "doom2.wad", sha1: "d2",
                                                kind: WADKind.iwad.rawValue, family: "doom2")
         let now = Date(timeIntervalSince1970: 1_700_000_000)
-        try service.markPlayed(wad, at: now.addingTimeInterval(-86_400))
+        let game = try XCTUnwrap(try service.game(id: wad.id))
+        try service.markPlayed(game, at: now.addingTimeInterval(-86_400))
 
-        let label = TileAccessibility.label(for: .baseGame(wad),
+        let label = TileAccessibility.label(for: game,
                                             now: now,
                                             locale: Locale(identifier: "en_US"))
 

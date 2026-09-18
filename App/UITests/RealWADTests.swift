@@ -204,7 +204,7 @@ final class RealWADTests: XCTestCase {
     /// (Engine/woof/src/d_main.c CheckIWAD/IdentifyVersion, r_data.c
     /// R_InitTextures) and empirically on-device that this does NOT fail:
     /// Woof never auto-warps into a level without an explicit -warp flag
-    /// (which this app's LoadoutArguments never passes), so a mismatched
+    /// (which this app's LaunchArguments never passes), so a mismatched
     /// session just idles on the title screen for its whole autoquit
     /// window and exits 0. Missing/mismatched texture patches are also
     /// handled non-fatally (a dummy patch is substituted), and DEHACKED's

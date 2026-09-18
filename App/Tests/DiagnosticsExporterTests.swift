@@ -128,7 +128,7 @@ final class DiagnosticsLibraryLinesTests: XCTestCase {
     // LibraryService's @MainActor init.
     override func setUp() async throws {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: WADFile.self, Loadout.self, configurations: config)
+        let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self, configurations: config)
         context = ModelContext(container)
         tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -140,14 +140,13 @@ final class DiagnosticsLibraryLinesTests: XCTestCase {
         try? FileManager.default.removeItem(at: tmp)
     }
 
-    func testLibraryLinesNameWADsAndLoadoutsOnly() throws {
+    func testLibraryLinesNameWADsAndGamesOnly() throws {
         let wad = try service.registerImported(filename: "gothic.wad", sha1: "abc123",
                                      kind: "pwad", family: GameFamily.doom2.rawValue)
-        try service.createLoadout(name: "Gothic Run", iwadID: wad.id,
-                                  pwadIDs: [wad.id], dehIDs: [])
+        _ = try service.createGame(name: "Gothic Run", baseID: nil, fileIDs: [wad.id])
         let lines = DiagnosticsExporter.libraryLines(from: service)
         XCTAssertTrue(lines.contains { $0.contains("gothic.wad") })
-        XCTAssertTrue(lines.contains { $0.contains("loadout: Gothic Run") })
+        XCTAssertTrue(lines.contains { $0.contains("game: Gothic Run") })
         XCTAssertFalse(lines.joined().contains("abc123"),
             "hashes and paths stay out; names only")
     }

@@ -11,7 +11,7 @@ final class ImportServiceTests: XCTestCase {
 
     override func setUpWithError() throws {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: WADFile.self, Loadout.self, configurations: config)
+        let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self, configurations: config)
         tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -36,7 +36,7 @@ final class ImportServiceTests: XCTestCase {
     /// under `tmp`, so tearDown removes it with everything else.
     private func freshStack() throws -> (LibraryService, ImportService) {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: WADFile.self, Loadout.self, configurations: config)
+        let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self, configurations: config)
         let store = WADStore(directory: tmp.appendingPathComponent(UUID().uuidString,
                                                                    isDirectory: true))
         let library = LibraryService(context: ModelContext(container), store: store)
@@ -471,6 +471,31 @@ final class ImportServiceTests: XCTestCase {
         XCTAssertEqual(filesInStore.count, 1)
     }
 
+    /// A map PWAD whose row has `hasMaps == false` (e.g. it predates the field,
+    /// or was migrated while its file was missing) must not stay classified
+    /// `.addOn` forever: repairing it re-parses the restored bytes, so
+    /// `hasMaps` must be recorded alongside the filename, not just the
+    /// filename alone.
+    func testRepairingAMissingPWADRecordsItsMaps() throws {
+        let data = makeWAD(magic: "PWAD", lumps: ["MAP01", "THINGS"])
+        let first = importer.importFiles(at: [try write("a.wad", data)])
+        XCTAssertEqual(first.imported, ["a"])
+        let wad = try XCTUnwrap(library.allWADs().first)
+        wad.hasMaps = false   // the row predates hasMaps / was migrated while the file was missing
+        try library.saveChanges()
+        try FileManager.default.removeItem(at: library.fileURL(for: wad))
+
+        // Re-import the same bytes (keeping the SHA-1 the row already holds)
+        // under a new name, so this hits the "row exists but its file
+        // vanished" repair branch rather than a fresh import.
+        let second = importer.importFiles(at: [try write("b.wad", data)])
+
+        XCTAssertEqual(second.imported, ["b"])
+        let repaired = try XCTUnwrap(try library.wad(id: wad.id))
+        XCTAssertTrue(repaired.hasMaps)
+        XCTAssertEqual(repaired.role, .mapSet)
+    }
+
     // MARK: mapped reads
 
     /// A WAD whose directory sits *after* real lump data, so parsing has to
@@ -573,5 +598,42 @@ final class ImportServiceTests: XCTestCase {
                       "adoptLooseFiles did not import the loose WAD: \(outcome)")
         let wad = try XCTUnwrap(try library.allWADs().first { $0.sha1 == expected })
         XCTAssertEqual(wad.kindRaw, WADKind.pwad.rawValue)
+    }
+
+    /// A PWAD with map lumps registers as a map set; one with only graphics
+    /// lumps registers as an add-on (spec §2.1) -- `WADFile.role` reads this
+    /// straight off `hasMaps`, so the import path has to set it.
+    func testImportRecordsWhetherAPWADCarriesMaps() throws {
+        let maps = try write("maps.wad", makeWAD(magic: "PWAD", lumps: ["MAP01", "THINGS"]))
+        let gfx = try write("gfx.wad", makeWAD(magic: "PWAD", lumps: ["TITLEPIC"]))
+
+        _ = importer.importFiles(at: [maps, gfx])
+
+        XCTAssertEqual(try library.allWADs().first { $0.filename.hasPrefix("maps") }?.role, .mapSet)
+        XCTAssertEqual(try library.allWADs().first { $0.filename.hasPrefix("gfx") }?.role, .addOn)
+    }
+
+    /// Same property as `testImportRecordsWhetherAPWADCarriesMaps`, through the
+    /// async `adoptLooseFiles` path (the detached-task branch that scans the
+    /// Files-app drop zone) rather than the synchronous `importFiles`.
+    func testAdoptLooseFilesRecordsWhetherAPWADCarriesMaps() async throws {
+        let docs = URL.documentsDirectory
+        let mapsName = "maps-\(UUID().uuidString).wad"
+        let gfxName = "gfx-\(UUID().uuidString).wad"
+        let mapsURL = docs.appendingPathComponent(mapsName)
+        let gfxURL = docs.appendingPathComponent(gfxName)
+        try makeWAD(magic: "PWAD", lumps: ["MAP01", "THINGS"]).write(to: mapsURL)
+        try makeWAD(magic: "PWAD", lumps: ["TITLEPIC"]).write(to: gfxURL)
+        defer {
+            try? FileManager.default.removeItem(at: mapsURL)
+            try? FileManager.default.removeItem(at: gfxURL)
+        }
+
+        let outcome = await importer.adoptLooseFiles()
+
+        XCTAssertTrue(outcome.imported.contains((mapsName as NSString).deletingPathExtension))
+        XCTAssertTrue(outcome.imported.contains((gfxName as NSString).deletingPathExtension))
+        XCTAssertEqual(try library.allWADs().first { $0.filename == mapsName }?.role, .mapSet)
+        XCTAssertEqual(try library.allWADs().first { $0.filename == gfxName }?.role, .addOn)
     }
 }

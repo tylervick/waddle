@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Async-loads a `PlayableItem`'s TITLEPIC art (via `WADArtwork`) and fills the
+/// Async-loads a `Game`'s TITLEPIC art (via `WADArtwork`) and fills the
 /// requested shape with it, falling back to spec §5's flat dark tile when
 /// nothing decodes.
 ///
@@ -14,7 +14,7 @@ import SwiftUI
 /// Whether art is drawn at all goes through `TileAppearance.resolve`, which is
 /// where that rule is tested — the view has no second opinion about it.
 struct TitleArtView: View {
-    let item: PlayableItem
+    let game: Game
     let library: LibraryService
     /// Width-to-height ratio of the shape the art fills: 4:3 on tiles, the
     /// art's own ~1.6:1 on the full-width hero (`Theme`).
@@ -59,15 +59,15 @@ struct TitleArtView: View {
             // the art aspect-corrected rather than filling with it; see
             // `PlayableTileLayout`.
             .clipped()
-        .task(id: item.id) {
+        .task(id: game.id) {
             // Recycled tiles reuse this view for a new item; drop the previous
             // item's art immediately so it never lingers (or stays forever when
             // the new item has no candidates) -- fall back to the flat tile
             // until the new load resolves.
             image = nil
-            guard let (urls, cacheKey) = WADArtwork.candidates(for: item, library: library) else { return }
+            guard let (urls, cacheKey) = WADArtwork.candidates(for: game, library: library) else { return }
             let loaded = await WADArtwork.titleImage(candidates: urls, cacheKey: cacheKey)
-            // `.task(id:)` cancels the previous task when `item.id` changes,
+            // `.task(id:)` cancels the previous task when `game.id` changes,
             // but the detached decode inside `titleImage` isn't itself
             // cancelled -- without this guard a slow, now-stale load could
             // still win the race and briefly flash the previous item's art.

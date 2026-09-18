@@ -7,7 +7,7 @@ import Foundation
 /// screen's behaviour rather than of a helper the screen might bypass.
 ///
 /// "Has a save" throughout means *resumable* save -- one the engine can boot
-/// straight into via `-loadgame`. `PlayableLauncher.continuableSlot(for:library:)`
+/// straight into via `-loadgame`. `GameLauncher.continuableSlot(for:library:)`
 /// is the single source of that answer, so the hero, the tap sheet, and the
 /// launch itself can never disagree about whether Continue is possible.
 enum Shelf {
@@ -22,18 +22,18 @@ enum Shelf {
     /// Shelf order: everything played, most recent first, then everything else
     /// alphabetically. A returning player's games collect at the front and
     /// Freedoom recedes once real games arrive (spec §2).
-    static func ordered(_ items: [PlayableItem]) -> [PlayableItem] {
-        let played: [PlayableItem] = items.filter { (item: PlayableItem) -> Bool in
-            item.lastPlayed != nil
-        }.sorted { (lhs: PlayableItem, rhs: PlayableItem) -> Bool in
+    static func ordered(_ items: [Game]) -> [Game] {
+        let played: [Game] = items.filter { (game: Game) -> Bool in
+            game.lastPlayed != nil
+        }.sorted { (lhs: Game, rhs: Game) -> Bool in
             let left: Date = lhs.lastPlayed ?? Date.distantPast
             let right: Date = rhs.lastPlayed ?? Date.distantPast
             return left > right
         }
-        let unplayed: [PlayableItem] = items.filter { (item: PlayableItem) -> Bool in
-            item.lastPlayed == nil
-        }.sorted { (lhs: PlayableItem, rhs: PlayableItem) -> Bool in
-            lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+        let unplayed: [Game] = items.filter { (game: Game) -> Bool in
+            game.lastPlayed == nil
+        }.sorted { (lhs: Game, rhs: Game) -> Bool in
+            lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
         }
         return played + unplayed
     }
@@ -44,12 +44,12 @@ enum Shelf {
     /// recently played game has no resumable save, the hero is empty even when
     /// some older game does have one -- a hero that quietly resumed a different
     /// game than the one you last played would be worse than no hero.
-    static func hero(from items: [PlayableItem],
-                     hasResumableSave: (PlayableItem) -> Bool) -> PlayableItem? {
-        let played: [PlayableItem] = items.filter { (item: PlayableItem) -> Bool in
-            item.lastPlayed != nil
+    static func hero(from items: [Game],
+                     hasResumableSave: (Game) -> Bool) -> Game? {
+        let played: [Game] = items.filter { (game: Game) -> Bool in
+            game.lastPlayed != nil
         }
-        let last: PlayableItem? = played.max { (lhs: PlayableItem, rhs: PlayableItem) -> Bool in
+        let last: Game? = played.max { (lhs: Game, rhs: Game) -> Bool in
             let left: Date = lhs.lastPlayed ?? Date.distantPast
             let right: Date = rhs.lastPlayed ?? Date.distantPast
             return left < right
@@ -65,14 +65,13 @@ enum Shelf {
         /// First launch: the welcome card (spec §4).
         case welcome
         /// The Continue hero for this item (spec §2).
-        case resume(PlayableItem)
+        case resume(Game)
         /// Nothing -- played, but nothing resumable.
         case empty
 
-        // `PlayableItem` wraps SwiftData models and is not `Equatable`; its
-        // `id` is what identifies an item everywhere else on this screen (it
-        // is the `Identifiable` conformance the grid's `ForEach` runs on), so
-        // it is what equality means here too.
+        // `Game` is a SwiftData model and is not `Equatable`; its `id` is
+        // what identifies a game everywhere else on this screen, so it is
+        // what equality means here too.
         static func == (lhs: HeroZone, rhs: HeroZone) -> Bool {
             switch (lhs, rhs) {
             case (.welcome, .welcome), (.empty, .empty): return true
@@ -91,19 +90,19 @@ enum Shelf {
     /// and the hero is nevertheless checked first on purpose: if they ever did
     /// disagree, a returning player should be handed their game back rather
     /// than greeted as a new arrival.
-    static func heroZone(from items: [PlayableItem],
+    static func heroZone(from items: [Game],
                          isFactoryState: Bool,
-                         hasResumableSave: (PlayableItem) -> Bool) -> HeroZone {
-        if let item = hero(from: items, hasResumableSave: hasResumableSave) {
-            return .resume(item)
+                         hasResumableSave: (Game) -> Bool) -> HeroZone {
+        if let game = hero(from: items, hasResumableSave: hasResumableSave) {
+            return .resume(game)
         }
         return isFactoryState ? .welcome : .empty
     }
 
     /// Tap resolution for a tile (spec §2's tile interactions).
-    static func tapAction(for item: PlayableItem,
-                          hasResumableSave: (PlayableItem) -> Bool) -> TapAction {
-        hasResumableSave(item) ? .actionSheet : .launchNewGame
+    static func tapAction(for game: Game,
+                          hasResumableSave: (Game) -> Bool) -> TapAction {
+        hasResumableSave(game) ? .actionSheet : .launchNewGame
     }
 
     /// What the grid shows under the hero zone: everything in shelf order,
@@ -114,11 +113,11 @@ enum Shelf {
     /// moves onto the hero: tap is Continue, and the hero now carries the
     /// same long-press context menu a tile has, so New Game, Details and
     /// Remove stay exactly one gesture away.
-    static func gridItems(from items: [PlayableItem], heroZone: HeroZone) -> [PlayableItem] {
+    static func gridItems(from items: [Game], heroZone: HeroZone) -> [Game] {
         let ordered = self.ordered(items)
         guard case .resume(let hero) = heroZone else { return ordered }
-        return ordered.filter { (item: PlayableItem) -> Bool in
-            item.id != hero.id
+        return ordered.filter { (game: Game) -> Bool in
+            game.id != hero.id
         }
     }
 

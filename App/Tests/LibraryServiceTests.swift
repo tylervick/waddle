@@ -19,7 +19,7 @@ final class LibraryServiceTests: XCTestCase {
     // setUp/tearDown pair per test, synchronously in effect.
     override func setUp() async throws {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: WADFile.self, Loadout.self, configurations: config)
+        let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self, configurations: config)
         context = ModelContext(container)
         tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -29,14 +29,6 @@ final class LibraryServiceTests: XCTestCase {
 
     override func tearDown() async throws {
         try? FileManager.default.removeItem(at: tmp)
-    }
-
-    func testSeedCreatesFreedoomWADsButNoLoadouts() throws {
-        try service.seedBundledContentIfNeeded()
-        try service.seedBundledContentIfNeeded()   // idempotent
-        XCTAssertEqual(try service.allWADs().filter(\.isBundled).map(\.filename).sorted(),
-                       ["freedoom1.wad", "freedoom2.wad"])
-        XCTAssertTrue(try service.allLoadouts().isEmpty)
     }
 
     func testSeedStoresRealContentHashForBundledIWADs() throws {
@@ -50,6 +42,22 @@ final class LibraryServiceTests: XCTestCase {
         }
     }
 
+    /// A pre-`Game` preset row, inserted directly now that the legacy
+    /// loadout-creation API is gone; the reconcile these tests cover reads
+    /// the tombstone table directly.
+    @discardableResult
+    private func insertLegacyLoadout(name: String, iwadID: UUID,
+                                     pwadIDs: [UUID] = [], dehIDs: [UUID] = []) throws -> Loadout {
+        let loadout = Loadout(name: name, iwadID: iwadID, pwadIDs: pwadIDs, dehIDs: dehIDs)
+        context.insert(loadout)
+        try context.save()
+        return loadout
+    }
+
+    private func legacyLoadouts() throws -> [Loadout] {
+        try context.fetch(FetchDescriptor<Loadout>())
+    }
+
     func testReconcileRemovesPhantomBaseGameLoadoutAndMigratesSaves() throws {
         // Arrange an old-install shape: a bundled Freedoom IWAD + a phantom
         // "Freedoom Phase 1" loadout (no PWAD/DEH) that accumulated a save.
@@ -60,9 +68,8 @@ final class LibraryServiceTests: XCTestCase {
             kind: WADKind.iwad.rawValue, family: GameFamily.doom1.rawValue)
         base.isBundled = true
         try service.saveChanges()
-        let phantom = try service.createLoadout(name: "Freedoom Phase 1",
-                                                iwadID: base.id, pwadIDs: [], dehIDs: [])
-        let oldDir = LibraryService.savesDirectory(forLoadoutID: phantom.id)
+        let phantom = try insertLegacyLoadout(name: "Freedoom Phase 1", iwadID: base.id)
+        let oldDir = LibraryService.savesDirectory(forGameID: phantom.id)
         try FileManager.default.createDirectory(at: oldDir, withIntermediateDirectories: true)
         try Data("save".utf8).write(to: oldDir.appendingPathComponent("slot.dsg"))
 
@@ -70,8 +77,8 @@ final class LibraryServiceTests: XCTestCase {
         let d = UserDefaults(suiteName: "reconcile-\(UUID().uuidString)")!
         try service.reconcileBundledBaseGameLoadouts(defaults: d)
 
-        XCTAssertTrue(try service.allLoadouts().isEmpty, "phantom loadout not removed")
-        let newDir = LibraryService.savesDirectory(forLoadoutID: base.id)
+        XCTAssertTrue(try legacyLoadouts().isEmpty, "phantom loadout not removed")
+        let newDir = LibraryService.savesDirectory(forGameID: base.id)
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: newDir.appendingPathComponent("slot.dsg").path),
             "saves not migrated to base-game key")
@@ -80,20 +87,20 @@ final class LibraryServiceTests: XCTestCase {
         // A second call with the same defaults is a no-op: the flag is set,
         // and re-creating the phantom shape (name only, no isBundled tie yet)
         // would otherwise be silently swept away by a later launch.
-        let again = try service.createLoadout(name: "Freedoom Phase 1",
-                                              iwadID: base.id, pwadIDs: [], dehIDs: [])
+        let again = try insertLegacyLoadout(name: "Freedoom Phase 1", iwadID: base.id)
         try service.reconcileBundledBaseGameLoadouts(defaults: d)
-        XCTAssertEqual(try service.allLoadouts().map(\.name), ["Freedoom Phase 1"],
+        XCTAssertEqual(Set(try legacyLoadouts().map(\.name)), Set(["Freedoom Phase 1"]),
                        "second call should be a no-op once the flag is set")
-        try service.deleteLoadout(again, deleteSaves: false)
+        context.delete(again)
+        try context.save()
     }
 
     func testReconcileLeavesUserPresetsUntouched() throws {
         let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i", kind: WADKind.iwad.rawValue, family: "doom2")
-        _ = try service.createLoadout(name: "My Stack", iwadID: iwad.id, pwadIDs: [], dehIDs: [])
+        _ = try insertLegacyLoadout(name: "My Stack", iwadID: iwad.id)
         let d = UserDefaults(suiteName: "reconcile-\(UUID().uuidString)")!
         try service.reconcileBundledBaseGameLoadouts(defaults: d)
-        XCTAssertEqual(try service.allLoadouts().map(\.name), ["My Stack"])
+        XCTAssertEqual(Set(try legacyLoadouts().map(\.name)), Set(["My Stack"]))
     }
 
     func testReconcilePreservesAmbiguousDuplicateSeededTitles() throws {
@@ -105,13 +112,13 @@ final class LibraryServiceTests: XCTestCase {
             kind: WADKind.iwad.rawValue, family: GameFamily.doom1.rawValue)
         base.isBundled = true
         try service.saveChanges()
-        _ = try service.createLoadout(name: "Freedoom Phase 1", iwadID: base.id, pwadIDs: [], dehIDs: [])
-        _ = try service.createLoadout(name: "Freedoom Phase 1", iwadID: base.id, pwadIDs: [], dehIDs: [])
+        _ = try insertLegacyLoadout(name: "Freedoom Phase 1", iwadID: base.id)
+        _ = try insertLegacyLoadout(name: "Freedoom Phase 1", iwadID: base.id)
 
         let d = UserDefaults(suiteName: "reconcile-\(UUID().uuidString)")!
         try service.reconcileBundledBaseGameLoadouts(defaults: d)
 
-        XCTAssertEqual(try service.allLoadouts().filter { $0.name == "Freedoom Phase 1" }.count, 2,
+        XCTAssertEqual(try legacyLoadouts().filter { $0.name == "Freedoom Phase 1" }.count, 2,
                        "ambiguous duplicate titles must be preserved, not deleted")
     }
 
@@ -121,22 +128,21 @@ final class LibraryServiceTests: XCTestCase {
             kind: WADKind.iwad.rawValue, family: GameFamily.doom1.rawValue)
         base.isBundled = true
         try service.saveChanges()
-        let phantom = try service.createLoadout(name: "Freedoom Phase 1",
-                                                iwadID: base.id, pwadIDs: [], dehIDs: [])
+        let phantom = try insertLegacyLoadout(name: "Freedoom Phase 1", iwadID: base.id)
         // Legacy saves under the loadout key: a.dsg (collides) + b.dsg (new).
-        let oldDir = LibraryService.savesDirectory(forLoadoutID: phantom.id)
+        let oldDir = LibraryService.savesDirectory(forGameID: phantom.id)
         try FileManager.default.createDirectory(at: oldDir, withIntermediateDirectories: true)
         try Data("old-a".utf8).write(to: oldDir.appendingPathComponent("a.dsg"))
         try Data("old-b".utf8).write(to: oldDir.appendingPathComponent("b.dsg"))
         // Base game already played: its saves dir exists with a colliding a.dsg.
-        let newDir = LibraryService.savesDirectory(forLoadoutID: base.id)
+        let newDir = LibraryService.savesDirectory(forGameID: base.id)
         try FileManager.default.createDirectory(at: newDir, withIntermediateDirectories: true)
         try Data("base-a".utf8).write(to: newDir.appendingPathComponent("a.dsg"))
 
         let d = UserDefaults(suiteName: "reconcile-\(UUID().uuidString)")!
         try service.reconcileBundledBaseGameLoadouts(defaults: d)
 
-        XCTAssertTrue(try service.allLoadouts().isEmpty, "lone phantom should be removed after successful migration")
+        XCTAssertTrue(try legacyLoadouts().isEmpty, "lone phantom should be removed after successful migration")
         XCTAssertEqual(try String(contentsOf: newDir.appendingPathComponent("a.dsg"), encoding: .utf8),
                        "base-a", "existing base-game save must not be clobbered")
         XCTAssertEqual(try String(contentsOf: newDir.appendingPathComponent("b.dsg"), encoding: .utf8),
@@ -152,86 +158,25 @@ final class LibraryServiceTests: XCTestCase {
         XCTAssertNil(try service.findWAD(sha1: "nope"))
     }
 
-    func testDeleteWADReferencedByLoadoutThrowsUnlessForced() throws {
-        let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i1",
-                                                kind: WADKind.iwad.rawValue, family: "doom2")
+    func testDeleteWADBlockedByALegacyLoadoutIsNotAThing() throws {
+        // Loadout rows are a schema tombstone: nothing reads them for
+        // in-use checks any more. `GameServiceTests.testDeleteWADIsBlockedByAnyOtherGameUsingIt`
+        // is where the in-use rule lives now.
         let pwad = try service.registerImported(filename: "sunlust.wad", sha1: "p1",
                                                 kind: WADKind.pwad.rawValue, family: "doom2")
-        let loadout = try service.createLoadout(name: "Sunlust", iwadID: iwad.id,
-                                                pwadIDs: [pwad.id], dehIDs: [])
-        XCTAssertThrowsError(try service.deleteWAD(pwad, force: false)) {
-            XCTAssertEqual($0 as? LibraryError, .wadReferencedByLoadouts(["Sunlust"]))
-        }
-        try service.deleteWAD(pwad, force: true)
-        XCTAssertNil(try service.wad(id: pwad.id))
-        _ = loadout
-    }
-
-    func testDeleteLoadoutRemovesSavesWhenAsked() throws {
-        let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i2",
-                                                kind: WADKind.iwad.rawValue, family: "doom2")
-        let loadout = try service.createLoadout(name: "X", iwadID: iwad.id, pwadIDs: [], dehIDs: [])
-        let saves = LibraryService.savesDirectory(forLoadoutID: loadout.id)
-        try FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
-        try Data("save".utf8).write(to: saves.appendingPathComponent("savegame0.dsg"))
-        try service.deleteLoadout(loadout, deleteSaves: true)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: saves.path))
-        XCTAssertTrue(try service.allLoadouts().isEmpty)
-    }
-
-    func testLoadoutOrderingPreserved() throws {
-        let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i3",
-                                                kind: WADKind.iwad.rawValue, family: "doom2")
-        let a = try service.registerImported(filename: "a.wad", sha1: "a", kind: WADKind.pwad.rawValue, family: "doom2")
-        let b = try service.registerImported(filename: "b.wad", sha1: "b", kind: WADKind.pwad.rawValue, family: "doom2")
-        let loadout = try service.createLoadout(name: "Ordered", iwadID: iwad.id,
-                                                pwadIDs: [b.id, a.id], dehIDs: [])
-        XCTAssertEqual(loadout.pwadIDs, [b.id, a.id])
-    }
-
-    func testAllLoadoutsSortsMostRecentFirst() throws {
-        let iwad = try service.registerImported(filename: "d.wad", sha1: "s1",
-                                                kind: "IWAD", family: "doom2")
-        let old = try service.createLoadout(name: "Old", iwadID: iwad.id, pwadIDs: [], dehIDs: [])
-        let recent = try service.createLoadout(name: "Recent", iwadID: iwad.id, pwadIDs: [], dehIDs: [])
-        old.lastPlayed = Date(timeIntervalSinceNow: -3600)
-        recent.lastPlayed = Date()
-        XCTAssertEqual(try service.allLoadouts().map(\.name), ["Recent", "Old"])
-    }
-
-    func testMarkPlayedStampsLastPlayed() throws {
-        let wad = try service.registerImported(filename: "doom2.wad", sha1: "i1",
-                                               kind: WADKind.iwad.rawValue, family: "doom2")
-        XCTAssertNil(wad.lastPlayed)
-        let when = Date(timeIntervalSince1970: 1_000_000)
-        try service.markPlayed(wad, at: when)
-        XCTAssertEqual(try service.wad(id: wad.id)?.lastPlayed, when)
-    }
-
-    func testLoadoutSchemeOverridePersists() throws {
         let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i1",
-                                                kind: WADKind.iwad.rawValue, family: "doom2")
-        let loadout = try service.createLoadout(name: "L", iwadID: iwad.id, pwadIDs: [], dehIDs: [])
-        loadout.schemeOverrideRaw = TouchControlScheme.modern.rawValue
-        try service.saveChanges()
-        XCTAssertEqual(try service.allLoadouts().first?.schemeOverrideRaw,
-                       TouchControlScheme.modern.rawValue)
-    }
+                                                 kind: WADKind.iwad.rawValue, family: "doom2")
+        try insertLegacyLoadout(name: "Legacy", iwadID: iwad.id, pwadIDs: [pwad.id])
 
-    func testSetSchemeOverrideOnBaseGameAndPreset() throws {
-        let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i", kind: WADKind.iwad.rawValue, family: "doom2")
-        let preset = try service.createLoadout(name: "P", iwadID: iwad.id, pwadIDs: [], dehIDs: [])
-        try service.setSchemeOverride(TouchControlScheme.classic.rawValue, forBaseGame: iwad)
-        try service.setSchemeOverride(TouchControlScheme.modern.rawValue, forPreset: preset)
-        XCTAssertEqual(try service.wad(id: iwad.id)?.schemeOverrideRaw, TouchControlScheme.classic.rawValue)
-        XCTAssertEqual(try service.allLoadouts().first?.schemeOverrideRaw, TouchControlScheme.modern.rawValue)
-        try service.setSchemeOverride(nil, forBaseGame: iwad)
-        XCTAssertNil(try service.wad(id: iwad.id)?.schemeOverrideRaw)
+        try service.deleteWAD(pwad)
+
+        XCTAssertNil(try service.wad(id: pwad.id))
+        XCTAssertEqual(try legacyLoadouts().count, 1, "the tombstone row is untouched and never a blocker")
     }
 
     func testSaveSlotsListsFilesNewestFirst() throws {
         let key = UUID()
-        let dir = LibraryService.savesDirectory(forLoadoutID: key)
+        let dir = LibraryService.savesDirectory(forGameID: key)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let a = dir.appendingPathComponent("a.dsg"); let b = dir.appendingPathComponent("b.dsg")
         try Data().write(to: a); try Data().write(to: b)
@@ -315,99 +260,13 @@ final class LibraryServiceTests: XCTestCase {
 
     // MARK: Hide / restore (spec §4: reversible "Remove from Shelf")
 
-    func testHideRemovesBaseGameFromPlayableListingsButKeepsTheRow() throws {
+    func testHiddenGamesFileStillListedInLibraryInventory() throws {
         let iwad = try registerWithBacking("doom2.wad", kind: .iwad)
-        try service.markPlayed(iwad, at: Date(timeIntervalSince1970: 1_000))
-        XCTAssertFalse(iwad.isHidden, "rows are visible by default")
-
-        try service.hide(.baseGame(iwad))
-
-        XCTAssertFalse(try service.baseGames().contains { $0.id == iwad.id })
-        XCTAssertFalse(try service.recentlyPlayed(limit: 6).contains { $0.id == "wad-\(iwad.id)" })
-        // Hidden is not deleted: the row, its id and its backing file all persist,
-        // so Documents/Saves/<id>/ stays attached (spec §4).
-        XCTAssertNotNil(try service.wad(id: iwad.id))
-        XCTAssertEqual(service.fileStatus(for: iwad), .imported)
-    }
-
-    func testRestoreReturnsBaseGameToPlayableListings() throws {
-        let iwad = try registerWithBacking("doom2.wad", kind: .iwad)
-        try service.hide(.baseGame(iwad))
-        try service.restore(.baseGame(iwad))
-        XCTAssertTrue(try service.baseGames().contains { $0.id == iwad.id })
-        XCTAssertTrue(try service.hiddenItems().isEmpty)
-    }
-
-    func testHideRemovesPresetFromPlayableListingsButKeepsTheRow() throws {
-        let iwad = try registerWithBacking("doom2.wad", kind: .iwad)
-        let preset = try service.createLoadout(name: "Sunlust", iwadID: iwad.id,
-                                               pwadIDs: [], dehIDs: [])
-        preset.lastPlayed = Date(timeIntervalSince1970: 2_000)
-        try service.saveChanges()
-        XCTAssertFalse(preset.isHidden, "presets are visible by default")
-
-        try service.hide(.preset(preset))
-
-        XCTAssertFalse(try service.presets().contains { $0.id == preset.id })
-        XCTAssertFalse(try service.recentlyPlayed(limit: 6)
-            .contains { $0.id == "loadout-\(preset.id)" })
-        XCTAssertEqual(try service.allLoadouts().map(\.name), ["Sunlust"],
-                       "the row itself persists — hide is not delete")
-    }
-
-    func testRestoreReturnsPresetToPlayableListings() throws {
-        let iwad = try registerWithBacking("doom2.wad", kind: .iwad)
-        let preset = try service.createLoadout(name: "Sunlust", iwadID: iwad.id,
-                                               pwadIDs: [], dehIDs: [])
-        try service.hide(.preset(preset))
-        try service.restore(.preset(preset))
-        XCTAssertEqual(try service.presets().map(\.name), ["Sunlust"])
-        XCTAssertTrue(try service.hiddenItems().isEmpty)
-    }
-
-    func testHiddenItemsEnumeratesBothKinds() throws {
-        let iwad = try registerWithBacking("doom2.wad", kind: .iwad)
-        let hiddenPreset = try service.createLoadout(name: "Hidden", iwadID: iwad.id,
-                                                     pwadIDs: [], dehIDs: [])
-        let visiblePreset = try service.createLoadout(name: "Visible", iwadID: iwad.id,
-                                                      pwadIDs: [], dehIDs: [])
-        try service.hide(.baseGame(iwad))
-        try service.hide(.preset(hiddenPreset))
-
-        XCTAssertEqual(try service.hiddenItems().map(\.title).sorted(), ["Hidden", "doom2"])
-        _ = visiblePreset
-    }
-
-    func testHiddenWADStillListedInLibraryInventory() throws {
-        let iwad = try registerWithBacking("doom2.wad", kind: .iwad)
-        try service.hide(.baseGame(iwad))
-        // The Library tab is the file inventory, not the shelf: a hidden file is
+        try service.hide(try XCTUnwrap(try service.game(id: iwad.id)))
+        // Manage is the file inventory, not the shelf: a hidden game's file is
         // still on disk and must stay visible (and manageable) there.
         XCTAssertTrue(try service.allWADs().contains { $0.id == iwad.id })
-        XCTAssertTrue(try service.libraryGroups()
-            .flatMap(\.wads).contains { $0.id == iwad.id })
-    }
-
-    /// The load-bearing case from spec §4: `seedBundledContentIfNeeded()` re-inserts
-    /// *missing* bundled rows under fresh UUIDs, which would orphan
-    /// `Documents/Saves/<WADFile.id>/`. A hidden row is not missing, so the seeder
-    /// must leave it exactly as it found it — same id, still hidden, no duplicate.
-    func testSeederTreatsHiddenBundledRowAsPresent() throws {
-        try service.seedBundledContentIfNeeded()
-        let freedoom1 = try XCTUnwrap(try service.allWADs()
-            .first { $0.filename == "freedoom1.wad" && $0.isBundled })
-        let originalID = freedoom1.id
-        try service.hide(.baseGame(freedoom1))
-
-        try service.seedBundledContentIfNeeded()
-
-        let bundled = try service.allWADs().filter(\.isBundled)
-        XCTAssertEqual(bundled.map(\.filename).sorted(), ["freedoom1.wad", "freedoom2.wad"],
-                       "a hidden bundled row must not be re-seeded as a duplicate")
-        let after = try XCTUnwrap(bundled.first { $0.filename == "freedoom1.wad" })
-        XCTAssertEqual(after.id, originalID, "a fresh UUID would orphan the item's saves")
-        XCTAssertTrue(after.isHidden, "the seeder must not unhide what the player hid")
-        XCTAssertFalse(try service.baseGames().contains { $0.id == originalID })
+        XCTAssertTrue(try service.libraryGroups().flatMap(\.wads).contains { $0.id == iwad.id })
     }
 
     // MARK: seedContinueSaveForCapture (test-only seam)
@@ -419,8 +278,8 @@ final class LibraryServiceTests: XCTestCase {
     func testSeedContinueSaveMakesTheNewestPlayedItemResumable() throws {
         try service.seedBundledContentIfNeeded()
         let freedoom1 = try XCTUnwrap(try service.allWADs().first { $0.filename == "freedoom1.wad" })
-        try service.markPlayed(freedoom1)
-        let dir = LibraryService.savesDirectory(forLoadoutID: freedoom1.id)
+        try service.markPlayed(try XCTUnwrap(try service.game(id: freedoom1.id)))
+        let dir = LibraryService.savesDirectory(forGameID: freedoom1.id)
         defer { try? FileManager.default.removeItem(at: dir) }
 
         XCTAssertNil(EngineSaveSlot.newestLoadGameArgument(in: service.saveSlots(forKey: freedoom1.id)),
@@ -440,8 +299,8 @@ final class LibraryServiceTests: XCTestCase {
     func testSeedContinueSaveLeavesAnExistingSaveAlone() throws {
         try service.seedBundledContentIfNeeded()
         let freedoom1 = try XCTUnwrap(try service.allWADs().first { $0.filename == "freedoom1.wad" })
-        try service.markPlayed(freedoom1)
-        let dir = LibraryService.savesDirectory(forLoadoutID: freedoom1.id)
+        try service.markPlayed(try XCTUnwrap(try service.game(id: freedoom1.id)))
+        let dir = LibraryService.savesDirectory(forGameID: freedoom1.id)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let real = dir.appendingPathComponent("woofsav03.dsg")
@@ -462,7 +321,7 @@ final class LibraryServiceTests: XCTestCase {
     func testSeedContinueSaveDoesNothingWhenNothingWasPlayed() throws {
         try service.seedBundledContentIfNeeded()
         let freedoom1 = try XCTUnwrap(try service.allWADs().first { $0.filename == "freedoom1.wad" })
-        let dir = LibraryService.savesDirectory(forLoadoutID: freedoom1.id)
+        let dir = LibraryService.savesDirectory(forGameID: freedoom1.id)
         defer { try? FileManager.default.removeItem(at: dir) }
 
         try service.seedContinueSaveForCapture()

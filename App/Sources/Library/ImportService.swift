@@ -34,11 +34,11 @@ struct ImportOutcome: Equatable {
 
 /// Result of the off-main parse+hash step for a candidate .wad, handed back
 /// to the MainActor caller to decide rejection vs. store+register. Kept
-/// deliberately tiny (String/String payloads only) so it crosses the
+/// deliberately tiny (Strings and a Bool only) so it crosses the
 /// Task.detached boundary without any Sendable ceremony.
 private enum WADCandidateResult {
     case rejected(String)
-    case ready(kind: String, family: String, sha1: String)
+    case ready(kind: String, family: String, sha1: String, hasMaps: Bool)
 }
 
 @MainActor
@@ -216,7 +216,7 @@ final class ImportService {
             }
             storeAndRegister(url: url, name: name, kind: WADKind.deh.rawValue,
                              family: GameFamily.unknown.rawValue,
-                             sha1: WADStore.sha1(of: data), into: &outcome)
+                             sha1: WADStore.sha1(of: data), hasMaps: false, into: &outcome)
         case "wad":
             do {
                 // .mappedIfSafe, not a plain read: a megawad like Eviternity II
@@ -231,9 +231,10 @@ final class ImportService {
                     return
                 }
                 let parsed = try WADParser.parse(data)
+                let hasMaps = WADParser.mapFormat(of: parsed.lumpNames) != .none
                 storeAndRegister(url: url, name: name, kind: parsed.kind.rawValue,
                                  family: WADParser.gameFamily(of: parsed.lumpNames).rawValue,
-                                 sha1: WADStore.sha1(of: data), into: &outcome)
+                                 sha1: WADStore.sha1(of: data), hasMaps: hasMaps, into: &outcome)
             } catch WADParseError.badMagic {
                 outcome.rejected[name] = "Not a WAD file (bad header magic)."
             } catch WADParseError.tooSmall {
@@ -247,7 +248,7 @@ final class ImportService {
     }
 
     private func storeAndRegister(url: URL, name: String, kind: String, family: String,
-                                  sha1: String, into outcome: inout ImportOutcome) {
+                                  sha1: String, hasMaps: Bool, into outcome: inout ImportOutcome) {
         // Check the library's sha1 index before touching the store: it's a
         // single lookup, versus WADStore.store's on-disk rescan (reads and
         // hashes every stored file) to do the same dedupe check.
@@ -263,7 +264,7 @@ final class ImportService {
             // duplicate that doesn't actually exist anywhere.
             do {
                 let stored = try store.store(fileAt: url, preferredName: name, precomputedSHA1: sha1)
-                try library.repairFilename(of: existing, to: stored.filename)
+                try library.repairFilename(of: existing, to: stored.filename, hasMaps: hasMaps)
                 outcome.imported.append((stored.filename as NSString).deletingPathExtension)
             } catch {
                 outcome.rejected[name] = "Could not copy file into the library."
@@ -273,7 +274,7 @@ final class ImportService {
         do {
             let stored = try store.store(fileAt: url, preferredName: name, precomputedSHA1: sha1)
             try library.registerImported(filename: stored.filename, sha1: stored.sha1,
-                                         kind: kind, family: family)
+                                         kind: kind, family: family, hasMaps: hasMaps)
             outcome.imported.append((stored.filename as NSString).deletingPathExtension)
         } catch {
             outcome.rejected[name] = "Could not copy file into the library."
@@ -323,7 +324,8 @@ final class ImportService {
                 return
             }
             await storeAndRegisterAsync(url: url, name: name, kind: WADKind.deh.rawValue,
-                                        family: GameFamily.unknown.rawValue, sha1: sha1, into: &outcome)
+                                        family: GameFamily.unknown.rawValue, sha1: sha1,
+                                        hasMaps: false, into: &outcome)
         case "wad":
             // WADParser.parse addresses the whole file (it slices into the
             // lump directory by offset), but it only ever touches two small
@@ -345,9 +347,10 @@ final class ImportService {
                 }
                 do {
                     let parsed = try WADParser.parse(data)
+                    let hasMaps = WADParser.mapFormat(of: parsed.lumpNames) != .none
                     return .ready(kind: parsed.kind.rawValue,
                                  family: WADParser.gameFamily(of: parsed.lumpNames).rawValue,
-                                 sha1: WADStore.sha1(of: data))
+                                 sha1: WADStore.sha1(of: data), hasMaps: hasMaps)
                 } catch WADParseError.badMagic {
                     return .rejected("Not a WAD file (bad header magic).")
                 } catch WADParseError.tooSmall {
@@ -359,9 +362,9 @@ final class ImportService {
             switch result {
             case .rejected(let reason):
                 outcome.rejected[name] = reason
-            case .ready(let kind, let family, let sha1):
+            case .ready(let kind, let family, let sha1, let hasMaps):
                 await storeAndRegisterAsync(url: url, name: name, kind: kind, family: family,
-                                            sha1: sha1, into: &outcome)
+                                            sha1: sha1, hasMaps: hasMaps, into: &outcome)
             }
         default:
             outcome.rejected[name] = "Unsupported file type."
@@ -369,7 +372,8 @@ final class ImportService {
     }
 
     private func storeAndRegisterAsync(url: URL, name: String, kind: String, family: String,
-                                       sha1: String, into outcome: inout ImportOutcome) async {
+                                       sha1: String, hasMaps: Bool,
+                                       into outcome: inout ImportOutcome) async {
         // Same hash-first dedupe as the sync path: a single indexed DB
         // lookup on Main, before ever touching the (potentially huge) file
         // again for a copy.
@@ -381,7 +385,7 @@ final class ImportService {
             }
             do {
                 let stored = try await copyIntoStore(url: url, name: name, sha1: sha1)
-                try library.repairFilename(of: existing, to: stored.filename)
+                try library.repairFilename(of: existing, to: stored.filename, hasMaps: hasMaps)
                 outcome.imported.append((stored.filename as NSString).deletingPathExtension)
             } catch {
                 outcome.rejected[name] = "Could not copy file into the library."
@@ -391,7 +395,7 @@ final class ImportService {
         do {
             let stored = try await copyIntoStore(url: url, name: name, sha1: sha1)
             try library.registerImported(filename: stored.filename, sha1: stored.sha1,
-                                         kind: kind, family: family)
+                                         kind: kind, family: family, hasMaps: hasMaps)
             outcome.imported.append((stored.filename as NSString).deletingPathExtension)
         } catch {
             outcome.rejected[name] = "Could not copy file into the library."

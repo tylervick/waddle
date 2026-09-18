@@ -1,0 +1,277 @@
+import SwiftData
+import XCTest
+@testable import Waddle
+
+/// Spec §5: the one-time launch step that turns IWAD rows and `Loadout`s into
+/// `Game`s. Ids are reused so no `Documents/Saves/<id>/` moves.
+@MainActor
+final class GameMigrationTests: XCTestCase {
+    var service: LibraryService!
+    var context: ModelContext!
+    var tmp: URL!
+    var defaults: UserDefaults!
+
+    override func setUp() async throws {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self, configurations: config)
+        context = ModelContext(container)
+        tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        service = LibraryService(context: context, store: WADStore(directory: tmp))
+        defaults = UserDefaults(suiteName: "migrate-\(UUID().uuidString)")!
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tmp)
+    }
+
+    /// A pre-`Game` row: inserted directly, because `registerImported` now
+    /// creates a base game and this suite needs the shape an old build left.
+    private func legacyIWAD(_ filename: String, displayName: String? = nil, hidden: Bool = false,
+                            scheme: String? = nil, played: Date? = nil, bundled: Bool = false) throws -> WADFile {
+        let wad = WADFile(filename: filename,
+                          displayName: displayName ?? (filename as NSString).deletingPathExtension,
+                          kindRaw: WADKind.iwad.rawValue, sha1: UUID().uuidString,
+                          gameFamilyRaw: GameFamily.doom2.rawValue, isBundled: bundled)
+        wad.isHidden = hidden
+        wad.schemeOverrideRaw = scheme
+        wad.lastPlayed = played
+        context.insert(wad)
+        try context.save()
+        return wad
+    }
+
+    private func legacyPWAD(_ filename: String, bytes: Data? = nil) throws -> WADFile {
+        if let bytes { try bytes.write(to: tmp.appendingPathComponent(filename)) }
+        let wad = WADFile(filename: filename, displayName: (filename as NSString).deletingPathExtension,
+                          kindRaw: WADKind.pwad.rawValue, sha1: UUID().uuidString,
+                          gameFamilyRaw: GameFamily.doom2.rawValue)
+        context.insert(wad)
+        try context.save()
+        return wad
+    }
+
+    @discardableResult
+    private func legacyLoadout(name: String, iwadID: UUID, pwadIDs: [UUID] = [], dehIDs: [UUID] = [],
+                               complevel: String? = nil, hidden: Bool = false,
+                               scheme: String? = nil, played: Date? = nil,
+                               createdAt: Date = .now) throws -> Loadout {
+        let loadout = Loadout(name: name, iwadID: iwadID, pwadIDs: pwadIDs, dehIDs: dehIDs,
+                              complevel: complevel, createdAt: createdAt)
+        loadout.isHidden = hidden
+        loadout.schemeOverrideRaw = scheme
+        loadout.lastPlayed = played
+        context.insert(loadout)
+        try context.save()
+        return loadout
+    }
+
+    func testIWADRowBecomesABaseGameWithTheSameIdAndFields() throws {
+        let played = Date(timeIntervalSince1970: 1_234)
+        let wad = try legacyIWAD("doom2.wad", hidden: true,
+                                 scheme: TouchControlScheme.classic.rawValue, played: played)
+
+        try service.migrateToGames(defaults: defaults)
+
+        let game = try XCTUnwrap(try service.game(id: wad.id))
+        XCTAssertTrue(game.isBaseGame)
+        XCTAssertEqual(game.baseID, wad.id)
+        XCTAssertEqual(game.name, "doom2")
+        XCTAssertTrue(game.isHidden)
+        XCTAssertEqual(game.schemeOverrideRaw, TouchControlScheme.classic.rawValue)
+        XCTAssertEqual(game.lastPlayed, played)
+        XCTAssertEqual(try service.games().count, 1)
+    }
+
+    func testLoadoutBecomesAGameWithTheSameIdAndOrderedFiles() throws {
+        let iwad = try legacyIWAD("doom2.wad")
+        let a = try legacyPWAD("a.wad"), b = try legacyPWAD("b.wad")
+        let deh = WADFile(filename: "fix.deh", displayName: "fix", kindRaw: WADKind.deh.rawValue,
+                          sha1: "d", gameFamilyRaw: GameFamily.unknown.rawValue)
+        context.insert(deh)
+        let played = Date(timeIntervalSince1970: 5_000)
+        let created = Date(timeIntervalSince1970: 4_000)
+        let loadout = try legacyLoadout(name: "Stack", iwadID: iwad.id, pwadIDs: [b.id, a.id], dehIDs: [deh.id],
+                                        complevel: "mbf21", hidden: true,
+                                        scheme: TouchControlScheme.modern.rawValue,
+                                        played: played, createdAt: created)
+
+        try service.migrateToGames(defaults: defaults)
+
+        let game = try XCTUnwrap(try service.game(id: loadout.id))
+        XCTAssertFalse(game.isBaseGame)
+        XCTAssertEqual(game.name, "Stack")
+        XCTAssertEqual(game.baseID, iwad.id)
+        XCTAssertEqual(game.fileIDs, [b.id, a.id, deh.id], "PWADs in order, then patches")
+        XCTAssertEqual(game.complevel, "mbf21")
+        XCTAssertTrue(game.isHidden)
+        XCTAssertEqual(game.schemeOverrideRaw, TouchControlScheme.modern.rawValue)
+        XCTAssertEqual(game.lastPlayed, played)
+        XCTAssertEqual(game.createdAt, created)
+    }
+
+    func testMigrationLeavesTheLoadoutRowInPlace() throws {
+        // Spec §5: the table is a tombstone this release, dropped by a later one.
+        let iwad = try legacyIWAD("doom2.wad")
+        try legacyLoadout(name: "Keep", iwadID: iwad.id)
+        try service.migrateToGames(defaults: defaults)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<Loadout>()).count, 1)
+    }
+
+    func testMigrationFillsHasMapsFromPresentFilesAndToleratesMissingOnes() throws {
+        let withMaps = try legacyPWAD("maps.wad", bytes: makeWAD(magic: "PWAD", lumps: ["MAP01", "THINGS"]))
+        let noMaps = try legacyPWAD("gfx.wad", bytes: makeWAD(magic: "PWAD", lumps: ["TITLEPIC"]))
+        let gone = try legacyPWAD("gone.wad")
+
+        try service.migrateToGames(defaults: defaults)
+
+        XCTAssertTrue(try XCTUnwrap(try service.wad(id: withMaps.id)).hasMaps)
+        XCTAssertFalse(try XCTUnwrap(try service.wad(id: noMaps.id)).hasMaps)
+        XCTAssertFalse(try XCTUnwrap(try service.wad(id: gone.id)).hasMaps, "unreadable stays on the default")
+        XCTAssertEqual(service.fileStatus(for: gone), .missing)
+    }
+
+    func testMigrationRunsOnce() throws {
+        let wad = try legacyIWAD("doom2.wad")
+        try service.migrateToGames(defaults: defaults)
+        // Delete the migrated game, then relaunch: the legacy IWAD row is
+        // still there and would be re-migrated if anything but the flag
+        // were what stopped a second run (the per-id guard can't catch
+        // this, since the id it would check no longer exists).
+        let game = try XCTUnwrap(try service.game(id: wad.id))
+        context.delete(game)
+        try context.save()
+        try service.migrateToGames(defaults: defaults)
+        XCTAssertTrue(try service.games().isEmpty,
+                      "the flag, not the id guard, must stop a second run — the legacy IWAD row is still there and would be re-migrated otherwise")
+    }
+
+    func testMigrationIsANoOpOnAFreshStore() throws {
+        try service.migrateToGames(defaults: defaults)
+        XCTAssertTrue(try service.games().isEmpty)
+        XCTAssertTrue(defaults.bool(forKey: "didMigrateToGames"))
+    }
+
+    func testMigrationDoesNotDuplicateAGameThatAlreadyExists() throws {
+        // Defensive: if anything created the base game before the migration
+        // ran (it must not — see the launch order — but a stale flag or a
+        // crash between steps could), the existing game wins.
+        let wad = try legacyIWAD("doom2.wad", hidden: true)
+        context.insert(Game.baseGame(for: wad))
+        try context.save()
+        try service.migrateToGames(defaults: defaults)
+        XCTAssertEqual(try service.games().count, 1)
+        XCTAssertFalse(try XCTUnwrap(try service.game(id: wad.id)).isHidden,
+                       "the existing game wins outright: legacy fields are not copied onto it")
+    }
+
+    /// Spec §4.4/§5 interaction: `reconcileBundledBaseGameLoadouts` leaves a
+    /// phantom in place (flag unset) when its saves move fails, so
+    /// `migrateToGames` must not turn it into a permanent `Game` before the
+    /// reconcile gets another chance at it.
+    func testMigrationSkipsAPhantomLoadoutUntilTheReconcileHasRun() throws {
+        let base = try legacyIWAD("freedoom1.wad", displayName: "Freedoom Phase 1", bundled: true)
+        try legacyLoadout(name: "Freedoom Phase 1", iwadID: base.id)
+        try legacyLoadout(name: "Mine", iwadID: base.id)
+
+        try service.migrateToGames(defaults: defaults)
+
+        let games = try service.games()
+        XCTAssertEqual(games.count, 2, "the base game and \"Mine\" only — the phantom must not become a third")
+        XCTAssertFalse(games.contains { $0.name == "Freedoom Phase 1" && !$0.isBaseGame },
+                       "only the base game may carry the seeded title while the reconcile hasn't run")
+        XCTAssertTrue(games.contains { $0.name == "Mine" })
+        XCTAssertFalse(defaults.bool(forKey: LibraryService.didMigrateToGamesKey),
+                       "skipping a phantom must leave the migration incomplete so a later launch can finish it")
+    }
+
+    /// The other half of the property above: once a later launch's reconcile
+    /// removes the phantom, the still-withheld flag lets migration run again
+    /// and finish — without duplicating the games it already made.
+    func testMigrationCompletesOnTheLaunchAfterTheReconcileSucceeds() throws {
+        let base = try legacyIWAD("freedoom1.wad", displayName: "Freedoom Phase 1", bundled: true)
+        let phantom = try legacyLoadout(name: "Freedoom Phase 1", iwadID: base.id)
+        try legacyLoadout(name: "Mine", iwadID: base.id)
+
+        try service.migrateToGames(defaults: defaults)
+
+        // Simulate the reconcile succeeding on the next launch: the phantom
+        // loadout is gone and its flag is now set.
+        context.delete(phantom)
+        try context.save()
+        defaults.set(true, forKey: LibraryService.didReconcileBundledBaseGameLoadoutsKey)
+
+        try service.migrateToGames(defaults: defaults)
+
+        let games = try service.games()
+        XCTAssertEqual(games.count, 2, "the per-id guards must not duplicate the base game or \"Mine\"")
+        XCTAssertTrue(defaults.bool(forKey: LibraryService.didMigrateToGamesKey))
+    }
+
+    /// The ambiguous-duplicate case: the reconcile ran but left a surviving
+    /// phantom-shaped loadout alone (it no longer treats it as a lone match).
+    /// Once the reconcile flag is set, that loadout is no longer skipped and
+    /// migrates as an ordinary game on the very next run.
+    func testMigrationAdoptsASurvivingPhantomShapedLoadoutOnceTheReconcileHasRun() throws {
+        let base = try legacyIWAD("freedoom1.wad", displayName: "Freedoom Phase 1", bundled: true)
+        try legacyLoadout(name: "Freedoom Phase 1", iwadID: base.id)
+
+        try service.migrateToGames(defaults: defaults)
+        XCTAssertFalse(defaults.bool(forKey: LibraryService.didMigrateToGamesKey))
+
+        // The reconcile has now run and, for whatever reason, left the
+        // phantom-shaped loadout in place rather than deleting it.
+        defaults.set(true, forKey: LibraryService.didReconcileBundledBaseGameLoadoutsKey)
+
+        try service.migrateToGames(defaults: defaults)
+
+        let games = try service.games()
+        XCTAssertTrue(games.contains { $0.name == "Freedoom Phase 1" && !$0.isBaseGame },
+                      "no longer a phantom once the reconcile has run, so it must migrate")
+        XCTAssertTrue(defaults.bool(forKey: LibraryService.didMigrateToGamesKey))
+    }
+
+    /// Once the reconcile has run (flag set), any loadout that still exists
+    /// with the seeded title is no longer a phantom by definition — but the
+    /// property under test here is narrower and more important: a loadout
+    /// that was never phantom-shaped (it carries a file) always migrates,
+    /// reconcile flag or not.
+    func testMigrationMigratesANonPhantomLoadoutEvenWithTheSeededTitle() throws {
+        let base = try legacyIWAD("freedoom1.wad", displayName: "Freedoom Phase 1", bundled: true)
+        let mod = try legacyPWAD("mod.wad")
+        let freshDefaults = UserDefaults(suiteName: "migrate-\(UUID().uuidString)")!
+        freshDefaults.set(true, forKey: LibraryService.didReconcileBundledBaseGameLoadoutsKey)
+        try legacyLoadout(name: "Freedoom Phase 1", iwadID: base.id, pwadIDs: [mod.id])
+
+        try service.migrateToGames(defaults: freshDefaults)
+
+        let games = try service.games()
+        XCTAssertTrue(games.contains { $0.name == "Freedoom Phase 1" && !$0.isBaseGame },
+                      "a loadout with a file is never phantom-shaped, so it always migrates")
+    }
+
+    /// The upgrade path end to end, in the order `WaddleApp` runs it: legacy
+    /// reconcile, migration, seeder. The bundled rows' games must carry their
+    /// hidden flag across and the seeder must find them and add nothing.
+    func testUpgradeOrderKeepsABundledGameHiddenAndAddsNoDuplicate() throws {
+        // An old install: bundled rows exist (seeded by the old build), one hidden.
+        let old = LibraryService(context: context, store: WADStore(directory: tmp))
+        try old.seedBundledContentIfNeeded()   // new seeder — also makes games; undo that to fake an old store
+        for game in try old.games() { context.delete(game) }
+        try context.save()
+        let phase1 = try XCTUnwrap(try old.allWADs().first { $0.filename == "freedoom1.wad" })
+        phase1.isHidden = true
+        try context.save()
+
+        try service.reconcileBundledBaseGameLoadouts(defaults: defaults)
+        try service.migrateToGames(defaults: defaults)
+        try service.seedBundledContentIfNeeded()
+
+        let games = try service.games()
+        XCTAssertEqual(games.count, 2)
+        let migrated = try XCTUnwrap(try service.game(id: phase1.id))
+        XCTAssertTrue(migrated.isHidden)
+        XCTAssertEqual(try service.shelfGames().map(\.name), ["Freedoom Phase 2"])
+    }
+}

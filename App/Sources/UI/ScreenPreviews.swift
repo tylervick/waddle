@@ -22,10 +22,10 @@ import SwiftUI
 @MainActor
 private enum ScreenPreviewFixture {
     /// The first bundled base game, wrapped for the detail page.
-    static func firstBaseGame() -> (item: PlayableItem, library: LibraryService)? {
+    static func firstBaseGame() -> (game: Game, library: LibraryService)? {
         let fixture = ShelfPreviewFixture.continueHero()
-        guard let wad = try? fixture.library.baseGames().first else { return nil }
-        return (.baseGame(wad), fixture.library)
+        guard let game = try? fixture.library.shelfGames().first(where: \.isBaseGame) else { return nil }
+        return (game, fixture.library)
     }
 }
 
@@ -35,7 +35,7 @@ private struct DetailPreviewHost: View {
     var body: some View {
         if let fixture = ScreenPreviewFixture.firstBaseGame() {
             NavigationStack {
-                PlayableDetailView(item: fixture.item,
+                PlayableDetailView(game: fixture.game,
                                    library: fixture.library,
                                    onPlay: { _, _ in },
                                    onEdit: { _ in },

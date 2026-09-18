@@ -105,7 +105,7 @@ final class LibraryViewTests: XCTestCase {
     @MainActor
     private func makeLibrary() throws -> (library: LibraryService, tmp: URL) {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: WADFile.self, Loadout.self,
+        let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self,
                                            configurations: config)
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -129,10 +129,8 @@ final class LibraryViewTests: XCTestCase {
                                                    kind: WADKind.pwad.rawValue, family: "doom2")
         let eviternity = try library.registerImported(filename: "eviternity.wad", sha1: "p2",
                                                       kind: WADKind.pwad.rawValue, family: "doom2")
-        _ = try library.createLoadout(name: "Sunlust MP", iwadID: iwad.id,
-                                      pwadIDs: [sunlust.id], dehIDs: [])
-        _ = try library.createLoadout(name: "Eviternity", iwadID: iwad.id,
-                                      pwadIDs: [eviternity.id], dehIDs: [])
+        _ = try library.createGame(name: "Sunlust MP", baseID: iwad.id, fileIDs: [sunlust.id])
+        _ = try library.createGame(name: "Eviternity", baseID: iwad.id, fileIDs: [eviternity.id])
 
         let blocked = LibraryView.deleting([sunlust, eviternity], from: library, blocked: [])
 
@@ -155,8 +153,7 @@ final class LibraryViewTests: XCTestCase {
                                                    kind: WADKind.pwad.rawValue, family: "doom2")
         let spare = try library.registerImported(filename: "spare.wad", sha1: "p2",
                                                  kind: WADKind.pwad.rawValue, family: "doom2")
-        _ = try library.createLoadout(name: "Sunlust MP", iwadID: iwad.id,
-                                      pwadIDs: [sunlust.id], dehIDs: [])
+        _ = try library.createGame(name: "Sunlust MP", baseID: iwad.id, fileIDs: [sunlust.id])
 
         let blocked = LibraryView.deleting([sunlust, spare], from: library, blocked: [])
 
@@ -177,8 +174,7 @@ final class LibraryViewTests: XCTestCase {
                                                 kind: WADKind.iwad.rawValue, family: "doom2")
         let sunlust = try library.registerImported(filename: "sunlust.wad", sha1: "p1",
                                                    kind: WADKind.pwad.rawValue, family: "doom2")
-        _ = try library.createLoadout(name: "Sunlust MP", iwadID: iwad.id,
-                                      pwadIDs: [sunlust.id], dehIDs: [])
+        _ = try library.createGame(name: "Sunlust MP", baseID: iwad.id, fileIDs: [sunlust.id])
         let existing = [LibraryView.BlockedFile(filename: "eviternity.wad",
                                                 presets: ["Eviternity"])]
 

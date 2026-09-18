@@ -2,7 +2,14 @@ import Foundation
 import SwiftData
 
 enum LibraryError: Error, Equatable {
-    case wadReferencedByLoadouts([String])
+    /// The file is loaded by these games (spec §4.4) — remove it from them first.
+    case wadInUse([String])
+    /// Base games are hidden, never deleted (spec §4.4).
+    case cannotDeleteBaseGame
+    /// Bundled files are never deletable (spec §4.4): they live in the signed
+    /// app bundle, and deleting the row would orphan its base game's saves —
+    /// the seeder would simply re-create both under a fresh id.
+    case wadIsBundled
 }
 
 /// Where a library file's bytes live, from the Library tab's point of view:
@@ -46,30 +53,66 @@ final class LibraryService {
     // MARK: Seeding
 
     /// Registers the bundled Freedoom IWADs (read-only, live in the bundle's
-    /// GameData/) as directly-playable base games. Safe to call every launch:
-    /// each row stores its real content SHA-1 (so imports of byte-identical
-    /// files dedupe against it), but the hash is computed only the one time
-    /// the row is created — steady-state launches skip straight past the
-    /// existence check and never re-hash the ~30MB bundle files.
+    /// GameData/) and their base games. Safe to call every launch: each row
+    /// stores its real content SHA-1 (so imports of byte-identical files dedupe
+    /// against it), but the hash is computed only the one time the row is
+    /// created — steady-state launches skip straight past the existence checks
+    /// and never re-hash the ~30MB bundle files.
+    ///
+    /// The base game is created only when no `Game` with the IWAD's id exists,
+    /// hidden or not (spec §4.5). A hidden game still exists, so the player's
+    /// "Remove from Shelf" survives every launch and no second game with a
+    /// fresh id — and an empty saves directory — is ever made for it. Pinned by
+    /// `GameServiceTests.testSeederLeavesAHiddenBaseGameAlone`.
+    ///
+    /// Must run **after** `migrateToGames()`: on an upgraded install the
+    /// migration is what creates the bundled rows' base games, carrying their
+    /// hidden flag and last-played date across. Run first, this would create
+    /// them blank.
     func seedBundledContentIfNeeded() throws {
         let bundled: [(file: String, title: String, family: GameFamily)] = [
             ("freedoom1.wad", "Freedoom Phase 1", .doom1),
             ("freedoom2.wad", "Freedoom Phase 2", .doom2),
         ]
         for entry in bundled {
-            // Presence only — never filter this on `isHidden`. A hidden row is
-            // present, just off the shelf; treating it as missing would insert a
-            // duplicate under a fresh UUID and orphan Documents/Saves/<id>/,
-            // which is exactly what spec §4 made hiding reversible to avoid.
-            // Pinned by `testSeederTreatsHiddenBundledRowAsPresent`.
-            if try wadByFilename(entry.file, bundled: true) != nil { continue }
-            let wad = WADFile(filename: entry.file, displayName: entry.title,
+            let wad: WADFile
+            if let existing = try wadByFilename(entry.file, bundled: true) {
+                wad = existing
+                wad.hasMaps = true   // IWADs carry maps; upgraded installs must match fresh ones.
+            } else {
+                wad = WADFile(filename: entry.file, displayName: entry.title,
                               kindRaw: WADKind.iwad.rawValue,
                               sha1: try WADStore.sha1(ofFileAt: Self.bundledURL(forFilename: entry.file)),
-                              gameFamilyRaw: entry.family.rawValue, isBundled: true)
-            context.insert(wad)
+                              gameFamilyRaw: entry.family.rawValue, isBundled: true, hasMaps: true)
+                context.insert(wad)
+            }
+            if try game(id: wad.id) == nil {
+                context.insert(Game.baseGame(for: wad))
+            }
         }
         try context.save()
+    }
+
+    /// `UserDefaults` keys for the two one-time launch-order migration steps
+    /// (see `WaddleApp`, which also clears both under `WADDLE_RESET_STORE`).
+    static let didReconcileBundledBaseGameLoadoutsKey = "didReconcileBundledBaseGameLoadouts"
+    static let didMigrateToGamesKey = "didMigrateToGames"
+
+    /// Titles the one-door preset flow auto-assigns a modless Freedoom preset,
+    /// which is indistinguishable from the legacy phantom shape (no PWAD/DEH,
+    /// bundled IWAD) `reconcileBundledBaseGameLoadouts` removes.
+    private static let seededTitles: Set<String> = ["Freedoom Phase 1", "Freedoom Phase 2"]
+
+    /// Shape-only test for the legacy phantom: a modless loadout named exactly
+    /// one of `seededTitles` on a *bundled* IWAD. Shared by
+    /// `reconcileBundledBaseGameLoadouts` (which deletes a lone match) and
+    /// `migrateToGames` (which must not turn one into a permanent `Game`
+    /// before the reconcile has had a chance to remove it — see that method's
+    /// doc comment).
+    private func isPhantomBundledLoadout(_ loadout: Loadout) throws -> Bool {
+        guard loadout.pwadIDs.isEmpty && loadout.dehIDs.isEmpty
+                && Self.seededTitles.contains(loadout.name) else { return false }
+        return try wad(id: loadout.iwadID)?.isBundled == true
     }
 
     /// One-time migration: earlier builds auto-created a Loadout per bundled
@@ -79,10 +122,7 @@ final class LibraryService {
     /// WADFile.id), so on-device progress survives. User-authored presets are
     /// never touched.
     ///
-    /// Guarded by a persisted flag so this runs at most once per install: the
-    /// one-door preset flow now auto-names a modless Freedoom preset exactly
-    /// "Freedoom Phase 1"/"Freedoom Phase 2", which is indistinguishable from
-    /// the legacy phantom shape (no PWAD/DEH, bundled IWAD) this removes.
+    /// Guarded by a persisted flag so this runs at most once per install.
     ///
     /// Two safeguards against destroying real user data:
     /// - **Ambiguity:** a legacy install created *exactly one* phantom per
@@ -95,18 +135,14 @@ final class LibraryService {
     ///   the loadout (and retries next launch) rather than orphaning saves.
     /// The flag is set only when every migration succeeded.
     func reconcileBundledBaseGameLoadouts(defaults: UserDefaults = .standard) throws {
-        let flagKey = "didReconcileBundledBaseGameLoadouts"
+        let flagKey = Self.didReconcileBundledBaseGameLoadoutsKey
         guard !defaults.bool(forKey: flagKey) else { return }
-        let seededTitles: Set<String> = ["Freedoom Phase 1", "Freedoom Phase 2"]
 
         // Candidates: modless loadouts with a seeded title on a *bundled* IWAD.
         var phantoms: [Loadout] = []
         for loadout in try context.fetch(FetchDescriptor<Loadout>())
-        where loadout.pwadIDs.isEmpty && loadout.dehIDs.isEmpty
-            && seededTitles.contains(loadout.name) {
-            if let iwad = try wad(id: loadout.iwadID), iwad.isBundled {
-                phantoms.append(loadout)
-            }
+        where try isPhantomBundledLoadout(loadout) {
+            phantoms.append(loadout)
         }
         // Ambiguity guard: only delete a title with a single matching loadout.
         var countByName: [String: Int] = [:]
@@ -127,6 +163,70 @@ final class LibraryService {
         if allMigrationsSucceeded { defaults.set(true, forKey: flagKey) }
     }
 
+    /// One-time migration onto `Game` (spec §5). Every IWAD row becomes its
+    /// base game and every `Loadout` becomes a game, **each under its old id**,
+    /// so `Documents/Saves/<id>/` stays exactly where the previous build left
+    /// it and a player updating mid-campaign gets their Continue hero back.
+    /// Present PWADs are re-parsed to fill `hasMaps`; a missing or unreadable
+    /// file keeps the default.
+    ///
+    /// Runs at most once per install (persisted flag), and never overwrites a
+    /// game that already exists — the legacy fields are copied only into games
+    /// this call creates. The `Loadout` rows and `WADFile`'s moved fields are
+    /// left in place: written by nothing from here on, dropped by a later
+    /// release. Same pattern as `reconcileBundledBaseGameLoadouts`, and it
+    /// must run after it (so phantom loadouts are gone) and **before**
+    /// `seedBundledContentIfNeeded()` (so the bundled rows' games are made here,
+    /// with their flags, rather than blank by the seeder).
+    ///
+    /// Not gated on the reconcile flag as a whole — that would silently skip
+    /// every user preset forever on an install where the reconcile never
+    /// manages to set it (e.g. a save migration keeps failing). Instead, only
+    /// a loadout that still matches the phantom shape is skipped while the
+    /// reconcile flag is unset, so it is picked up as a game on whatever later
+    /// launch finally reconciles or permanently fails to (in which case it
+    /// migrates as an ordinary, if oddly named, game rather than vanishing).
+    /// The completion flag itself is withheld while a phantom was skipped, so
+    /// the loadout is picked up once the reconcile has run, at the cost of
+    /// re-running the (idempotent) migration on each launch until then.
+    func migrateToGames(defaults: UserDefaults = .standard) throws {
+        let flagKey = Self.didMigrateToGamesKey
+        guard !defaults.bool(forKey: flagKey) else { return }
+
+        for wad in try allWADs() where wad.kindRaw == WADKind.iwad.rawValue {
+            guard try game(id: wad.id) == nil else { continue }
+            let game = Game.baseGame(for: wad)
+            game.schemeOverrideRaw = wad.schemeOverrideRaw
+            game.isHidden = wad.isHidden
+            game.lastPlayed = wad.lastPlayed
+            context.insert(game)
+        }
+        let reconcileHasRun = defaults.bool(forKey: Self.didReconcileBundledBaseGameLoadoutsKey)
+        var skippedPhantom = false
+        for loadout in try context.fetch(FetchDescriptor<Loadout>()) {
+            guard try game(id: loadout.id) == nil else { continue }
+            if try !reconcileHasRun && isPhantomBundledLoadout(loadout) {
+                skippedPhantom = true
+                continue
+            }
+            context.insert(Game(id: loadout.id, name: loadout.name, baseID: loadout.iwadID,
+                                fileIDs: loadout.pwadIDs + loadout.dehIDs,
+                                complevel: loadout.complevel,
+                                schemeOverrideRaw: loadout.schemeOverrideRaw,
+                                isHidden: loadout.isHidden, lastPlayed: loadout.lastPlayed,
+                                createdAt: loadout.createdAt, isBaseGame: false))
+        }
+        for wad in try allWADs() where wad.kindRaw == WADKind.pwad.rawValue {
+            // Directory only: `WADParser.parse` reads the header and lump table,
+            // and the mapping keeps a 300 MB megawad from becoming one allocation.
+            guard let data = try? Data(contentsOf: fileURL(for: wad), options: .mappedIfSafe),
+                  let parsed = try? WADParser.parse(data) else { continue }
+            wad.hasMaps = WADParser.mapFormat(of: parsed.lumpNames) != .none
+        }
+        try context.save()
+        if !skippedPhantom { defaults.set(true, forKey: flagKey) }
+    }
+
     /// Moves the legacy per-loadout saves dir onto the base game's saves key.
     /// If the destination already exists, merges file-by-file and never
     /// overwrites an existing base-game save (its version wins; the stale
@@ -134,8 +234,8 @@ final class LibraryService {
     /// failure so the caller can keep the loadout instead of orphaning saves.
     private func migrateSaves(fromKey old: UUID, toKey new: UUID) throws {
         let fm = FileManager.default
-        let src = Self.savesDirectory(forLoadoutID: old)
-        let dst = Self.savesDirectory(forLoadoutID: new)
+        let src = Self.savesDirectory(forGameID: old)
+        let dst = Self.savesDirectory(forGameID: new)
         guard fm.fileExists(atPath: src.path) else { return }   // nothing to migrate
 
         if !fm.fileExists(atPath: dst.path) {
@@ -155,90 +255,84 @@ final class LibraryService {
 
     // MARK: Queries
 
-    /// Base games (IWADs) on the Play shelf — bundled first, then by title.
-    /// Excludes hidden rows, so a base game the player removed from the shelf
-    /// is offered nowhere it could be started from (this feeds the preset
-    /// builder's IWAD picker too). Presets already built on a hidden base game
-    /// keep working: the launcher resolves their IWAD by id, not through here.
+    /// Every installed IWAD — bundled first, then by title. This is the base
+    /// picker's list (spec §3.2); whether the IWAD's own game is hidden is a
+    /// shelf matter and does not remove it from here.
     func baseGames() throws -> [WADFile] {
-        try baseGames(hidden: false)
-    }
-
-    private func baseGames(hidden: Bool) throws -> [WADFile] {
         try allWADs()
-            .filter { $0.kindRaw == WADKind.iwad.rawValue && $0.isHidden == hidden }
+            .filter { $0.kindRaw == WADKind.iwad.rawValue }
             .sorted { ($0.isBundled ? 0 : 1, $0.displayName) < ($1.isBundled ? 0 : 1, $1.displayName) }
     }
 
-    /// Base games + presets that have been played, most-recent-first, capped.
-    func recentlyPlayed(limit: Int) throws -> [PlayableItem] {
-        let items = try baseGames().map(PlayableItem.baseGame)
-            + presets().map(PlayableItem.preset)
-        return items
+    // MARK: Games
+
+    /// Every game, most recently played first, then newest created. Backs the
+    /// Manage inventory and the diagnostics dump — the shelf reads
+    /// `shelfGames()`.
+    func games() throws -> [Game] {
+        try context.fetch(FetchDescriptor<Game>()).sorted {
+            ($0.lastPlayed ?? $0.createdAt) > ($1.lastPlayed ?? $1.createdAt)
+        }
+    }
+
+    /// Everything the shelf shows, unordered by shelf rules (`Shelf.ordered`
+    /// does that): every game minus hidden ones. "A hidden game never reaches
+    /// the shelf" is a property of this one call.
+    func shelfGames() throws -> [Game] {
+        try games().filter { !$0.isHidden }
+    }
+
+    /// Everything the player took off the shelf, for the Restore list.
+    func hiddenGames() throws -> [Game] {
+        try games().filter(\.isHidden)
+    }
+
+    func game(id: UUID) throws -> Game? {
+        var descriptor = FetchDescriptor<Game>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        return try context.fetch(descriptor).first
+    }
+
+    /// Games that load `fileID` as their base or in their file list. An IWAD's
+    /// own base game is included — `deleteWAD` is the one caller that has to
+    /// set it aside.
+    func gamesUsing(fileID: UUID) throws -> [Game] {
+        try context.fetch(FetchDescriptor<Game>()).filter {
+            $0.baseID == fileID || $0.fileIDs.contains(fileID)
+        }
+    }
+
+    /// Games that have been played, most-recent-first, capped.
+    func recentlyPlayed(limit: Int) throws -> [Game] {
+        try games()
             .filter { $0.lastPlayed != nil }
             .sorted { ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }
             .prefix(limit)
             .map { $0 }
     }
 
-    /// Presets on the Play shelf, in `allLoadouts()`' order minus hidden rows.
-    /// `allLoadouts()` deliberately still reports every preset — it backs the
-    /// Library inventory and the diagnostics dump, neither of which is a shelf.
-    func presets() throws -> [Loadout] {
-        try allLoadouts().filter { !$0.isHidden }
-    }
-
-    /// Everything the shelf shows, unordered: base games and presets mixed, with
-    /// hidden rows already excluded by `baseGames()`/`presets()`. `ShelfView`
-    /// reads exactly this and then hands it to `Shelf.ordered` — so "a hidden
-    /// item never reaches the shelf" is a property of this one call rather than
-    /// of a filter the view could forget to apply.
-    func shelfItems() throws -> [PlayableItem] {
-        try baseGames().map(PlayableItem.baseGame) + presets().map(PlayableItem.preset)
-    }
-
-    /// Everything the player has taken off the shelf, for Manage → Hidden from
-    /// Shelf. Base games first, then presets, each in its shelf order.
-    func hiddenItems() throws -> [PlayableItem] {
-        try baseGames(hidden: true).map(PlayableItem.baseGame)
-            + allLoadouts().filter(\.isHidden).map(PlayableItem.preset)
-    }
-
     /// True while the library is still exactly what the app shipped with:
-    /// nothing imported, no presets, and nothing saved anywhere. This is spec
-    /// §4's factory state, and the only condition under which the shelf shows
-    /// its welcome card -- once any of the three stops holding, it never holds
-    /// again, so the card does not come back.
+    /// nothing imported, no game but the bundled base games, and nothing saved
+    /// anywhere (launcher spec §4). Once any of the three stops holding, it
+    /// never holds again, so the welcome card does not come back.
     ///
-    /// Two deliberate choices about what counts:
-    ///
-    /// - It asks the *whole* library, not `shelfItems()`. A mod arriving by
-    ///   share sheet is never a shelf item and a hidden row is not one either,
-    ///   but both mean somebody's own files are in here, and greeting them as a
-    ///   new arrival afterwards would be wrong.
-    /// - "Any save" means any file in any item's saves directory, not a
-    ///   *resumable* one. The Continue hero is strict about that distinction
-    ///   (`PlayableLauncher.continuableSlot`) because it offers to boot the
-    ///   save; this only asks whether the player has got as far as playing, and
-    ///   a save the engine cannot resume still answers that yes.
+    /// It asks the *whole* library, not `shelfGames()`: a mod arriving by
+    /// share sheet is not (yet) a game and a hidden game is not on the shelf,
+    /// but both mean somebody's own things are in here. "Any save" means any
+    /// file in any game's saves directory, not a *resumable* one — that
+    /// stricter question is the Continue hero's
+    /// (`GameLauncher.continuableSlot`).
     func isFactoryState() throws -> Bool {
         let wads = try allWADs()
         guard !wads.contains(where: { !$0.isBundled }) else { return false }
-        guard try allLoadouts().isEmpty else { return false }
-        // Both guards held, so the bundled rows are the whole library and
-        // theirs are the only saves directories that can be in play.
-        return !wads.contains { !saveSlots(forKey: $0.id).isEmpty }
+        let games = try games()
+        guard !games.contains(where: { !$0.isBaseGame }) else { return false }
+        return !games.contains { !saveSlots(forKey: $0.id).isEmpty }
     }
 
     func allWADs() throws -> [WADFile] {
         try context.fetch(FetchDescriptor<WADFile>(
             sortBy: [SortDescriptor(\.importDate, order: .reverse)]))
-    }
-
-    func allLoadouts() throws -> [Loadout] {
-        try context.fetch(FetchDescriptor<Loadout>()).sorted {
-            ($0.lastPlayed ?? $0.createdAt) > ($1.lastPlayed ?? $1.createdAt)
-        }
     }
 
     func wad(id: UUID) throws -> WADFile? {
@@ -289,66 +383,106 @@ final class LibraryService {
 
     // MARK: Mutations
 
-    /// Stamps a directly-played WAD's `lastPlayed` (base games launch without
-    /// a persisted Loadout, so recency is tracked on the file itself). Date is
-    /// injectable for deterministic tests.
-    func markPlayed(_ wad: WADFile, at date: Date = .now) throws {
-        wad.lastPlayed = date
-        try context.save()
-    }
-
     @discardableResult
     func registerImported(filename: String, sha1: String, kind: String,
-                          family: String) throws -> WADFile {
+                          family: String, hasMaps: Bool = false) throws -> WADFile {
         // Content-derived title first, filename only as a fallback: a
         // recognized commercial IWAD is titled by what it *is*, so renaming
-        // doom2.wad before importing it cannot change what the Play tab calls
-        // it. Anything unrecognized — every PWAD, every mod — keeps the
-        // filename behavior this line has always had.
+        // doom2.wad before importing it cannot change what the shelf calls it.
+        // Anything unrecognized — every PWAD, every mod — keeps the filename
+        // behaviour this line has always had.
         let wad = WADFile(filename: filename,
                           displayName: recognizedTitle(sha1)
                               ?? (filename as NSString).deletingPathExtension,
-                          kindRaw: kind, sha1: sha1, gameFamilyRaw: family)
+                          kindRaw: kind, sha1: sha1, gameFamilyRaw: family, hasMaps: hasMaps)
         context.insert(wad)
+        // An IWAD is a game the moment it arrives (spec §2.1). Map sets become
+        // games in plan 3; add-ons never do.
+        if kind == WADKind.iwad.rawValue {
+            context.insert(Game.baseGame(for: wad))
+        }
         try context.save()
         return wad
     }
 
     /// Points an existing row at a freshly re-stored file, for when the row's
     /// backing file went missing from disk (e.g. deleted out-of-band) and a
-    /// re-import restored the content under a new store filename.
-    func repairFilename(of wad: WADFile, to filename: String) throws {
+    /// re-import restored the content under a new store filename — and
+    /// records what the re-parsed file carries, since the row may predate
+    /// `hasMaps` or have been migrated while the file was missing.
+    func repairFilename(of wad: WADFile, to filename: String, hasMaps: Bool) throws {
         wad.filename = filename
+        wad.hasMaps = hasMaps
         try context.save()
-    }
-
-    @discardableResult
-    func createLoadout(name: String, iwadID: UUID, pwadIDs: [UUID],
-                       dehIDs: [UUID]) throws -> Loadout {
-        let loadout = Loadout(name: name, iwadID: iwadID, pwadIDs: pwadIDs, dehIDs: dehIDs)
-        context.insert(loadout)
-        try context.save()
-        return loadout
     }
 
     /// Persists in-place mutations made directly to fetched/created model
-    /// instances (e.g. editing an existing Loadout's fields, or bumping
-    /// lastPlayed) — those mutations aren't saved on their own; SwiftData's
-    /// autosave is not immediate/guaranteed at the point callers need it.
+    /// instances (e.g. editing a Game's fields, or bumping lastPlayed) —
+    /// those mutations aren't saved on their own; SwiftData's autosave is not
+    /// immediate/guaranteed at the point callers need it.
     func saveChanges() throws {
         try context.save()
     }
 
-    func loadoutsReferencing(wadID: UUID) throws -> [Loadout] {
-        try context.fetch(FetchDescriptor<Loadout>()).filter {
-            $0.iwadID == wadID || $0.pwadIDs.contains(wadID) || $0.dehIDs.contains(wadID)
-        }
+    @discardableResult
+    func createGame(name: String, baseID: UUID?, fileIDs: [UUID],
+                    complevel: String? = nil) throws -> Game {
+        let game = Game(name: name, baseID: baseID, fileIDs: fileIDs, complevel: complevel)
+        context.insert(game)
+        try context.save()
+        return game
     }
 
-    func deleteWAD(_ wad: WADFile, force: Bool) throws {
-        let referencing = try loadoutsReferencing(wadID: wad.id)
-        if !referencing.isEmpty && !force {
-            throw LibraryError.wadReferencedByLoadouts(referencing.map(\.name))
+    /// Deletes a game and its saves (spec §4.3). Base games are hidden, never
+    /// deleted (spec §4.4). Whether to also delete the game's files is the
+    /// caller's decision (`deleteWAD`), made with the "used by" answer in hand.
+    func deleteGame(_ game: Game) throws {
+        guard !game.isBaseGame else { throw LibraryError.cannotDeleteBaseGame }
+        try? FileManager.default.removeItem(at: Self.savesDirectory(forGameID: game.id))
+        context.delete(game)
+        try context.save()
+    }
+
+    /// Off the shelf without destroying anything: the row, its files and its
+    /// saves all stay put. Reversible with `restore(_:)`.
+    func hide(_ game: Game) throws {
+        game.isHidden = true
+        try context.save()
+    }
+
+    func restore(_ game: Game) throws {
+        game.isHidden = false
+        try context.save()
+    }
+
+    /// Date is injectable for deterministic tests.
+    func markPlayed(_ game: Game, at date: Date = .now) throws {
+        game.lastPlayed = date
+        try context.save()
+    }
+
+    /// Sets (or clears, with `nil`) a game's touch-layout override.
+    func setSchemeOverride(_ raw: String?, for game: Game) throws {
+        game.schemeOverrideRaw = raw
+        try context.save()
+    }
+
+    /// Deletes a file (spec §4.4). Bundled files are never deletable — the
+    /// row stays, since removing it would orphan its base game's saves (the
+    /// seeder would just re-create both under a fresh id). Otherwise blocked
+    /// while any game *other than the IWAD's own base game* loads it — that
+    /// carve-out is what makes an imported IWAD deletable at all. Deleting an
+    /// IWAD takes its base game and that game's saves with it.
+    func deleteWAD(_ wad: WADFile) throws {
+        guard !wad.isBundled else { throw LibraryError.wadIsBundled }
+        let blockers = try gamesUsing(fileID: wad.id)
+            .filter { $0.id != wad.id }
+        if !blockers.isEmpty {
+            throw LibraryError.wadInUse(blockers.map(\.name))
+        }
+        if let own = try game(id: wad.id), own.isBaseGame {
+            try? FileManager.default.removeItem(at: Self.savesDirectory(forGameID: own.id))
+            context.delete(own)
         }
         if !wad.isBundled {
             try? store.delete(filename: wad.filename)
@@ -357,66 +491,20 @@ final class LibraryService {
         try context.save()
     }
 
-    func deleteLoadout(_ loadout: Loadout, deleteSaves: Bool) throws {
-        if deleteSaves {
-            try? FileManager.default.removeItem(
-                at: Self.savesDirectory(forLoadoutID: loadout.id))
-        }
-        context.delete(loadout)
-        try context.save()
-    }
-
-    /// Removes a playable item from the shelf without destroying anything:
-    /// the row, its backing file and its saves all stay put. Reversible with
-    /// `restore(_:)`; hidden items are enumerated by `hiddenItems()`.
-    func hide(_ item: PlayableItem) throws {
-        try setHidden(true, on: item)
-    }
-
-    /// Puts a hidden item back on the shelf.
-    func restore(_ item: PlayableItem) throws {
-        try setHidden(false, on: item)
-    }
-
-    private func setHidden(_ hidden: Bool, on item: PlayableItem) throws {
-        switch item {
-        case .baseGame(let wad): wad.isHidden = hidden
-        case .preset(let loadout): loadout.isHidden = hidden
-        }
-        try context.save()
-    }
-
-    /// Sets (or clears, with `nil`) a base game's per-item touch-scheme
-    /// override. `PlayableDetailView`'s Controls picker writes through here
-    /// for a `.baseGame` item.
-    func setSchemeOverride(_ raw: String?, forBaseGame wad: WADFile) throws {
-        wad.schemeOverrideRaw = raw
-        try saveChanges()
-    }
-
-    /// Sets (or clears, with `nil`) a preset's per-item touch-scheme
-    /// override. `PlayableDetailView`'s Controls picker writes through here
-    /// for a `.preset` item.
-    func setSchemeOverride(_ raw: String?, forPreset loadout: Loadout) throws {
-        loadout.schemeOverrideRaw = raw
-        try saveChanges()
-    }
-
     // MARK: Saves
 
-    /// A single visible save file in a playable item's saves directory (see
-    /// `savesDirectory(forLoadoutID:)`); `id` is the filename.
+    /// A single visible save file in a game's saves directory (see
+    /// `savesDirectory(forGameID:)`); `id` is the filename.
     struct SaveSlot: Identifiable, Equatable {
         let id: String
         let modified: Date
     }
 
-    /// Lists the save files for a playable item's saves key (base game ->
-    /// `wad.id`, preset -> `loadout.id`), newest-modified first. Empty (not
-    /// throwing) if the directory is missing or unreadable -- a brand new
-    /// item simply has no saves yet.
+    /// Lists the save files for a game's id, newest-modified first. Empty
+    /// (not throwing) if the directory is missing or unreadable -- a brand
+    /// new item simply has no saves yet.
     func saveSlots(forKey id: UUID) -> [SaveSlot] {
-        let dir = Self.savesDirectory(forLoadoutID: id)
+        let dir = Self.savesDirectory(forGameID: id)
         guard let files = try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: [.contentModificationDateKey],
             options: [.skipsHiddenFiles]) else { return [] }
@@ -429,11 +517,11 @@ final class LibraryService {
             .sorted { $0.modified > $1.modified }
     }
 
-    /// Deletes one save file for a playable item's saves key. Best-effort --
-    /// a missing file is not an error.
+    /// Deletes one save file for a game's id. Best-effort -- a missing file
+    /// is not an error.
     func deleteSave(_ slot: SaveSlot, forKey id: UUID) {
         try? FileManager.default.removeItem(
-            at: Self.savesDirectory(forLoadoutID: id).appendingPathComponent(slot.id))
+            at: Self.savesDirectory(forGameID: id).appendingPathComponent(slot.id))
     }
 
     // MARK: Paths
@@ -472,14 +560,14 @@ final class LibraryService {
     /// No-ops when the item already has a save: a real one must always win.
     func seedContinueSaveForCapture() throws {
         guard let item = try recentlyPlayed(limit: 1).first else { return }
-        guard saveSlots(forKey: item.savesKey).isEmpty else { return }
-        let dir = Self.savesDirectory(forLoadoutID: item.savesKey)
+        guard saveSlots(forKey: item.id).isEmpty else { return }
+        let dir = Self.savesDirectory(forGameID: item.id)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try Data().write(to: dir.appendingPathComponent(EngineSaveSlot.autoSaveFilename))
     }
     #endif
 
-    nonisolated static func savesDirectory(forLoadoutID id: UUID) -> URL {
+    nonisolated static func savesDirectory(forGameID id: UUID) -> URL {
         URL.documentsDirectory
             .appendingPathComponent("Saves", isDirectory: true)
             .appendingPathComponent(id.uuidString, isDirectory: true)

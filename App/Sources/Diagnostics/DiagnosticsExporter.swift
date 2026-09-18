@@ -50,8 +50,8 @@ enum DiagnosticsExporter {
     static func libraryLines(from library: LibraryService?) -> [String] {
         guard let library else { return [] }
         let wads = ((try? library.allWADs()) ?? []).map { "wad: \($0.filename)" }
-        let loadouts = ((try? library.allLoadouts()) ?? []).map { "loadout: \($0.name)" }
-        return wads + loadouts
+        let games = ((try? library.games()) ?? []).map { "game: \($0.name)" }
+        return wads + games
     }
 
     /// Sweeps abandoned export staging directories from prior runs. Age-gated

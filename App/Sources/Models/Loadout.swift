@@ -15,8 +15,8 @@ final class Loadout {
     /// value); nil = use the global default.
     var schemeOverrideRaw: String?
     /// Removed from the Play shelf, reversibly (spec §4). The row and its saves
-    /// persist; see `WADFile.isHidden`. Defaulted in place so existing stores
-    /// migrate lightweight.
+    /// persist. Legacy: moved to `Game`; read only by `LibraryService.migrateToGames`.
+    /// Defaulted in place so existing stores migrate lightweight.
     var isHidden: Bool = false
 
     init(id: UUID = UUID(), name: String, iwadID: UUID, pwadIDs: [UUID] = [],

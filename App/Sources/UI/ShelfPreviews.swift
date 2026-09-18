@@ -22,7 +22,7 @@ enum ShelfPreviewFixture {
     static func factory() -> (library: LibraryService, importer: ImportService) {
         do {
             let config = ModelConfiguration(isStoredInMemoryOnly: true)
-            let container = try ModelContainer(for: WADFile.self, Loadout.self,
+            let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self,
                                                configurations: config)
             let tmp = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -43,8 +43,8 @@ enum ShelfPreviewFixture {
     static func continueHero() -> (library: LibraryService, importer: ImportService) {
         let fixture = factory()
         do {
-            if let wad = try fixture.library.baseGames().first {
-                try fixture.library.markPlayed(wad)
+            if let game = try fixture.library.shelfGames().first {
+                try fixture.library.markPlayed(game)
                 try fixture.library.seedContinueSaveForCapture()
             }
         } catch {

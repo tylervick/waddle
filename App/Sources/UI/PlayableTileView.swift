@@ -8,15 +8,15 @@ import SwiftUI
 /// out piecemeal.
 ///
 /// `subtitle` is optional and unset on the shelf: the shelf mixes base games
-/// and presets in one grid with no kind labels (spec §2), so identity comes
-/// from the art and the recognized title alone.
+/// and modded games in one grid with no kind labels (spec §2), so identity
+/// comes from the art and the recognized title alone.
 struct PlayableTileView: View {
-    let item: PlayableItem
+    let game: Game
     var subtitle: String?
     let library: LibraryService
 
     var body: some View {
-        TitleArtView(item: item, library: library)
+        TitleArtView(game: game, library: library)
             .overlay(alignment: .bottom) { scrim }
             .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
             // The hairline that makes the tile an object (spec §5, amended
@@ -47,7 +47,7 @@ struct PlayableTileView: View {
     /// is still the whole one.
     private var scrim: some View {
         VStack(alignment: .leading, spacing: PlayableTileLayout.titleSubtitleSpacing) {
-            Text(item.title)
+            Text(game.name)
                 .font(.headline)
                 .foregroundStyle(.white)
                 .lineLimit(1)

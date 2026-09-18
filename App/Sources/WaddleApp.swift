@@ -34,7 +34,7 @@ struct WaddleApp: App {
         }
         #endif
         do {
-            let container = try ModelContainer(for: WADFile.self, Loadout.self)
+            let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self)
             let context = ModelContext(container)
             let store = WADStore.default
 
@@ -48,16 +48,27 @@ struct WaddleApp: App {
             if ProcessInfo.processInfo.environment["WADDLE_RESET_STORE"] != nil {
                 try? context.delete(model: WADFile.self)
                 try? context.delete(model: Loadout.self)
+                try? context.delete(model: Game.self)
                 try? context.save()
                 try? FileManager.default.removeItem(at: URL.documentsDirectory.appendingPathComponent("WADs", isDirectory: true))
                 try? FileManager.default.removeItem(at: URL.documentsDirectory.appendingPathComponent("Saves", isDirectory: true))
+                // Clear both migration flags too, so the reset seam yields a
+                // genuinely pre-migration slate rather than one that skips
+                // the seeder's game-creation because a flag survived the wipe.
+                UserDefaults.standard.removeObject(forKey: LibraryService.didMigrateToGamesKey)
+                UserDefaults.standard.removeObject(forKey: LibraryService.didReconcileBundledBaseGameLoadoutsKey)
             }
             #endif
 
             let library = LibraryService(context: context, store: store)
             let importer = ImportService(library: library, store: store)
-            try library.seedBundledContentIfNeeded()
+            // Order is load-bearing — see each method's doc comment: the
+            // legacy reconcile removes phantom loadouts before they could
+            // become games, the migration makes every existing row's game
+            // under its old id, and only then does the seeder fill gaps.
             try library.reconcileBundledBaseGameLoadouts()
+            try library.migrateToGames()
+            try library.seedBundledContentIfNeeded()
 
             // Test-only seam, same WADDLE_* family as the reset above. Gives
             // the most-recently-played item a save so the shelf's Continue

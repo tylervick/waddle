@@ -66,25 +66,26 @@ final class WADArtworkTests: XCTestCase {
     @MainActor
     func testCandidatesForBaseGameUseIWADItself() throws {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: WADFile.self, Loadout.self, configurations: config)
+        let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self, configurations: config)
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
         let service = LibraryService(context: ModelContext(container), store: WADStore(directory: tmp))
         let iwad = try service.registerImported(filename: "doom2.wad", sha1: "iwadsha",
                                                 kind: WADKind.iwad.rawValue, family: "doom2")
-        let c = WADArtwork.candidates(for: .baseGame(iwad), library: service)
+        let c = WADArtwork.candidates(for: try XCTUnwrap(try service.game(id: iwad.id)), library: service)
         XCTAssertEqual(c?.urls, [service.fileURL(for: iwad)])
         XCTAssertEqual(c?.cacheKey, "iwadsha")
     }
 
-    // Two presets sharing a first PWAD with no TITLEPIC of its own (so art
-    // falls back to the IWAD) must not collide on one cache entry when their
-    // IWADs differ -- the cache key needs both SHA1s, not just the PWAD's.
+    // Two modded games sharing a first PWAD with no TITLEPIC of its own (so
+    // art falls back to the IWAD) must not collide on one cache entry when
+    // their IWADs differ -- the cache key needs both SHA1s, not just the
+    // PWAD's.
     @MainActor
-    func testCandidatesForPresetUsesCompositeCacheKey() throws {
+    func testCandidatesForModdedGameUsesCompositeCacheKey() throws {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: WADFile.self, Loadout.self, configurations: config)
+        let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self, configurations: config)
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -93,11 +94,22 @@ final class WADArtworkTests: XCTestCase {
                                                 kind: WADKind.iwad.rawValue, family: "doom2")
         let pwad = try service.registerImported(filename: "sunlust.wad", sha1: "pw",
                                                 kind: WADKind.pwad.rawValue, family: "doom2")
-        let loadout = try service.createLoadout(name: "Sunlust", iwadID: iwad.id,
-                                                pwadIDs: [pwad.id], dehIDs: [])
-        let c = WADArtwork.candidates(for: .preset(loadout), library: service)
+        let game = try service.createGame(name: "Sunlust", baseID: iwad.id, fileIDs: [pwad.id])
+        let c = WADArtwork.candidates(for: game, library: service)
         XCTAssertEqual(c?.urls, [service.fileURL(for: pwad), service.fileURL(for: iwad)])
         XCTAssertEqual(c?.cacheKey, "pw-iw")
+    }
+
+    @MainActor
+    func testCandidatesForUnpairedGameAreNil() throws {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self, configurations: config)
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let service = LibraryService(context: ModelContext(container), store: WADStore(directory: tmp))
+        let game = try service.createGame(name: "Orphan", baseID: nil, fileIDs: [])
+        XCTAssertNil(WADArtwork.candidates(for: game, library: service))
     }
 
     func testDecodesSyntheticPNGTitlepic() async throws {
