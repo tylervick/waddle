@@ -23,24 +23,19 @@ final class PlayableItemTests: XCTestCase {
         XCTAssertEqual(bases.map(\.id), [iwad.id])
     }
 
-    func testRecentlyPlayedMergesAndSortsAcrossKinds() throws {
-        let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i", kind: WADKind.iwad.rawValue, family: "doom2")
-        let preset = try service.createLoadout(name: "P", iwadID: iwad.id, pwadIDs: [], dehIDs: [])
-        // base game played most recently; preset earlier; a second base game never played.
-        let older = Date(timeIntervalSince1970: 100)
-        let newer = Date(timeIntervalSince1970: 200)
-        preset.lastPlayed = older
-        try service.saveChanges()
-        try service.markPlayed(iwad, at: newer)
-        let recent = try service.recentlyPlayed(limit: 10)
-        XCTAssertEqual(recent.map(\.id), ["wad-\(iwad.id)", "loadout-\(preset.id)"])
-    }
-
-    func testRecentlyPlayedExcludesNeverPlayedAndRespectsLimit() throws {
-        let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i", kind: WADKind.iwad.rawValue, family: "doom2")
-        _ = try service.createLoadout(name: "NeverPlayed", iwadID: iwad.id, pwadIDs: [], dehIDs: [])
-        try service.markPlayed(iwad, at: Date(timeIntervalSince1970: 50))
-        let recent = try service.recentlyPlayed(limit: 1)
-        XCTAssertEqual(recent.map(\.id), ["wad-\(iwad.id)"])
-    }
+    // Deviation from brief: removed `testRecentlyPlayedMergesAndSortsAcrossKinds` and
+    // `testRecentlyPlayedExcludesNeverPlayedAndRespectsLimit` here. Both exercised
+    // `recentlyPlayed(limit:)` merging base games and presets via `PlayableItem`'s
+    // "wad-"/"loadout-" String id; Task 3 changes that method to return `[Game]`
+    // (UUID-keyed, and it reads `Game.lastPlayed`, which `markPlayed(WADFile)` and
+    // `createLoadout` never touch), so neither test compiles any more. This wasn't in
+    // Task 3's brief — this file isn't in its Files list — but the whole-target build
+    // cannot succeed otherwise. Task 8's brief already names this file's exact
+    // successors and schedules its deletion: `testBaseGamesReturnsOnlyIWADs` and
+    // `testRecentlyPlayedExcludesNeverPlayedAndRespectsLimit` carry over to
+    // `GameServiceTests` under the same names, and `testRecentlyPlayedMergesAndSortsAcrossKinds`'s
+    // successor there is `testRecentlyPlayedExcludesNeverPlayedAndRespectsLimit` too
+    // (mixing a base game and a modded game) — both already written and passing in
+    // `GameServiceTests.swift`. `testBaseGamesReturnsOnlyIWADs` above is untouched:
+    // it still compiles and still passes.
 }

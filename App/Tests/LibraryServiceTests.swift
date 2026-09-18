@@ -152,19 +152,14 @@ final class LibraryServiceTests: XCTestCase {
         XCTAssertNil(try service.findWAD(sha1: "nope"))
     }
 
-    func testDeleteWADReferencedByLoadoutThrowsUnlessForced() throws {
-        let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i1",
-                                                kind: WADKind.iwad.rawValue, family: "doom2")
+    func testDeleteWADBlockedByALegacyLoadoutIsNotAThing() throws {
+        // Loadout rows are a schema tombstone: nothing reads them for
+        // in-use checks any more. `GameServiceTests.testDeleteWADIsBlockedByAnyOtherGameUsingIt`
+        // is where the in-use rule lives now.
         let pwad = try service.registerImported(filename: "sunlust.wad", sha1: "p1",
                                                 kind: WADKind.pwad.rawValue, family: "doom2")
-        let loadout = try service.createLoadout(name: "Sunlust", iwadID: iwad.id,
-                                                pwadIDs: [pwad.id], dehIDs: [])
-        XCTAssertThrowsError(try service.deleteWAD(pwad, force: false)) {
-            XCTAssertEqual($0 as? LibraryError, .wadReferencedByLoadouts(["Sunlust"]))
-        }
-        try service.deleteWAD(pwad, force: true)
+        try service.deleteWAD(pwad)
         XCTAssertNil(try service.wad(id: pwad.id))
-        _ = loadout
     }
 
     func testDeleteLoadoutRemovesSavesWhenAsked() throws {
@@ -323,7 +318,13 @@ final class LibraryServiceTests: XCTestCase {
         try service.hide(.baseGame(iwad))
 
         XCTAssertFalse(try service.baseGames().contains { $0.id == iwad.id })
-        XCTAssertFalse(try service.recentlyPlayed(limit: 6).contains { $0.id == "wad-\(iwad.id)" })
+        // Deviation from brief: dropped the `recentlyPlayed(limit:).contains { $0.id
+        // == "wad-\(iwad.id)" }` check here — Task 3's `recentlyPlayed` now returns
+        // `[Game]` (keyed by UUID, not PlayableItem's "wad-"/"loadout-" String id) and
+        // reads `Game.lastPlayed`, which this test's `markPlayed(WADFile)` call never
+        // touches, so the old assertion no longer compiles and would be vacuously true
+        // either way. Task 7 removes this whole test; its coverage lives in
+        // `GameServiceTests.testShelfGamesExcludesHiddenAndHiddenGamesListsThem`.
         // Hidden is not deleted: the row, its id and its backing file all persist,
         // so Documents/Saves/<id>/ stays attached (spec §4).
         XCTAssertNotNil(try service.wad(id: iwad.id))
@@ -349,8 +350,10 @@ final class LibraryServiceTests: XCTestCase {
         try service.hide(.preset(preset))
 
         XCTAssertFalse(try service.presets().contains { $0.id == preset.id })
-        XCTAssertFalse(try service.recentlyPlayed(limit: 6)
-            .contains { $0.id == "loadout-\(preset.id)" })
+        // Deviation from brief: dropped the `recentlyPlayed(limit:).contains { $0.id
+        // == "loadout-\(preset.id)" }` check here for the same reason as the base-game
+        // version above — a preset is a `Loadout`, never a `Game`, so it can no longer
+        // appear in `recentlyPlayed(limit:)`'s `[Game]` result at all, hidden or not.
         XCTAssertEqual(try service.allLoadouts().map(\.name), ["Sunlust"],
                        "the row itself persists — hide is not delete")
     }

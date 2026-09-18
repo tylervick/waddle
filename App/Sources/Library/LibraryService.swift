@@ -2,7 +2,12 @@ import Foundation
 import SwiftData
 
 enum LibraryError: Error, Equatable {
+    /// Legacy name; removed with the old Loadout API (plan 1, Task 8).
     case wadReferencedByLoadouts([String])
+    /// The file is loaded by these games (spec §4.4) — remove it from them first.
+    case wadInUse([String])
+    /// Base games are hidden, never deleted (spec §4.4).
+    case cannotDeleteBaseGame
 }
 
 /// Where a library file's bytes live, from the Library tab's point of view:
@@ -46,28 +51,41 @@ final class LibraryService {
     // MARK: Seeding
 
     /// Registers the bundled Freedoom IWADs (read-only, live in the bundle's
-    /// GameData/) as directly-playable base games. Safe to call every launch:
-    /// each row stores its real content SHA-1 (so imports of byte-identical
-    /// files dedupe against it), but the hash is computed only the one time
-    /// the row is created — steady-state launches skip straight past the
-    /// existence check and never re-hash the ~30MB bundle files.
+    /// GameData/) and their base games. Safe to call every launch: each row
+    /// stores its real content SHA-1 (so imports of byte-identical files dedupe
+    /// against it), but the hash is computed only the one time the row is
+    /// created — steady-state launches skip straight past the existence checks
+    /// and never re-hash the ~30MB bundle files.
+    ///
+    /// The base game is created only when no `Game` with the IWAD's id exists,
+    /// hidden or not (spec §4.5). A hidden game still exists, so the player's
+    /// "Remove from Shelf" survives every launch and no second game with a
+    /// fresh id — and an empty saves directory — is ever made for it. Pinned by
+    /// `GameServiceTests.testSeederLeavesAHiddenBaseGameAlone`.
+    ///
+    /// Must run **after** `migrateToGames()`: on an upgraded install the
+    /// migration is what creates the bundled rows' base games, carrying their
+    /// hidden flag and last-played date across. Run first, this would create
+    /// them blank.
     func seedBundledContentIfNeeded() throws {
         let bundled: [(file: String, title: String, family: GameFamily)] = [
             ("freedoom1.wad", "Freedoom Phase 1", .doom1),
             ("freedoom2.wad", "Freedoom Phase 2", .doom2),
         ]
         for entry in bundled {
-            // Presence only — never filter this on `isHidden`. A hidden row is
-            // present, just off the shelf; treating it as missing would insert a
-            // duplicate under a fresh UUID and orphan Documents/Saves/<id>/,
-            // which is exactly what spec §4 made hiding reversible to avoid.
-            // Pinned by `testSeederTreatsHiddenBundledRowAsPresent`.
-            if try wadByFilename(entry.file, bundled: true) != nil { continue }
-            let wad = WADFile(filename: entry.file, displayName: entry.title,
+            let wad: WADFile
+            if let existing = try wadByFilename(entry.file, bundled: true) {
+                wad = existing
+            } else {
+                wad = WADFile(filename: entry.file, displayName: entry.title,
                               kindRaw: WADKind.iwad.rawValue,
                               sha1: try WADStore.sha1(ofFileAt: Self.bundledURL(forFilename: entry.file)),
-                              gameFamilyRaw: entry.family.rawValue, isBundled: true)
-            context.insert(wad)
+                              gameFamilyRaw: entry.family.rawValue, isBundled: true, hasMaps: true)
+                context.insert(wad)
+            }
+            if try game(id: wad.id) == nil {
+                context.insert(Game.baseGame(for: wad))
+            }
         }
         try context.save()
     }
@@ -155,26 +173,56 @@ final class LibraryService {
 
     // MARK: Queries
 
-    /// Base games (IWADs) on the Play shelf — bundled first, then by title.
-    /// Excludes hidden rows, so a base game the player removed from the shelf
-    /// is offered nowhere it could be started from (this feeds the preset
-    /// builder's IWAD picker too). Presets already built on a hidden base game
-    /// keep working: the launcher resolves their IWAD by id, not through here.
+    /// Every installed IWAD — bundled first, then by title. This is the base
+    /// picker's list (spec §3.2); whether the IWAD's own game is hidden is a
+    /// shelf matter and does not remove it from here.
     func baseGames() throws -> [WADFile] {
-        try baseGames(hidden: false)
-    }
-
-    private func baseGames(hidden: Bool) throws -> [WADFile] {
         try allWADs()
-            .filter { $0.kindRaw == WADKind.iwad.rawValue && $0.isHidden == hidden }
+            .filter { $0.kindRaw == WADKind.iwad.rawValue }
             .sorted { ($0.isBundled ? 0 : 1, $0.displayName) < ($1.isBundled ? 0 : 1, $1.displayName) }
     }
 
-    /// Base games + presets that have been played, most-recent-first, capped.
-    func recentlyPlayed(limit: Int) throws -> [PlayableItem] {
-        let items = try baseGames().map(PlayableItem.baseGame)
-            + presets().map(PlayableItem.preset)
-        return items
+    // MARK: Games
+
+    /// Every game, most recently played first, then newest created. Backs the
+    /// Manage inventory and the diagnostics dump — the shelf reads
+    /// `shelfGames()`.
+    func games() throws -> [Game] {
+        try context.fetch(FetchDescriptor<Game>()).sorted {
+            ($0.lastPlayed ?? $0.createdAt) > ($1.lastPlayed ?? $1.createdAt)
+        }
+    }
+
+    /// Everything the shelf shows, unordered by shelf rules (`Shelf.ordered`
+    /// does that): every game minus hidden ones. "A hidden game never reaches
+    /// the shelf" is a property of this one call.
+    func shelfGames() throws -> [Game] {
+        try games().filter { !$0.isHidden }
+    }
+
+    /// Everything the player took off the shelf, for the Restore list.
+    func hiddenGames() throws -> [Game] {
+        try games().filter(\.isHidden)
+    }
+
+    func game(id: UUID) throws -> Game? {
+        var descriptor = FetchDescriptor<Game>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        return try context.fetch(descriptor).first
+    }
+
+    /// Games that load `fileID` as their base or in their file list. An IWAD's
+    /// own base game is included — `deleteWAD` is the one caller that has to
+    /// set it aside.
+    func gamesUsing(fileID: UUID) throws -> [Game] {
+        try context.fetch(FetchDescriptor<Game>()).filter {
+            $0.baseID == fileID || $0.fileIDs.contains(fileID)
+        }
+    }
+
+    /// Games that have been played, most-recent-first, capped.
+    func recentlyPlayed(limit: Int) throws -> [Game] {
+        try games()
             .filter { $0.lastPlayed != nil }
             .sorted { ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }
             .prefix(limit)
@@ -199,35 +247,37 @@ final class LibraryService {
 
     /// Everything the player has taken off the shelf, for Manage → Hidden from
     /// Shelf. Base games first, then presets, each in its shelf order.
+    ///
+    /// Deviation from brief: the brief's `baseGames()` (c) drops the private
+    /// `baseGames(hidden:)` helper this used to call, since the base picker it
+    /// now backs has no hidden filter (spec §3.2). This inlines that helper's
+    /// old `isHidden`-filtered query so `hiddenItems()` keeps compiling and
+    /// keeps its pre-existing behavior verbatim until Task 8 removes it.
     func hiddenItems() throws -> [PlayableItem] {
-        try baseGames(hidden: true).map(PlayableItem.baseGame)
+        try allWADs()
+            .filter { $0.kindRaw == WADKind.iwad.rawValue && $0.isHidden }
+            .sorted { ($0.isBundled ? 0 : 1, $0.displayName) < ($1.isBundled ? 0 : 1, $1.displayName) }
+            .map(PlayableItem.baseGame)
             + allLoadouts().filter(\.isHidden).map(PlayableItem.preset)
     }
 
     /// True while the library is still exactly what the app shipped with:
-    /// nothing imported, no presets, and nothing saved anywhere. This is spec
-    /// §4's factory state, and the only condition under which the shelf shows
-    /// its welcome card -- once any of the three stops holding, it never holds
-    /// again, so the card does not come back.
+    /// nothing imported, no game but the bundled base games, and nothing saved
+    /// anywhere (launcher spec §4). Once any of the three stops holding, it
+    /// never holds again, so the welcome card does not come back.
     ///
-    /// Two deliberate choices about what counts:
-    ///
-    /// - It asks the *whole* library, not `shelfItems()`. A mod arriving by
-    ///   share sheet is never a shelf item and a hidden row is not one either,
-    ///   but both mean somebody's own files are in here, and greeting them as a
-    ///   new arrival afterwards would be wrong.
-    /// - "Any save" means any file in any item's saves directory, not a
-    ///   *resumable* one. The Continue hero is strict about that distinction
-    ///   (`PlayableLauncher.continuableSlot`) because it offers to boot the
-    ///   save; this only asks whether the player has got as far as playing, and
-    ///   a save the engine cannot resume still answers that yes.
+    /// It asks the *whole* library, not `shelfGames()`: a mod arriving by
+    /// share sheet is not (yet) a game and a hidden game is not on the shelf,
+    /// but both mean somebody's own things are in here. "Any save" means any
+    /// file in any game's saves directory, not a *resumable* one — that
+    /// stricter question is the Continue hero's
+    /// (`GameLauncher.continuableSlot`).
     func isFactoryState() throws -> Bool {
         let wads = try allWADs()
         guard !wads.contains(where: { !$0.isBundled }) else { return false }
-        guard try allLoadouts().isEmpty else { return false }
-        // Both guards held, so the bundled rows are the whole library and
-        // theirs are the only saves directories that can be in play.
-        return !wads.contains { !saveSlots(forKey: $0.id).isEmpty }
+        let games = try games()
+        guard !games.contains(where: { !$0.isBaseGame }) else { return false }
+        return !games.contains { !saveSlots(forKey: $0.id).isEmpty }
     }
 
     func allWADs() throws -> [WADFile] {
@@ -299,17 +349,22 @@ final class LibraryService {
 
     @discardableResult
     func registerImported(filename: String, sha1: String, kind: String,
-                          family: String) throws -> WADFile {
+                          family: String, hasMaps: Bool = false) throws -> WADFile {
         // Content-derived title first, filename only as a fallback: a
         // recognized commercial IWAD is titled by what it *is*, so renaming
-        // doom2.wad before importing it cannot change what the Play tab calls
-        // it. Anything unrecognized — every PWAD, every mod — keeps the
-        // filename behavior this line has always had.
+        // doom2.wad before importing it cannot change what the shelf calls it.
+        // Anything unrecognized — every PWAD, every mod — keeps the filename
+        // behaviour this line has always had.
         let wad = WADFile(filename: filename,
                           displayName: recognizedTitle(sha1)
                               ?? (filename as NSString).deletingPathExtension,
-                          kindRaw: kind, sha1: sha1, gameFamilyRaw: family)
+                          kindRaw: kind, sha1: sha1, gameFamilyRaw: family, hasMaps: hasMaps)
         context.insert(wad)
+        // An IWAD is a game the moment it arrives (spec §2.1). Map sets become
+        // games in plan 3; add-ons never do.
+        if kind == WADKind.iwad.rawValue {
+            context.insert(Game.baseGame(for: wad))
+        }
         try context.save()
         return wad
     }
@@ -339,16 +394,69 @@ final class LibraryService {
         try context.save()
     }
 
+    @discardableResult
+    func createGame(name: String, baseID: UUID?, fileIDs: [UUID],
+                    complevel: String? = nil) throws -> Game {
+        let game = Game(name: name, baseID: baseID, fileIDs: fileIDs, complevel: complevel)
+        context.insert(game)
+        try context.save()
+        return game
+    }
+
+    /// Deletes a game and its saves (spec §4.3). Base games are hidden, never
+    /// deleted (spec §4.4). Whether to also delete the game's files is the
+    /// caller's decision (`deleteWAD`), made with the "used by" answer in hand.
+    func deleteGame(_ game: Game) throws {
+        guard !game.isBaseGame else { throw LibraryError.cannotDeleteBaseGame }
+        try? FileManager.default.removeItem(at: Self.savesDirectory(forGameID: game.id))
+        context.delete(game)
+        try context.save()
+    }
+
+    /// Off the shelf without destroying anything: the row, its files and its
+    /// saves all stay put. Reversible with `restore(_:)`.
+    func hide(_ game: Game) throws {
+        game.isHidden = true
+        try context.save()
+    }
+
+    func restore(_ game: Game) throws {
+        game.isHidden = false
+        try context.save()
+    }
+
+    /// Date is injectable for deterministic tests.
+    func markPlayed(_ game: Game, at date: Date = .now) throws {
+        game.lastPlayed = date
+        try context.save()
+    }
+
+    /// Sets (or clears, with `nil`) a game's touch-layout override.
+    func setSchemeOverride(_ raw: String?, for game: Game) throws {
+        game.schemeOverrideRaw = raw
+        try context.save()
+    }
+
     func loadoutsReferencing(wadID: UUID) throws -> [Loadout] {
         try context.fetch(FetchDescriptor<Loadout>()).filter {
             $0.iwadID == wadID || $0.pwadIDs.contains(wadID) || $0.dehIDs.contains(wadID)
         }
     }
 
-    func deleteWAD(_ wad: WADFile, force: Bool) throws {
-        let referencing = try loadoutsReferencing(wadID: wad.id)
-        if !referencing.isEmpty && !force {
-            throw LibraryError.wadReferencedByLoadouts(referencing.map(\.name))
+    /// Deletes a file (spec §4.4). Blocked while any game *other than the
+    /// IWAD's own base game* loads it — that carve-out is what makes an
+    /// imported IWAD deletable at all. Deleting an IWAD takes its base game
+    /// and that game's saves with it. Bundled files keep their bytes (they are
+    /// in the signed app bundle); only the row goes.
+    func deleteWAD(_ wad: WADFile) throws {
+        let blockers = try gamesUsing(fileID: wad.id)
+            .filter { !($0.isBaseGame && $0.baseID == wad.id) }
+        if !blockers.isEmpty {
+            throw LibraryError.wadInUse(blockers.map(\.name))
+        }
+        if let own = try game(id: wad.id), own.isBaseGame {
+            try? FileManager.default.removeItem(at: Self.savesDirectory(forGameID: own.id))
+            context.delete(own)
         }
         if !wad.isBundled {
             try? store.delete(filename: wad.filename)
@@ -472,8 +580,8 @@ final class LibraryService {
     /// No-ops when the item already has a save: a real one must always win.
     func seedContinueSaveForCapture() throws {
         guard let item = try recentlyPlayed(limit: 1).first else { return }
-        guard saveSlots(forKey: item.savesKey).isEmpty else { return }
-        let dir = Self.savesDirectory(forGameID: item.savesKey)
+        guard saveSlots(forKey: item.id).isEmpty else { return }
+        let dir = Self.savesDirectory(forGameID: item.id)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try Data().write(to: dir.appendingPathComponent(EngineSaveSlot.autoSaveFilename))
     }

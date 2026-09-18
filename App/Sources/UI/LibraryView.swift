@@ -84,8 +84,8 @@ struct LibraryView: View {
         var blocked = existing
         for wad in wads {
             do {
-                try library.deleteWAD(wad, force: false)
-            } catch LibraryError.wadReferencedByLoadouts(let names) {
+                try library.deleteWAD(wad)
+            } catch LibraryError.wadInUse(let names) {
                 blocked = blockedFiles(blocked, adding: names, for: wad.filename)
             } catch {}
         }
