@@ -315,8 +315,8 @@ final class ImportServiceTests: XCTestCase {
         let outcome = await importer.adoptLooseFiles()
         XCTAssertEqual(outcome.imported, ["dropped"])
 
-        let groups = try library.libraryGroups()
-        let mods = try XCTUnwrap(groups.first { $0.kind == .pwad })
+        let groups = try library.fileGroups()
+        let mods = try XCTUnwrap(groups.first { $0.role == .mapSet })
         XCTAssertTrue(mods.wads.contains { $0.filename == "dropped.wad" })
         XCTAssertEqual(mods.wads.first { $0.filename == "dropped.wad" }
                            .map { library.fileStatus(for: $0) }, .imported)

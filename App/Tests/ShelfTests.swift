@@ -304,6 +304,14 @@ final class ShelfTests: XCTestCase {
 
     // MARK: - Tap resolution
 
+    /// Spec §3.1: an unpaired game's tile opens its page instead of launching,
+    /// whatever its saves say — there is nothing to launch.
+    func testTapOnAnUnpairedGameOpensItsPage() throws {
+        let orphan = try service.createGame(name: "Orphan", baseID: nil, fileIDs: [])
+        XCTAssertEqual(Shelf.tapAction(for: orphan) { _ in true }, .openPage)
+        XCTAssertEqual(Shelf.tapAction(for: orphan) { _ in false }, .openPage)
+    }
+
     func testTapWithASaveOpensTheActionSheet() throws {
         let wad = try service.registerImported(filename: "doom2.wad", sha1: "i",
                                                kind: WADKind.iwad.rawValue, family: "doom2")

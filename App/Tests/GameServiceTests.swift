@@ -294,4 +294,115 @@ final class GameServiceTests: XCTestCase {
         _ = try pwad()
         XCTAssertFalse(try service.isFactoryState())
     }
+
+    // MARK: Edits in place (spec §3.2)
+
+    func testRenameSetBaseSetFilesAndSetComplevelPersist() throws {
+        let base = try iwad("doom2.wad")
+        let other = try iwad("plutonia.wad")
+        let a = try pwad("a.wad"), b = try pwad("b.wad")
+        let game = try service.createGame(name: "Old", baseID: base.id, fileIDs: [a.id])
+
+        try service.rename(game, to: "New")
+        try service.setBase(game, baseID: other.id)
+        try service.setFiles(game, fileIDs: [b.id, a.id])
+        try service.setComplevel(game, "mbf21")
+
+        let saved = try XCTUnwrap(try service.game(id: game.id))
+        XCTAssertEqual(saved.name, "New")
+        XCTAssertEqual(saved.baseID, other.id)
+        XCTAssertEqual(saved.fileIDs, [b.id, a.id])
+        XCTAssertEqual(saved.complevel, "mbf21")
+    }
+
+    func testSetBaseRefusesABaseGame() throws {
+        let base = try iwad("doom2.wad")
+        let other = try iwad("plutonia.wad")
+        let game = try XCTUnwrap(try service.game(id: base.id))
+        XCTAssertThrowsError(try service.setBase(game, baseID: other.id)) {
+            XCTAssertEqual($0 as? LibraryError, .baseGameIsLocked)
+        }
+        XCTAssertEqual(try service.game(id: base.id)?.baseID, base.id)
+    }
+
+    func testDuplicateCopiesContentsUnderANewIdWithNoSavesOrHistory() throws {
+        let base = try iwad("doom2.wad")
+        let a = try pwad("a.wad")
+        let game = try service.createGame(name: "Sunlust", baseID: base.id, fileIDs: [a.id], complevel: "boom")
+        try service.setSchemeOverride(TouchControlScheme.classic.rawValue, for: game)
+        try service.markPlayed(game, at: Date(timeIntervalSince1970: 10))
+        try service.hide(game)
+        _ = try writeSave(forKey: game.id)
+
+        let copy = try service.duplicate(game)
+
+        XCTAssertNotEqual(copy.id, game.id)
+        XCTAssertEqual(copy.name, "Sunlust copy")
+        XCTAssertEqual(copy.baseID, base.id)
+        XCTAssertEqual(copy.fileIDs, [a.id])
+        XCTAssertEqual(copy.complevel, "boom")
+        XCTAssertEqual(copy.schemeOverrideRaw, TouchControlScheme.classic.rawValue)
+        XCTAssertFalse(copy.isBaseGame)
+        XCTAssertFalse(copy.isHidden, "a copy is a fresh tile even if the original is hidden")
+        XCTAssertNil(copy.lastPlayed)
+        XCTAssertTrue(service.saveSlots(forKey: copy.id).isEmpty, "saves stay with the original")
+        XCTAssertEqual(service.saveSlots(forKey: game.id).count, 1)
+    }
+
+    func testDuplicateOfABaseGameIsAnOrdinaryGame() throws {
+        let base = try iwad("doom2.wad")
+        let game = try XCTUnwrap(try service.game(id: base.id))
+        let copy = try service.duplicate(game)
+        XCTAssertFalse(copy.isBaseGame)
+        XCTAssertEqual(copy.baseID, base.id)
+        XCTAssertNotEqual(copy.id, base.id, "the copy must not steal the base game's saves key")
+    }
+
+    func testDuplicateApplyingAnEditLeavesTheOriginalUntouched() throws {
+        let base = try iwad("doom2.wad")
+        let a = try pwad("a.wad"), b = try pwad("b.wad")
+        let game = try service.createGame(name: "Sunlust", baseID: base.id, fileIDs: [a.id])
+
+        let copy = try service.duplicate(game, applying: .files([a.id, b.id]))
+
+        XCTAssertEqual(copy.fileIDs, [a.id, b.id])
+        XCTAssertEqual(try service.game(id: game.id)?.fileIDs, [a.id], "Duplicate Instead never edits the original")
+    }
+
+    // MARK: Delete offer (spec §4.4)
+
+    func testDeletableMapSetsAreTheGamesUnsharedNonBundledMapSets() throws {
+        let base = try iwad("doom2.wad")
+        let shared = try pwad("shared.wad")
+        let mine = try pwad("mine.wad")
+        let addOn = try pwad("smooth.wad", hasMaps: false)
+        let game = try service.createGame(name: "A", baseID: base.id, fileIDs: [shared.id, mine.id, addOn.id])
+        _ = try service.createGame(name: "B", baseID: base.id, fileIDs: [shared.id])
+
+        XCTAssertEqual(try service.deletableMapSets(of: game).map(\.id), [mine.id],
+                       "shared map sets and add-ons are never offered")
+    }
+
+    // MARK: Files screen groups (spec §3.4)
+
+    func testFileGroupsAreByRoleBundledFirstThenFilename() throws {
+        try service.seedBundledContentIfNeeded()
+        _ = try iwad("DOOM2.WAD")
+        _ = try pwad("sunlust.wad")
+        _ = try pwad("smooth.wad", hasMaps: false)
+        _ = try service.registerImported(filename: "fix.deh", sha1: "deh", kind: WADKind.deh.rawValue,
+                                         family: GameFamily.unknown.rawValue)
+
+        let groups = try service.fileGroups()
+
+        XCTAssertEqual(groups.map(\.title), ["Base games", "Map sets", "Add-ons"])
+        XCTAssertEqual(groups[0].wads.map(\.filename), ["freedoom1.wad", "freedoom2.wad", "DOOM2.WAD"])
+        XCTAssertEqual(groups[1].wads.map(\.filename), ["sunlust.wad"])
+        XCTAssertEqual(groups[2].wads.map(\.filename), ["fix.deh", "smooth.wad"], "patches and map-less PWADs share one group")
+    }
+
+    func testFileGroupsOmitEmptyRoles() throws {
+        _ = try pwad("sunlust.wad")
+        XCTAssertEqual(try service.fileGroups().map(\.title), ["Map sets"])
+    }
 }

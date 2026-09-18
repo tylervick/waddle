@@ -16,7 +16,7 @@ struct LibraryView: View {
     let onPlay: (Game, LaunchMode) -> Void
 
     @Environment(\.openURL) private var openURL
-    @State private var groups: [LibraryGroup] = []
+    @State private var groups: [FileGroup] = []
     @State private var games: [Game] = []
     @State private var hidden: [Game] = []
     @State private var showImporter = false
@@ -122,7 +122,7 @@ struct LibraryView: View {
                 } header: {
                     Text(group.title)
                 } footer: {
-                    if group.kind == .deh {
+                    if group.role == .addOn {
                         Text("Patches modify a base game and aren't playable on their own — add them to a preset's Contents.")
                     }
                 }
@@ -312,7 +312,7 @@ struct LibraryView: View {
     }
 
     private func refresh() {
-        groups = (try? library.libraryGroups()) ?? []
+        groups = (try? library.fileGroups()) ?? []
         games = ((try? library.games()) ?? []).filter { !$0.isBaseGame && !$0.isHidden }
         hidden = (try? library.hiddenGames()) ?? []
     }

@@ -388,6 +388,9 @@ struct ShelfView: View {
             switch Shelf.tapAction(for: game, hasResumableSave: hasResumableSave) {
             case .actionSheet: actionItem = game
             case .launchNewGame: play(game, mode: .newGame)
+            // No GamePage view yet (plan 2's later tasks add it) — Details is
+            // the closest existing screen and where the base picker lives.
+            case .openPage: detailItem = game
             }
         } label: {
             PlayableTileView(game: game, library: library)

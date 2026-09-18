@@ -17,6 +17,9 @@ enum Shelf {
         case actionSheet
         /// Nothing to resume: straight to the engine's title screen, as before.
         case launchNewGame
+        /// Unpaired (`baseID == nil`): nothing to launch; the page is where the
+        /// base gets chosen (spec §3.1).
+        case openPage
     }
 
     /// Shelf order: everything played, most recent first, then everything else
@@ -102,7 +105,8 @@ enum Shelf {
     /// Tap resolution for a tile (spec §2's tile interactions).
     static func tapAction(for game: Game,
                           hasResumableSave: (Game) -> Bool) -> TapAction {
-        hasResumableSave(game) ? .actionSheet : .launchNewGame
+        guard game.baseID != nil else { return .openPage }
+        return hasResumableSave(game) ? .actionSheet : .launchNewGame
     }
 
     /// What the grid shows under the hero zone: everything in shelf order,
