@@ -47,9 +47,9 @@ enum TileAccessibility {
         return "\(title), last played \(formatter.localizedString(for: lastPlayed, relativeTo: now))"
     }
 
-    static func label(for item: PlayableItem,
+    static func label(for game: Game,
                       now: Date = Date(),
                       locale: Locale = .autoupdatingCurrent) -> String {
-        label(title: item.title, lastPlayed: item.lastPlayed, now: now, locale: locale)
+        label(title: game.name, lastPlayed: game.lastPlayed, now: now, locale: locale)
     }
 }

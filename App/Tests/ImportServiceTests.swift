@@ -574,4 +574,17 @@ final class ImportServiceTests: XCTestCase {
         let wad = try XCTUnwrap(try library.allWADs().first { $0.sha1 == expected })
         XCTAssertEqual(wad.kindRaw, WADKind.pwad.rawValue)
     }
+
+    /// A PWAD with map lumps registers as a map set; one with only graphics
+    /// lumps registers as an add-on (spec §2.1) -- `WADFile.role` reads this
+    /// straight off `hasMaps`, so the import path has to set it.
+    func testImportRecordsWhetherAPWADCarriesMaps() throws {
+        let maps = try write("maps.wad", makeWAD(magic: "PWAD", lumps: ["MAP01", "THINGS"]))
+        let gfx = try write("gfx.wad", makeWAD(magic: "PWAD", lumps: ["TITLEPIC"]))
+
+        _ = importer.importFiles(at: [maps, gfx])
+
+        XCTAssertEqual(try library.allWADs().first { $0.filename.hasPrefix("maps") }?.role, .mapSet)
+        XCTAssertEqual(try library.allWADs().first { $0.filename.hasPrefix("gfx") }?.role, .addOn)
+    }
 }

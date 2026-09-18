@@ -1,16 +1,16 @@
 import SwiftUI
 import UIKit
 
-/// The single Read/Update/Delete surface for any playable item -- base game
-/// *or* preset -- reached from the Play grid's "Details" context action. Same
+/// The single Read/Update/Delete surface for any game -- a base game or a
+/// modded one -- reached from the Play grid's "Details" context action. Same
 /// layout for both; editability differs (see the design spec's "The detail
 /// page" section). Follows the `NavigationStack { Form { ... } }` pattern
 /// used by `LoadoutEditorView`.
 struct PlayableDetailView: View {
-    let item: PlayableItem
+    let game: Game
     let library: LibraryService
-    let onPlay: (PlayableItem, LaunchMode) -> Void
-    let onEdit: (Loadout) -> Void
+    let onPlay: (Game, LaunchMode) -> Void
+    let onEdit: (Game) -> Void
     let onChanged: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -30,21 +30,21 @@ struct PlayableDetailView: View {
     @State private var artContentWidth: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
 
-    init(item: PlayableItem, library: LibraryService,
-         onPlay: @escaping (PlayableItem, LaunchMode) -> Void,
-         onEdit: @escaping (Loadout) -> Void,
+    init(game: Game, library: LibraryService,
+         onPlay: @escaping (Game, LaunchMode) -> Void,
+         onEdit: @escaping (Game) -> Void,
          onChanged: @escaping () -> Void) {
-        self.item = item
+        self.game = game
         self.library = library
         self.onPlay = onPlay
         self.onEdit = onEdit
         self.onChanged = onChanged
-        _scheme = State(initialValue: item.schemeOverrideRaw.flatMap(TouchControlScheme.init(rawValue:)))
+        _scheme = State(initialValue: game.schemeOverrideRaw.flatMap(TouchControlScheme.init(rawValue:)))
     }
 
     /// The saves-directory key for this item -- see `PlayableItem.savesKey`,
     /// which `PlayableLauncher` keys the launch off too.
-    private var savesKey: UUID { item.savesKey }
+    private var savesKey: UUID { game.id }
 
     /// Non-nil when this item has a save the engine can boot straight into, in
     /// which case the header offers Continue. Derived from `saves`, so it
@@ -79,11 +79,11 @@ struct PlayableDetailView: View {
                 viewportHeight = size.height
             }
             .waddleScrollSurface()
-            .navigationTitle(item.title)
+            .navigationTitle(game.name)
             .navigationBarTitleDisplayMode(.inline)
             .onAppear { saves = library.saveSlots(forKey: savesKey) }
             .sheet(isPresented: $showCreatePresetFromBase, onDismiss: onChanged) {
-                if case .baseGame(let wad) = item {
+                if let baseID = game.baseID, let wad = try? library.wad(id: baseID) {
                     LoadoutEditorView(library: library, existing: nil, seedIWAD: wad)
                 }
             }
@@ -117,20 +117,20 @@ struct PlayableDetailView: View {
             // entirely -- not just out of sight, but out of the accessibility
             // hierarchy. `PlayableDetailLayout` owns that arithmetic and is
             // where it is tested.
-            TitleArtView(item: item, library: library,
+            TitleArtView(game: game, library: library,
                          aspectRatio: Theme.heroAspectRatio,
                          height: PlayableDetailLayout.artHeight(
                             contentWidth: artContentWidth,
                             viewportHeight: viewportHeight,
                             captionHeight: captionHeight))
-            Text(item.title).font(.title2.bold())
+            Text(game.name).font(.title2.bold())
             // With a resumable save, Continue takes the prominent slot and Play
             // becomes the explicit "New Game" half of the pair -- the
             // predecessor's RESUME/NEW split. With no saves the `else` branch
             // is exactly the single prominent Play button this has always been.
             if continuableSlot != nil {
                 Button {
-                    onPlay(item, .continueNewest)
+                    onPlay(game, .continueNewest)
                 } label: {
                     Label("Continue", systemImage: "clock.arrow.circlepath")
                         .frame(maxWidth: .infinity)
@@ -140,7 +140,7 @@ struct PlayableDetailView: View {
                 .accessibilityIdentifier("detailContinueButton")
 
                 Button {
-                    onPlay(item, .newGame)
+                    onPlay(game, .newGame)
                 } label: {
                     Label("New Game", systemImage: "play.fill")
                         .frame(maxWidth: .infinity)
@@ -150,7 +150,7 @@ struct PlayableDetailView: View {
                 .accessibilityIdentifier("detailPlayButton")
             } else {
                 Button {
-                    onPlay(item, .newGame)
+                    onPlay(game, .newGame)
                 } label: {
                     Label("Play", systemImage: "play.fill")
                         .frame(maxWidth: .infinity)
@@ -165,21 +165,32 @@ struct PlayableDetailView: View {
     @ViewBuilder
     private var contentsSection: some View {
         Section("Contents") {
-            switch item {
-            case .baseGame(let wad):
-                Text("Base: \(wad.displayName)")
-            case .preset(let loadout):
-                LabeledContent("Base", value: (try? library.wad(id: loadout.iwadID))?.displayName ?? "?")
-                LabeledContent("Mods", value: modsSummary(loadout))
-                LabeledContent("Patches", value: patchesSummary(loadout))
-                LabeledContent("Compat", value: loadout.complevel ?? "Auto")
+            LabeledContent("Base", value: baseName)
+            if !game.isBaseGame {
+                LabeledContent("Mods", value: names(ofKind: .pwad))
+                LabeledContent("Patches", value: names(ofKind: .deh))
+                LabeledContent("Compat", value: game.complevel ?? "Auto")
                 Button("Edit") {
-                    onEdit(loadout)
+                    onEdit(game)
                     dismiss()
                 }
                 .accessibilityIdentifier("detailEditButton")
             }
         }
+    }
+
+    private var baseName: String {
+        guard let baseID = game.baseID else { return "None" }
+        return (try? library.wad(id: baseID))?.displayName ?? "?"
+    }
+
+    /// The game's files of one kind, in load order, as a display list.
+    private func names(ofKind kind: WADKind) -> String {
+        let names = game.fileIDs
+            .compactMap { try? library.wad(id: $0) }
+            .filter { $0.kind == kind }
+            .map(\.displayName)
+        return names.isEmpty ? "None" : names.joined(separator: ", ")
     }
 
     private var controlsSection: some View {
@@ -215,26 +226,23 @@ struct PlayableDetailView: View {
 
     @ViewBuilder
     private var footerSection: some View {
-        switch item {
-        case .baseGame:
+        if game.isBaseGame {
             Section {
                 Button("Create preset from this") {
                     showCreatePresetFromBase = true
                 }
                 .accessibilityIdentifier("createPresetFromBaseButton")
             }
-        case .preset(let loadout):
+        } else {
             Section {
-                Button("Delete Preset & Saves", role: .destructive) {
-                    try? library.deleteLoadout(loadout, deleteSaves: true)
+                // One button (spec §4.4): deleting a game deletes its saves.
+                // The keep-saves fork is gone with the preset concept.
+                Button("Delete Game", role: .destructive) {
+                    try? library.deleteGame(game)
                     onChanged()
                     dismiss()
                 }
-                Button("Delete Preset, Keep Saves", role: .destructive) {
-                    try? library.deleteLoadout(loadout, deleteSaves: false)
-                    onChanged()
-                    dismiss()
-                }
+                .accessibilityIdentifier("detailDeleteGameButton")
             }
         }
     }
@@ -242,12 +250,7 @@ struct PlayableDetailView: View {
     // MARK: Actions
 
     private func applySchemeOverride(_ raw: String?) {
-        switch item {
-        case .baseGame(let wad):
-            try? library.setSchemeOverride(raw, forBaseGame: wad)
-        case .preset(let loadout):
-            try? library.setSchemeOverride(raw, forPreset: loadout)
-        }
+        try? library.setSchemeOverride(raw, for: game)
         onChanged()
     }
 
@@ -256,15 +259,5 @@ struct PlayableDetailView: View {
             library.deleteSave(saves[index], forKey: savesKey)
         }
         saves = library.saveSlots(forKey: savesKey)
-    }
-
-    private func modsSummary(_ loadout: Loadout) -> String {
-        let names = loadout.pwadIDs.compactMap { try? library.wad(id: $0)?.displayName }
-        return names.isEmpty ? "None" : names.joined(separator: ", ")
-    }
-
-    private func patchesSummary(_ loadout: Loadout) -> String {
-        let names = loadout.dehIDs.compactMap { try? library.wad(id: $0)?.displayName }
-        return names.isEmpty ? "None" : names.joined(separator: ", ")
     }
 }

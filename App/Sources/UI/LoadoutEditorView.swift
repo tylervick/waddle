@@ -2,7 +2,7 @@ import SwiftUI
 
 struct LoadoutEditorView: View {
     let library: LibraryService
-    let existing: Loadout?
+    let existing: Game?
     /// Base game to pre-seed a *new* loadout with (from `PresetCreationFlow`);
     /// ignored when editing an `existing` loadout.
     let seedIWAD: WADFile?
@@ -17,7 +17,7 @@ struct LoadoutEditorView: View {
     var onComplete: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
 
-    init(library: LibraryService, existing: Loadout?, seedIWAD: WADFile? = nil,
+    init(library: LibraryService, existing: Game?, seedIWAD: WADFile? = nil,
          onComplete: (() -> Void)? = nil) {
         self.library = library
         self.existing = existing
@@ -120,9 +120,10 @@ struct LoadoutEditorView: View {
     private func populate() {
         if let existing {
             name = existing.name
-            iwadID = existing.iwadID
-            pwadIDs = existing.pwadIDs
-            dehIDs = existing.dehIDs
+            iwadID = existing.baseID
+            let files = existing.fileIDs.compactMap { id in (try? library.wad(id: id)).map { (id, $0.kind) } }
+            pwadIDs = files.filter { $0.1 == .pwad }.map(\.0)
+            dehIDs = files.filter { $0.1 == .deh }.map(\.0)
             complevel = existing.complevel
         } else if let seedIWAD {
             iwadID = seedIWAD.id
@@ -142,16 +143,13 @@ struct LoadoutEditorView: View {
         guard let iwadID else { return }
         if let existing {
             existing.name = name
-            existing.iwadID = iwadID
-            existing.pwadIDs = pwadIDs
-            existing.dehIDs = dehIDs
+            existing.baseID = iwadID
+            existing.fileIDs = pwadIDs + dehIDs
             existing.complevel = complevel
             try? library.saveChanges()
         } else {
-            let loadout = try? library.createLoadout(name: name, iwadID: iwadID,
-                                                     pwadIDs: pwadIDs, dehIDs: dehIDs)
-            loadout?.complevel = complevel
-            try? library.saveChanges()
+            _ = try? library.createGame(name: name, baseID: iwadID,
+                                        fileIDs: pwadIDs + dehIDs, complevel: complevel)
         }
         complete()
     }

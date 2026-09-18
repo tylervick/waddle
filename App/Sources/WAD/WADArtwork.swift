@@ -112,28 +112,25 @@ enum WADArtwork {
         }.value
     }
 
-    /// Maps a `PlayableItem` to the candidate URLs (+ cache key) `titleImage`
-    /// should search: a base game is its own IWAD; a preset searches its
-    /// primary PWAD first (where TITLEPIC usually lives), falling back to the
-    /// IWAD. `nil` if the item's IWAD can't be resolved in `library` (e.g. a
-    /// preset referencing a deleted WAD).
+    /// Maps a `Game` to the candidate URLs (+ cache key) `titleImage` should
+    /// search: a base game is its own IWAD; a modded game searches its first
+    /// PWAD (where TITLEPIC usually lives), falling back to the IWAD. `nil`
+    /// when the game is unpaired or its base cannot be resolved (a deleted
+    /// WAD).
     @MainActor
-    static func candidates(for item: PlayableItem, library: LibraryService) -> (urls: [URL], cacheKey: String)? {
-        switch item {
-        case .baseGame(let iwad):
+    static func candidates(for game: Game, library: LibraryService) -> (urls: [URL], cacheKey: String)? {
+        guard let baseID = game.baseID, let iwad = try? library.wad(id: baseID) else { return nil }
+        let firstPWAD = game.fileIDs
+            .compactMap { try? library.wad(id: $0) }
+            .first { $0.kind == .pwad }
+        guard let pwad = firstPWAD else {
             return ([library.fileURL(for: iwad)], iwad.sha1)
-        case .preset(let loadout):
-            guard let iwad = try? library.wad(id: loadout.iwadID) else { return nil }
-            guard let pwadID = loadout.pwadIDs.first,
-                  let pwad = try? library.wad(id: pwadID) else {
-                return ([library.fileURL(for: iwad)], iwad.sha1)
-            }
-            // Keyed on both SHA1s: two presets can share a first PWAD that
-            // has no TITLEPIC of its own (so art resolves from the IWAD
-            // fallback) -- if those presets differ in IWAD, keying by
-            // `pwad.sha1` alone would collide them onto one cache entry.
-            return ([library.fileURL(for: pwad), library.fileURL(for: iwad)], "\(pwad.sha1)-\(iwad.sha1)")
         }
+        // Keyed on both SHA1s: two games can share a first PWAD that has no
+        // TITLEPIC of its own (so art resolves from the IWAD fallback) -- if
+        // those games differ in IWAD, keying by `pwad.sha1` alone would
+        // collide them onto one cache entry.
+        return ([library.fileURL(for: pwad), library.fileURL(for: iwad)], "\(pwad.sha1)-\(iwad.sha1)")
     }
 
     private static func cgImage(from bitmap: DoomGraphics.Bitmap) -> CGImage? {

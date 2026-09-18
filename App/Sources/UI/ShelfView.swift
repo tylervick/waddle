@@ -6,28 +6,28 @@ import UIKit
 /// library workspace. Replaces the Play/Library `TabView`; management is
 /// reachable but never on the primary path.
 ///
-/// Composition is decided entirely by `LibraryService.shelfItems()` and the
+/// Composition is decided entirely by `LibraryService.shelfGames()` and the
 /// pure functions in `Shelf`, which is what the hermetic tests exercise.
 struct ShelfView: View {
     let library: LibraryService
     let importer: ImportService
     @Binding var lastExitCode: Int32?
 
-    @State private var items: [PlayableItem] = []
+    @State private var items: [Game] = []
     /// What the top zone shows: the welcome card, a Continue hero, or nothing.
     /// `Shelf.heroZone` decides; this only holds the answer.
     @State private var zone: Shelf.HeroZone = .empty
     @State private var showImporter = false
-    @State private var detailItem: PlayableItem?
+    @State private var detailItem: Game?
     /// The item whose tap opened the Continue / New Game / Details sheet.
-    @State private var actionItem: PlayableItem?
+    @State private var actionItem: Game?
 
-    @State private var editorLoadout: Loadout?
+    @State private var editorGame: Game?
     // Presenting the editor sheet must wait until the detail sheet has fully
     // dismissed (see `.sheet(item: $detailItem, onDismiss:)` below): setting
-    // `editorLoadout` and dismissing the detail sheet in the same synchronous
+    // `editorGame` and dismissing the detail sheet in the same synchronous
     // pass is a same-transaction dismiss/present race (fixed once in cfaed69).
-    @State private var pendingEditLoadout: Loadout?
+    @State private var pendingEditGame: Game?
     @State private var showPlayerSettings = false
     @AppStorage(debugHUDUserDefaultsKey) private var debugHUD: Bool = false
     @State private var errorAlert: EngineErrorAlert?
@@ -54,7 +54,7 @@ struct ShelfView: View {
             VStack(alignment: .leading, spacing: ShelfHeroLayout.sectionSpacing) {
                 switch zone {
                 case .welcome: welcomeCard
-                case .resume(let item): hero(for: item)
+                case .resume(let game): hero(for: game)
                 case .empty: EmptyView()
                 }
                 LazyVGrid(columns: columns, spacing: gridSpacing) {
@@ -107,24 +107,24 @@ struct ShelfView: View {
         .wadFileImporter(isPresented: $showImporter, importer: importer) { _ in
             refresh()
         }
-        .sheet(item: $editorLoadout, onDismiss: refresh) { loadout in
-            LoadoutEditorView(library: library, existing: loadout)
+        .sheet(item: $editorGame, onDismiss: refresh) { game in
+            LoadoutEditorView(library: library, existing: game)
         }
         .sheet(item: $detailItem, onDismiss: {
             // Promote the pending edit only after the detail sheet is fully
             // gone, keeping the dismiss-then-present pair in separate
             // transactions.
-            if let loadout = pendingEditLoadout {
-                pendingEditLoadout = nil
-                editorLoadout = loadout
+            if let game = pendingEditGame {
+                pendingEditGame = nil
+                editorGame = game
             }
         }) { item in
-            PlayableDetailView(item: item, library: library,
+            PlayableDetailView(game: item, library: library,
                                onPlay: { play($0, mode: $1) },
-                               onEdit: { pendingEditLoadout = $0 },
+                               onEdit: { pendingEditGame = $0 },
                                onChanged: refresh)
         }
-        .confirmationDialog(actionItem?.title ?? "", isPresented: actionDialogBinding,
+        .confirmationDialog(actionItem?.name ?? "", isPresented: actionDialogBinding,
                             titleVisibility: .visible, presenting: actionItem) { item in
             Button("Continue") { play(item, mode: .continueNewest) }
                 .accessibilityIdentifier("continueAction")
@@ -316,12 +316,12 @@ struct ShelfView: View {
     /// for more height than the whole screen has, which used to push the grid
     /// — and this hero's own caption — below the fold. `ShelfHeroLayout` owns
     /// that arithmetic and is where it is tested.
-    private func hero(for item: PlayableItem) -> some View {
+    private func hero(for game: Game) -> some View {
         Button {
-            play(item, mode: .continueNewest)
+            play(game, mode: .continueNewest)
         } label: {
             VStack(alignment: .leading, spacing: heroCaptionSpacing) {
-                TitleArtView(item: item, library: library,
+                TitleArtView(game: game, library: library,
                              aspectRatio: Theme.heroAspectRatio,
                              height: ShelfHeroLayout.artHeight(
                                 contentWidth: heroContentWidth,
@@ -329,7 +329,7 @@ struct ShelfView: View {
                                 captionHeight: heroCaptionHeight))
                     .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius,
                                                 style: .continuous))
-                Text(item.title).font(.title2.bold())
+                Text(game.name).font(.title2.bold())
                 HStack(spacing: 4) {
                     // Continue is this screen's primary action, so it — and
                     // only it — wears the one red accent (spec §5). The
@@ -339,7 +339,7 @@ struct ShelfView: View {
                         Text("Continue")
                     }
                     .foregroundStyle(Color.appAccent)
-                    if let played = item.lastPlayed {
+                    if let played = game.lastPlayed {
                         Text("·")
                         Text(played, format: .relative(presentation: .named))
                     }
@@ -351,8 +351,8 @@ struct ShelfView: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("continueHero")
-        .accessibilityLabel("Continue \(TileAccessibility.label(for: item))")
-        .contextMenu { contextMenuItems(for: item) }
+        .accessibilityLabel("Continue \(TileAccessibility.label(for: game))")
+        .contextMenu { contextMenuItems(for: game) }
     }
 
     /// The ghost tile closing a small library's grid (spec §5, amended
@@ -383,24 +383,24 @@ struct ShelfView: View {
         .accessibilityLabel("Add Games")
     }
 
-    private func tile(for item: PlayableItem) -> some View {
+    private func tile(for game: Game) -> some View {
         Button {
-            switch Shelf.tapAction(for: item, hasResumableSave: hasResumableSave) {
-            case .actionSheet: actionItem = item
-            case .launchNewGame: play(item, mode: .newGame)
+            switch Shelf.tapAction(for: game, hasResumableSave: hasResumableSave) {
+            case .actionSheet: actionItem = game
+            case .launchNewGame: play(game, mode: .newGame)
             }
         } label: {
-            PlayableTileView(item: item, library: library)
+            PlayableTileView(game: game, library: library)
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier(accessibilityID(for: item))
+        .accessibilityIdentifier(accessibilityID(for: game))
         // Replaces the merged title-plus-scrim reading with spec §5's phrasing
         // ("DOOM II, last played yesterday"). Set here rather than inside
         // `PlayableTileView` on purpose: the label belongs to the button that
         // already owns this tile's identifier and traits, and making the tile
         // its own accessibility element would split the two apart.
-        .accessibilityLabel(TileAccessibility.label(for: item))
-        .contextMenu { contextMenuItems(for: item) }
+        .accessibilityLabel(TileAccessibility.label(for: game))
+        .contextMenu { contextMenuItems(for: game) }
     }
 
     /// One menu for every presentation of an item. The hero needs it too
@@ -408,45 +408,42 @@ struct ShelfView: View {
     /// tile, so this menu is where that game's New Game, Details and Remove
     /// live — losing the tile must not lose the gestures.
     @ViewBuilder
-    private func contextMenuItems(for item: PlayableItem) -> some View {
-        if hasResumableSave(item) {
-            Button("Continue") { play(item, mode: .continueNewest) }
+    private func contextMenuItems(for game: Game) -> some View {
+        if hasResumableSave(game) {
+            Button("Continue") { play(game, mode: .continueNewest) }
         }
-        Button("New Game") { play(item, mode: .newGame) }
-        Button("Details") { detailItem = item }
-        if case .preset(let loadout) = item {
-            Button("Edit") { editorLoadout = loadout }
+        Button("New Game") { play(game, mode: .newGame) }
+        Button("Details") { detailItem = game }
+        if !game.isBaseGame {
+            Button("Edit") { editorGame = game }
         }
         Button("Remove from Shelf", role: .destructive) {
-            try? library.hide(item)
+            try? library.hide(game)
             refresh()
         }
     }
 
-    private func hasResumableSave(_ item: PlayableItem) -> Bool {
-        PlayableLauncher.continuableSlot(for: item, library: library) != nil
+    private func hasResumableSave(_ game: Game) -> Bool {
+        GameLauncher.continuableSlot(for: game, library: library) != nil
     }
 
-    private func accessibilityID(for item: PlayableItem) -> String {
-        if item.title == "Freedoom Phase 1" && item.isBaseGame {
+    /// Identifiers the UI tests address tiles by. Kept byte-for-byte through
+    /// the Game switch (plan 1); plan 2 renames them with the screens.
+    private func accessibilityID(for game: Game) -> String {
+        if game.isBaseGame && game.name == "Freedoom Phase 1" {
             return "playFreedoom1"
         }
-        switch item {
-        case .baseGame:
-            return item.id
-        case .preset(let loadout):
-            return "loadout-\(loadout.name)"
-        }
+        return game.isBaseGame ? "wad-\(game.id)" : "loadout-\(game.name)"
     }
 
-    private func play(_ item: PlayableItem, mode: LaunchMode = .newGame) {
+    private func play(_ game: Game, mode: LaunchMode = .newGame) {
         lastExitCode = nil
         // Recorded before prepare() can throw: the user did try to start this
         // one, and a "session begin" with an immediate argument-failure end is
         // a truer trail than no begin at all.
-        BreadcrumbLog.shared.record(.sessionBegin(name: item.title))
+        BreadcrumbLog.shared.record(.sessionBegin(name: game.name))
         do {
-            let plan = try PlayableLauncher.prepare(item, library: library, mode: mode)
+            let plan = try GameLauncher.prepare(game, library: library, mode: mode)
             let exitCode = EngineSession.play(arguments: plan.arguments, scheme: plan.scheme)
             lastExitCode = exitCode
             BreadcrumbLog.shared.record(
@@ -455,7 +452,7 @@ struct ShelfView: View {
             present(EngineErrorAlert.from(exitCode: exitCode,
                                           engineMessage: EngineSession.lastErrorMessage))
         } catch {
-            let message = "A file in this preset is missing from the library."
+            let message = "A file in this game is missing from the library."
             lastExitCode = EngineSession.ExitCode.argumentFailure
             BreadcrumbLog.shared.record(
                 .sessionEnd(exitCode: EngineSession.ExitCode.argumentFailure,
@@ -486,7 +483,7 @@ struct ShelfView: View {
     }
 
     private func refresh() {
-        let all = (try? library.shelfItems()) ?? []
+        let all = (try? library.shelfGames()) ?? []
         items = Shelf.ordered(all)
         // A library that cannot be read is not a factory-state one: falling
         // back to `false` keeps a transient read failure from greeting a

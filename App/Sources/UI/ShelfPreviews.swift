@@ -43,8 +43,8 @@ enum ShelfPreviewFixture {
     static func continueHero() -> (library: LibraryService, importer: ImportService) {
         let fixture = factory()
         do {
-            if let wad = try fixture.library.baseGames().first {
-                try fixture.library.markPlayed(wad)
+            if let game = try fixture.library.shelfGames().first {
+                try fixture.library.markPlayed(game)
                 try fixture.library.seedContinueSaveForCapture()
             }
         } catch {

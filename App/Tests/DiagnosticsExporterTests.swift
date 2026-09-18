@@ -140,14 +140,13 @@ final class DiagnosticsLibraryLinesTests: XCTestCase {
         try? FileManager.default.removeItem(at: tmp)
     }
 
-    func testLibraryLinesNameWADsAndLoadoutsOnly() throws {
+    func testLibraryLinesNameWADsAndGamesOnly() throws {
         let wad = try service.registerImported(filename: "gothic.wad", sha1: "abc123",
                                      kind: "pwad", family: GameFamily.doom2.rawValue)
-        try service.createLoadout(name: "Gothic Run", iwadID: wad.id,
-                                  pwadIDs: [wad.id], dehIDs: [])
+        _ = try service.createGame(name: "Gothic Run", baseID: nil, fileIDs: [wad.id])
         let lines = DiagnosticsExporter.libraryLines(from: service)
         XCTAssertTrue(lines.contains { $0.contains("gothic.wad") })
-        XCTAssertTrue(lines.contains { $0.contains("loadout: Gothic Run") })
+        XCTAssertTrue(lines.contains { $0.contains("game: Gothic Run") })
         XCTAssertFalse(lines.joined().contains("abc123"),
             "hashes and paths stay out; names only")
     }
