@@ -2,8 +2,6 @@ import Foundation
 import SwiftData
 
 enum LibraryError: Error, Equatable {
-    /// Legacy name; removed with the old Loadout API (plan 1, Task 8).
-    case wadReferencedByLoadouts([String])
     /// The file is loaded by these games (spec §4.4) — remove it from them first.
     case wadInUse([String])
     /// Base games are hidden, never deleted (spec §4.4).
@@ -276,38 +274,6 @@ final class LibraryService {
             .map { $0 }
     }
 
-    /// Presets on the Play shelf, in `allLoadouts()`' order minus hidden rows.
-    /// `allLoadouts()` deliberately still reports every preset — it backs the
-    /// Library inventory and the diagnostics dump, neither of which is a shelf.
-    func presets() throws -> [Loadout] {
-        try allLoadouts().filter { !$0.isHidden }
-    }
-
-    /// Everything the shelf shows, unordered: base games and presets mixed, with
-    /// hidden rows already excluded by `baseGames()`/`presets()`. `ShelfView`
-    /// reads exactly this and then hands it to `Shelf.ordered` — so "a hidden
-    /// item never reaches the shelf" is a property of this one call rather than
-    /// of a filter the view could forget to apply.
-    func shelfItems() throws -> [PlayableItem] {
-        try baseGames().map(PlayableItem.baseGame) + presets().map(PlayableItem.preset)
-    }
-
-    /// Everything the player has taken off the shelf, for Manage → Hidden from
-    /// Shelf. Base games first, then presets, each in its shelf order.
-    ///
-    /// Deviation from brief: the brief's `baseGames()` (c) drops the private
-    /// `baseGames(hidden:)` helper this used to call, since the base picker it
-    /// now backs has no hidden filter (spec §3.2). This inlines that helper's
-    /// old `isHidden`-filtered query so `hiddenItems()` keeps compiling and
-    /// keeps its pre-existing behavior verbatim until Task 8 removes it.
-    func hiddenItems() throws -> [PlayableItem] {
-        try allWADs()
-            .filter { $0.kindRaw == WADKind.iwad.rawValue && $0.isHidden }
-            .sorted { ($0.isBundled ? 0 : 1, $0.displayName) < ($1.isBundled ? 0 : 1, $1.displayName) }
-            .map(PlayableItem.baseGame)
-            + allLoadouts().filter(\.isHidden).map(PlayableItem.preset)
-    }
-
     /// True while the library is still exactly what the app shipped with:
     /// nothing imported, no game but the bundled base games, and nothing saved
     /// anywhere (launcher spec §4). Once any of the three stops holding, it
@@ -330,12 +296,6 @@ final class LibraryService {
     func allWADs() throws -> [WADFile] {
         try context.fetch(FetchDescriptor<WADFile>(
             sortBy: [SortDescriptor(\.importDate, order: .reverse)]))
-    }
-
-    func allLoadouts() throws -> [Loadout] {
-        try context.fetch(FetchDescriptor<Loadout>()).sorted {
-            ($0.lastPlayed ?? $0.createdAt) > ($1.lastPlayed ?? $1.createdAt)
-        }
     }
 
     func wad(id: UUID) throws -> WADFile? {
@@ -386,14 +346,6 @@ final class LibraryService {
 
     // MARK: Mutations
 
-    /// Stamps a directly-played WAD's `lastPlayed` (base games launch without
-    /// a persisted Loadout, so recency is tracked on the file itself). Date is
-    /// injectable for deterministic tests.
-    func markPlayed(_ wad: WADFile, at date: Date = .now) throws {
-        wad.lastPlayed = date
-        try context.save()
-    }
-
     @discardableResult
     func registerImported(filename: String, sha1: String, kind: String,
                           family: String, hasMaps: Bool = false) throws -> WADFile {
@@ -424,19 +376,10 @@ final class LibraryService {
         try context.save()
     }
 
-    @discardableResult
-    func createLoadout(name: String, iwadID: UUID, pwadIDs: [UUID],
-                       dehIDs: [UUID]) throws -> Loadout {
-        let loadout = Loadout(name: name, iwadID: iwadID, pwadIDs: pwadIDs, dehIDs: dehIDs)
-        context.insert(loadout)
-        try context.save()
-        return loadout
-    }
-
     /// Persists in-place mutations made directly to fetched/created model
-    /// instances (e.g. editing an existing Loadout's fields, or bumping
-    /// lastPlayed) — those mutations aren't saved on their own; SwiftData's
-    /// autosave is not immediate/guaranteed at the point callers need it.
+    /// instances (e.g. editing a Game's fields, or bumping lastPlayed) —
+    /// those mutations aren't saved on their own; SwiftData's autosave is not
+    /// immediate/guaranteed at the point callers need it.
     func saveChanges() throws {
         try context.save()
     }
@@ -484,12 +427,6 @@ final class LibraryService {
         try context.save()
     }
 
-    func loadoutsReferencing(wadID: UUID) throws -> [Loadout] {
-        try context.fetch(FetchDescriptor<Loadout>()).filter {
-            $0.iwadID == wadID || $0.pwadIDs.contains(wadID) || $0.dehIDs.contains(wadID)
-        }
-    }
-
     /// Deletes a file (spec §4.4). Blocked while any game *other than the
     /// IWAD's own base game* loads it — that carve-out is what makes an
     /// imported IWAD deletable at all. Deleting an IWAD takes its base game
@@ -512,50 +449,6 @@ final class LibraryService {
         try context.save()
     }
 
-    func deleteLoadout(_ loadout: Loadout, deleteSaves: Bool) throws {
-        if deleteSaves {
-            try? FileManager.default.removeItem(
-                at: Self.savesDirectory(forGameID: loadout.id))
-        }
-        context.delete(loadout)
-        try context.save()
-    }
-
-    /// Removes a playable item from the shelf without destroying anything:
-    /// the row, its backing file and its saves all stay put. Reversible with
-    /// `restore(_:)`; hidden items are enumerated by `hiddenItems()`.
-    func hide(_ item: PlayableItem) throws {
-        try setHidden(true, on: item)
-    }
-
-    /// Puts a hidden item back on the shelf.
-    func restore(_ item: PlayableItem) throws {
-        try setHidden(false, on: item)
-    }
-
-    private func setHidden(_ hidden: Bool, on item: PlayableItem) throws {
-        switch item {
-        case .baseGame(let wad): wad.isHidden = hidden
-        case .preset(let loadout): loadout.isHidden = hidden
-        }
-        try context.save()
-    }
-
-    /// Sets (or clears, with `nil`) a base game's per-item touch-scheme
-    /// override. `PlayableDetailView`'s Controls picker writes through here
-    /// for a `.baseGame` item.
-    func setSchemeOverride(_ raw: String?, forBaseGame wad: WADFile) throws {
-        wad.schemeOverrideRaw = raw
-        try saveChanges()
-    }
-
-    /// Sets (or clears, with `nil`) a preset's per-item touch-scheme
-    /// override. `PlayableDetailView`'s Controls picker writes through here
-    /// for a `.preset` item.
-    func setSchemeOverride(_ raw: String?, forPreset loadout: Loadout) throws {
-        loadout.schemeOverrideRaw = raw
-        try saveChanges()
-    }
 
     // MARK: Saves
 
@@ -566,10 +459,9 @@ final class LibraryService {
         let modified: Date
     }
 
-    /// Lists the save files for a playable item's saves key (base game ->
-    /// `wad.id`, preset -> `loadout.id`), newest-modified first. Empty (not
-    /// throwing) if the directory is missing or unreadable -- a brand new
-    /// item simply has no saves yet.
+    /// Lists the save files for a game's id, newest-modified first. Empty
+    /// (not throwing) if the directory is missing or unreadable -- a brand
+    /// new item simply has no saves yet.
     func saveSlots(forKey id: UUID) -> [SaveSlot] {
         let dir = Self.savesDirectory(forGameID: id)
         guard let files = try? FileManager.default.contentsOfDirectory(
@@ -584,8 +476,8 @@ final class LibraryService {
             .sorted { $0.modified > $1.modified }
     }
 
-    /// Deletes one save file for a playable item's saves key. Best-effort --
-    /// a missing file is not an error.
+    /// Deletes one save file for a game's id. Best-effort -- a missing file
+    /// is not an error.
     func deleteSave(_ slot: SaveSlot, forKey id: UUID) {
         try? FileManager.default.removeItem(
             at: Self.savesDirectory(forGameID: id).appendingPathComponent(slot.id))

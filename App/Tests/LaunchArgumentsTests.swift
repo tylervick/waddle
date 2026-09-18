@@ -9,59 +9,6 @@ final class LaunchArgumentsTests: XCTestCase {
         }
     }
 
-    func testIWADOnly() throws {
-        let loadout = Loadout(name: "F1", iwadID: UUID())
-        let args = try LaunchArguments.build(
-            loadout: loadout, resolve: resolver([loadout.iwadID: "/gd/freedoom1.wad"]))
-        let loadoutID = loadout.id
-        addTeardownBlock { try? FileManager.default.removeItem(at: LibraryService.savesDirectory(forGameID: loadoutID)) }
-        XCTAssertEqual(Array(args.prefix(3)), ["woof", "-iwad", "/gd/freedoom1.wad"])
-        XCTAssertEqual(args[3], "-save")
-        XCTAssertTrue(args[4].hasSuffix("/Saves/\(loadout.id.uuidString)"))
-        XCTAssertFalse(args.contains("-file"))
-        XCTAssertFalse(args.contains("-complevel"))
-    }
-
-    func testFullStackKeepsPWADOrderAndSpaces() throws {
-        let iwad = UUID(), a = UUID(), b = UUID(), deh = UUID()
-        let loadout = Loadout(name: "EvII", iwadID: iwad, pwadIDs: [b, a], dehIDs: [deh])
-        loadout.complevel = "mbf21"
-        let args = try LaunchArguments.build(loadout: loadout, resolve: resolver([
-            iwad: "/gd/freedoom2.wad",
-            a: "/wads/a.wad",
-            b: "/wads/Eviternity II.wad",
-            deh: "/wads/fix.deh",
-        ]))
-        let loadoutID = loadout.id
-        addTeardownBlock { try? FileManager.default.removeItem(at: LibraryService.savesDirectory(forGameID: loadoutID)) }
-        let fileIdx = args.firstIndex(of: "-file")!
-        XCTAssertEqual(args[fileIdx + 1], "/wads/Eviternity II.wad") // order preserved, space intact
-        XCTAssertEqual(args[fileIdx + 2], "/wads/a.wad")
-        let dehIdx = args.firstIndex(of: "-deh")!
-        XCTAssertEqual(args[dehIdx + 1], "/wads/fix.deh")
-        XCTAssertEqual(args.last!, "mbf21")
-        XCTAssertEqual(args[args.count - 2], "-complevel")
-    }
-
-    func testMissingWADThrows() {
-        let loadout = Loadout(name: "broken", iwadID: UUID())
-        XCTAssertThrowsError(try LaunchArguments.build(loadout: loadout,
-                                                        resolve: resolver([:]))) {
-            XCTAssertEqual($0 as? LaunchArgumentsError, .missingWAD(loadout.iwadID))
-        }
-    }
-
-    func testSavesDirectoryIsCreated() throws {
-        let loadout = Loadout(name: "F1", iwadID: UUID())
-        _ = try LaunchArguments.build(
-            loadout: loadout, resolve: resolver([loadout.iwadID: "/gd/f1.wad"]))
-        let saves = LibraryService.savesDirectory(forGameID: loadout.id)
-        var isDir: ObjCBool = false
-        XCTAssertTrue(FileManager.default.fileExists(atPath: saves.path, isDirectory: &isDir))
-        XCTAssertTrue(isDir.boolValue)
-        try? FileManager.default.removeItem(at: saves)
-    }
-
     func testBuildBaseGameOnlyArgv() throws {
         let saveID = UUID()
         let args = try LaunchArguments.build(
@@ -90,20 +37,6 @@ final class LaunchArgumentsTests: XCTestCase {
             iwadURL: URL(fileURLWithPath: "/tmp/doom2.wad"), saveID: saveID)
         addTeardownBlock { try? FileManager.default.removeItem(at: LibraryService.savesDirectory(forGameID: saveID)) }
         XCTAssertFalse(args.contains("-loadgame"))
-    }
-
-    func testLoadoutOverloadForwardsTheLoadGameSlot() throws {
-        let loadout = Loadout(name: "F1", iwadID: UUID())
-        loadout.complevel = "mbf21"
-        let args = try LaunchArguments.build(
-            loadout: loadout, resolve: resolver([loadout.iwadID: "/gd/freedoom1.wad"]),
-            loadGameSlot: EngineSaveSlot.autoSaveArgument)
-        let loadoutID = loadout.id
-        addTeardownBlock { try? FileManager.default.removeItem(at: LibraryService.savesDirectory(forGameID: loadoutID)) }
-        let idx = try XCTUnwrap(args.firstIndex(of: "-loadgame"))
-        XCTAssertEqual(args[idx + 1], "255")
-        // -complevel still trails it, as the pre-Continue argv order had it.
-        XCTAssertEqual(Array(args.suffix(2)), ["-complevel", "mbf21"])
     }
 
     func testBuildWithPWADsAndComplevel() throws {

@@ -17,7 +17,7 @@ struct PlayableDetailView: View {
 
     /// Mirrors the item's `schemeOverrideRaw` for the Controls picker.
     /// Written back through `LibraryService.setSchemeOverride` on change --
-    /// see the type-level doc comment on `PlayableItem.schemeOverrideRaw`.
+    /// see the type-level doc comment on `Game.schemeOverrideRaw`.
     @State private var scheme: TouchControlScheme?
     @State private var saves: [LibraryService.SaveSlot] = []
     @State private var showCreatePresetFromBase = false
@@ -42,8 +42,8 @@ struct PlayableDetailView: View {
         _scheme = State(initialValue: game.schemeOverrideRaw.flatMap(TouchControlScheme.init(rawValue:)))
     }
 
-    /// The saves-directory key for this item -- see `PlayableItem.savesKey`,
-    /// which `PlayableLauncher` keys the launch off too.
+    /// The saves-directory key for this item -- see `game.id`, which
+    /// `GameLauncher` keys the launch off too.
     private var savesKey: UUID { game.id }
 
     /// Non-nil when this item has a save the engine can boot straight into, in

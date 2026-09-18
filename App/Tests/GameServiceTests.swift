@@ -2,9 +2,9 @@ import SwiftData
 import XCTest
 @testable import Waddle
 
-/// `LibraryService` over `Game` (spec §§2, 4). Every behaviour the old
-/// Loadout/PlayableItem API had a test for is carried here against `Game`;
-/// the plan's Task 8 maps each removed test to its row in this file.
+/// `LibraryService` over `Game` (spec §§2, 4). Every behaviour the pre-`Game`
+/// model had a test for is carried here against `Game`; the plan's Task 8
+/// maps each removed test to its row in this file.
 @MainActor
 final class GameServiceTests: XCTestCase {
     var service: LibraryService!

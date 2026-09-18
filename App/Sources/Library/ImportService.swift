@@ -34,7 +34,7 @@ struct ImportOutcome: Equatable {
 
 /// Result of the off-main parse+hash step for a candidate .wad, handed back
 /// to the MainActor caller to decide rejection vs. store+register. Kept
-/// deliberately tiny (String/String payloads only) so it crosses the
+/// deliberately tiny (Strings and a Bool only) so it crosses the
 /// Task.detached boundary without any Sendable ceremony.
 private enum WADCandidateResult {
     case rejected(String)

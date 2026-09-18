@@ -1,5 +1,20 @@
 import Foundation
 
+struct LaunchPlan {
+    let arguments: [String]
+    let scheme: TouchControlScheme
+}
+
+/// How a launch enters the game.
+enum LaunchMode {
+    /// The engine's own entry point: title screen, then the player's menus.
+    case newGame
+    /// Straight into the item's most recently modified loadable save, via
+    /// `-loadgame` (see `EngineSaveSlot`). Falls back to `.newGame`'s argv when
+    /// the item has no loadable save, so an item without saves is unchanged.
+    case continueNewest
+}
+
 enum GameLaunchError: Error, Equatable {
     case missingWAD(UUID)
 }

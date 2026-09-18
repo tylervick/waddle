@@ -59,16 +59,4 @@ enum LaunchArguments {
                          dehURLs: dehURLs, complevel: game.complevel,
                          loadGameSlot: loadGameSlot)
     }
-
-    /// Legacy `Loadout` overload. Kept only until `PlayableLauncher` is deleted
-    /// (plan 1, Task 8); nothing new may call it.
-    static func build(loadout: Loadout, resolve: (UUID) throws -> URL,
-                      loadGameSlot: Int? = nil) throws -> [String] {
-        let iwadURL = try resolve(loadout.iwadID)
-        let pwadURLs = try loadout.pwadIDs.map { try resolve($0) }
-        let dehURLs = try loadout.dehIDs.map { try resolve($0) }
-        return try build(iwadURL: iwadURL, saveID: loadout.id,
-                         pwadURLs: pwadURLs, dehURLs: dehURLs, complevel: loadout.complevel,
-                         loadGameSlot: loadGameSlot)
-    }
 }

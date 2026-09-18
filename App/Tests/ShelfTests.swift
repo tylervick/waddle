@@ -4,7 +4,7 @@ import XCTest
 
 /// Covers the shelf's composition rules (spec §§2, 7): what the grid contains
 /// and in what order, when the Continue hero appears, and what a tap resolves
-/// to. `ShelfView` reads `LibraryService.shelfItems()` and then calls nothing
+/// to. `ShelfView` reads `LibraryService.shelfGames()` and then calls nothing
 /// but `Shelf.ordered` / `Shelf.hero` / `Shelf.tapAction`, so these are the
 /// screen's decisions rather than a helper it could bypass.
 @MainActor
@@ -217,7 +217,7 @@ final class ShelfTests: XCTestCase {
         XCTAssertEqual(try zone(), .resume(try XCTUnwrap(try service.game(id: freedoom.id))))
     }
 
-    /// A mod is never a shelf item, so a rule written over `shelfItems()` would
+    /// A mod is never a shelf item, so a rule written over `shelfGames()` would
     /// keep greeting someone who has already brought their own files in.
     func testAnImportedModEndsFactoryStateThoughItNeverReachesTheShelf() throws {
         try service.seedBundledContentIfNeeded()

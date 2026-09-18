@@ -42,8 +42,9 @@ final class LibraryServiceTests: XCTestCase {
         }
     }
 
-    /// A pre-`Game` preset row. `createLoadout` is gone; the reconcile these
-    /// tests cover reads the tombstone table directly.
+    /// A pre-`Game` preset row, inserted directly now that the legacy
+    /// loadout-creation API is gone; the reconcile these tests cover reads
+    /// the tombstone table directly.
     @discardableResult
     private func insertLegacyLoadout(name: String, iwadID: UUID,
                                      pwadIDs: [UUID] = [], dehIDs: [UUID] = []) throws -> Loadout {

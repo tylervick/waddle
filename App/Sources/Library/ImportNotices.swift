@@ -13,7 +13,7 @@ final class ImportNotices {
         post(message: text)
     }
 
-    /// One-off notices that aren't import outcomes (e.g. "Created loadout …"),
+    /// One-off notices that aren't import outcomes (e.g. an adoption summary),
     /// sharing the same banner and auto-dismiss behavior.
     func post(message: String) {
         current = message
