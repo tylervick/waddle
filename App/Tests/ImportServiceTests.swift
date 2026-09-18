@@ -471,6 +471,31 @@ final class ImportServiceTests: XCTestCase {
         XCTAssertEqual(filesInStore.count, 1)
     }
 
+    /// A map PWAD whose row has `hasMaps == false` (e.g. it predates the field,
+    /// or was migrated while its file was missing) must not stay classified
+    /// `.addOn` forever: repairing it re-parses the restored bytes, so
+    /// `hasMaps` must be recorded alongside the filename, not just the
+    /// filename alone.
+    func testRepairingAMissingPWADRecordsItsMaps() throws {
+        let data = makeWAD(magic: "PWAD", lumps: ["MAP01", "THINGS"])
+        let first = importer.importFiles(at: [try write("a.wad", data)])
+        XCTAssertEqual(first.imported, ["a"])
+        let wad = try XCTUnwrap(library.allWADs().first)
+        wad.hasMaps = false   // the row predates hasMaps / was migrated while the file was missing
+        try library.saveChanges()
+        try FileManager.default.removeItem(at: library.fileURL(for: wad))
+
+        // Re-import the same bytes (keeping the SHA-1 the row already holds)
+        // under a new name, so this hits the "row exists but its file
+        // vanished" repair branch rather than a fresh import.
+        let second = importer.importFiles(at: [try write("b.wad", data)])
+
+        XCTAssertEqual(second.imported, ["b"])
+        let repaired = try XCTUnwrap(try library.wad(id: wad.id))
+        XCTAssertTrue(repaired.hasMaps)
+        XCTAssertEqual(repaired.role, .mapSet)
+    }
+
     // MARK: mapped reads
 
     /// A WAD whose directory sits *after* real lump data, so parsing has to

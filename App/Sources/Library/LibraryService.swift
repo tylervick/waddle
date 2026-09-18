@@ -186,6 +186,9 @@ final class LibraryService {
     /// reconcile flag is unset, so it is picked up as a game on whatever later
     /// launch finally reconciles or permanently fails to (in which case it
     /// migrates as an ordinary, if oddly named, game rather than vanishing).
+    /// The completion flag itself is withheld while a phantom was skipped, so
+    /// the loadout is picked up once the reconcile has run, at the cost of
+    /// re-running the (idempotent) migration on each launch until then.
     func migrateToGames(defaults: UserDefaults = .standard) throws {
         let flagKey = Self.didMigrateToGamesKey
         guard !defaults.bool(forKey: flagKey) else { return }
@@ -199,9 +202,13 @@ final class LibraryService {
             context.insert(game)
         }
         let reconcileHasRun = defaults.bool(forKey: Self.didReconcileBundledBaseGameLoadoutsKey)
+        var skippedPhantom = false
         for loadout in try context.fetch(FetchDescriptor<Loadout>()) {
             guard try game(id: loadout.id) == nil else { continue }
-            if try !reconcileHasRun && isPhantomBundledLoadout(loadout) { continue }
+            if try !reconcileHasRun && isPhantomBundledLoadout(loadout) {
+                skippedPhantom = true
+                continue
+            }
             context.insert(Game(id: loadout.id, name: loadout.name, baseID: loadout.iwadID,
                                 fileIDs: loadout.pwadIDs + loadout.dehIDs,
                                 complevel: loadout.complevel,
@@ -217,7 +224,7 @@ final class LibraryService {
             wad.hasMaps = WADParser.mapFormat(of: parsed.lumpNames) != .none
         }
         try context.save()
-        defaults.set(true, forKey: flagKey)
+        if !skippedPhantom { defaults.set(true, forKey: flagKey) }
     }
 
     /// Moves the legacy per-loadout saves dir onto the base game's saves key.
@@ -400,9 +407,12 @@ final class LibraryService {
 
     /// Points an existing row at a freshly re-stored file, for when the row's
     /// backing file went missing from disk (e.g. deleted out-of-band) and a
-    /// re-import restored the content under a new store filename.
-    func repairFilename(of wad: WADFile, to filename: String) throws {
+    /// re-import restored the content under a new store filename — and
+    /// records what the re-parsed file carries, since the row may predate
+    /// `hasMaps` or have been migrated while the file was missing.
+    func repairFilename(of wad: WADFile, to filename: String, hasMaps: Bool) throws {
         wad.filename = filename
+        wad.hasMaps = hasMaps
         try context.save()
     }
 

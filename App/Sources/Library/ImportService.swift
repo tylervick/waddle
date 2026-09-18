@@ -264,7 +264,7 @@ final class ImportService {
             // duplicate that doesn't actually exist anywhere.
             do {
                 let stored = try store.store(fileAt: url, preferredName: name, precomputedSHA1: sha1)
-                try library.repairFilename(of: existing, to: stored.filename)
+                try library.repairFilename(of: existing, to: stored.filename, hasMaps: hasMaps)
                 outcome.imported.append((stored.filename as NSString).deletingPathExtension)
             } catch {
                 outcome.rejected[name] = "Could not copy file into the library."
@@ -385,7 +385,7 @@ final class ImportService {
             }
             do {
                 let stored = try await copyIntoStore(url: url, name: name, sha1: sha1)
-                try library.repairFilename(of: existing, to: stored.filename)
+                try library.repairFilename(of: existing, to: stored.filename, hasMaps: hasMaps)
                 outcome.imported.append((stored.filename as NSString).deletingPathExtension)
             } catch {
                 outcome.rejected[name] = "Could not copy file into the library."

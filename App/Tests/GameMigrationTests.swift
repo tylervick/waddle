@@ -182,6 +182,54 @@ final class GameMigrationTests: XCTestCase {
         XCTAssertFalse(games.contains { $0.name == "Freedoom Phase 1" && !$0.isBaseGame },
                        "only the base game may carry the seeded title while the reconcile hasn't run")
         XCTAssertTrue(games.contains { $0.name == "Mine" })
+        XCTAssertFalse(defaults.bool(forKey: LibraryService.didMigrateToGamesKey),
+                       "skipping a phantom must leave the migration incomplete so a later launch can finish it")
+    }
+
+    /// The other half of the property above: once a later launch's reconcile
+    /// removes the phantom, the still-withheld flag lets migration run again
+    /// and finish — without duplicating the games it already made.
+    func testMigrationCompletesOnTheLaunchAfterTheReconcileSucceeds() throws {
+        let base = try legacyIWAD("freedoom1.wad", displayName: "Freedoom Phase 1", bundled: true)
+        let phantom = try legacyLoadout(name: "Freedoom Phase 1", iwadID: base.id)
+        try legacyLoadout(name: "Mine", iwadID: base.id)
+
+        try service.migrateToGames(defaults: defaults)
+
+        // Simulate the reconcile succeeding on the next launch: the phantom
+        // loadout is gone and its flag is now set.
+        context.delete(phantom)
+        try context.save()
+        defaults.set(true, forKey: LibraryService.didReconcileBundledBaseGameLoadoutsKey)
+
+        try service.migrateToGames(defaults: defaults)
+
+        let games = try service.games()
+        XCTAssertEqual(games.count, 2, "the per-id guards must not duplicate the base game or \"Mine\"")
+        XCTAssertTrue(defaults.bool(forKey: LibraryService.didMigrateToGamesKey))
+    }
+
+    /// The ambiguous-duplicate case: the reconcile ran but left a surviving
+    /// phantom-shaped loadout alone (it no longer treats it as a lone match).
+    /// Once the reconcile flag is set, that loadout is no longer skipped and
+    /// migrates as an ordinary game on the very next run.
+    func testMigrationAdoptsASurvivingPhantomShapedLoadoutOnceTheReconcileHasRun() throws {
+        let base = try legacyIWAD("freedoom1.wad", displayName: "Freedoom Phase 1", bundled: true)
+        try legacyLoadout(name: "Freedoom Phase 1", iwadID: base.id)
+
+        try service.migrateToGames(defaults: defaults)
+        XCTAssertFalse(defaults.bool(forKey: LibraryService.didMigrateToGamesKey))
+
+        // The reconcile has now run and, for whatever reason, left the
+        // phantom-shaped loadout in place rather than deleting it.
+        defaults.set(true, forKey: LibraryService.didReconcileBundledBaseGameLoadoutsKey)
+
+        try service.migrateToGames(defaults: defaults)
+
+        let games = try service.games()
+        XCTAssertTrue(games.contains { $0.name == "Freedoom Phase 1" && !$0.isBaseGame },
+                      "no longer a phantom once the reconcile has run, so it must migrate")
+        XCTAssertTrue(defaults.bool(forKey: LibraryService.didMigrateToGamesKey))
     }
 
     /// Once the reconcile has run (flag set), any loadout that still exists
