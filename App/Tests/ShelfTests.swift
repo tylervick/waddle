@@ -217,17 +217,25 @@ final class ShelfTests: XCTestCase {
         XCTAssertEqual(try zone(), .resume(try XCTUnwrap(try service.game(id: freedoom.id))))
     }
 
-    /// A mod is never a shelf item, so a rule written over `shelfGames()` would
-    /// keep greeting someone who has already brought their own files in.
-    func testAnImportedModEndsFactoryStateThoughItNeverReachesTheShelf() throws {
+    /// An add-on is never a shelf item, so a rule written over `shelfGames()`
+    /// would keep greeting someone who has already brought their own files in.
+    func testAnImportedAddOnEndsFactoryStateThoughItNeverReachesTheShelf() throws {
         try service.seedBundledContentIfNeeded()
         _ = try service.registerImported(filename: "sunlust.wad", sha1: "s",
                                          kind: WADKind.pwad.rawValue, family: "doom2")
 
         XCTAssertFalse(try service.shelfGames().contains { $0.name == "sunlust" },
-                       "a PWAD is not directly playable and never reaches the shelf")
+                       "an add-on is not playable on its own and never reaches the shelf")
         XCTAssertFalse(try service.isFactoryState())
         XCTAssertEqual(try zone(), .empty)
+    }
+
+    func testAnImportedMapSetReachesTheShelfAsAGame() throws {
+        try service.seedBundledContentIfNeeded()
+        _ = try service.registerImported(filename: "sunlust.wad", sha1: "s",
+                                         kind: WADKind.pwad.rawValue, family: "doom2", hasMaps: true)
+        XCTAssertTrue(try service.shelfGames().contains { $0.name == "sunlust" && !$0.isBaseGame })
+        XCTAssertFalse(try service.isFactoryState())
     }
 
     // MARK: - Grid contents

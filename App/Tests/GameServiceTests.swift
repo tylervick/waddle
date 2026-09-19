@@ -62,10 +62,12 @@ final class GameServiceTests: XCTestCase {
         XCTAssertEqual(game.name, wad.displayName)
     }
 
-    func testRegisteringAPWADCreatesNoGame() throws {
-        // Pairing a map set into a game is plan 3; until then a PWAD is a file.
-        _ = try pwad()
-        XCTAssertTrue(try service.games().isEmpty)
+    func testRegisteringAPWADWithMapsCreatesAPairedGame() throws {
+        // Was "creates no game" before plan 3; pairing itself is covered in
+        // detail by the "Import pairing" tests below.
+        let map = try pwad()
+        let game = try XCTUnwrap(try service.games().first)
+        XCTAssertEqual(game.fileIDs, [map.id])
     }
 
     func testSeederCreatesOneBaseGamePerBundledIWAD() throws {
@@ -157,9 +159,12 @@ final class GameServiceTests: XCTestCase {
     }
 
     func testGamesUsingFindsBaseAndFileReferences() throws {
+        // Add-ons here, not map sets: a map set would pair itself into its own
+        // game at import (spec §3.5), muddying what this test is pinning —
+        // `gamesUsing` over base/file references on a game created directly.
         let base = try iwad()
-        let map = try pwad()
-        let other = try pwad("other.wad")
+        let map = try pwad(hasMaps: false)
+        let other = try pwad("other.wad", hasMaps: false)
         let modded = try service.createGame(name: "Sunlust", baseID: base.id, fileIDs: [map.id])
         XCTAssertEqual(Set(try service.gamesUsing(fileID: base.id).map(\.id)), [base.id, modded.id])
         XCTAssertEqual(try service.gamesUsing(fileID: map.id).map(\.id), [modded.id])
@@ -227,8 +232,10 @@ final class GameServiceTests: XCTestCase {
     // MARK: deleteWAD (spec §4.4)
 
     func testDeleteWADIsBlockedByAnyOtherGameUsingIt() throws {
+        // An add-on, not a map set: a map set would pair itself into its own
+        // game at import (spec §3.5) and be its own blocker.
         let base = try backedIWAD("doom2.wad")
-        let map = try pwad()
+        let map = try pwad(hasMaps: false)
         _ = try service.createGame(name: "Sunlust", baseID: base.id, fileIDs: [map.id])
         XCTAssertThrowsError(try service.deleteWAD(map)) {
             XCTAssertEqual($0 as? LibraryError, .wadInUse(["Sunlust"]))
@@ -251,8 +258,10 @@ final class GameServiceTests: XCTestCase {
     }
 
     func testDeleteUnusedPWADRemovesFileAndRow() throws {
+        // An add-on, not a map set: a map set would pair itself into its own
+        // game at import (spec §3.5) and so never be "unused".
         try Data(repeating: 1, count: 8).write(to: tmp.appendingPathComponent("spare.wad"))
-        let spare = try pwad("spare.wad")
+        let spare = try pwad("spare.wad", hasMaps: false)
         try service.deleteWAD(spare)
         XCTAssertNil(try service.wad(id: spare.id))
         XCTAssertFalse(FileManager.default.fileExists(atPath: tmp.appendingPathComponent("spare.wad").path))
@@ -382,8 +391,19 @@ final class GameServiceTests: XCTestCase {
 
     func testDeletableMapSetsAreTheGamesUnsharedNonBundledMapSets() throws {
         let base = try iwad("doom2.wad")
-        let shared = try pwad("shared.wad")
-        let mine = try pwad("mine.wad")
+        // Constructed directly rather than through `pwad()`/`registerImported`,
+        // so these map sets arrive with no game of their own already pairing
+        // them (spec §3.5) — this test is about sharing between the two games
+        // created below, not about import-time pairing.
+        func mapSet(_ name: String) -> WADFile {
+            let wad = WADFile(filename: name, displayName: (name as NSString).deletingPathExtension,
+                              kindRaw: WADKind.pwad.rawValue, sha1: name,
+                              gameFamilyRaw: GameFamily.doom2.rawValue, hasMaps: true)
+            context.insert(wad)
+            return wad
+        }
+        let shared = mapSet("shared.wad")
+        let mine = mapSet("mine.wad")
         let addOn = try pwad("smooth.wad", hasMaps: false)
         let game = try service.createGame(name: "A", baseID: base.id, fileIDs: [shared.id, mine.id, addOn.id])
         _ = try service.createGame(name: "B", baseID: base.id, fileIDs: [shared.id])
@@ -413,5 +433,87 @@ final class GameServiceTests: XCTestCase {
     func testFileGroupsOmitEmptyRoles() throws {
         _ = try pwad("sunlust.wad")
         XCTAssertEqual(try service.fileGroups().map(\.title), ["Map sets"])
+    }
+
+    // MARK: Import pairing (spec §3.5, §4.1)
+
+    func testImportingAMapSetCreatesAGamePairedToItsFamilysBase() throws {
+        try service.seedBundledContentIfNeeded()               // freedoom1 (doom1), freedoom2 (doom2)
+        let map = try service.registerImported(filename: "sunlust.wad", sha1: "s",
+                                               kind: WADKind.pwad.rawValue, family: GameFamily.doom2.rawValue,
+                                               hasMaps: true)
+        let game = try XCTUnwrap(try service.gamesUsing(fileID: map.id).first)
+        XCTAssertEqual(game.name, "sunlust")
+        XCTAssertEqual(game.fileIDs, [map.id])
+        XCTAssertFalse(game.isBaseGame)
+        let freedoom2 = try XCTUnwrap(try service.allWADs().first { $0.filename == "freedoom2.wad" })
+        XCTAssertEqual(game.baseID, freedoom2.id, "doom2-family map set pairs with the doom2-family base")
+        XCTAssertTrue(try service.shelfGames().contains { $0.id == game.id }, "it is a tile")
+    }
+
+    func testImportingAMapSetPrefersAnImportedBaseAndIsNeverRePaired() throws {
+        try service.seedBundledContentIfNeeded()
+        let map = try service.registerImported(filename: "sunlust.wad", sha1: "s",
+                                               kind: WADKind.pwad.rawValue, family: GameFamily.doom2.rawValue,
+                                               hasMaps: true)
+        let pairedToFreedoom = try XCTUnwrap(try service.gamesUsing(fileID: map.id).first).baseID
+        // Now the real thing arrives. The existing game stays where it is (spec §4.1)…
+        let doom2 = try service.registerImported(filename: "doom2.wad", sha1: "d",
+                                                 kind: WADKind.iwad.rawValue, family: GameFamily.doom2.rawValue, hasMaps: true)
+        XCTAssertEqual(try service.gamesUsing(fileID: map.id).first?.baseID, pairedToFreedoom, "no silent re-pairing")
+        // …but a map set imported from now on prefers it.
+        let later = try service.registerImported(filename: "valiant.wad", sha1: "v",
+                                                 kind: WADKind.pwad.rawValue, family: GameFamily.doom2.rawValue, hasMaps: true)
+        XCTAssertEqual(try service.gamesUsing(fileID: later.id).first?.baseID, doom2.id)
+    }
+
+    func testImportingAMapSetOfUnknownFamilyCreatesAnUnpairedGame() throws {
+        try service.seedBundledContentIfNeeded()
+        let map = try service.registerImported(filename: "weird.wad", sha1: "w",
+                                               kind: WADKind.pwad.rawValue, family: GameFamily.unknown.rawValue,
+                                               hasMaps: true)
+        let game = try XCTUnwrap(try service.gamesUsing(fileID: map.id).first)
+        XCTAssertNil(game.baseID)
+        XCTAssertTrue(try service.shelfGames().contains { $0.id == game.id }, "unpaired games are still tiles (badge + page)")
+    }
+
+    func testImportingAnAddOnOrPatchCreatesNoGame() throws {
+        try service.seedBundledContentIfNeeded()
+        _ = try service.registerImported(filename: "smooth.wad", sha1: "a", kind: WADKind.pwad.rawValue,
+                                         family: GameFamily.doom2.rawValue, hasMaps: false)
+        _ = try service.registerImported(filename: "fix.deh", sha1: "p", kind: WADKind.deh.rawValue,
+                                         family: GameFamily.unknown.rawValue)
+        XCTAssertEqual(try service.games().count, 2, "only the two bundled base games")
+    }
+
+    // MARK: Orphan map-set sweep (spec §5 amendment)
+
+    func testAdoptOrphanMapSetsGivesPreExistingMapSetsAGameOnce() throws {
+        try service.seedBundledContentIfNeeded()
+        // A map set that arrived before pairing existed: a row with maps and no game.
+        let orphan = WADFile(filename: "old.wad", displayName: "old", kindRaw: WADKind.pwad.rawValue,
+                             sha1: "o", gameFamilyRaw: GameFamily.doom1.rawValue, hasMaps: true)
+        context.insert(orphan)
+        // A map set already inside a game must not get a second tile.
+        let owned = WADFile(filename: "owned.wad", displayName: "owned", kindRaw: WADKind.pwad.rawValue,
+                            sha1: "w", gameFamilyRaw: GameFamily.doom1.rawValue, hasMaps: true)
+        context.insert(owned)
+        let freedoom1 = try XCTUnwrap(try service.allWADs().first { $0.filename == "freedoom1.wad" })
+        _ = try service.createGame(name: "Mine", baseID: freedoom1.id, fileIDs: [owned.id])
+        try context.save()
+        let defaults = UserDefaults(suiteName: "adopt-\(UUID().uuidString)")!
+
+        try service.adoptOrphanMapSets(defaults: defaults)
+
+        let adopted = try XCTUnwrap(try service.gamesUsing(fileID: orphan.id).first)
+        XCTAssertEqual(adopted.name, "old")
+        XCTAssertEqual(adopted.baseID, freedoom1.id)
+        XCTAssertEqual(try service.gamesUsing(fileID: owned.id).count, 1, "an owned map set is left alone")
+        XCTAssertTrue(defaults.bool(forKey: LibraryService.didAdoptOrphanMapSetsKey))
+
+        // Second run is a no-op even if the player deletes the adopted game.
+        try service.deleteGame(adopted)
+        try service.adoptOrphanMapSets(defaults: defaults)
+        XCTAssertTrue(try service.gamesUsing(fileID: orphan.id).isEmpty, "the sweep runs once; a deleted game stays deleted")
     }
 }

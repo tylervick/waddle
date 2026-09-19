@@ -99,6 +99,7 @@ final class LibraryService {
     /// (see `WaddleApp`, which also clears both under `WADDLE_RESET_STORE`).
     static let didReconcileBundledBaseGameLoadoutsKey = "didReconcileBundledBaseGameLoadouts"
     static let didMigrateToGamesKey = "didMigrateToGames"
+    static let didAdoptOrphanMapSetsKey = "didAdoptOrphanMapSets"
 
     /// Titles the one-door preset flow auto-assigns a modless Freedoom preset,
     /// which is indistinguishable from the legacy phantom shape (no PWAD/DEH,
@@ -399,10 +400,18 @@ final class LibraryService {
                               ?? (filename as NSString).deletingPathExtension,
                           kindRaw: kind, sha1: sha1, gameFamilyRaw: family, hasMaps: hasMaps)
         context.insert(wad)
-        // An IWAD is a game the moment it arrives (spec §2.1). Map sets become
-        // games in plan 3; add-ons never do.
-        if kind == WADKind.iwad.rawValue {
+        // An IWAD is a game the moment it arrives (spec §2.1). A map set is a
+        // game the moment it arrives too (spec §3.5, §4.1), paired once; an
+        // add-on never is.
+        switch wad.role {
+        case .base:
             context.insert(Game.baseGame(for: wad))
+        case .mapSet:
+            // A map set is a game the moment it arrives, paired once (spec §3.5, §4.1).
+            let base = try pairBase(forFamily: wad.gameFamily)
+            context.insert(Game(name: wad.displayName, baseID: base?.id, fileIDs: [wad.id]))
+        case .addOn:
+            break
         }
         try context.save()
         return wad
@@ -434,6 +443,30 @@ final class LibraryService {
         context.insert(game)
         try context.save()
         return game
+    }
+
+    /// The IWAD a new map set of `family` pairs with — see `Pairing.chooseBase`.
+    func pairBase(forFamily family: GameFamily) throws -> WADFile? {
+        let candidates = try baseGames().map { iwad in
+            Pairing.Candidate(file: iwad, lastPlayed: try game(id: iwad.id)?.lastPlayed)
+        }
+        return Pairing.chooseBase(forFamily: family, among: candidates)
+    }
+
+    /// One-time sweep (spec §5, amended for plan 3): map sets imported before
+    /// pairing existed have a row but no tile. Each non-bundled map set used by
+    /// no game gets a paired game, exactly as if it had just been imported.
+    /// Runs after the seeder so bundled bases are available to pair with, and
+    /// once only — a game the player later deletes is not resurrected.
+    func adoptOrphanMapSets(defaults: UserDefaults = .standard) throws {
+        guard !defaults.bool(forKey: Self.didAdoptOrphanMapSetsKey) else { return }
+        for wad in try allWADs() where wad.role == .mapSet && !wad.isBundled {
+            guard try gamesUsing(fileID: wad.id).isEmpty else { continue }
+            let base = try pairBase(forFamily: wad.gameFamily)
+            context.insert(Game(name: wad.displayName, baseID: base?.id, fileIDs: [wad.id]))
+        }
+        try context.save()
+        defaults.set(true, forKey: Self.didAdoptOrphanMapSetsKey)
     }
 
     /// Deletes a game and its saves (spec §4.3). Base games are hidden, never

@@ -57,6 +57,7 @@ struct WaddleApp: App {
                 // the seeder's game-creation because a flag survived the wipe.
                 UserDefaults.standard.removeObject(forKey: LibraryService.didMigrateToGamesKey)
                 UserDefaults.standard.removeObject(forKey: LibraryService.didReconcileBundledBaseGameLoadoutsKey)
+                UserDefaults.standard.removeObject(forKey: LibraryService.didAdoptOrphanMapSetsKey)
             }
             #endif
 
@@ -69,6 +70,8 @@ struct WaddleApp: App {
             try library.reconcileBundledBaseGameLoadouts()
             try library.migrateToGames()
             try library.seedBundledContentIfNeeded()
+            // After the seeder, so bundled bases exist to pair with.
+            try library.adoptOrphanMapSets()
 
             // Test-only seam, same WADDLE_* family as the reset above. Gives
             // the most-recently-played item a save so the shelf's Continue
