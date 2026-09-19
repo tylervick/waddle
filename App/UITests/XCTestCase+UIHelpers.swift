@@ -11,40 +11,47 @@ extension XCTestCase {
         field.typeText(text)
     }
 
-    /// Opens the Manage door from the shelf.
-    ///
-    /// The shelf replaced the Play/Library `TabView` (spec §§2–3), so tests
-    /// that used to reach the library with `app.tabBars.buttons["Library"]`
-    /// push Manage instead. Only the route moved: what those tests assert once
-    /// they arrive is unchanged.
-    func openManage(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
-        let manage = app.buttons["manageButton"]
-        XCTAssertTrue(manage.waitForExistence(timeout: 10),
-                      "Manage door missing from the shelf", file: file, line: line)
-        manage.tap()
+    /// Opens a tile's game page via its long-press menu (spec §3.1).
+    func openGamePage(_ app: XCUIApplication, tile tileID: String,
+                      file: StaticString = #filePath, line: UInt = #line) {
+        let tile = app.buttons[tileID]
+        XCTAssertTrue(tile.waitForExistence(timeout: 10), "tile \(tileID) missing", file: file, line: line)
+        tile.press(forDuration: 1.0)
+        app.buttons["Details"].tap()
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "gamePage").firstMatch
+            .waitForExistence(timeout: 5), "game page never appeared", file: file, line: line)
     }
 
-    /// Pops Manage back to the shelf. The back button is titled with the
-    /// shelf's own navigation title.
-    ///
-    /// Asserts, unlike its first version. Every caller reaches this line
-    /// directly after a successful `openManage`, so a missing back button means
-    /// navigation is broken, not that the app is in some other legitimate
-    /// state. Leaving it as a bare `if` made that failure silent, and the
-    /// polling loops in `RealWADTests`/`DemoLoopReplayTests` would then spin
-    /// against the wrong screen until their deadline and report the timeout
-    /// instead of the real cause. `Scripts/capture-screenshots.sh` depends on
-    /// this assertion outright: it shoots straight after returning, so a silent
-    /// no-op there produces a correctly-named marketing image of the wrong
-    /// screen (see issue #156).
+    /// Pops the game page back to the shelf. The back button is titled with the
+    /// shelf's own navigation title. Asserts, so a broken pop fails here rather
+    /// than as a timeout against the wrong screen later.
     func returnToShelf(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         let back = app.navigationBars.buttons["Waddle"]
-        XCTAssertTrue(back.waitForExistence(timeout: 5),
-                      "no back button out of Manage — navigation is broken",
-                      file: file, line: line)
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "no back button — navigation is broken", file: file, line: line)
         back.tap()
-        XCTAssertTrue(app.buttons["manageButton"].waitForExistence(timeout: 10),
-                      "left Manage but never landed back on the shelf",
-                      file: file, line: line)
+        XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 10),
+                      "left the page but never landed back on the shelf", file: file, line: line)
+    }
+
+    /// Opens Settings → Files (spec §3.3).
+    func openFiles(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        let gear = app.buttons["touchSchemeMenu"]
+        XCTAssertTrue(gear.waitForExistence(timeout: 10), "gear missing", file: file, line: line)
+        gear.tap()
+        let files = app.buttons["filesButton"]
+        XCTAssertTrue(files.waitForExistence(timeout: 5), "Files row missing from Settings", file: file, line: line)
+        files.tap()
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "filesScreen").firstMatch
+            .waitForExistence(timeout: 5), "Files screen never appeared", file: file, line: line)
+    }
+
+    /// Closes Settings (from Files or its root) back to the shelf.
+    func closeSettings(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        let back = app.navigationBars.buttons["Settings"]
+        if back.waitForExistence(timeout: 2) { back.tap() }
+        let done = app.buttons["Done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 5), "Settings Done missing", file: file, line: line)
+        done.tap()
+        XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 10), file: file, line: line)
     }
 }
