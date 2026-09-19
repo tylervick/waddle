@@ -2,9 +2,9 @@ import Foundation
 import SwiftData
 
 /// What you play (spec §2.2): one base IWAD, zero or more other files in load
-/// order, and everything that used to be split between an IWAD `WADFile` and a
-/// `Loadout` — compat, touch-layout override, hidden flag, last played. Its
-/// `id` is the saves key: `LibraryService.savesDirectory(forGameID:)`.
+/// order, and everything that used to be split between an IWAD `WADFile` and
+/// the old preset model — compat, touch-layout override, hidden flag, last
+/// played. Its `id` is the saves key: `LibraryService.savesDirectory(forGameID:)`.
 ///
 /// A base game (`isBaseGame`) is the IWAD's own game. Its `id` *is* the IWAD's
 /// `WADFile.id` — `baseGame(for:)` is the only way one is made — which is what

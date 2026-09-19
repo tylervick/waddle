@@ -89,11 +89,11 @@ The saves key is `game.id`.
 
 Becomes purely a file. Gains `hasMaps: Bool`, set at import from
 `WADParser.mapFormat`. Loses `lastPlayed`, `schemeOverrideRaw` and
-`isHidden` to `Game` (retained in the schema for one release, see §5).
+`isHidden` to `Game` (dropped in plan 4, see §5).
 
 ### 2.4 Removed
 
-`Loadout` (after §5's follow-up), `PlayableItem`, `PresetName`,
+`Loadout` (plan 4), `PlayableItem`, `PresetName`,
 `PresetCreationFlow`, `LoadoutEditorView`, and `LibraryView` (Manage).
 
 ## 3. Screens
@@ -220,40 +220,43 @@ never resurrected — the guarantee the current `isHidden` design relies on.
 ## 5. Migration
 
 A one-time launch step behind a `UserDefaults` flag, following the pattern
-`reconcileBundledBaseGameLoadouts` already uses — **not** a SwiftData
+the (since-removed) Freedoom-loadout reconcile used — **not** a SwiftData
 versioned schema. A custom SwiftData stage can read the old rows or write
 the new ones but not both in one context, so it would need a scratch file
 anyway; the launch step needs neither.
 
 Steps, in order:
 
-1. For each IWAD `WADFile`: create `Game(id: wad.id, name: wad.displayName,
-   baseID: wad.id, fileIDs: [], schemeOverrideRaw: wad.schemeOverrideRaw,
-   isHidden: wad.isHidden, lastPlayed: wad.lastPlayed, isBaseGame: true)`.
-2. For each `Loadout`: create `Game(id: loadout.id, name, baseID: iwadID,
-   fileIDs: pwadIDs + dehIDs, complevel, schemeOverrideRaw, isHidden,
-   lastPlayed, createdAt, isBaseGame: false)`.
-3. For each PWAD `WADFile` whose file is present: parse the directory and
+1. Create `Game.baseGame(for: wad)` for each IWAD row without a game.
+2. For each PWAD `WADFile` whose file is present: parse the directory and
    set `hasMaps`. Missing files keep `hasMaps = false` and their status
    stays Missing; a game referencing one launches as today (the engine
    reports the missing file).
-4. Set the flag. On a fresh install the step is a no-op.
+3. Set the flag. On a fresh install the step is a no-op.
+
+Plan 1 shipped with a step 2 that turned each `Loadout` into a game and
+copied the three legacy fields; plan 4 removed both the table and that step.
 
 **Ids are reused on purpose**: the saves key was `WADFile.id` for base games
 and `Loadout.id` for presets, and it is `game.id` now, so no directory under
 `Documents/Saves/` moves and a player updating mid-campaign gets their
 Continue hero back untouched.
 
-**Schema in this release**: additive. `Game` is added; the `Loadout` table
-and `WADFile`'s three moved fields stay, written by nothing and read only by
-the migration. **Follow-up PR** after a TestFlight build has migrated real
-data: drop them (a lightweight SwiftData change).
+**Schema (plan 4, 2026-09-18):** `Loadout` and the three moved `WADFile`
+fields are dropped. Accepted window: a device updating from a pre-`Game`
+build directly to a build with this change loses its presets and its base
+games' hidden/last-played/touch-override state; saves are untouched. Ship
+only after a release containing plans 1–3 has been available.
+
+**Upgrade checks:** 1.1 `f9665a5` → this branch (2026-09-18) upgraded clean,
+losing only the accepted window; plan 3 `7f3a1de` → this branch (2026-09-18)
+preserved everything, including the renamed game and both Freedoom rows (see
+`docs/learnings/schema-drop-cannot-wait-for-skipped-versions.md`).
 
 Plan 3 adds a second flagged launch step, `adoptOrphanMapSets`, after the
 seeder: every non-bundled map set no game loads gets a paired game once, so
 files imported before pairing existed become tiles. The launch order is now
-`reconcileBundledBaseGameLoadouts` → `migrateToGames` → `seedBundledContentIfNeeded`
-→ `adoptOrphanMapSets`.
+`migrateToGames` → `seedBundledContentIfNeeded` → `adoptOrphanMapSets`.
 
 ## 6. Testing
 
@@ -263,9 +266,9 @@ Hermetic unit tests, all under `WaddleTests`:
 - **Pairing**: family match; imported-over-bundled; most-recent among
   several; unknown family and no installed base → unpaired; never revisited
   on later import.
-- **Migration**: one Game per IWAD row and per Loadout with the old id;
-  every moved field copied exactly; `hasMaps` filled from present files;
-  missing files tolerated; flag makes it run once; no-op on fresh store.
+- **Migration**: one Game per IWAD row with the old id; `hasMaps` filled
+  from present files; missing files tolerated; flag makes it run once;
+  no-op on fresh store.
 - **Seeder**: does not create a second base game for a hidden Freedoom game.
 - **Arguments**: `-file`/`-deh` ordering from one `fileIDs` list matches
   today's `LoadoutArgumentsTests` expectations; saves path is
@@ -288,7 +291,6 @@ see `docs/learnings/ui-tests-pin-user-facing-strings.md`.
 - Automatic re-pairing when a better base is imported.
 - Guessing which family a map-less add-on belongs to.
 - Any change inside the engine session.
-- Dropping `Loadout` and the moved `WADFile` fields (the follow-up PR, §5).
 - Per-game control *feel* (still deferred from the 2026-07-23 spec).
 
 ## 8. Decomposition
@@ -302,4 +304,5 @@ Landing order, each its own PR:
    removed; Add on the shelf; Settings gains Files and Hidden games.
 3. Import outcomes (auto-create game / add-on / unpaired) and the banner
    copy; unpaired tile badge.
-4. Follow-up after TestFlight: drop `Loadout` and the moved fields.
+4. Follow-up after TestFlight: drop `Loadout` and the moved fields. **Done**
+   (plan 4, 2026-09-18).

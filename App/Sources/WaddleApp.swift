@@ -34,20 +34,19 @@ struct WaddleApp: App {
         }
         #endif
         do {
-            let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self)
+            let container = try ModelContainer(for: WADFile.self, Game.self)
             let context = ModelContext(container)
             let store = WADStore.default
 
             // Test-only seam (same WADDLE_* family as WADDLE_AUTOQUIT_SECONDS
             // and WADDLE_TOUCH_SCHEME): wipes persisted state so UITests that
-            // create data (presets, saves) start from a clean slate instead
+            // create data (games, saves) start from a clean slate instead
             // of accumulating across runs/devices. Never set in production.
             // Must run before seedBundledContentIfNeeded() below so the
             // bundled base games get re-registered against the fresh store.
             #if DEBUG
             if ProcessInfo.processInfo.environment["WADDLE_RESET_STORE"] != nil {
                 try? context.delete(model: WADFile.self)
-                try? context.delete(model: Loadout.self)
                 try? context.delete(model: Game.self)
                 try? context.save()
                 try? FileManager.default.removeItem(at: URL.documentsDirectory.appendingPathComponent("WADs", isDirectory: true))
@@ -56,18 +55,16 @@ struct WaddleApp: App {
                 // genuinely pre-migration slate rather than one that skips
                 // the seeder's game-creation because a flag survived the wipe.
                 UserDefaults.standard.removeObject(forKey: LibraryService.didMigrateToGamesKey)
-                UserDefaults.standard.removeObject(forKey: LibraryService.didReconcileBundledBaseGameLoadoutsKey)
                 UserDefaults.standard.removeObject(forKey: LibraryService.didAdoptOrphanMapSetsKey)
             }
             #endif
 
             let library = LibraryService(context: context, store: store)
             let importer = ImportService(library: library, store: store)
-            // Order is load-bearing — see each method's doc comment: the
-            // legacy reconcile removes phantom loadouts before they could
-            // become games, the migration makes every existing row's game
-            // under its old id, and only then does the seeder fill gaps.
-            try library.reconcileBundledBaseGameLoadouts()
+            // The migration and the seeder are interchangeable for bundled
+            // rows — see each method's doc comment: both build the same
+            // `Game.baseGame(for:)` under the same guard. The order that is
+            // load-bearing is seed before adopt.
             try library.migrateToGames()
             try library.seedBundledContentIfNeeded()
             // After the seeder, so bundled bases exist to pair with.
