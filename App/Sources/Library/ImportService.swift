@@ -4,6 +4,14 @@ struct ImportOutcome: Equatable {
     var imported: [String] = []
     var duplicates: [String] = []
     var rejected: [String: String] = [:]
+    /// Names registered as a base game (an IWAD, or a map set paired to one) —
+    /// spec §3.5's "Added" outcome. Subsets of `imported`.
+    var games: [String] = []
+    /// Names registered as an add-on (never a game). Subset of `imported`.
+    var addOns: [String] = []
+    /// Names registered as a map set with no base of its family yet. Subset
+    /// of `imported`.
+    var unpaired: [String] = []
 
     /// Folds a per-candidate outcome into this aggregate. `imported` and
     /// `duplicates` simply append — every entry there already names a
@@ -17,6 +25,9 @@ struct ImportOutcome: Equatable {
     mutating func merge(_ other: ImportOutcome) {
         imported += other.imported
         duplicates += other.duplicates
+        games += other.games
+        addOns += other.addOns
+        unpaired += other.unpaired
         for (name, reason) in other.rejected {
             var candidate = name
             var counter = 2
@@ -246,6 +257,19 @@ final class ImportService {
         }
     }
 
+    /// Which of spec §3.5's three outcomes a freshly registered file is.
+    private func categorize(_ wad: WADFile, as name: String, into outcome: inout ImportOutcome) {
+        switch wad.role {
+        case .base:
+            outcome.games.append(name)
+        case .mapSet:
+            let game = (try? library.gamesUsing(fileID: wad.id))?.first
+            if game?.baseID == nil { outcome.unpaired.append(name) } else { outcome.games.append(name) }
+        case .addOn:
+            outcome.addOns.append(name)
+        }
+    }
+
     private func storeAndRegister(url: URL, name: String, kind: String, family: String,
                                   sha1: String, hasMaps: Bool, into outcome: inout ImportOutcome) {
         // Check the library's sha1 index before touching the store: it's a
@@ -272,9 +296,11 @@ final class ImportService {
         }
         do {
             let stored = try store.store(fileAt: url, preferredName: name, precomputedSHA1: sha1)
-            try library.registerImported(filename: stored.filename, sha1: stored.sha1,
-                                         kind: kind, family: family, hasMaps: hasMaps)
-            outcome.imported.append((stored.filename as NSString).deletingPathExtension)
+            let wad = try library.registerImported(filename: stored.filename, sha1: stored.sha1,
+                                                    kind: kind, family: family, hasMaps: hasMaps)
+            let displayName = (stored.filename as NSString).deletingPathExtension
+            outcome.imported.append(displayName)
+            categorize(wad, as: displayName, into: &outcome)
         } catch {
             outcome.rejected[name] = "Could not copy file into the library."
         }
@@ -393,9 +419,11 @@ final class ImportService {
         }
         do {
             let stored = try await copyIntoStore(url: url, name: name, sha1: sha1)
-            try library.registerImported(filename: stored.filename, sha1: stored.sha1,
-                                         kind: kind, family: family, hasMaps: hasMaps)
-            outcome.imported.append((stored.filename as NSString).deletingPathExtension)
+            let wad = try library.registerImported(filename: stored.filename, sha1: stored.sha1,
+                                                    kind: kind, family: family, hasMaps: hasMaps)
+            let displayName = (stored.filename as NSString).deletingPathExtension
+            outcome.imported.append(displayName)
+            categorize(wad, as: displayName, into: &outcome)
         } catch {
             outcome.rejected[name] = "Could not copy file into the library."
         }

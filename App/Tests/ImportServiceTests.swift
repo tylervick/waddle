@@ -67,6 +67,32 @@ final class ImportServiceTests: XCTestCase {
         XCTAssertEqual(try library.allWADs().count, 1)
     }
 
+    func testImportCategorizesGamesAddOnsAndUnpaired() throws {
+        try library.seedBundledContentIfNeeded()
+        let mapSet = try write("sunlust.wad", makeWAD(magic: "PWAD", lumps: ["MAP01", "THINGS"]))   // doom2 family
+        let addOn = try write("smooth.wad", makeWAD(magic: "PWAD", lumps: ["TITLEPIC"]))
+        let weird = try write("weird.wad", makeWAD(magic: "PWAD", lumps: ["MAP01"]))                // also doom2 — paired
+        let outcome = importer.importFiles(at: [mapSet, addOn, weird])
+        XCTAssertEqual(Set(outcome.games), ["sunlust", "weird"])
+        XCTAssertEqual(outcome.addOns, ["smooth"])
+        XCTAssertTrue(outcome.unpaired.isEmpty)
+        XCTAssertEqual(Set(outcome.imported), ["sunlust", "smooth", "weird"], "imported still lists everything")
+    }
+
+    func testImportReportsAnUnpairedMapSetWhenNoBaseOfItsFamilyExists() throws {
+        // No seed: no bases at all.
+        let mapSet = try write("orphan.wad", makeWAD(magic: "PWAD", lumps: ["MAP01"]))
+        let outcome = importer.importFiles(at: [mapSet])
+        XCTAssertEqual(outcome.unpaired, ["orphan"])
+        XCTAssertTrue(outcome.games.isEmpty)
+    }
+
+    func testImportReportsAnIWADAsAGame() throws {
+        let iwad = try write("mygame.wad", makeWAD(magic: "IWAD", lumps: ["E1M1", "THINGS"]))
+        let outcome = importer.importFiles(at: [iwad])
+        XCTAssertEqual(outcome.games, ["mygame"])
+    }
+
     func testImportingByteIdenticalCopyOfBundledIWADIsDuplicate() throws {
         try library.seedBundledContentIfNeeded()
         let freedoom = try XCTUnwrap(
