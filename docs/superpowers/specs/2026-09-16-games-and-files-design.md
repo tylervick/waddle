@@ -119,15 +119,15 @@ Unchanged in structure: hero zone, one adaptive grid, welcome card,
 
 One screen for every tile, replacing `PlayableDetailView`,
 `LoadoutEditorView` and `PresetCreationFlow`. **Edits apply in place**: no
-Edit mode, no Save/Cancel. Sections, top to bottom:
+Edit mode, no Save/Cancel. The page is pushed into the shelf's navigation stack, not presented as a sheet. Sections, top to bottom:
 
-1. Title art, name (tap to rename), then **Continue** and **New Game** when a
+1. Title art, name (tap to rename) — a Rename alert with a text field, then **Continue** and **New Game** when a
    resumable save exists, else **Play** alone. Same rule as today
    (`PlayableLauncher.continuableSlot`).
 2. **Base game** — a picker over installed IWADs. Locked on a base game's
    own page.
 3. **Maps & Add-ons** — one reorderable list in load order. Each row shows
-   the filename and its role (Map set · N maps / Add-on / Patch). Swipe to
+   the filename and its role (Map set / Add-on / Patch — the map count was dropped at implementation: it needs a column nothing else reads). Swipe to
    remove. An **Add…** row opens a picker of every non-base file not already
    in the list, grouped by role.
 4. **Compatibility** — the existing complevel picker.
