@@ -1,41 +1,10 @@
-# Long-press -> Details -> the detail sheet's own Edit button, for a preset.
+# Long-press -> Details -> the sheet's own Edit button. Preset path.
 #
-# WHY A SECOND TEST FOR THE SAME GESTURE
-#
-# shelf-details-sheet.yaml covers the sheet opening for a BASE game. This one
-# covers the other half of the same regression surface, and the other test
-# that is red at HEAD: WaddleUITests/PresetEditTests/
-# testEditFromDetailPageOpensEditor (docs/learnings/ui-tests-are-red-at-head.md).
-# Both red tests fail identically -- long-press, tap "Details", and the sheet
-# never opens -- so a failure here is a plausible, legitimate outcome rather
-# than a test to soften.
-#
-# Two things only this path exercises:
-#
-#   * The Contents section, and its Edit button, exist ONLY for a preset --
-#     PlayableDetailView hides the whole Mods/Patches/Compat/Edit group when
-#     `game.isBaseGame`. A base-game run can never reach them.
-#   * Edit sets an intent (`pendingEditGame`) that ShelfView promotes in the
-#     detail sheet's `onDismiss`, rather than presenting the editor in the same
-#     transaction that dismisses the sheet. That same-transaction
-#     dismiss-then-present race was already fixed once on the create path
-#     (cfaed69) and the fix on this path is what the final validation below
-#     pins: a regression there does not crash, it silently does nothing.
-#
-# NO IMPORT STEP: a test device has no files to import. The preset this test
-# needs is built from the bundled Freedoom Phase 1 through Manage -> New
-# Preset, which touches no file picker.
-#
-# The naming matters. PresetName.suggested seeds a preset's name with its base
-# game's name verbatim, so a preset left at its default would be called
-# "Freedoom Phase 1" and be indistinguishable from the base game on the shelf.
-# Renaming it is what makes every later step unambiguous.
-#
-# Also see docs/learnings/lazy-form-hides-rows-from-uitests.md: the detail
-# sheet is a lazy Form, and rows below the fold are absent from the
-# accessibility hierarchy rather than merely off-screen -- which is why the
-# Edit step says to scroll to the Contents section instead of assuming it is
-# already visible.
+# Why this is a second file rather than more blocks in shelf-details-sheet.yaml
+# (PlayableDetailView hides Contents entirely for a base game), the onDismiss
+# race it pins, and the preset-naming trap are all in README.md beside this
+# file. Not repeated here: a push round-trips this definition through the
+# backend and drops every comment.
 test:
   metadata:
     name: shelf-preset-details-edit

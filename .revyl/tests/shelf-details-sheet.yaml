@@ -1,51 +1,12 @@
-# Long-press -> Details -> the detail sheet, from the shelf.
+# Long-press -> Details -> the detail sheet, from the shelf. Base-game path.
 #
-# WHY THIS FLOW HAS ITS OWN PULL-REQUEST TEST
-#
-# This is the exact path of the incident recorded in the header of
-# .github/workflows/ui-tests.yml. WaddleUITests runs on `push: main` only;
-# between 2026-07-29 and 2026-08-16 eighty-four pull requests merged without
-# it running at all. One of them (PR #144) replaced the whole app shell, and
-# the regression it carried -- long-press to Details never opening the detail
-# sheet -- merged, shipped to TestFlight, and was found weeks later by
-# accident. Two XCTest cases had been red on main the entire time with no red
-# check anywhere.
-#
-# Revyl PR review runs on pull requests (.revyl/config.yaml, pr_review), so
-# this is the cheapest place to put a *pre-merge* signal on the one flow that
-# has already been shipped broken once. It deliberately duplicates
-# WaddleUITests/PlayTabTests/testBaseGameDetailControlsOverridePersists, which
-# is red at HEAD (docs/learnings/ui-tests-are-red-at-head.md) -- so a failure
-# here is a plausible and legitimate outcome, not a reason to soften the test.
-# Do not tune this file until it goes green; fix the app or record the failure.
-#
-# STATE ASSUMPTIONS
-#
-# Freedoom Phase 1 and Phase 2 are bundled in the app, so a fresh install
-# always has playable items and there is nothing to import -- a test device
-# has no files to import anyway. There are no saved games on a fresh install,
-# so the shelf's and the detail sheet's primary action reads "New Game"/"Play"
-# rather than "Continue"; the steps below accept either, because a device that
-# has already run another test may carry a save forward.
-#
-# ACCESSIBILITY TRAPS THIS FILE STEERS AROUND
-#
-# - docs/learnings/lazy-form-hides-rows-from-uitests.md: the detail sheet is a
-#   SwiftUI Form (lazy). Rows below the fold are not merely off-screen, they
-#   are absent from the accessibility hierarchy, which reads exactly like a
-#   sheet that never presented. The Controls step says to scroll, so "not
-#   found" means missing rather than unbuilt. That defect (issue #169) was the
-#   header art being drawn at the tile's 3:4 ratio -- 481 pt of a 708 pt sheet
-#   -- and its fix (PlayableDetailLayout's height cap) is exactly what step 4
-#   would catch regressing.
-# - docs/learnings/ios26-tabview-accessibility.md: identifiers set on TabView
-#   tabs never reach the rendered buttons. It does not bite here -- the shelf
-#   replaced the Play/Library TabView -- but it is why every instruction below
-#   names controls by visible label rather than by identifier.
-# - A SHORT tap on a shelf tile with no save launches the engine immediately
-#   (Shelf.tapAction -> .launchNewGame). Once the engine is up the screen is an
-#   SDL/Metal surface with no accessibility tree. The long press has to be a
-#   real hold, which is why step 2 says so.
+# The reasoning behind this test -- the PR #144 regression it guards, why a
+# failure here is a legitimate outcome rather than a test to soften, and the
+# accessibility traps the steps steer around -- lives in README.md beside this
+# file. It is NOT repeated here on purpose: `revyl test create --from-file`
+# copies into this directory and pushes, and a round trip through the backend
+# re-serialises the definition and drops every comment. Anything written here
+# is documentation with a fuse on it.
 test:
   metadata:
     name: shelf-details-sheet
