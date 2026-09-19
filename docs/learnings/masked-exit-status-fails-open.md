@@ -96,3 +96,19 @@ at `loop-report.sh:232`; pointed at `Scripts/` today it reports none.
 `Scripts/test-check-masked-gh-status.sh` pins that last assertion against the
 real directory, so a new masked call fails CI rather than waiting for a fourth
 entry in the list above.
+
+**Occurrence 5 (2026-09-19, issue #240): the mask was a grep pattern, not an
+exit code.** `Scripts/upload.sh` already knew altool exits 0 on failure and
+grepped the transcript for `ERROR ITMS-|error:`. App Store Connect's 409
+"train version '1.1' is closed" rejection printed `ERROR:` in caps with no
+`ITMS-` code, matched neither half, and the step went green -- twice in one
+day (builds 254 and 255), each pushing a `build-N` tag for a binary Apple
+never accepted, which in turn misled `release-due.sh` and the next build's
+What-to-Test range. The pattern is now case-insensitive and also matches
+`UPLOAD FAILED`, with a word boundary so a clean transcript's "no errors" and
+"error-codes" URL do not trip it. `Scripts/test-upload.sh` pins the verbatim
+2026-09-19 transcript as a fixture and the clean transcripts beside it, so the
+guard is measured against the exact shape that got through rather than a
+paraphrase. The lesson generalises: a detector that greps output is a mask
+too, and its pattern must be tested against a real failing transcript, not a
+hand-typed one.

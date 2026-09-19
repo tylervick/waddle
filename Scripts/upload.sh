@@ -53,7 +53,18 @@ fi
 # reproducible on macOS/bash 3.2 (448KB payloads detect correctly), but the
 # herestring costs nothing and removes the question entirely -- and this check
 # is the thing standing between a silently-failed upload and a green run.
-if grep -qE 'ERROR ITMS-|error:' <<<"$OUT"; then
+#
+# Three shapes, because altool has printed all three while exiting 0:
+#   - `ITMS-` codes (the Xcode 26 case this guard was written for);
+#   - `UPLOAD FAILED` / `VALIDATION FAILED` summary lines;
+#   - an `ERROR:` or `error:` line in either case -- the 2026-09-19 409
+#     "train version '1.1' is closed" rejection printed `ERROR:` in caps with
+#     no ITMS code, matched neither of the old pattern's halves, and shipped
+#     a green step, a phantom build tag and a 15-minute wait for a build
+#     that did not exist (issue #240). The word-boundary keeps "no errors"
+#     and ".../error-codes" URLs -- which a clean transcript contains -- from
+#     tripping it. Scripts/test-upload.sh pins every one of these.
+if grep -qiE 'ITMS-|UPLOAD FAILED|VALIDATION FAILED|(^|[^[:alnum:]_/-])error:' <<<"$OUT"; then
     echo "error: altool reported an error but exited 0 (known Xcode 26 behaviour)." >&2
     echo "       treating this as a FAILED upload. Verify in App Store Connect." >&2
     exit 1

@@ -16,7 +16,7 @@ One file per hard-won fact. Add an entry here in the same PR that adds the file 
 - [Setting up a second worktree has two traps](worktree-setup-traps.md) — the Vendor symlink and the stale CMakeCache
 - [Simulator hazards that produce misleading test results](simulator-test-hazards.md) — rotation, screenshot orientation, and RealWADTests fixtures
 - [A test that builds a git fixture inherits the developer's signing config](git-fixtures-inherit-signing-config.md) — `tag.gpgSign` surfaces as `fatal: no tag message?`
-- [Masking a query's exit status makes a guard fail open](masked-exit-status-fails-open.md) — four times now; test the status, then rule on empty output separately; `Scripts/check-masked-gh-status.sh` is the check
+- [Masking a query's exit status makes a guard fail open](masked-exit-status-fails-open.md) — five times now, once as a grep pattern that missed the real transcript (`Scripts/test-upload.sh`); test the status, then rule on empty output separately; `Scripts/check-masked-gh-status.sh` is the check
 - [An empty simulator list means infrastructure, not a bad pin](simulator-enumeration-race.md) — CoreSimulator can fail to enumerate anything on a cold runner; `Scripts/check-simulator-available.sh` is the check
 - [Killing an `xcodebuild` test session wedges CoreSimulator](killed-xcodebuild-wedges-coresimulator.md) — `Busy ("Application failed preflight checks")` reads as your diff breaking the app; `simctl shutdown all` does not clear it
 - [A simulator's name can contain parentheses, so parse the line from the right](simctl-device-names-contain-parens.md) — cutting at the first `" ("` truncates every iPad name, and `{36}` never matches in macOS awk
