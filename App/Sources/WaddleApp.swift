@@ -34,7 +34,7 @@ struct WaddleApp: App {
         }
         #endif
         do {
-            let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self)
+            let container = try ModelContainer(for: WADFile.self, Game.self)
             let context = ModelContext(container)
             let store = WADStore.default
 
@@ -47,7 +47,6 @@ struct WaddleApp: App {
             #if DEBUG
             if ProcessInfo.processInfo.environment["WADDLE_RESET_STORE"] != nil {
                 try? context.delete(model: WADFile.self)
-                try? context.delete(model: Loadout.self)
                 try? context.delete(model: Game.self)
                 try? context.save()
                 try? FileManager.default.removeItem(at: URL.documentsDirectory.appendingPathComponent("WADs", isDirectory: true))
@@ -56,7 +55,6 @@ struct WaddleApp: App {
                 // genuinely pre-migration slate rather than one that skips
                 // the seeder's game-creation because a flag survived the wipe.
                 UserDefaults.standard.removeObject(forKey: LibraryService.didMigrateToGamesKey)
-                UserDefaults.standard.removeObject(forKey: LibraryService.didReconcileBundledBaseGameLoadoutsKey)
                 UserDefaults.standard.removeObject(forKey: LibraryService.didAdoptOrphanMapSetsKey)
             }
             #endif
@@ -64,10 +62,8 @@ struct WaddleApp: App {
             let library = LibraryService(context: context, store: store)
             let importer = ImportService(library: library, store: store)
             // Order is load-bearing — see each method's doc comment: the
-            // legacy reconcile removes phantom loadouts before they could
-            // become games, the migration makes every existing row's game
-            // under its old id, and only then does the seeder fill gaps.
-            try library.reconcileBundledBaseGameLoadouts()
+            // migration makes every existing row's game under its old id, and
+            // only then does the seeder fill gaps.
             try library.migrateToGames()
             try library.seedBundledContentIfNeeded()
             // After the seeder, so bundled bases exist to pair with.

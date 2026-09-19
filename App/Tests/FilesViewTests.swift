@@ -105,7 +105,7 @@ final class FilesViewTests: XCTestCase {
     @MainActor
     private func makeLibrary() throws -> (library: LibraryService, tmp: URL) {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self,
+        let container = try ModelContainer(for: WADFile.self, Game.self,
                                            configurations: config)
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

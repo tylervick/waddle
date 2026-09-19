@@ -14,7 +14,7 @@ final class TileAppearanceTests: XCTestCase {
 
     override func setUp() async throws {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self, configurations: config)
+        let container = try ModelContainer(for: WADFile.self, Game.self, configurations: config)
         tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)

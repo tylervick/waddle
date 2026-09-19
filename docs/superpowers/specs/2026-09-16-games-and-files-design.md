@@ -93,7 +93,7 @@ Becomes purely a file. Gains `hasMaps: Bool`, set at import from
 
 ### 2.4 Removed
 
-`Loadout` (after §5's follow-up), `PlayableItem`, `PresetName`,
+`Loadout` (plan 4), `PlayableItem`, `PresetName`,
 `PresetCreationFlow`, `LoadoutEditorView`, and `LibraryView` (Manage).
 
 ## 3. Screens
@@ -244,10 +244,11 @@ and `Loadout.id` for presets, and it is `game.id` now, so no directory under
 `Documents/Saves/` moves and a player updating mid-campaign gets their
 Continue hero back untouched.
 
-**Schema in this release**: additive. `Game` is added; the `Loadout` table
-and `WADFile`'s three moved fields stay, written by nothing and read only by
-the migration. **Follow-up PR** after a TestFlight build has migrated real
-data: drop them (a lightweight SwiftData change).
+**Schema (plan 4, 2026-09-18):** `Loadout` and the three moved `WADFile`
+fields are dropped. Accepted window: a device updating from a pre-`Game`
+build directly to a build with this change loses its presets and its base
+games' hidden/last-played/touch-override state; saves are untouched. Ship
+only after a release containing plans 1–3 has been available.
 
 Plan 3 adds a second flagged launch step, `adoptOrphanMapSets`, after the
 seeder: every non-bundled map set no game loads gets a paired game once, so
@@ -302,4 +303,5 @@ Landing order, each its own PR:
    removed; Add on the shelf; Settings gains Files and Hidden games.
 3. Import outcomes (auto-create game / add-on / unpaired) and the banner
    copy; unpaired tile badge.
-4. Follow-up after TestFlight: drop `Loadout` and the moved fields.
+4. Follow-up after TestFlight: drop `Loadout` and the moved fields. **Done**
+   (plan 4, 2026-09-18).
