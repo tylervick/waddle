@@ -3,8 +3,11 @@ import XCTest
 extension XCTestCase {
     /// Taps a text field, clears any existing contents, and types `text`.
     /// Shared by the preset-creation / edit / RealWAD UI flows.
+    ///
+    /// Taps the trailing edge so the caret lands at the end before
+    /// backspacing — a centre tap lands mid-string in a narrow alert field.
     func clearAndType(_ field: XCUIElement, _ text: String) {
-        field.tap()
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
         if let existing = field.value as? String, !existing.isEmpty {
             field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existing.count))
         }
