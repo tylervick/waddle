@@ -119,20 +119,19 @@ Unchanged in structure: hero zone, one adaptive grid, welcome card,
 
 One screen for every tile, replacing `PlayableDetailView`,
 `LoadoutEditorView` and `PresetCreationFlow`. **Edits apply in place**: no
-Edit mode, no Save/Cancel. Sections, top to bottom:
+Edit mode, no Save/Cancel. The page is pushed into the shelf's navigation stack, not presented as a sheet. Sections, top to bottom:
 
-1. Title art, name (tap to rename), then **Continue** and **New Game** when a
+1. Title art, name (tap to rename) — a Rename alert with a text field, then **Continue** and **New Game** when a
    resumable save exists, else **Play** alone. Same rule as today
    (`PlayableLauncher.continuableSlot`).
 2. **Base game** — a picker over installed IWADs. Locked on a base game's
    own page.
 3. **Maps & Add-ons** — one reorderable list in load order. Each row shows
-   the filename and its role (Map set · N maps / Add-on / Patch). Swipe to
-   remove. An **Add…** row opens a picker of every non-base file not already
+   the filename and its role (Map set / Add-on / Patch — the map count was dropped at implementation: it needs a column nothing else reads). Remove with the row's minus button (the page keeps edit mode on so load order can be dragged; that also replaces swipe-to-delete on this list and on Saves — an implementation amendment). An **Add…** row opens a picker of every non-base file not already
    in the list, grouped by role.
 4. **Compatibility** — the existing complevel picker.
 5. **Touch layout** — the existing per-item scheme override.
-6. **Saves** — the existing list, swipe to delete.
+6. **Saves** — the existing list, minus-button delete, see item 3.
 7. **Duplicate**, then **Delete Game** (or **Hide from Shelf** on a base
    game).
 
@@ -167,11 +166,13 @@ Machinery unchanged (multi-select, zip, hash dedupe, off-main hashing). Each
 imported file lands as one of three outcomes, reported in the existing
 bottom banner alongside today's duplicate/rejection lines:
 
-- a new game tile on the shelf;
+- a new game tile on the shelf — "Added <names>";
 - an add-on — "Imported smoothdoom.wad as an add-on. Attach it from any
-  game's page.";
+  game's page."; several at once pluralize — "Imported smoothdoom.wad,
+  other.wad as add-ons. Attach them from any game's page.";
 - an unpaired game — "No base game found for sunlust.wad. Choose one on its
-  page."
+  page."; several at once pluralize — "No base game found for sunlust.wad,
+  other.wad. Choose one on their pages."
 
 ## 4. Rules
 
@@ -247,6 +248,12 @@ Continue hero back untouched.
 and `WADFile`'s three moved fields stay, written by nothing and read only by
 the migration. **Follow-up PR** after a TestFlight build has migrated real
 data: drop them (a lightweight SwiftData change).
+
+Plan 3 adds a second flagged launch step, `adoptOrphanMapSets`, after the
+seeder: every non-bundled map set no game loads gets a paired game once, so
+files imported before pairing existed become tiles. The launch order is now
+`reconcileBundledBaseGameLoadouts` → `migrateToGames` → `seedBundledContentIfNeeded`
+→ `adoptOrphanMapSets`.
 
 ## 6. Testing
 

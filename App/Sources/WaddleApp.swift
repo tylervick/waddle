@@ -57,6 +57,7 @@ struct WaddleApp: App {
                 // the seeder's game-creation because a flag survived the wipe.
                 UserDefaults.standard.removeObject(forKey: LibraryService.didMigrateToGamesKey)
                 UserDefaults.standard.removeObject(forKey: LibraryService.didReconcileBundledBaseGameLoadoutsKey)
+                UserDefaults.standard.removeObject(forKey: LibraryService.didAdoptOrphanMapSetsKey)
             }
             #endif
 
@@ -69,6 +70,8 @@ struct WaddleApp: App {
             try library.reconcileBundledBaseGameLoadouts()
             try library.migrateToGames()
             try library.seedBundledContentIfNeeded()
+            // After the seeder, so bundled bases exist to pair with.
+            try library.adoptOrphanMapSets()
 
             // Test-only seam, same WADDLE_* family as the reset above. Gives
             // the most-recently-played item a save so the shelf's Continue
@@ -143,8 +146,8 @@ struct WaddleApp: App {
     }
 
     /// One adoption pass: sweep loose files from Documents/Inbox into the
-    /// store, surface the outcome, and nudge LibraryView to refresh (adoption
-    /// can finish after the Library list first rendered). Guarded so a launch
+    /// store, surface the outcome, and nudge the shelf and Files to refresh
+    /// (adoption can finish after they first rendered). Guarded so a launch
     /// pass and a foreground pass can't interleave store writes.
     // An overlapping trigger queues a trailing pass instead of being
     // dropped: a file dropped into Documents after the in-flight pass

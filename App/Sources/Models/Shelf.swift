@@ -2,7 +2,7 @@ import Foundation
 
 /// The shelf's composition rules, factored out of `ShelfView` so they can be
 /// tested without a view harness (the repo has none -- see the note in
-/// `LibraryView.deleting`). `ShelfView` calls these and does nothing else to
+/// `FilesView.deleting`). `ShelfView` calls these and does nothing else to
 /// decide what it shows, so a test over these functions is a test of the
 /// screen's behaviour rather than of a helper the screen might bypass.
 ///
@@ -17,6 +17,9 @@ enum Shelf {
         case actionSheet
         /// Nothing to resume: straight to the engine's title screen, as before.
         case launchNewGame
+        /// Unpaired (`baseID == nil`): nothing to launch; the page is where the
+        /// base gets chosen (spec §3.1).
+        case openPage
     }
 
     /// Shelf order: everything played, most recent first, then everything else
@@ -102,7 +105,8 @@ enum Shelf {
     /// Tap resolution for a tile (spec §2's tile interactions).
     static func tapAction(for game: Game,
                           hasResumableSave: (Game) -> Bool) -> TapAction {
-        hasResumableSave(game) ? .actionSheet : .launchNewGame
+        guard game.baseID != nil else { return .openPage }
+        return hasResumableSave(game) ? .actionSheet : .launchNewGame
     }
 
     /// What the grid shows under the hero zone: everything in shelf order,

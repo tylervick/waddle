@@ -1,7 +1,7 @@
 import XCTest
 
 /// Requires Scripts/provision-test-wads.sh to have been run against the
-/// booted simulator AFTER the app was installed. Each test creates a loadout
+/// booted simulator AFTER the app was installed. Each test creates a game
 /// through the real UI, plays it with autoquit, and asserts a full-length
 /// session (or, for the negative case, a fast engine-error exit that the app
 /// survives).
@@ -16,120 +16,96 @@ final class RealWADTests: XCTestCase {
         // Task 7), not synchronously in WaddleApp.init — so the launcher UI
         // shows up immediately and does NOT wait on hashing/copying the
         // provisioned WADs (including the 293 MB Eviternity II). Adoption
-        // finishing is awaited separately, per-loadout, in
+        // finishing is awaited separately, per-game, in
         // waitForWADAvailable below.
         XCTAssertTrue(app.navigationBars["Waddle"].waitForExistence(timeout: 90),
                       "launcher UI never appeared")
         // Dismiss the loose-file adoption alert if it fired this launch.
-        // NOTE: launch-time adoption is currently silent (no alert; the
-        // "Import complete" alert only fires from LibraryView's manual
-        // import flow) so this is expected to be a no-op today. Kept as a
-        // guard in case that changes.
+        // NOTE: launch-time adoption is currently silent (no alert fires),
+        // so this is expected to be a no-op today. Kept as a guard in case
+        // that changes.
         let ok = app.alerts.buttons["OK"]
         if ok.waitForExistence(timeout: 3) { ok.tap() }
         return app
     }
 
-    /// Waits for `filename` to show up as a row in the Library tab.
+    /// Waits for `filename` to show up as a row in Settings → Files.
     ///
     /// Async adoption (Plan 3 Task 7) means a provisioned loose WAD may not
     /// be registered into the library for a few seconds after launch (the
     /// 293 MB Eviternity II in particular needs to be hashed + copied off
-    /// Main first). LoadoutEditorView's "Add PWAD" menu is NOT a fix point
-    /// to poll directly: its `pwads` list is a plain computed property, not
-    /// a reactive SwiftData query, so it only reflects the library's
-    /// current contents at the moment that view's body is (re-)evaluated —
-    /// simply leaving the "New Preset" sheet open longer never picks up a
-    /// WAD that gets registered after the sheet was presented. LibraryView
-    /// re-fetches on every `onAppear`, and switching tabs re-fires it, so
-    /// poll there instead — then open a *fresh* "New Preset" sheet only
-    /// once the target WAD is confirmed present, so its first render
-    /// already reflects it.
+    /// Main first). The Add… picker on the game page is NOT a fix point to
+    /// poll directly: its candidate list is a plain computed property, not a
+    /// reactive SwiftData query, so it only reflects the library's current
+    /// contents at the moment that view's body is (re-)evaluated — simply
+    /// leaving the picker sheet open longer never picks up a WAD that gets
+    /// registered after the sheet was presented. The Files screen re-fetches
+    /// on every `onAppear`, so poll there instead — then open a *fresh* Add…
+    /// picker only once the target WAD is confirmed present, so its first
+    /// render already reflects it.
     ///
-    /// Post grouped-Library rework, each row is a single combined
-    /// accessibility element identified by `libraryRow-<on-disk filename>`
-    /// (not a standalone staticText keyed by display name), and its
-    /// underlying XCUIElementType varies (cell vs. other) depending on how
-    /// the List renders sectioned rows — so this matches by identifier
-    /// across `.any` element type rather than assuming a specific type or
-    /// querying `staticTexts`.
+    /// Each row is a single combined accessibility element identified by
+    /// `fileRow-<on-disk filename>` (not a standalone staticText keyed by
+    /// display name), and its underlying XCUIElementType varies (cell vs.
+    /// other) depending on how the List renders sectioned rows — so this
+    /// matches by identifier across `.any` element type rather than assuming
+    /// a specific type or querying `staticTexts`.
     private func waitForWADAvailable(app: XCUIApplication, filename: String,
                                      timeout: TimeInterval = 90,
                                      file: StaticString = #filePath, line: UInt = #line) {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            openManage(app, file: file, line: line)
+            openFiles(app, file: file, line: line)
             let row = app.descendants(matching: .any)
-                .matching(identifier: "libraryRow-\(filename)").firstMatch
+                .matching(identifier: "fileRow-\(filename)").firstMatch
             let found = row.waitForExistence(timeout: 2)
-            returnToShelf(app)
+            closeSettings(app, file: file, line: line)
             if found { return }
         } while Date() < deadline
-        XCTFail("WAD '\(filename)' never appeared in Manage (async adoption stalled?)",
+        XCTFail("WAD '\(filename)' never appeared in Files (async adoption stalled?)",
                 file: file, line: line)
     }
 
-    /// Clears any existing text in `field` (e.g. LoadoutEditorView's
+    /// Clears any existing text in `field` (e.g. the game page's
     /// auto-generated name) before typing `text`.
-    /// Creates (if needed) and plays a loadout; asserts session length.
+    /// Creates (if needed) and plays a game; asserts session length.
     ///
     /// `iwad`/`pwad` are WAD *display names* (they address
-    /// `createPresetBase-<displayName>`/`addPWADButton-<displayName>`
-    /// below); `iwadFilename`/`pwadFilename` are the corresponding on-disk
-    /// filenames the fixtures are provisioned under (see
-    /// Scripts/provision-test-wads.sh) and are what the Library tab's rows
-    /// are keyed by post grouped-Library rework — pass them whenever the
-    /// two differ (i.e. whenever a `waitForWADAvailable` wait is needed).
-    private func runLoadout(app: XCUIApplication, name: String, iwad: String,
-                            pwad: String?, pwadFilename: String? = nil,
-                            iwadFilename: String? = nil, expectFullSession: Bool,
-                            file: StaticString = #filePath, line: UInt = #line) {
-        let tile = app.buttons["loadout-\(name)"]
+    /// `game-<displayName>`/`addFile-<displayName>` below);
+    /// `iwadFilename`/`pwadFilename` are the corresponding on-disk filenames
+    /// the fixtures are provisioned under (see
+    /// Scripts/provision-test-wads.sh) and are what the Files screen's rows
+    /// are keyed by — pass them whenever the two differ (i.e. whenever a
+    /// `waitForWADAvailable` wait is needed).
+    private func runGame(app: XCUIApplication, name: String, iwad: String,
+                         pwad: String?, pwadFilename: String? = nil,
+                         iwadFilename: String? = nil, expectFullSession: Bool,
+                         file: StaticString = #filePath, line: UInt = #line) {
+        let tile = app.buttons["game-\(name)"]
         if !tile.exists {
+            if let pwad { waitForWADAvailable(app: app, filename: pwadFilename ?? pwad, file: file, line: line) }
+            if !iwad.hasPrefix("Freedoom") { waitForWADAvailable(app: app, filename: iwadFilename ?? iwad, file: file, line: line) }
+            // A modded game is a duplicate of its base game with files added
+            // (spec §3.2): Duplicate the base, open the copy, rename, Add….
+            let baseTile = iwad == "Freedoom Phase 1" ? "playFreedoom1" : "game-\(iwad)"
+            openGamePage(app, tile: baseTile, file: file, line: line)
+            scrollTo(app.buttons["duplicateButton"], in: app)
+            app.buttons["duplicateButton"].tap()
+            openGamePage(app, tile: "game-\(iwad) copy", file: file, line: line)
+            app.buttons["gameNameButton"].tap()
+            let field = renameField(in: app)
+            XCTAssertTrue(field.waitForExistence(timeout: 5), file: file, line: line)
+            clearAndType(field, name)
+            app.buttons["Save"].tap()
             if let pwad {
-                waitForWADAvailable(app: app, filename: pwadFilename ?? pwad, file: file, line: line)
+                scrollTo(app.buttons["addFileButton"], in: app)
+                app.buttons["addFileButton"].tap()
+                let row = app.buttons["addFile-\(pwad)"]
+                XCTAssertTrue(row.waitForExistence(timeout: 5), "\(pwad) missing from the Add picker", file: file, line: line)
+                row.tap()
             }
-            if !iwad.hasPrefix("Freedoom") {
-                // Bundled Freedoom IWADs are registered synchronously at
-                // launch and always available; anything else (e.g. the
-                // provisioned "badiwad" fixture) is a loose file subject to
-                // the same async adoption race as PWADs above — wait for it
-                // too, or the picker tap below can race the hash/copy.
-                waitForWADAvailable(app: app, filename: iwadFilename ?? iwad, file: file, line: line)
-            }
-            // Plan B Task 4: creation is one door now -- newLoadoutButton
-            // opens a base-game picker (PresetCreationFlow), and picking a
-            // row pushes straight into the editor already seeded with that
-            // IWAD (iwadID prefilled, name auto-generated via
-            // PresetName.suggested). The old in-editor iwadPicker selection
-            // step is gone: the base is chosen here, before the editor ever
-            // appears, so there's nothing left to assert/select on iwadPicker
-            // for this flow.
-            openManage(app, file: file, line: line)
-            app.buttons["newLoadoutButton"].tap()
-            let baseRow = app.buttons["createPresetBase-\(iwad)"]
-            XCTAssertTrue(baseRow.waitForExistence(timeout: 5), file: file, line: line)
-            baseRow.tap()
-            let nameField = app.textFields["loadoutNameField"]
-            XCTAssertTrue(nameField.waitForExistence(timeout: 5), file: file, line: line)
-            // The field arrives pre-filled with the auto-generated name
-            // (just the base's display name, since no PWADs are added yet)
-            // -- clear it before typing this test's desired preset name so
-            // the result isn't at the mercy of where the cursor lands.
-            clearAndType(nameField, name)
-            if let pwad {
-                // Tab-bar buttons have no accessibility ids on iOS 26; this
-                // isn't a tab-bar button though — it's the "Add PWAD" Menu
-                // inside the loadout editor form, which does carry its own
-                // id (and, unlike the bare "Add PWAD" text row, has a
-                // full-row hit area).
-                app.buttons["addPWADMenu"].tap()
-                app.buttons["addPWADButton-\(pwad)"].tap()
-            }
-            app.buttons["saveLoadoutButton"].tap()
-            returnToShelf(app)
-            XCTAssertTrue(tile.waitForExistence(timeout: 5),
-                          "loadout tile missing after save", file: file, line: line)
+            returnToShelf(app, file: file, line: line)
+            XCTAssertTrue(tile.waitForExistence(timeout: 5), "game tile missing after setup", file: file, line: line)
         }
 
         let exitLabel = app.staticTexts["engineExitLabel"]
@@ -148,7 +124,7 @@ final class RealWADTests: XCTestCase {
             // The engine's own error text must surface as a launcher alert
             // (Plan 4 Task 1). Dismiss it before the interactivity check
             // below — a presented alert intercepts hits on everything else.
-            let alert = app.alerts["Couldn't run this preset"]
+            let alert = app.alerts["Couldn't run this game"]
             XCTAssertTrue(alert.waitForExistence(timeout: 5),
                           "engine error alert not shown", file: file, line: line)
             // Not just the (hardcoded) title: the body must carry the
@@ -166,30 +142,30 @@ final class RealWADTests: XCTestCase {
                 "alert body missing the engine's error text", file: file, line: line)
             alert.buttons["OK"].tap()
             // App survived the engine error — launcher still interactive. The
-            // shelf's Manage door stands in for the departed tab bar here: it
+            // shelf's Add button stands in for the departed tab bar here: it
             // is the one piece of shelf chrome that is always present.
-            XCTAssertTrue(app.buttons["manageButton"].isHittable, file: file, line: line)
+            XCTAssertTrue(app.buttons["importButton"].isHittable, file: file, line: line)
         }
     }
 
     @MainActor
     func testVanillaScytheOnFreedoom2() {
         let app = launchApp()
-        runLoadout(app: app, name: "Scythe", iwad: "Freedoom Phase 2",
+        runGame(app: app, name: "Scythe", iwad: "Freedoom Phase 2",
                    pwad: "SCYTHE", pwadFilename: "SCYTHE.WAD", expectFullSession: true)
     }
 
     @MainActor
     func testBoomSunlustOnFreedoom2() {
         let app = launchApp()
-        runLoadout(app: app, name: "Sunlust", iwad: "Freedoom Phase 2",
+        runGame(app: app, name: "Sunlust", iwad: "Freedoom Phase 2",
                    pwad: "sunlust", pwadFilename: "sunlust.wad", expectFullSession: true)
     }
 
     @MainActor
     func testMBF21EviternityIIOnFreedoom2() {
         let app = launchApp()
-        runLoadout(app: app, name: "Eviternity II", iwad: "Freedoom Phase 2",
+        runGame(app: app, name: "Eviternity II", iwad: "Freedoom Phase 2",
                    pwad: "Eviternity II", pwadFilename: "Eviternity II.wad", expectFullSession: true)
     }
 
@@ -220,7 +196,7 @@ final class RealWADTests: XCTestCase {
     @MainActor
     func testUnrecognizedIWADFailsSoft() {
         let app = launchApp()
-        runLoadout(app: app, name: "BadIWAD", iwad: "badiwad", pwad: nil,
+        runGame(app: app, name: "BadIWAD", iwad: "badiwad", pwad: nil,
                    iwadFilename: "badiwad.wad", expectFullSession: false)
     }
 }

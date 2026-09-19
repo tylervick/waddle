@@ -49,16 +49,18 @@ final class DemoLoopReplayTests: XCTestCase {
         return app
     }
 
-    /// Polls Manage for `name` (async loose-file adoption may take a few
-    /// seconds after launch). Returns whether it ever showed up — the caller
-    /// decides skip vs. fail, since the required IWAD is copyrighted.
-    private func wadAppears(app: XCUIApplication, name: String,
+    /// Polls Settings → Files for `filename` (async loose-file adoption may
+    /// take a few seconds after launch). Returns whether it ever showed up —
+    /// the caller decides skip vs. fail, since the required IWAD is
+    /// copyrighted.
+    private func wadAppears(app: XCUIApplication, filename: String,
                             timeout: TimeInterval = 30) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            openManage(app)
-            let found = app.staticTexts[name].waitForExistence(timeout: 2)
-            returnToShelf(app)
+            openFiles(app)
+            let found = app.descendants(matching: .any)
+                .matching(identifier: "fileRow-\(filename)").firstMatch.waitForExistence(timeout: 2)
+            closeSettings(app)
             if found { return true }
         } while Date() < deadline
         return false
@@ -98,7 +100,7 @@ final class DemoLoopReplayTests: XCTestCase {
         let app = launchApp()
 
         // Gate: DOOM2 must be provisioned (copyrighted; not in CI).
-        guard wadAppears(app: app, name: "DOOM2") else {
+        guard wadAppears(app: app, filename: "DOOM2.WAD") else {
             throw XCTSkip("DOOM2.WAD not provisioned into the simulator — see " +
                           "Scripts/provision-test-wads.sh. Skipping.")
         }
@@ -108,44 +110,18 @@ final class DemoLoopReplayTests: XCTestCase {
         playAndAssertCleanSession(app: app, tileID: "playFreedoom1",
                                   label: "session 1 (Freedoom Phase 1)")
 
-        // Create the DOOM2 loadout (commercial IWAD, no DEMO4 lump).
-        let doom2Tile = app.buttons["loadout-DoomII"]
-        if !doom2Tile.exists {
-            openManage(app)
-            app.buttons["newLoadoutButton"].tap()
-
-            // `newLoadoutButton` opens `PresetCreationFlow`, which picks the
-            // base game *first* and only then pushes the editor pre-seeded
-            // with it — there is no in-editor `iwadPicker` step on this path
-            // (Plan B Task 4). The row is identified by the WAD's display
-            // name, which #118 derives from content: a recognized DOOM II
-            // hashes to "DOOM II: Hell on Earth", any other release keeps its
-            // filename stem. Match on either rather than hardcoding one, so
-            // this works with whichever copy of DOOM2.WAD was provisioned.
-            let baseRow = app.buttons.matching(NSPredicate(format:
-                "identifier BEGINSWITH 'createPresetBase-' AND "
-                + "(identifier CONTAINS[c] 'doom2' OR identifier CONTAINS 'DOOM II')"))
-                .firstMatch
-            XCTAssertTrue(baseRow.waitForExistence(timeout: 5),
-                          "DOOM2 base-game row missing from the preset picker")
-            baseRow.tap()
-
-            // The editor arrives pre-named from the base game; replace that
-            // with the name this test's tile lookup uses.
-            let nameField = app.textFields["loadoutNameField"]
-            XCTAssertTrue(nameField.waitForExistence(timeout: 5), "seeded editor never appeared")
-            clearAndType(nameField, "DoomII")
-
-            app.buttons["saveLoadoutButton"].tap()
-            returnToShelf(app)
-            XCTAssertTrue(doom2Tile.waitForExistence(timeout: 5),
-                          "DOOM2 loadout tile missing after save")
-        }
+        // DOOM2 is its own base game now (spec §2.1): the tile is named by the
+        // WAD's display name — the catalog title for a recognized release, the
+        // filename stem otherwise — so match either.
+        let doom2Tile = app.buttons.matching(NSPredicate(format:
+            "identifier BEGINSWITH 'game-' AND (identifier CONTAINS[c] 'doom2' OR identifier CONTAINS 'DOOM II')"))
+            .firstMatch
+        XCTAssertTrue(doom2Tile.waitForExistence(timeout: 30), "DOOM2 base-game tile missing")
 
         // Session 2: DOOM2. Pre-fix, D_CheckPrimaryLumps array_free()s the
         // stale static demoloop_retail -> SIGABRT; the app process dies and
         // the exit label never appears.
-        playAndAssertCleanSession(app: app, tileID: "loadout-DoomII",
+        playAndAssertCleanSession(app: app, tileID: doom2Tile.identifier,
                                   label: "session 2 (DOOM2 replay)")
     }
 }

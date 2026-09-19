@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/tylervick/waddle/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tylervick/waddle/actions/workflows/ci.yml)
 
-A free, open-source WAD player for iPhone and iPad: a game library, a preset
-system and touch controls built around
+A free, open-source WAD player for iPhone and iPad: organize games with map
+sets and add-ons, and touch controls built around
 [Woof!](https://github.com/fabiangreffrath/woof) (Boom/MBF21 compatibility).
 Bundles [Freedoom](https://freedoom.github.io/) so it plays out of the box;
 import your own WADs — commercial IWADs you own, community megawads,
@@ -13,7 +13,7 @@ DeHackEd patches — for everything else.
   <img src="docs/app-store/screenshots/iphone-6.9/05-ingame.png"
        alt="In-game: Freedoom Phase 1 with the touch control overlay" width="49%">
   <img src="docs/app-store/screenshots/iphone-6.9/01-play-tab.png"
-       alt="The shelf: Continue hero, then base games and presets" width="49%">
+       alt="The shelf: Continue hero, then games" width="49%">
 </p>
 
 ## What Waddle replaces, and the parity bar it answers to
@@ -165,8 +165,8 @@ the configured team and does not manage the build number. Full procedure:
   Xcode emit macOS-style codesign rules that break `simctl install` on an
   iOS target.
 - Engine sessions are launched with `-save <dir>` (not `-savedir`), pointing
-  at a per-preset directory (`Documents/Saves/<preset-id>/`) so each
-  preset keeps its own save games, even presets that share an IWAD.
+  at a per-game directory (`Documents/Saves/<game-id>/`) so each
+  game keeps its own save games, even games that share an IWAD.
 
 ## Continuous integration
 
@@ -222,20 +222,24 @@ TestFlight builds run from a third workflow, `testflight.yml` — see
 ## WAD library
 
 The shelf is the home screen: a Continue hero when your last game has a save
-to resume, then one grid of every base game and preset, most recently played
-first. A gear opens player settings; **Manage** opens the library workspace,
-where importing, preset editing, and restoring hidden items live. Long-press
-a tile to remove it from the shelf — the files and saves are kept.
+to resume, then one grid of every game, most recently played first. A gear
+opens player settings, where Files (storage) and Hidden Games live. The
+**Add** button on the shelf imports. Long-press a tile for its context menu:
+Continue / New Game / Details, then Hide from Shelf (base games) or Delete.
+Rename and Duplicate live on the game page (Details), not the menu.
 
-Import WADs three ways: the Import button in Manage, "Share → Waddle" from
-another app, or drop files into the app's folder in the Files app (adopted
-on next launch). IWADs, PWADs, `.deh`/`.bex` patches, and zips containing
-any of those all work; zips are recursed into and duplicates are deduped by
-content hash. Files that fail to import (bad header, unsupported type,
-etc.) are never silently deleted — they're moved to `Documents/Import
-Failed/`, visible and recoverable from the Files app. Build **presets**
-(one IWAD + ordered PWADs/patches); each preset keeps its own save games.
-Freedoom Phase 1+2 are bundled and pre-wired as presets.
+Import WADs three ways: the **Add** button on the shelf, "Share → Waddle"
+from another app, or drop files into the app's folder in the Files app
+(adopted on next launch). IWADs, PWADs, `.deh`/`.bex` patches, and zips
+containing any of those all work; zips are recursed into and duplicates are
+deduped by content hash. Files that fail to import (bad header, unsupported
+type, etc.) are never silently deleted — they're moved to `Documents/Import
+Failed/`, visible and recoverable from the Files app. A WAD with maps
+becomes a game on the shelf as soon as it is imported, paired to a base
+game of its family; patches and map-less WADs import as add-ons you attach
+from a game's page. Any game can be duplicated and given map sets and
+add-ons on its page; each game keeps its own save games.
+Freedoom Phase 1+2 are bundled as base games.
 
 ## Controls
 

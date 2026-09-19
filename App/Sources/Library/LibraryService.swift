@@ -10,6 +10,8 @@ enum LibraryError: Error, Equatable {
     /// app bundle, and deleting the row would orphan its base game's saves —
     /// the seeder would simply re-create both under a fresh id.
     case wadIsBundled
+    /// A base game *is* its IWAD; its base cannot change (spec §3.2).
+    case baseGameIsLocked
 }
 
 /// Where a library file's bytes live, from the Library tab's point of view:
@@ -21,12 +23,12 @@ enum LibraryFileStatus: Equatable {
     case missing
 }
 
-/// One Library-tab section: all files of a single kind, display-ordered.
-struct LibraryGroup: Identifiable {
-    let kind: WADKind
+/// One Files-screen section: every file of one role, display-ordered (spec §3.4).
+struct FileGroup: Identifiable {
+    let role: FileRole
     let title: String
     let wads: [WADFile]
-    var id: String { kind.rawValue }
+    var id: String { title }
 }
 
 @MainActor
@@ -97,6 +99,7 @@ final class LibraryService {
     /// (see `WaddleApp`, which also clears both under `WADDLE_RESET_STORE`).
     static let didReconcileBundledBaseGameLoadoutsKey = "didReconcileBundledBaseGameLoadouts"
     static let didMigrateToGamesKey = "didMigrateToGames"
+    static let didAdoptOrphanMapSetsKey = "didAdoptOrphanMapSets"
 
     /// Titles the one-door preset flow auto-assigns a modless Freedoom preset,
     /// which is indistinguishable from the legacy phantom shape (no PWAD/DEH,
@@ -354,18 +357,19 @@ final class LibraryService {
         return try context.fetch(descriptor).first
     }
 
-    /// The Library tab's file inventory: every registered file grouped by kind
-    /// in fixed display order (Base Games / Mods / Patches), empty kinds
-    /// omitted, each group sorted bundled-first then by filename.
-    func libraryGroups() throws -> [LibraryGroup] {
+    /// The Files screen's inventory: every registered file grouped by role in
+    /// fixed order (Base games / Map sets / Add-ons), empty groups omitted,
+    /// each sorted bundled-first then by filename. Patches sit with add-ons:
+    /// neither is playable on its own (spec §2.1).
+    func fileGroups() throws -> [FileGroup] {
         let all = try allWADs()
-        let sections: [(WADKind, String)] = [(.iwad, "Base Games"), (.pwad, "Mods"), (.deh, "Patches")]
-        return sections.compactMap { kind, title in
+        let sections: [(FileRole, String)] = [(.base, "Base games"), (.mapSet, "Map sets"), (.addOn, "Add-ons")]
+        return sections.compactMap { role, title in
             let members = all
-                .filter { $0.kindRaw == kind.rawValue }
+                .filter { $0.role == role }
                 .sorted { ($0.isBundled ? 0 : 1, $0.filename.lowercased())
                         < ($1.isBundled ? 0 : 1, $1.filename.lowercased()) }
-            return members.isEmpty ? nil : LibraryGroup(kind: kind, title: title, wads: members)
+            return members.isEmpty ? nil : FileGroup(role: role, title: title, wads: members)
         }
     }
 
@@ -396,10 +400,16 @@ final class LibraryService {
                               ?? (filename as NSString).deletingPathExtension,
                           kindRaw: kind, sha1: sha1, gameFamilyRaw: family, hasMaps: hasMaps)
         context.insert(wad)
-        // An IWAD is a game the moment it arrives (spec §2.1). Map sets become
-        // games in plan 3; add-ons never do.
-        if kind == WADKind.iwad.rawValue {
+        // An IWAD is a game the moment it arrives (spec §2.1). A map set is a
+        // game the moment it arrives too (spec §3.5, §4.1), paired once; an
+        // add-on never is.
+        switch wad.role {
+        case .base:
             context.insert(Game.baseGame(for: wad))
+        case .mapSet:
+            try adoptMapSet(wad)
+        case .addOn:
+            break
         }
         try context.save()
         return wad
@@ -431,6 +441,41 @@ final class LibraryService {
         context.insert(game)
         try context.save()
         return game
+    }
+
+    /// The IWAD a new map set of `family` pairs with — see `Pairing.chooseBase`.
+    func pairBase(forFamily family: GameFamily) throws -> WADFile? {
+        let candidates = try baseGames().map { iwad in
+            Pairing.Candidate(file: iwad, lastPlayed: try game(id: iwad.id)?.lastPlayed)
+        }
+        return Pairing.chooseBase(forFamily: family, among: candidates)
+    }
+
+    /// Turns a map-set file into its own game, paired once (spec §3.5, §4.1).
+    /// The one construction shared by every site that adopts a map set: fresh
+    /// import (`registerImported`), the one-time sweep (`adoptOrphanMapSets`),
+    /// and `ImportService` restoring a row whose backing file had vanished.
+    @discardableResult
+    func adoptMapSet(_ wad: WADFile) throws -> Game {
+        let base = try pairBase(forFamily: wad.gameFamily)
+        let game = Game(name: wad.displayName, baseID: base?.id, fileIDs: [wad.id])
+        context.insert(game)
+        try context.save()
+        return game
+    }
+
+    /// One-time sweep (spec §5, amended for plan 3): map sets imported before
+    /// pairing existed have a row but no tile. Each non-bundled map set used by
+    /// no game gets a paired game, exactly as if it had just been imported.
+    /// Runs after the seeder so bundled bases are available to pair with, and
+    /// once only — a game the player later deletes is not resurrected.
+    func adoptOrphanMapSets(defaults: UserDefaults = .standard) throws {
+        guard !defaults.bool(forKey: Self.didAdoptOrphanMapSetsKey) else { return }
+        for wad in try allWADs() where wad.role == .mapSet && !wad.isBundled {
+            guard try gamesUsing(fileID: wad.id).isEmpty else { continue }
+            try adoptMapSet(wad)
+        }
+        defaults.set(true, forKey: Self.didAdoptOrphanMapSetsKey)
     }
 
     /// Deletes a game and its saves (spec §4.3). Base games are hidden, never
@@ -465,6 +510,64 @@ final class LibraryService {
     func setSchemeOverride(_ raw: String?, for game: Game) throws {
         game.schemeOverrideRaw = raw
         try context.save()
+    }
+
+    // MARK: Edits in place (spec §3.2)
+
+    func rename(_ game: Game, to name: String) throws {
+        game.name = name
+        try context.save()
+    }
+
+    /// Changes which IWAD a game loads. A base game is its IWAD, so its base is
+    /// locked (spec §3.2).
+    func setBase(_ game: Game, baseID: UUID?) throws {
+        guard !game.isBaseGame else { throw LibraryError.baseGameIsLocked }
+        game.baseID = baseID
+        try context.save()
+    }
+
+    /// Replaces the game's non-base files, in load order.
+    func setFiles(_ game: Game, fileIDs: [UUID]) throws {
+        game.fileIDs = fileIDs
+        try context.save()
+    }
+
+    func setComplevel(_ game: Game, _ complevel: String?) throws {
+        game.complevel = complevel
+        try context.save()
+    }
+
+    /// A copy of `game` under a new id (so it starts with no saves), named
+    /// "<name> copy", visible, never played, never a base game — with `edit`
+    /// applied to the copy and the original left exactly as it was. This is
+    /// both the footer's Duplicate and the change-with-saves sheet's Duplicate
+    /// Instead (spec §3.2).
+    @discardableResult
+    func duplicate(_ game: Game, applying edit: GameEdit? = nil) throws -> Game {
+        var baseID = game.baseID
+        var fileIDs = game.fileIDs
+        switch edit {
+        case .base(let id)?: baseID = id
+        case .files(let ids)?: fileIDs = ids
+        case nil: break
+        }
+        let copy = Game(name: GamePage.duplicateName(for: game.name), baseID: baseID,
+                        fileIDs: fileIDs, complevel: game.complevel,
+                        schemeOverrideRaw: game.schemeOverrideRaw)
+        context.insert(copy)
+        try context.save()
+        return copy
+    }
+
+    /// The map-set files Delete Game may offer to remove with the game (spec
+    /// §4.4): non-bundled, loaded by this game, and by no other. Add-ons are
+    /// never offered.
+    func deletableMapSets(of game: Game) throws -> [WADFile] {
+        try game.fileIDs
+            .compactMap { try wad(id: $0) }
+            .filter { $0.role == .mapSet && !$0.isBundled }
+            .filter { file in try gamesUsing(fileID: file.id).allSatisfy { $0.id == game.id } }
     }
 
     /// Deletes a file (spec §4.4). Bundled files are never deletable — the

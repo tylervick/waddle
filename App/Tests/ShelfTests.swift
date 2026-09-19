@@ -217,17 +217,25 @@ final class ShelfTests: XCTestCase {
         XCTAssertEqual(try zone(), .resume(try XCTUnwrap(try service.game(id: freedoom.id))))
     }
 
-    /// A mod is never a shelf item, so a rule written over `shelfGames()` would
-    /// keep greeting someone who has already brought their own files in.
-    func testAnImportedModEndsFactoryStateThoughItNeverReachesTheShelf() throws {
+    /// An add-on is never a shelf item, so a rule written over `shelfGames()`
+    /// would keep greeting someone who has already brought their own files in.
+    func testAnImportedAddOnEndsFactoryStateThoughItNeverReachesTheShelf() throws {
         try service.seedBundledContentIfNeeded()
         _ = try service.registerImported(filename: "sunlust.wad", sha1: "s",
                                          kind: WADKind.pwad.rawValue, family: "doom2")
 
         XCTAssertFalse(try service.shelfGames().contains { $0.name == "sunlust" },
-                       "a PWAD is not directly playable and never reaches the shelf")
+                       "an add-on is not playable on its own and never reaches the shelf")
         XCTAssertFalse(try service.isFactoryState())
         XCTAssertEqual(try zone(), .empty)
+    }
+
+    func testAnImportedMapSetReachesTheShelfAsAGame() throws {
+        try service.seedBundledContentIfNeeded()
+        _ = try service.registerImported(filename: "sunlust.wad", sha1: "s",
+                                         kind: WADKind.pwad.rawValue, family: "doom2", hasMaps: true)
+        XCTAssertTrue(try service.shelfGames().contains { $0.name == "sunlust" && !$0.isBaseGame })
+        XCTAssertFalse(try service.isFactoryState())
     }
 
     // MARK: - Grid contents
@@ -303,6 +311,14 @@ final class ShelfTests: XCTestCase {
     }
 
     // MARK: - Tap resolution
+
+    /// Spec §3.1: an unpaired game's tile opens its page instead of launching,
+    /// whatever its saves say — there is nothing to launch.
+    func testTapOnAnUnpairedGameOpensItsPage() throws {
+        let orphan = try service.createGame(name: "Orphan", baseID: nil, fileIDs: [])
+        XCTAssertEqual(Shelf.tapAction(for: orphan) { _ in true }, .openPage)
+        XCTAssertEqual(Shelf.tapAction(for: orphan) { _ in false }, .openPage)
+    }
 
     func testTapWithASaveOpensTheActionSheet() throws {
         let wad = try service.registerImported(filename: "doom2.wad", sha1: "i",

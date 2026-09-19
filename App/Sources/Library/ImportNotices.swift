@@ -38,8 +38,25 @@ final class ImportNotices {
     // where they were, so their banner shouldn't claim otherwise.
     nonisolated static func summary(of outcome: ImportOutcome, quarantines: Bool = false) -> String? {
         var parts: [String] = []
-        if !outcome.imported.isEmpty {
-            parts.append("Imported \(outcome.imported.joined(separator: ", "))")
+        if !outcome.games.isEmpty {
+            parts.append("Added \(outcome.games.joined(separator: ", "))")
+        }
+        if !outcome.addOns.isEmpty {
+            let names = outcome.addOns.joined(separator: ", ")
+            parts.append(outcome.addOns.count == 1
+                ? "Imported \(names) as an add-on. Attach it from any game's page."
+                : "Imported \(names) as add-ons. Attach them from any game's page.")
+        }
+        if !outcome.unpaired.isEmpty {
+            let names = outcome.unpaired.joined(separator: ", ")
+            parts.append(outcome.unpaired.count == 1
+                ? "No base game found for \(names). Choose one on its page."
+                : "No base game found for \(names). Choose one on their pages.")
+        }
+        let categorized = Set(outcome.games + outcome.addOns + outcome.unpaired)
+        let plain = outcome.imported.filter { !categorized.contains($0) }
+        if !plain.isEmpty {
+            parts.append("Imported \(plain.joined(separator: ", "))")
         }
         if !outcome.duplicates.isEmpty {
             parts.append("\(outcome.duplicates.count) already in library")

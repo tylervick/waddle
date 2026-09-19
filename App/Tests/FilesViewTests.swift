@@ -2,94 +2,94 @@ import SwiftData
 import XCTest
 @testable import Waddle
 
-final class LibraryViewTests: XCTestCase {
+final class FilesViewTests: XCTestCase {
     func testFilesAppURLSwapsSchemeAndKeepsPath() throws {
         let fileURL = URL(fileURLWithPath: "/private/var/mobile/Documents/WADs/sunlust.wad")
-        let url = try XCTUnwrap(LibraryView.filesAppURL(for: fileURL))
+        let url = try XCTUnwrap(FilesView.filesAppURL(for: fileURL))
         XCTAssertEqual(url.scheme, "shareddocuments")
         XCTAssertEqual(url.path, "/private/var/mobile/Documents/WADs/sunlust.wad")
     }
 
     func testFilesAppURLNilForNonFileURL() {
-        XCTAssertNil(LibraryView.filesAppURL(for: URL(string: "https://example.com/x.wad")!))
+        XCTAssertNil(FilesView.filesAppURL(for: URL(string: "https://example.com/x.wad")!))
     }
 
-    /// A multi-row delete blocks once per row; every blocked preset has to
+    /// A multi-row delete blocks once per row; every blocked game has to
     /// survive to the alert, not just the last row's.
     func testBlockedNamesAccumulateAcrossABatch() {
         var blocked: [String] = []
         for names in [["Sunlust"], ["Eviternity"], ["Ancient Aliens", "Valiant"]] {
-            blocked = LibraryView.blockedNames(blocked, adding: names)
+            blocked = FilesView.blockedNames(blocked, adding: names)
         }
         XCTAssertEqual(blocked, ["Sunlust", "Eviternity", "Ancient Aliens", "Valiant"])
     }
 
     func testBlockedNamesDropsRepeatsAcrossRows() {
-        let first = LibraryView.blockedNames([], adding: ["Sunlust", "Eviternity"])
-        XCTAssertEqual(LibraryView.blockedNames(first, adding: ["Eviternity", "Valiant"]),
+        let first = FilesView.blockedNames([], adding: ["Sunlust", "Eviternity"])
+        XCTAssertEqual(FilesView.blockedNames(first, adding: ["Eviternity", "Valiant"]),
                        ["Sunlust", "Eviternity", "Valiant"])
     }
 
     /// Each blocked row contributes its own file, so the alert can pair every
-    /// filename with the presets that actually hold it.
+    /// filename with the games that actually hold it.
     func testBlockedFilesAccumulateOnePerRow() {
-        var blocked: [LibraryView.BlockedFile] = []
-        blocked = LibraryView.blockedFiles(blocked, adding: ["Sunlust MP"], for: "sunlust.wad")
-        blocked = LibraryView.blockedFiles(blocked, adding: ["Eviternity"], for: "eviternity.wad")
+        var blocked: [FilesView.BlockedFile] = []
+        blocked = FilesView.blockedFiles(blocked, adding: ["Sunlust MP"], for: "sunlust.wad")
+        blocked = FilesView.blockedFiles(blocked, adding: ["Eviternity"], for: "eviternity.wad")
         XCTAssertEqual(blocked, [
-            LibraryView.BlockedFile(filename: "sunlust.wad", presets: ["Sunlust MP"]),
-            LibraryView.BlockedFile(filename: "eviternity.wad", presets: ["Eviternity"]),
+            FilesView.BlockedFile(filename: "sunlust.wad", games: ["Sunlust MP"]),
+            FilesView.BlockedFile(filename: "eviternity.wad", games: ["Eviternity"]),
         ])
     }
 
-    /// Two loadouts may carry the same name, and the alert should not list one
-    /// preset twice for the same file.
-    func testBlockedFilesDropsRepeatedPresetsForOneFile() {
-        let blocked = LibraryView.blockedFiles([], adding: ["Sunlust MP", "Sunlust MP"],
+    /// Two games may carry the same name, and the alert should not list one
+    /// game twice for the same file.
+    func testBlockedFilesDropsRepeatedGamesForOneFile() {
+        let blocked = FilesView.blockedFiles([], adding: ["Sunlust MP", "Sunlust MP"],
                                                for: "sunlust.wad")
         XCTAssertEqual(blocked, [
-            LibraryView.BlockedFile(filename: "sunlust.wad", presets: ["Sunlust MP"]),
+            FilesView.BlockedFile(filename: "sunlust.wad", games: ["Sunlust MP"]),
         ])
     }
 
     /// The plural form: with a batch blocked, the message has to say which file
-    /// belongs to which preset, and must not tell the reader to remove "it".
-    func testBlockedMessagePairsEachFileWithItsPresets() {
-        let message = LibraryView.blockedMessage(for: [
-            LibraryView.BlockedFile(filename: "sunlust.wad", presets: ["Sunlust MP"]),
-            LibraryView.BlockedFile(filename: "eviternity.wad", presets: ["Eviternity"]),
+    /// belongs to which game, and must not tell the reader to remove "it".
+    func testBlockedMessagePairsEachFileWithItsGames() {
+        let message = FilesView.blockedMessage(for: [
+            FilesView.BlockedFile(filename: "sunlust.wad", games: ["Sunlust MP"]),
+            FilesView.BlockedFile(filename: "eviternity.wad", games: ["Eviternity"]),
         ])
         XCTAssertEqual(message, """
         sunlust.wad — used by Sunlust MP
         eviternity.wad — used by Eviternity
-        Remove each file from those presets first.
+        Remove each file from those games first.
         """)
         XCTAssertFalse(message.contains("Remove it"))
     }
 
-    func testBlockedMessageSingularForOneFileInOnePreset() {
-        let message = LibraryView.blockedMessage(for: [
-            LibraryView.BlockedFile(filename: "sunlust.wad", presets: ["Sunlust MP"]),
+    func testBlockedMessageSingularForOneFileInOneGame() {
+        let message = FilesView.blockedMessage(for: [
+            FilesView.BlockedFile(filename: "sunlust.wad", games: ["Sunlust MP"]),
         ])
         XCTAssertEqual(message, """
         sunlust.wad — used by Sunlust MP
-        Remove it from that preset first.
+        Remove it from that game first.
         """)
     }
 
-    /// One file held by several presets: still "it", but "those presets".
-    func testBlockedMessageSingularFileInSeveralPresets() {
-        let message = LibraryView.blockedMessage(for: [
-            LibraryView.BlockedFile(filename: "sunlust.wad", presets: ["Sunlust MP", "Valiant"]),
+    /// One file held by several games: still "it", but "those games".
+    func testBlockedMessageSingularFileInSeveralGames() {
+        let message = FilesView.blockedMessage(for: [
+            FilesView.BlockedFile(filename: "sunlust.wad", games: ["Sunlust MP", "Valiant"]),
         ])
         XCTAssertEqual(message, """
         sunlust.wad — used by Sunlust MP, Valiant
-        Remove it from those presets first.
+        Remove it from those games first.
         """)
     }
 
     func testBlockedMessageEmptyWhenNothingIsBlocked() {
-        XCTAssertEqual(LibraryView.blockedMessage(for: []), "")
+        XCTAssertEqual(FilesView.blockedMessage(for: []), "")
     }
 
     // MARK: - The delete wiring itself
@@ -99,7 +99,7 @@ final class LibraryViewTests: XCTestCase {
     // the accumulation to a plain overwrite fails here instead of passing.
 
     /// An in-memory library plus its scratch directory, mirroring
-    /// `LibraryServiceTests`' fixture. Real rows and real loadouts, so
+    /// `LibraryServiceTests`' fixture. Real rows and real games, so
     /// `deleteWAD` refuses for the actual reason the view reacts to rather
     /// than a stubbed error.
     @MainActor
@@ -132,11 +132,11 @@ final class LibraryViewTests: XCTestCase {
         _ = try library.createGame(name: "Sunlust MP", baseID: iwad.id, fileIDs: [sunlust.id])
         _ = try library.createGame(name: "Eviternity", baseID: iwad.id, fileIDs: [eviternity.id])
 
-        let blocked = LibraryView.deleting([sunlust, eviternity], from: library, blocked: [])
+        let blocked = FilesView.deleting([sunlust, eviternity], from: library, blocked: [])
 
         XCTAssertEqual(blocked, [
-            LibraryView.BlockedFile(filename: "sunlust.wad", presets: ["Sunlust MP"]),
-            LibraryView.BlockedFile(filename: "eviternity.wad", presets: ["Eviternity"]),
+            FilesView.BlockedFile(filename: "sunlust.wad", games: ["Sunlust MP"]),
+            FilesView.BlockedFile(filename: "eviternity.wad", games: ["Eviternity"]),
         ])
     }
 
@@ -155,10 +155,10 @@ final class LibraryViewTests: XCTestCase {
                                                  kind: WADKind.pwad.rawValue, family: "doom2")
         _ = try library.createGame(name: "Sunlust MP", baseID: iwad.id, fileIDs: [sunlust.id])
 
-        let blocked = LibraryView.deleting([sunlust, spare], from: library, blocked: [])
+        let blocked = FilesView.deleting([sunlust, spare], from: library, blocked: [])
 
         XCTAssertEqual(blocked, [
-            LibraryView.BlockedFile(filename: "sunlust.wad", presets: ["Sunlust MP"]),
+            FilesView.BlockedFile(filename: "sunlust.wad", games: ["Sunlust MP"]),
         ])
         XCTAssertNil(try library.wad(id: spare.id), "an unblocked row must still be deleted")
         XCTAssertNotNil(try library.wad(id: sunlust.id), "a blocked row must survive")
@@ -175,14 +175,14 @@ final class LibraryViewTests: XCTestCase {
         let sunlust = try library.registerImported(filename: "sunlust.wad", sha1: "p1",
                                                    kind: WADKind.pwad.rawValue, family: "doom2")
         _ = try library.createGame(name: "Sunlust MP", baseID: iwad.id, fileIDs: [sunlust.id])
-        let existing = [LibraryView.BlockedFile(filename: "eviternity.wad",
-                                                presets: ["Eviternity"])]
+        let existing = [FilesView.BlockedFile(filename: "eviternity.wad",
+                                              games: ["Eviternity"])]
 
-        let blocked = LibraryView.deleting([sunlust], from: library, blocked: existing)
+        let blocked = FilesView.deleting([sunlust], from: library, blocked: existing)
 
         XCTAssertEqual(blocked, [
-            LibraryView.BlockedFile(filename: "eviternity.wad", presets: ["Eviternity"]),
-            LibraryView.BlockedFile(filename: "sunlust.wad", presets: ["Sunlust MP"]),
+            FilesView.BlockedFile(filename: "eviternity.wad", games: ["Eviternity"]),
+            FilesView.BlockedFile(filename: "sunlust.wad", games: ["Sunlust MP"]),
         ])
     }
 }

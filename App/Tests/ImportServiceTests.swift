@@ -67,6 +67,32 @@ final class ImportServiceTests: XCTestCase {
         XCTAssertEqual(try library.allWADs().count, 1)
     }
 
+    func testImportCategorizesGamesAddOnsAndUnpaired() throws {
+        try library.seedBundledContentIfNeeded()
+        let mapSet = try write("sunlust.wad", makeWAD(magic: "PWAD", lumps: ["MAP01", "THINGS"]))   // doom2 family
+        let addOn = try write("smooth.wad", makeWAD(magic: "PWAD", lumps: ["TITLEPIC"]))
+        let weird = try write("weird.wad", makeWAD(magic: "PWAD", lumps: ["MAP01"]))                // also doom2 — paired
+        let outcome = importer.importFiles(at: [mapSet, addOn, weird])
+        XCTAssertEqual(Set(outcome.games), ["sunlust", "weird"])
+        XCTAssertEqual(outcome.addOns, ["smooth"])
+        XCTAssertTrue(outcome.unpaired.isEmpty)
+        XCTAssertEqual(Set(outcome.imported), ["sunlust", "smooth", "weird"], "imported still lists everything")
+    }
+
+    func testImportReportsAnUnpairedMapSetWhenNoBaseOfItsFamilyExists() throws {
+        // No seed: no bases at all.
+        let mapSet = try write("orphan.wad", makeWAD(magic: "PWAD", lumps: ["MAP01"]))
+        let outcome = importer.importFiles(at: [mapSet])
+        XCTAssertEqual(outcome.unpaired, ["orphan"])
+        XCTAssertTrue(outcome.games.isEmpty)
+    }
+
+    func testImportReportsAnIWADAsAGame() throws {
+        let iwad = try write("mygame.wad", makeWAD(magic: "IWAD", lumps: ["E1M1", "THINGS"]))
+        let outcome = importer.importFiles(at: [iwad])
+        XCTAssertEqual(outcome.games, ["mygame"])
+    }
+
     func testImportingByteIdenticalCopyOfBundledIWADIsDuplicate() throws {
         try library.seedBundledContentIfNeeded()
         let freedoom = try XCTUnwrap(
@@ -305,8 +331,8 @@ final class ImportServiceTests: XCTestCase {
 
     /// Spec: "files dropped directly into the container via the iOS Files app
     /// are adopted and simply appear" — an adopted loose PWAD must show up in
-    /// the Library tab's grouped inventory.
-    func testAdoptedLooseFileAppearsInLibraryGroups() async throws {
+    /// Files' grouped inventory.
+    func testAdoptedLooseFileAppearsInFileGroups() async throws {
         let docs = URL.documentsDirectory
         let loose = docs.appendingPathComponent("dropped.wad")
         try makeWAD(magic: "PWAD", lumps: ["MAP01"]).write(to: loose)
@@ -315,8 +341,8 @@ final class ImportServiceTests: XCTestCase {
         let outcome = await importer.adoptLooseFiles()
         XCTAssertEqual(outcome.imported, ["dropped"])
 
-        let groups = try library.libraryGroups()
-        let mods = try XCTUnwrap(groups.first { $0.kind == .pwad })
+        let groups = try library.fileGroups()
+        let mods = try XCTUnwrap(groups.first { $0.role == .mapSet })
         XCTAssertTrue(mods.wads.contains { $0.filename == "dropped.wad" })
         XCTAssertEqual(mods.wads.first { $0.filename == "dropped.wad" }
                            .map { library.fileStatus(for: $0) }, .imported)
@@ -617,6 +643,7 @@ final class ImportServiceTests: XCTestCase {
     /// async `adoptLooseFiles` path (the detached-task branch that scans the
     /// Files-app drop zone) rather than the synchronous `importFiles`.
     func testAdoptLooseFilesRecordsWhetherAPWADCarriesMaps() async throws {
+        try library.seedBundledContentIfNeeded()
         let docs = URL.documentsDirectory
         let mapsName = "maps-\(UUID().uuidString).wad"
         let gfxName = "gfx-\(UUID().uuidString).wad"
@@ -635,5 +662,41 @@ final class ImportServiceTests: XCTestCase {
         XCTAssertTrue(outcome.imported.contains((gfxName as NSString).deletingPathExtension))
         XCTAssertEqual(try library.allWADs().first { $0.filename == mapsName }?.role, .mapSet)
         XCTAssertEqual(try library.allWADs().first { $0.filename == gfxName }?.role, .addOn)
+        XCTAssertTrue(outcome.games.contains((mapsName as NSString).deletingPathExtension),
+                      "the async path categorizes exactly like the sync one")
+        XCTAssertTrue(outcome.addOns.contains((gfxName as NSString).deletingPathExtension))
+        XCTAssertTrue(outcome.unpaired.isEmpty)
+    }
+
+    // MARK: repair adopts a restored map set (spec §3.5, §4.1)
+
+    /// A map set's row can predate pairing entirely — registered with
+    /// `hasMaps: false` (legacy migration default), so it never got a game —
+    /// and then its backing file goes missing. Repairing it (the sync path)
+    /// must adopt it into a game exactly as a fresh import would, not just
+    /// restore the filename.
+    func testRepairingARestoredMapSetWithNoGameAdoptsIt() throws {
+        let data = makeWAD(magic: "PWAD", lumps: ["MAP01", "THINGS"])
+        let sha1 = WADStore.sha1(of: data)
+        let wad = try library.registerImported(filename: "a.wad", sha1: sha1,
+                                               kind: WADKind.pwad.rawValue,
+                                               family: GameFamily.doom2.rawValue, hasMaps: false)
+        XCTAssertTrue(try library.gamesUsing(fileID: wad.id).isEmpty, "hasMaps false at registration created no game")
+        let fileURL = library.fileURL(for: wad)
+        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try data.write(to: fileURL)
+        try FileManager.default.removeItem(at: fileURL)   // backing file vanished out-of-band
+
+        try library.seedBundledContentIfNeeded()
+        let outcome = importer.importFiles(at: [try write("b.wad", data)])
+
+        XCTAssertEqual(outcome.imported, ["b"])
+        let repaired = try XCTUnwrap(try library.wad(id: wad.id))
+        XCTAssertEqual(repaired.role, .mapSet)
+        let game = try XCTUnwrap(try library.gamesUsing(fileID: repaired.id).first,
+                                 "a restored map set must get a tile")
+        XCTAssertEqual(game.fileIDs, [repaired.id])
+        XCTAssertEqual(outcome.games, ["b"])
     }
 }

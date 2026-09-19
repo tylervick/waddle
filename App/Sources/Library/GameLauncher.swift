@@ -19,6 +19,16 @@ enum GameLaunchError: Error, Equatable {
     case missingWAD(UUID)
 }
 
+/// The sentence the shelf shows when a launch cannot even build its argv.
+enum LaunchFailure {
+    static func message(for error: Error) -> String {
+        if case LaunchArgumentsError.missingBase = error {
+            return "This game needs a base game. Choose one on its page."
+        }
+        return "A file in this game is missing from the library."
+    }
+}
+
 /// Turns a `Game` into a ready-to-run `LaunchPlan`: builds engine argv,
 /// resolves the effective touch scheme (per-game override ?? global), and
 /// stamps `lastPlayed`. Saves are keyed by the game's id.

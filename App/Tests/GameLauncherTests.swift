@@ -133,4 +133,13 @@ final class GameLauncherTests: XCTestCase {
         let game = try service.createGame(name: "Broken", baseID: iwad.id, fileIDs: [UUID()])
         XCTAssertThrowsError(try GameLauncher.prepare(game, library: service))
     }
+
+    func testLaunchFailureCopyDistinguishesNoBaseFromMissingFile() {
+        XCTAssertEqual(LaunchFailure.message(for: LaunchArgumentsError.missingBase),
+                       "This game needs a base game. Choose one on its page.")
+        XCTAssertEqual(LaunchFailure.message(for: GameLaunchError.missingWAD(UUID())),
+                       "A file in this game is missing from the library.")
+        XCTAssertEqual(LaunchFailure.message(for: LaunchArgumentsError.missingWAD(UUID())),
+                       "A file in this game is missing from the library.")
+    }
 }

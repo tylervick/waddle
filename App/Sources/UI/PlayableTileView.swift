@@ -28,6 +28,21 @@ struct PlayableTileView: View {
                     .strokeBorder(.white.opacity(Theme.tileHairlineOpacity),
                                   lineWidth: Theme.tileHairlineWidth)
             )
+            .overlay(alignment: .topTrailing) {
+                if game.baseID == nil {
+                    Text("Needs a base game")
+                        .font(.caption2.bold())
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Color.appAccent, in: Capsule())
+                        .foregroundStyle(.black)
+                        .padding(8)
+                        .accessibilityIdentifier("unpairedBadge")
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
     }
 
     /// The title's bed: a bottom-anchored gradient dark enough to keep white

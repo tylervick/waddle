@@ -86,6 +86,32 @@ final class TileAppearanceTests: XCTestCase {
         XCTAssertEqual(label, "\(wad.displayName), last played yesterday")
     }
 
+    func testTileLabelSaysWhenAGameNeedsABaseGame() throws {
+        // An orphaned game's launch actions are disabled (M9); VoiceOver has
+        // to say why, not just announce a title that silently does nothing.
+        let game = try service.createGame(name: "Orphan", baseID: nil, fileIDs: [])
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let label = TileAccessibility.label(for: game, now: now, locale: Locale(identifier: "en_US"))
+
+        XCTAssertEqual(label, "Orphan, needs a base game")
+    }
+
+    func testTileLabelForAPairedNeverPlayedGameIsUnchanged() throws {
+        // Discriminates against a label that appends the "needs a base game"
+        // suffix unconditionally: a paired game must read exactly like the
+        // never-played case above.
+        let wad = try service.registerImported(filename: "doom2.wad", sha1: "d2b",
+                                               kind: WADKind.iwad.rawValue, family: "doom2")
+        let game = try XCTUnwrap(try service.game(id: wad.id))
+
+        let label = TileAccessibility.label(for: game,
+                                            now: Date(timeIntervalSince1970: 1_700_000_000),
+                                            locale: Locale(identifier: "en_US"))
+
+        XCTAssertEqual(label, wad.displayName)
+    }
+
     // MARK: - Dynamic Type
 
     func testGridDropsColumnsAtAccessibilitySizesInsteadOfShrinkingText() {

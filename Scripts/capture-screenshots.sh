@@ -4,7 +4,7 @@
 # Drives the app with a TEMPORARY XCUITest (ScreenshotCaptureTests.swift,
 # written by this script into App/UITests, removed again by `cleanup`) —
 # not manual pauses. The test plays an in-game Freedoom session first, then
-# navigates the Play tab / Library / preset editor, attaching
+# navigates the shelf / Files screen / game page, attaching
 # full-resolution XCUIScreen shots; the script then exports them from the
 # .xcresult bundle into docs/app-store/screenshots/<device>/.
 #
@@ -18,8 +18,8 @@
 #
 # WAD provisioning: copies the same real test WADs as
 # Scripts/provision-test-wads.sh but deliberately NOT the synthetic
-# `badiwad.wad` negative-test fixture — it would show up as a bogus IWAD in
-# the library list and IWAD picker in the marketing shots.
+# `badiwad.wad` negative-test fixture — it would show up as a bogus base game
+# tile on the shelf and in the Files screen in the marketing shots.
 #
 # In-game shots launch with WADDLE_TEST_WARP (menu-free path into a level;
 # Woof never auto-warps otherwise) and WADDLE_FORCE_TOUCH_OVERLAY (the
@@ -79,10 +79,10 @@ import XCTest
 /// Play-tab shot a populated "Recently Played" section.
 final class ScreenshotCaptureTests: XCTestCase {
 
-    /// The preset built for the marketing shots. SCYTHE is a Doom-2-format
-    /// megawad, so it belongs on Freedoom Phase 2; the name is the one
-    /// `PresetName.suggested` auto-generates from that pairing, which is in
-    /// turn what the Play tile's "loadout-<name>" identifier is built from.
+    /// The modded game built for the marketing shots. SCYTHE is a
+    /// Doom-2-format megawad, so it belongs on Freedoom Phase 2; this name is
+    /// what gets typed into the rename field after duplicating the base, and
+    /// in turn what the tile's "game-<name>" identifier is built from.
     private let presetBase = "Freedoom Phase 2"
     private let presetPWAD = "SCYTHE"
     private var presetName: String { "\(presetBase) + \(presetPWAD)" }
@@ -121,7 +121,8 @@ final class ScreenshotCaptureTests: XCTestCase {
     /// available to this script, strictly worse than a crash, because nothing
     /// downstream re-checks the pixels. Assert every step.
 
-    /// `openManage` and `returnToShelf` are NOT defined here. They live in
+    /// `openGamePage`, `returnToShelf`, `openFiles`, `closeSettings`,
+    /// `clearAndType`, and `renameField` are NOT defined here. They live in
     /// App/UITests/XCTestCase+UIHelpers.swift, which compiles into this same UI
     /// test target, and both already assert. Redeclaring them as private
     /// methods on this subclass does not shadow the extension — it is a compile
@@ -130,11 +131,11 @@ final class ScreenshotCaptureTests: XCTestCase {
 
     /// Scrolls `element` into the hierarchy. Restored after being deleted as
     /// dead code in the shelf migration — it is needed again, for a new reason.
-    /// SwiftUI's lazy containers (LazyVGrid on the shelf, List in Manage) omit
+    /// SwiftUI's lazy containers (LazyVGrid on the shelf, List in Files) omit
     /// off-screen cells from the accessibility hierarchy entirely, so `exists`
     /// is false and no `waitForExistence` will ever change it. The seeded
-    /// Continue hero made this bite again by pushing the shelf grid below the
-    /// fold, and Manage's preset rows sit under three WAD groups.
+    /// Continue hero pushes the shelf's LazyVGrid below the fold, and both the
+    /// base tile and this test's own modded-game tile live in that grid.
     @discardableResult
     @MainActor
     private func scrollIntoView(_ app: XCUIApplication, _ element: XCUIElement) -> Bool {
@@ -251,75 +252,65 @@ final class ScreenshotCaptureTests: XCTestCase {
         // phone — and a LazyVGrid cell below the fold is absent from the
         // accessibility hierarchy entirely, not merely non-hittable, so
         // `app.buttons["playFreedoom1"]` does not exist and no wait will change
-        // that. `manageButton` is toolbar chrome and always present.
-        XCTAssertTrue(app.buttons["manageButton"].waitForExistence(timeout: 20),
+        // that. `importButton` is toolbar chrome and always present.
+        XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 20),
                       "shelf never came up")
 
-        // Manage: the grouped file manager (Base Games / Mods / Patches), shot
-        // before the preset exists so no notice banner or in-use warning is on
-        // screen. Everything below happens here rather than on the shelf —
-        // preset creation and editing both moved into Manage with the shelf
-        // rework, and so did the only reliable place to ask whether the preset
-        // already exists.
-        openManage(app)
+        // Files (Settings → Files): the grouped file manager (Base games /
+        // Map sets / Add-ons), shot before the modded game exists so no
+        // notice banner or in-use warning is on screen. Still the reliable,
+        // non-lazy-grid place to confirm the provisioned WADs landed, the
+        // same role Manage used to serve.
+        openFiles(app)
         let scytheRow = app.descendants(matching: .any)
-            .matching(identifier: "libraryRow-SCYTHE.WAD").firstMatch
+            .matching(identifier: "fileRow-SCYTHE.WAD").firstMatch
         XCTAssertTrue(scytheRow.waitForExistence(timeout: 30),
                       "provisioned WADs not adopted — run the warm-up launch first")
         shoot("02-library")
+        closeSettings(app)
 
-        // The re-run probe. It used to be the shelf's "Presets" section header,
-        // which the shelf deleted along with every other section header (spec
-        // §3: one grid, no headers) — so that check would have read "no preset"
-        // forever and created a duplicate on every run. Manage lists presets
-        // under a stable per-name identifier, and we are already standing in it.
-        // Scroll to decide, not just to assert. Manage's preset rows sit under
-        // three WAD groups in a lazy List, so a bare `waitForExistence` reports
-        // "no preset" whenever one merely sits below the fold — and this run
-        // would then try to create a duplicate, the exact re-run hazard this
-        // probe exists to prevent.
-        let presetRow = app.descendants(matching: .any)
-            .matching(identifier: "managePreset-\(presetName)").firstMatch
-        let presetExists = scrollIntoView(app, presetRow)
+        // The re-run probe. A modded game is a tile on the shelf the moment
+        // it exists (spec §3.2) — there is no separate list of "presets" any
+        // more — but the seeded Continue hero pushes the shelf's LazyVGrid
+        // below the fold, so scroll to decide rather than trusting a bare
+        // `exists`, or a re-run would read "no game" and create a duplicate.
+        let tile = app.buttons["game-\(presetName)"]
+        let tileExists = scrollIntoView(app, tile)
 
-        if presetExists {
-            // Re-run against a container that already has the preset: edit it
-            // instead of creating a second one.
-            presetRow.tap()
-            XCTAssertTrue(app.textFields["loadoutNameField"].waitForExistence(timeout: 10),
-                          "tapped the existing preset but the editor never opened")
+        if tileExists {
+            // Re-run against a container that already has the game: open its
+            // page instead of creating a second one.
+            openGamePage(app, tile: "game-\(presetName)")
             shoot("03-preset-editor")
-            app.buttons["Cancel"].tap()
         } else {
-            // Preset creation has exactly one door since the rework: the +
-            // button opens PresetCreationFlow's base-game picker, and picking
-            // a row pushes into the editor already seeded with that base.
-            let newPreset = app.buttons["newLoadoutButton"]
-            XCTAssertTrue(newPreset.waitForExistence(timeout: 5),
-                          "New Preset toolbar button missing")
-            newPreset.tap()
-            let baseRow = app.buttons["createPresetBase-\(presetBase)"]
-            XCTAssertTrue(baseRow.waitForExistence(timeout: 10))
-            baseRow.tap()
-            XCTAssertTrue(app.textFields["loadoutNameField"].waitForExistence(timeout: 10))
-            // Add the mod before shooting: a seeded-but-empty editor has no
+            // A modded game is a duplicate of its base game with files added
+            // (spec §3.2): Duplicate the base, open the copy, rename, Add….
+            let baseTile = app.buttons["game-\(presetBase)"]
+            XCTAssertTrue(scrollIntoView(app, baseTile), "\(presetBase) base tile missing from the shelf")
+            openGamePage(app, tile: "game-\(presetBase)")
+            // Landscape here (forceLandscape() above) pushes the footer
+            // further below the fold than the portrait UI tests ever see it.
+            scrollTo(app.buttons["duplicateButton"], in: app)
+            app.buttons["duplicateButton"].tap()
+            openGamePage(app, tile: "game-\(presetBase) copy")
+            app.buttons["gameNameButton"].tap()
+            let field = renameField(in: app)
+            XCTAssertTrue(field.waitForExistence(timeout: 5), "rename field never appeared")
+            clearAndType(field, presetName)
+            app.buttons["Save"].tap()
+            // Add the mod before shooting: a freshly-renamed page has no
             // load-order list, which is the part worth photographing.
-            let addPWADMenu = app.buttons["addPWADMenu"]
-            XCTAssertTrue(addPWADMenu.waitForExistence(timeout: 5),
-                          "Add PWAD menu missing from the editor")
-            addPWADMenu.tap()
-            let addPWAD = app.buttons["addPWADButton-\(presetPWAD)"]
-            XCTAssertTrue(addPWAD.waitForExistence(timeout: 5))
-            addPWAD.tap()
+            scrollTo(app.buttons["addFileButton"], in: app)
+            app.buttons["addFileButton"].tap()
+            let addFile = app.buttons["addFile-\(presetPWAD)"]
+            XCTAssertTrue(addFile.waitForExistence(timeout: 5), "\(presetPWAD) missing from the Add picker")
+            addFile.tap()
             shoot("03-preset-editor")
-            app.buttons["saveLoadoutButton"].tap()
-            XCTAssertTrue(app.buttons["newLoadoutButton"].waitForExistence(timeout: 10),
-                          "creation sheet never dismissed back to Manage")
         }
 
         // Back to the shelf for the home shot: one grid of base games and
-        // presets, tiles carrying extracted TITLEPIC art. This is what a user
-        // sees on launch.
+        // modded games, tiles carrying extracted TITLEPIC art. This is what a
+        // user sees on launch.
         //
         // The Continue hero is asserted, not hoped for. It renders only because
         // WADDLE_SEED_CONTINUE_SAVE gave testA's item a save (see the launch
@@ -339,12 +330,12 @@ final class ScreenshotCaptureTests: XCTestCase {
                       "no Continue hero on the shelf — WADDLE_SEED_CONTINUE_SAVE did not take, "
                       + "and this shot would ship without the shelf's headline affordance")
 
-        // Preset creation is deliberately NOT asserted from a shelf tile here.
-        // Issue #159: the hero has no height cap, so on a landscape phone it
-        // fills the viewport and the LazyVGrid below it holds no cells in the
-        // accessibility hierarchy at all — scrolling does not recover them
-        // reliably. Once #159 lands and the grid is visible beside the hero,
-        // add `XCTAssertTrue(app.buttons["loadout-\(presetName)"].waitFor...)`
+        // The modded game's tile is deliberately NOT asserted from the shelf
+        // here. Issue #159: the hero has no height cap, so on a landscape
+        // phone it fills the viewport and the LazyVGrid below it holds no
+        // cells in the accessibility hierarchy at all — scrolling does not
+        // recover them reliably. Once #159 lands and the grid is visible
+        // beside the hero, add `XCTAssertTrue(app.buttons["game-\(presetName)"].waitFor...)`
         // back here, after the shot. Until then this shot is known to show the
         // hero and nothing else, which is why #159 blocks the re-capture.
         shoot("01-play-tab")
@@ -447,7 +438,7 @@ capture() {  # $1 = iphone | ipad
     # Marketing-clean status bar (Apple's own screenshot convention).
     xcrun simctl status_bar "$udid" override --time "9:41" \
         --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3
-    # Fresh container each run: no stale loadouts/config from prior captures.
+    # Fresh container each run: no stale games/config from prior captures.
     xcrun simctl uninstall "$udid" "$BUNDLE_ID" 2>/dev/null || true
     xcrun simctl install "$udid" "$APP_PATH"
     provision "$udid"

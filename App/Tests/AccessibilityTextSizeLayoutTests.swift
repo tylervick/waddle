@@ -299,9 +299,9 @@ final class AccessibilityTextSizeLayoutTests: XCTestCase {
         }
     }
 
-    // MARK: - The detail page, the other screen with a computed floor
+    // MARK: - The game page, the other screen with a computed floor
 
-    /// `PlayableDetailView` measures its caption from `UIFont` exactly as
+    /// `GamePageView` measures its caption from `UIFont` exactly as
     /// `ShelfView` does, and `PlayableDetailLayout.artHeight` caps the header
     /// art against it. `defaultCaptionHeight` hard-codes 26.3/20.3 pt line
     /// heights for the default size; nothing exercised the real ones.

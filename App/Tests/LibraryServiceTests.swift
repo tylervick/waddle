@@ -186,12 +186,6 @@ final class LibraryServiceTests: XCTestCase {
         try? FileManager.default.removeItem(at: dir)
     }
 
-    func testPresetNameSuggestion() {
-        XCTAssertEqual(PresetName.suggested(base: "Doom II", pwads: []), "Doom II")
-        XCTAssertEqual(PresetName.suggested(base: "Doom II", pwads: ["Sunlust"]), "Doom II + Sunlust")
-        XCTAssertEqual(PresetName.suggested(base: "Doom II", pwads: ["A", "B"]), "Doom II + A + B")
-    }
-
     // MARK: - File inventory (Plan D)
 
     /// Writes real bytes into the service's store directory so status/size
@@ -204,33 +198,6 @@ final class LibraryServiceTests: XCTestCase {
         return try service.registerImported(filename: filename, sha1: "sha-\(filename)",
                                             kind: kind.rawValue,
                                             family: GameFamily.unknown.rawValue)
-    }
-
-    func testLibraryGroupsOrderedByKindWithTitles() throws {
-        try service.seedBundledContentIfNeeded()   // 2 bundled IWADs
-        try registerWithBacking("sunlust.wad", kind: .pwad)
-        try registerWithBacking("tweak.deh", kind: .deh)
-        let groups = try service.libraryGroups()
-        XCTAssertEqual(groups.map(\.title), ["Base Games", "Mods", "Patches"])
-        XCTAssertEqual(groups[0].wads.map(\.filename), ["freedoom1.wad", "freedoom2.wad"])
-        XCTAssertEqual(groups[1].wads.map(\.filename), ["sunlust.wad"])
-        XCTAssertEqual(groups[2].wads.map(\.filename), ["tweak.deh"])
-    }
-
-    func testLibraryGroupsOmitsEmptyKinds() throws {
-        try registerWithBacking("sunlust.wad", kind: .pwad)
-        let groups = try service.libraryGroups()
-        XCTAssertEqual(groups.map(\.title), ["Mods"])
-    }
-
-    func testLibraryGroupsSortsBundledFirstThenFilename() throws {
-        // A user-imported IWAD named to sort before "freedoom1.wad"
-        // alphabetically must still list after the bundled entries.
-        try registerWithBacking("DOOM2.WAD", kind: .iwad)
-        try service.seedBundledContentIfNeeded()
-        let groups = try service.libraryGroups()
-        XCTAssertEqual(groups[0].wads.map(\.filename),
-                       ["freedoom1.wad", "freedoom2.wad", "DOOM2.WAD"])
     }
 
     func testFileStatusBundledImportedAndMissing() throws {
@@ -266,7 +233,7 @@ final class LibraryServiceTests: XCTestCase {
         // Manage is the file inventory, not the shelf: a hidden game's file is
         // still on disk and must stay visible (and manageable) there.
         XCTAssertTrue(try service.allWADs().contains { $0.id == iwad.id })
-        XCTAssertTrue(try service.libraryGroups().flatMap(\.wads).contains { $0.id == iwad.id })
+        XCTAssertTrue(try service.fileGroups().flatMap(\.wads).contains { $0.id == iwad.id })
     }
 
     // MARK: seedContinueSaveForCapture (test-only seam)

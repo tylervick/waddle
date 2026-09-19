@@ -1,16 +1,16 @@
 import CoreGraphics
 
-/// Pure geometry for the detail page's header art: viewport in, art height
+/// Pure geometry for the game page's header art: viewport in, art height
 /// out. Same shape as `ShelfHeroLayout`, against the same hazard, and tested
 /// the same way — over supplied bounds rather than through a rendered screen.
 ///
-/// ## Why the detail page needs a height at all
+/// ## Why the game page needs a height at all
 ///
-/// `PlayableDetailView`'s header drew its art at `Theme.tileAspectRatio`, which
-/// is a *tile* shape: portrait, because tiles are portrait. On the full width
-/// of a sheet that ratio is enormous — 370 pt of row width came out 481 pt
-/// tall on an iPhone 17 Pro, 60% of the sheet — and the Contents section, the
-/// Controls picker and the saves list all landed below the fold.
+/// The game page's predecessor drew its header art at `Theme.tileAspectRatio`,
+/// which is a *tile* shape: portrait, because tiles are portrait. On the full
+/// width of a sheet that ratio is enormous — 370 pt of row width came out 481
+/// pt tall on an iPhone 17 Pro, 60% of the sheet — and the Contents section,
+/// the Controls picker and the saves list all landed below the fold.
 ///
 /// A SwiftUI `Form` is a lazy collection view, so those rows were not merely
 /// out of sight: they were never instantiated, and so were absent from the
@@ -43,12 +43,12 @@ enum PlayableDetailLayout {
 
     /// How much of the form below the header has to stay above the fold.
     ///
-    /// Sized against the tallest first section any item shows: a preset's
+    /// Sized against the tallest first section any item shows: a game's
     /// Contents — a header, four `LabeledContent` rows, and the Edit button
     /// that ends it — which measures about 300 pt at the default Dynamic Type
     /// size. Reserving the whole of it is deliberate rather than generous:
     /// Edit is the *last* row, and a lazy `Form` that stops short of it leaves
-    /// the detail page's only route to the editor uninstantiated.
+    /// the game page's only route to editing uninstantiated.
     static let minimumControlsPeek: CGFloat = 300
 
     /// The floor the cap will not go below. A viewport short enough to hit
@@ -58,7 +58,7 @@ enum PlayableDetailLayout {
     static let minimumArtHeight: CGFloat = 96
 
     /// The header block below the art at the default Dynamic Type size: a
-    /// title row over one primary button. `PlayableDetailView` measures the
+    /// title row over one primary button. `GamePageView` measures the
     /// real one from `UIFont`, so accessibility sizes reserve what they
     /// actually need; this is the value tests and previews use.
     static let defaultCaptionHeight: CGFloat = captionHeight(titleLineHeight: 26.3,
