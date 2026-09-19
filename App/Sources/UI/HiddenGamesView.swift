@@ -18,6 +18,10 @@ struct HiddenGamesView: View {
                     Spacer()
                     Button("Restore") {
                         try? library.restore(game)
+                        // The shelf sits under Settings as a sheet, so its
+                        // `.onAppear` never re-fires on dismissal; without
+                        // this post the restored tile would not reappear.
+                        NotificationCenter.default.post(name: .libraryDidChange, object: nil)
                         refresh()
                     }
                     .buttonStyle(.borderless)

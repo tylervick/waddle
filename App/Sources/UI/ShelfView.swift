@@ -108,7 +108,12 @@ struct ShelfView: View {
                     .accessibilityIdentifier("buildInfoLabel")
             }
         }
-        .sheet(isPresented: $showPlayerSettings) {
+        // `onDismiss: refresh`, not just `.onAppear` on this view: Settings is
+        // a sheet, so dismissing it never re-runs the presenter's `onAppear`.
+        // Files and Hidden Games live under Settings and can restore or
+        // delete WADs, and without this the shelf would keep showing stale
+        // tiles until some other trigger happened to call `refresh()`.
+        .sheet(isPresented: $showPlayerSettings, onDismiss: refresh) {
             PlayerSettingsView(library: library)
         }
         // The welcome card's Add Your Games opens the same importer the
@@ -406,6 +411,7 @@ struct ShelfView: View {
     private func contextMenuItems(for game: Game) -> some View {
         if hasResumableSave(game) {
             Button("Continue") { play(game, mode: .continueNewest) }
+                .disabled(game.baseID == nil)
         }
         Button("New Game") { play(game, mode: .newGame) }
             .disabled(game.baseID == nil)

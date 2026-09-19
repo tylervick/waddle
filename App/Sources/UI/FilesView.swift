@@ -118,7 +118,7 @@ struct FilesView: View {
         return VStack(alignment: .leading, spacing: 2) {
             HStack {
                 Text(wad.filename)
-                if unpaired {
+                if wad.role == .mapSet && unpaired {
                     Text("no base")
                         .font(.caption2.bold())
                         .padding(.horizontal, 6).padding(.vertical, 2)
@@ -162,6 +162,10 @@ struct FilesView: View {
 
     private func delete(_ wads: [WADFile]) {
         deleteBlocked = Self.deleting(wads, from: library, blocked: deleteBlocked)
+        // The shelf is presented underneath Settings as a sheet, so its own
+        // `.onAppear` never re-fires when Settings dismisses; without this
+        // post a deleted WAD's game would keep showing stale tile state.
+        NotificationCenter.default.post(name: .libraryDidChange, object: nil)
         refresh()
     }
 

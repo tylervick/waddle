@@ -224,9 +224,9 @@ TestFlight builds run from a third workflow, `testflight.yml` — see
 The shelf is the home screen: a Continue hero when your last game has a save
 to resume, then one grid of every game, most recently played first. A gear
 opens player settings, where Files (storage) and Hidden Games live. The
-**Add** button on the shelf imports; long-press a tile to Continue / New
-Game / Details (tap the name to rename), Duplicate, Hide (base games only),
-or Delete.
+**Add** button on the shelf imports. Long-press a tile for its context menu:
+Continue / New Game / Details, then Hide from Shelf (base games) or Delete.
+Rename and Duplicate live on the game page (Details), not the menu.
 
 Import WADs three ways: the **Add** button on the shelf, "Share → Waddle"
 from another app, or drop files into the app's folder in the Files app

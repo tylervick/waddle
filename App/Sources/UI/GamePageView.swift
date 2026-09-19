@@ -30,6 +30,11 @@ struct GamePageView: View {
     @State private var showRename = false
     @State private var draftName = ""
     @State private var showAddFile = false
+    /// The file the Add… picker picked, staged until the sheet has finished
+    /// dismissing (`showAddFile`'s `onDismiss`) so the confirmation dialog
+    /// this can lead to is never presented while the sheet is still
+    /// dismissing itself (the cfaed69 race).
+    @State private var pendingAdd: WADFile?
     /// A base or file edit waiting on the change-with-saves confirmation.
     @State private var pendingEdit: GameEdit?
     @State private var deleteCandidate: Game?
@@ -78,9 +83,14 @@ struct GamePageView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
-        .sheet(isPresented: $showAddFile) {
+        .sheet(isPresented: $showAddFile, onDismiss: {
+            if let file = pendingAdd {
+                pendingAdd = nil
+                attempt(.files(game.fileIDs + [file.id]))
+            }
+        }) {
             AddFilePicker(candidates: GamePage.addableFiles(from: allFiles, to: game)) { wad in
-                attempt(.files(game.fileIDs + [wad.id]))
+                pendingAdd = wad
             }
         }
         .confirmationDialog(saveWarningTitle, isPresented: pendingEditBinding,
@@ -144,6 +154,7 @@ struct GamePageView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
+                .disabled(game.baseID == nil)
                 .accessibilityIdentifier("continueButton")
                 Button {
                     onPlay(game, .newGame)
@@ -152,6 +163,7 @@ struct GamePageView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
+                .disabled(game.baseID == nil)
                 .accessibilityIdentifier("playButton")
             } else {
                 Button {
@@ -175,7 +187,11 @@ struct GamePageView: View {
                 LabeledContent("Base", value: baseName)
             } else {
                 Picker("Base", selection: $baseSelection) {
-                    Text("Choose a base game").tag(UUID?.none)
+                    // Only offered while unpaired: once a game has a base,
+                    // the picker must not be able to un-pair it back to none.
+                    if game.baseID == nil {
+                        Text("Choose a base game").tag(UUID?.none)
+                    }
                     ForEach(baseGames, id: \.id) { wad in
                         Text(wad.displayName).tag(UUID?.some(wad.id))
                     }
@@ -340,8 +356,13 @@ struct GamePageView: View {
         "\(game.name) has \(saves.count) \(saves.count == 1 ? "save" : "saves")"
     }
 
+    // Cancel-by-dismissal (swipe or tap-away) has to reset the staged picker
+    // state the same as the explicit Cancel button does, or the next attempt
+    // sees a stale `pendingEdit`/`baseSelection` pair. `reload()` is
+    // idempotent, so re-running it here alongside the button's own call is
+    // harmless.
     private var pendingEditBinding: Binding<Bool> {
-        Binding(get: { pendingEdit != nil }, set: { if !$0 { pendingEdit = nil } })
+        Binding(get: { pendingEdit != nil }, set: { if !$0 { pendingEdit = nil; reload() } })
     }
 }
 

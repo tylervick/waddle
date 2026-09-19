@@ -127,12 +127,11 @@ Edit mode, no Save/Cancel. The page is pushed into the shelf's navigation stack,
 2. **Base game** — a picker over installed IWADs. Locked on a base game's
    own page.
 3. **Maps & Add-ons** — one reorderable list in load order. Each row shows
-   the filename and its role (Map set / Add-on / Patch — the map count was dropped at implementation: it needs a column nothing else reads). Swipe to
-   remove. An **Add…** row opens a picker of every non-base file not already
+   the filename and its role (Map set / Add-on / Patch — the map count was dropped at implementation: it needs a column nothing else reads). Remove with the row's minus button (the page keeps edit mode on so load order can be dragged; that also replaces swipe-to-delete on this list and on Saves — an implementation amendment). An **Add…** row opens a picker of every non-base file not already
    in the list, grouped by role.
 4. **Compatibility** — the existing complevel picker.
 5. **Touch layout** — the existing per-item scheme override.
-6. **Saves** — the existing list, swipe to delete.
+6. **Saves** — the existing list, minus-button delete, see item 3.
 7. **Duplicate**, then **Delete Game** (or **Hide from Shelf** on a base
    game).
 

@@ -27,6 +27,17 @@ private enum ScreenPreviewFixture {
         guard let game = try? fixture.library.shelfGames().first(where: \.isBaseGame) else { return nil }
         return (game, fixture.library)
     }
+
+    /// A duplicate of the first bundled base game, wrapped for the game
+    /// page — the variant with a base picker offering something other than
+    /// "locked", file rows in its load order, and a Delete (not Hide) footer.
+    static func firstModdedGame() -> (game: Game, library: LibraryService)? {
+        let fixture = ShelfPreviewFixture.continueHero()
+        guard let base = try? fixture.library.shelfGames().first(where: \.isBaseGame),
+              let copy = try? fixture.library.duplicate(base)
+        else { return nil }
+        return (copy, fixture.library)
+    }
 }
 
 /// A host matching `ContentView`'s: the game page is pushed, so without a
@@ -67,6 +78,34 @@ private struct GamePagePreviewHost: View {
 /// pairing that matters on the shelf.
 #Preview("Game page, landscape, accessibility3", traits: .landscapeLeft) {
     GamePagePreviewHost()
+        .dynamicTypeSize(.accessibility3)
+}
+
+/// Same host as `GamePagePreviewHost`, over a duplicated (modded) game
+/// instead of a base one.
+private struct ModdedGamePagePreviewHost: View {
+    var body: some View {
+        if let fixture = ScreenPreviewFixture.firstModdedGame() {
+            NavigationStack {
+                GamePageView(game: fixture.game,
+                             library: fixture.library,
+                             onPlay: { _, _ in },
+                             onChanged: {},
+                             onClose: {})
+            }
+            .preferredColorScheme(.dark)
+        } else {
+            Text("No modded game in the preview fixture")
+        }
+    }
+}
+
+#Preview("Game page, modded") {
+    ModdedGamePagePreviewHost()
+}
+
+#Preview("Game page, modded, accessibility3") {
+    ModdedGamePagePreviewHost()
         .dynamicTypeSize(.accessibility3)
 }
 

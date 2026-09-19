@@ -50,6 +50,10 @@ enum TileAccessibility {
     static func label(for game: Game,
                       now: Date = Date(),
                       locale: Locale = .autoupdatingCurrent) -> String {
-        label(title: game.name, lastPlayed: game.lastPlayed, now: now, locale: locale)
+        let base = label(title: game.name, lastPlayed: game.lastPlayed, now: now, locale: locale)
+        // An unpaired game's launch actions are disabled (M9): VoiceOver
+        // needs to say why the tile does not play, not just that it does not.
+        guard game.baseID == nil else { return base }
+        return "\(base), needs a base game"
     }
 }
