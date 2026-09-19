@@ -67,9 +67,11 @@ final class LibraryService {
     /// fresh id — and an empty saves directory — is ever made for it. Pinned by
     /// `GameServiceTests.testSeederLeavesAHiddenBaseGameAlone`.
     ///
-    /// Must run **after** `migrateToGames()`: on an upgraded install the
-    /// migration is what creates the bundled rows' base games. Run first,
-    /// this would create them blank.
+    /// Order relative to `migrateToGames()` is immaterial for bundled rows:
+    /// both build the same `Game.baseGame(for:)` under the same "no existing
+    /// game with this id" guard, so whichever runs first makes the base game
+    /// and the other is a no-op. The order that does matter is this seeder
+    /// before `adoptOrphanMapSets` — bundled bases must exist to pair with.
     func seedBundledContentIfNeeded() throws {
         let bundled: [(file: String, title: String, family: GameFamily)] = [
             ("freedoom1.wad", "Freedoom Phase 1", .doom1),
