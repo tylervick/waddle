@@ -336,44 +336,111 @@ jobs:
           echo "TEST_PROOF: $(printf '%s\n' "$out" | head -1)"
           echo "TEST_PROOF_DOMAINS: $(printf '%s\n' "$out" | sed -n 's/^domains: //p')"
 
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ci-test-results
+          path: |
+            TestResults.xcresult
+            TestResults-ipad.xcresult
+          # A failing iPhone leg ends the job before the iPad leg runs, so one
+          # of these two legitimately does not exist on that path. Without
+          # this, that normal case annotates the run with a warning about a
+          # missing artifact.
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Deliberately a SEPARATE job with no `needs:` on build-and-test, and that
+  # independence is the whole point. As a step inside that job this was step 11
+  # of 12 -- behind both unit-test legs and the red-green proof -- so on run
+  # 35410095359 (created 00:39:29) the upload did not start until 01:00:12,
+  # roughly twenty minutes in. A preview build you can launch on a device at
+  # minute five is worth far more than the same build at minute twenty, and
+  # adding `needs: build-and-test` would reintroduce exactly the latency this
+  # split removes. (The UI tests were never the blocker: ui-tests.yml is
+  # `push: main` only and never runs on a pull request.)
+  #
+  # The cost of independence, stated plainly: this job repeats the checkout and
+  # the setup action, so on a cold cache it builds SDL3/OpenAL and the engine a
+  # second time in parallel with build-and-test rather than sharing that work.
+  # That duplicated cost has NOT been measured on a runner yet -- the setup
+  # figures quoted on build-and-test above were measured for a single job, and
+  # nothing here should be read as a measurement of two running at once. Two
+  # jobs racing on the same cache keys is also expected: whichever finishes
+  # second finds the key already reserved and logs a cache-save warning. That
+  # is a warning, not a failure, and the restore path is unaffected.
+  revyl-preview:
+    name: Revyl preview build
+    # Pull requests only: the whole point is an artifact bound to a review.
+    # Hoisted from the step to the job so a push to main does not spend a
+    # runner on a checkout and a toolchain setup for a step that would skip.
+    # The `success()` half of the old condition is gone with the move -- there
+    # is no prior step in this job whose success it could mean, and gating on
+    # build-and-test is the thing this job exists not to do.
+    if: github.event_name == 'pull_request'
+    runs-on: macos-26
+    # Headroom, not a measurement: the upload step itself was measured at 2m40s
+    # and 1m11s (see below) and setup at 12s warm / 3m59s cold in the job above.
+    # 45 minutes is far beyond any of those and is here to stop a wedged runner
+    # from burning an hour, not because anything approaches it.
+    timeout-minutes: 45
+    steps:
+      # Plain shallow checkout, unlike build-and-test's fetch-depth: 0. That
+      # job needs full history because check-red-green.sh resolves
+      # `git merge-base HEAD origin/<base>`; nothing here does. The only git
+      # reader on this path is generate-build-info.sh, which wants HEAD alone.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # Same setup the test job uses, for the same reason: this build links the
+      # WoofEngine xcframework, which the action either restores from cache or
+      # builds. Its deps-built output is not consulted here -- the SONiVOX
+      # guards that depend on it live in build-and-test and stay there.
+      - uses: ./.github/actions/setup-waddle-build
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
       # Publishes the simulator build to Revyl so a pull request has a real
       # artifact to launch a device against (.revyl/config.yaml sets
       # pr_review.build.kind: ci_upload_to_revyl, which means Revyl expects
       # the artifact from here rather than building the app itself -- a cloud
       # build would recompile the whole vendored dependency set a second time
-      # having already paid for it above).
+      # having already paid for it here).
       #
-      # It builds again rather than reusing the test build, and that is not
-      # waste. The test legs build with ENABLE_DEBUG_DYLIB at its default, so
-      # their product carries Waddle.debug.dylib and __preview.dylib; that is
-      # the Xcode debug-dylib layout, not a standalone bundle, and it is not
-      # what should be installed on a device under test. -derivedDataPath
-      # therefore points somewhere separate so this cannot disturb the derived
-      # data the two test legs share. build/ is used because .gitignore
-      # already covers it -- a new top-level directory would leave the tree
-      # dirty, which is precisely what check-red-green.sh refuses to run
-      # against (docs/learnings/fixture-stub-trips-own-dirty-tree-guard.md).
+      # It builds rather than reusing a test build, and that is not waste -- it
+      # is also no longer avoidable, since this job no longer shares a runner
+      # with the test legs. Those legs build with ENABLE_DEBUG_DYLIB at its
+      # default, so their product carries Waddle.debug.dylib and
+      # __preview.dylib; that is the Xcode debug-dylib layout, not a standalone
+      # bundle, and it is not what should be installed on a device under test.
+      # -derivedDataPath still points somewhere separate, which now costs
+      # nothing to keep and documents that this tree is not the test legs'.
+      # build/ is used because .gitignore already covers it -- a new top-level
+      # directory would leave the tree dirty, which is precisely what
+      # check-red-green.sh refuses to run against
+      # (docs/learnings/fixture-stub-trips-own-dirty-tree-guard.md).
       #
-      # COST IS UNMEASURED. Every other timing comment in this file is a real
-      # figure off a real runner; this one has never run on a pull request, so
-      # there is no honest number to write. Measure it on the first green run
-      # and record it here -- and if it is dear, the cheap fix is the same one
-      # the iPad leg documents: move this to `push: main` rather than delete
-      # it.
+      # Measured on hosted runners while this still lived inside build-and-test:
+      # 2m40s on run 35410095359 and 1m11s on 35410545973. The spread is the
+      # engine cache -- this step's own -derivedDataPath is a fresh tree every
+      # time (DerivedData is cached nowhere in this repository, deliberately),
+      # so the Swift compile is always cold and the rest tracks whether
+      # Vendor/out was restored. Those numbers are for the xcodebuild step only
+      # and do not include this job's own checkout and setup.
+      #
+      # If it ever grows dear, the cheap fix is the one the iPad leg
+      # documents: move this to `push: main` rather than delete it.
       #
       # ARCHS=arm64 is required, not tidiness: a generic simulator destination
       # builds x86_64 too and the engine xcframework has only an arm64
       # simulator slice. See
       # docs/learnings/generic-simulator-destination-adds-x86_64.md.
       - name: Publish build to Revyl
-        # Pull requests only: the whole point is an artifact bound to a review.
-        # success() because a red build should not publish anything.
-        if: success() && github.event_name == 'pull_request'
         # Paired with pr_review.strict_ci_check.build: false in
         # .revyl/config.yaml. Neither this nor that is a permanent setting --
         # they are both "this path has never run on a real pull request", and
         # they should be flipped together once it has. Until then a Revyl-side
-        # outage must not be able to fail a build whose tests all passed.
+        # outage must not be able to fail this job.
         continue-on-error: true
         env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
@@ -405,26 +472,27 @@ jobs:
           # ephemeral merge commit on a pull_request event, which exists on no
           # branch and is not what Revyl matches a review against; passing it
           # would register builds against a commit nobody can look up.
+          # Without --version the CLI names the build after the clock
+          # ("20260919-010233"), which identifies nothing in a list. The PR
+          # number and head sha are what someone reading the dashboard
+          # actually wants.
+          #
+          # --no-set-current is what makes running ungated safe. Nothing here
+          # knows whether the unit tests passed -- build-and-test is still
+          # running alongside -- so this publishes previews for builds that go
+          # on to fail. That is the deliberate trade: a broken build is often
+          # exactly the one you want to launch on a device and watch break.
+          # What must NOT happen is a red build silently becoming the app's
+          # current version for everyone else, so the upload registers the
+          # build and stops short of promoting it. Whoever wants this one
+          # picks it by the --version string above.
           revyl build upload \
             --file build/Waddle.app.zip \
             --platform ios \
+            --version "pr${{ github.event.pull_request.number }}-$(echo '${{ github.event.pull_request.head.sha }}' | cut -c1-7)" \
             --app "8d5b0635-f1df-4a9f-8978-366771843c12" \
             --repo "${{ github.repository }}" \
             --commit "${{ github.event.pull_request.head.sha }}" \
             --pr "${{ github.event.pull_request.number }}" \
+            --no-set-current \
             --yes --json
-
-      - name: Upload test results
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: ci-test-results
-          path: |
-            TestResults.xcresult
-            TestResults-ipad.xcresult
-          # A failing iPhone leg ends the job before the iPad leg runs, so one
-          # of these two legitimately does not exist on that path. Without
-          # this, that normal case annotates the run with a warning about a
-          # missing artifact.
-          if-no-files-found: ignore
-          retention-days: 7
