@@ -101,18 +101,27 @@ final class GameMigrationTests: XCTestCase {
     func testMigrationDoesNotDuplicateAGameThatAlreadyExists() throws {
         // Defensive: if anything created the base game before the migration
         // ran (it must not — see the launch order — but a stale flag or a
-        // crash between steps could), the existing game wins.
+        // crash between steps could), the existing game wins. Flip a field
+        // migration would otherwise leave at its default so a duplicate
+        // upsert (same id, but reset to default) is distinguishable from the
+        // existing row being left alone.
         let wad = try legacyIWAD("doom2.wad")
-        context.insert(Game.baseGame(for: wad))
+        let existing = Game.baseGame(for: wad)
+        existing.isHidden = true
+        context.insert(existing)
         try context.save()
         try service.migrateToGames(defaults: defaults)
         XCTAssertEqual(try service.games().count, 1)
+        XCTAssertTrue(try XCTUnwrap(try service.game(id: wad.id)).isHidden,
+                      "the existing game wins outright; the migration never recreates or resets it")
     }
 
-    /// The upgrade path end to end, in the order `WaddleApp` runs it:
-    /// migration, then seeder. Every bundled row must get its own base game
-    /// and the seeder must find them and add nothing.
-    func testUpgradeOrderMakesOneBaseGamePerBundledRowAndAddsNoDuplicate() throws {
+    /// Migration and seeder both build `Game.baseGame(for:)` under the same
+    /// existence guard, so either can run first (see
+    /// `LibraryService.seedBundledContentIfNeeded`'s doc comment). This pins
+    /// the no-duplicate outcome, not a required order: every bundled row must
+    /// get its own base game and the pair must add nothing extra.
+    func testMigrationThenSeedMakesOneBaseGamePerBundledRowAndAddsNoDuplicate() throws {
         // An old install: bundled rows exist (seeded by the old build).
         let old = LibraryService(context: context, store: WADStore(directory: tmp))
         try old.seedBundledContentIfNeeded()   // new seeder — also makes games; undo that to fake an old store
