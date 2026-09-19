@@ -72,3 +72,44 @@ build:
                     # names the destination that asked for it.
                     - xcodebuild -project App/Waddle.xcodeproj -scheme Waddle -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build ENABLE_DEBUG_DYLIB=NO CODE_SIGNING_ALLOWED=NO ARCHS=arm64
                 output_path: build/Build/Products/Debug-iphonesimulator/Waddle.app
+# Pull-request automation. Written by hand rather than by `revyl github
+# setup`, which requires an interactive terminal and refuses to run
+# unattended; its own error names this path ("edit the project config
+# directly, run revyl config validate, then ... commit the designated file
+# when Git-managed").
+pr_review:
+    enabled: true
+    review_triggers:
+        # Repository-root-relative, matched against the paths GitHub reports.
+        # Scoped to what can change the binary, so a docs-only or
+        # learnings-only pull request does not queue a build. Engine/ and
+        # Scripts/ are in the list because the engine is compiled from vendored
+        # source by those scripts, not consumed as a released dependency.
+        paths:
+            - "App/**"
+            - "Engine/**"
+            - "Scripts/**"
+            - "mise.toml"
+        labels: []
+        drafts: false
+    build:
+        # ci_upload_to_revyl, not revyl: ci.yml already builds this app behind
+        # two content-keyed caches (measured 8m37s cold, 4m14s warm), so a
+        # Revyl cloud build would recompile SDL3, OpenAL Soft, sonivox, ogg,
+        # vorbis, sndfile, FLAC, opus and Woof from source a second time, per
+        # pull request, having already paid for them here. Revyl matches the
+        # uploaded artifact to the review by repository and head SHA.
+        kind: ci_upload_to_revyl
+        app_ids:
+            ios: "8d5b0635-f1df-4a9f-8978-366771843c12"
+    proof_of_changes:
+        # Off deliberately. This drives an agent over the app on a live device
+        # on every matching pull request; it is a separate cost and a separate
+        # decision from publishing the build, and nothing here depends on it.
+        enabled: false
+    workflow_ids: []
+    strict_ci_check:
+        # false until the upload step has proven itself on a real pull
+        # request. true makes a missing or failed upload block the merge, and
+        # that is not a promise to make on a path that has never run.
+        build: false
