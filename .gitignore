@@ -1,6 +1,14 @@
 .DS_Store
 .claude/*
 !.claude/skills/
+# Revyl ships its agent skills as a CLI-managed package set in .agents/skills,
+# linked into .claude/skills. `revyl skill update` owns that content, so a
+# vendored copy here would go stale against the installed CLI; reinstall with
+# `revyl skill install --cli --claude` instead. Left untracked, they otherwise
+# sit in `git status` forever and trip Scripts/check-red-green.sh's dirty-tree
+# refusal.
+.agents/
+.claude/skills/revyl-*
 Vendor/
 App/Resources/GameData/
 App/Resources/woof.pk3
