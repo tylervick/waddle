@@ -54,4 +54,13 @@ extension XCTestCase {
         done.tap()
         XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 10), file: file, line: line)
     }
+
+    /// Scrolls until `element` is in the accessibility tree. A lazy `Form`/`List`
+    /// omits off-screen rows entirely (docs/learnings/lazy-form-hides-rows-from-uitests.md).
+    func scrollTo(_ element: XCUIElement, in app: XCUIApplication, maxSwipes: Int = 6,
+                  file: StaticString = #filePath, line: UInt = #line) {
+        var swipes = 0
+        while !element.exists && swipes < maxSwipes { app.swipeUp(); swipes += 1 }
+        XCTAssertTrue(element.waitForExistence(timeout: 2), "\(element) never scrolled into view", file: file, line: line)
+    }
 }

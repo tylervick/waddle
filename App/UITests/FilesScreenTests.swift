@@ -18,6 +18,8 @@ final class FilesScreenTests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 5), "bundled freedoom1.wad row missing")
         XCTAssertTrue(row.label.contains("Bundled"), "row does not surface bundled status; label = '\(row.label)'")
         XCTAssertTrue(row.label.contains("Used by Freedoom Phase 1"), "row does not say who uses it; label = '\(row.label)'")
-        XCTAssertFalse(app.buttons["importButton"].exists, "Files must not carry its own import button")
+        let filesScreen = app.descendants(matching: .any).matching(identifier: "filesScreen").firstMatch
+        XCTAssertFalse(filesScreen.buttons["importButton"].exists, "Files must not carry its own import button")
+        XCTAssertFalse(app.navigationBars["Files"].buttons["importButton"].exists, "…nor in its toolbar")
     }
 }

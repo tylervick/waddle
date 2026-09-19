@@ -10,6 +10,7 @@ final class GamePageTests: XCTestCase {
         app.launch()
 
         openGamePage(app, tile: "playFreedoom1")
+        scrollTo(app.buttons["duplicateButton"], in: app)
         app.buttons["duplicateButton"].tap()
 
         // Duplicate pops back to the shelf, where the copy is a fresh tile.
@@ -25,6 +26,7 @@ final class GamePageTests: XCTestCase {
         app.launch()
 
         openGamePage(app, tile: "playFreedoom1")
+        scrollTo(app.buttons["duplicateButton"], in: app)
         app.buttons["duplicateButton"].tap()
         openGamePage(app, tile: "game-Freedoom Phase 1 copy")
 
@@ -46,8 +48,10 @@ final class GamePageTests: XCTestCase {
         app.launch()
 
         openGamePage(app, tile: "playFreedoom1")
+        scrollTo(app.buttons["duplicateButton"], in: app)
         app.buttons["duplicateButton"].tap()
         openGamePage(app, tile: "game-Freedoom Phase 1 copy")
+        scrollTo(app.buttons["deleteGameButton"], in: app)
         app.buttons["deleteGameButton"].tap()
         app.buttons["deleteGameAndSavesAction"].tap()
 
