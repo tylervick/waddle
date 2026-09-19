@@ -26,11 +26,11 @@ xcodegen = "2.46.0"
 #     the same bump script.
 # blink-pin:begin -- managed by Scripts/update-blink-pin.sh, do not hand-edit
 [tools."http:blink"]
-version = "0.1.1"
-platforms.macos-arm64.url = "https://blink.review/downloads/cli/blink-darwin-arm64-872622c26db0e9ba8dc16b163d32ddd95f40963a517bb69c2e8b9a5163d6d600.gz"
-platforms.macos-arm64.checksum = "sha256:872622c26db0e9ba8dc16b163d32ddd95f40963a517bb69c2e8b9a5163d6d600"
-platforms.macos-x64.url = "https://blink.review/downloads/cli/blink-darwin-x64-9afe227a985f479c38117fcd38e9d8082211ce5ee78e29ff1c98f061858facb8.gz"
-platforms.macos-x64.checksum = "sha256:9afe227a985f479c38117fcd38e9d8082211ce5ee78e29ff1c98f061858facb8"
+version = "0.1.2"
+platforms.macos-arm64.url = "https://blink.review/downloads/cli/blink-darwin-arm64-2656629b96cb79471e4759c82b6b22e31167ad5239135edca5e6ff603d5cfc75.gz"
+platforms.macos-arm64.checksum = "sha256:2656629b96cb79471e4759c82b6b22e31167ad5239135edca5e6ff603d5cfc75"
+platforms.macos-x64.url = "https://blink.review/downloads/cli/blink-darwin-x64-b0d58f861a3dafed5f7d6c34acd711e19014f2ec2fba4da0434e5dff0e7efa2f.gz"
+platforms.macos-x64.checksum = "sha256:b0d58f861a3dafed5f7d6c34acd711e19014f2ec2fba4da0434e5dff0e7efa2f"
 # blink-pin:end
 
 [tasks.build-deps]
