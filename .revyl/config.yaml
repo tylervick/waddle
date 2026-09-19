@@ -175,6 +175,15 @@ pr_review:
     #   revyl test create shelf-preset-details-edit --from-file .revyl/tests/shelf-preset-details-edit.yaml
     #   revyl workflow create <name> --tests shelf-details-sheet,shelf-preset-details-edit
     #
+    # Note what those commands do to the files: --from-file "copies to
+    # .revyl/tests/ and pushes", and `revyl test pull` overwrites local, so a
+    # round trip through the backend re-serialises each definition and writes
+    # it back WITHOUT its comments. That is why the reasoning for those tests
+    # lives in .revyl/tests/README.md rather than in their headers, and why the
+    # headers are short pointers. Expect the first push to produce a large
+    # deletion diff in the YAML; that is the round trip, not a mistake, and
+    # nothing of substance is lost as long as the README stays put.
+    #
     # Until then the tests are version-controlled and validated but do not run
     # on pull requests; proof_of_changes below does not depend on them.
     workflow_ids: []
