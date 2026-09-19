@@ -66,7 +66,7 @@ targets:
         # the *build* number on its own; this one is a deliberate edit, and it
         # has to land BEFORE the build that carries the new version is cut.
         # See docs/learnings/marketing-version-must-lead-the-store.md.
-        MARKETING_VERSION: "1.1"
+        MARKETING_VERSION: "1.2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # The one accent of spec §5's visual system, named once in the
         # asset catalog (App/Assets.xcassets/AccentColor.colorset). Setting it
