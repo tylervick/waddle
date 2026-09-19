@@ -103,10 +103,52 @@ pr_review:
         app_ids:
             ios: "8d5b0635-f1df-4a9f-8978-366771843c12"
     proof_of_changes:
-        # Off deliberately. This drives an agent over the app on a live device
-        # on every matching pull request; it is a separate cost and a separate
-        # decision from publishing the build, and nothing here depends on it.
-        enabled: false
+        # Depends on the artifact from the CI upload step arriving first; proof
+        # has nothing to install without it. Gated by review_triggers above, so
+        # it runs on pull requests that can change the binary and not on
+        # docs-only ones.
+        enabled: true
+        harness:
+            kind: revyl
+        # Invariants checked on every run in addition to the diff. These are
+        # the parity behaviours README.md calls the baseline this app answers
+        # to, not a restatement of whatever the pull request touched.
+        always_verify:
+            # Zero-setup launch is a parity requirement, not a nicety: Freedoom
+            # is bundled, so a fresh install must be playable with no import
+            # step. An empty shelf means the GameData/ folder reference did not
+            # make it into the bundle -- a packaging failure the unit suite
+            # cannot see.
+            - "From a fresh install the shelf lists the bundled Freedoom games without any import step, and no error alert is shown on launch."
+            # The engine is the point of the app, and it is the part unit tests
+            # do not reach. Starting play is what proves the engine linked,
+            # found woof.pk3 and its WADs, and rendered.
+            - "Starting a game from the shelf reaches rendered gameplay rather than a stuck loading state or an engine error alert."
+            # A game that renders but cannot be played is still broken, and the
+            # overlay is drawn by the app rather than the engine.
+            - "Once in a game, the touch control overlay is visible over the rendered view."
+        system_prompt: |
+            Waddle is an iOS port of the Woof! Doom engine. The SwiftUI shell is
+            a WAD library: a shelf of playable games and presets, plus Manage,
+            Settings, Control Feel and About screens. Freedoom Phase 1 and
+            Phase 2 ship inside the app, so there is always something playable
+            on a fresh install and no import is required. Do not try to import
+            a WAD -- a test device has no files to import, and failing to find
+            one is not a defect.
+
+            On a fresh install there are no saved games, so the shelf's primary
+            action is New Game or Play rather than Continue. "No saves yet" is
+            correct on a first run, not a bug.
+
+            Once a game starts, the screen belongs to the engine: it is an
+            SDL/Metal surface with no accessibility tree, so element queries
+            will find nothing there and that is expected rather than a failure
+            to load. Judge gameplay from the screenshots. The touch control
+            overlay drawn on top of it IS ordinary UIKit and can be addressed
+            normally.
+
+            Getting into a game and seeing it render is worth more than
+            breadth across the settings screens.
     workflow_ids: []
     strict_ci_check:
         # false until the upload step has proven itself on a real pull
