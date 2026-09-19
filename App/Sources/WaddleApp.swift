@@ -40,7 +40,7 @@ struct WaddleApp: App {
 
             // Test-only seam (same WADDLE_* family as WADDLE_AUTOQUIT_SECONDS
             // and WADDLE_TOUCH_SCHEME): wipes persisted state so UITests that
-            // create data (presets, saves) start from a clean slate instead
+            // create data (games, saves) start from a clean slate instead
             // of accumulating across runs/devices. Never set in production.
             // Must run before seedBundledContentIfNeeded() below so the
             // bundled base games get re-registered against the fresh store.
@@ -61,9 +61,10 @@ struct WaddleApp: App {
 
             let library = LibraryService(context: context, store: store)
             let importer = ImportService(library: library, store: store)
-            // Order is load-bearing — see each method's doc comment: the
-            // migration makes every existing row's game under its old id, and
-            // only then does the seeder fill gaps.
+            // The migration and the seeder are interchangeable for bundled
+            // rows — see each method's doc comment: both build the same
+            // `Game.baseGame(for:)` under the same guard. The order that is
+            // load-bearing is seed before adopt.
             try library.migrateToGames()
             try library.seedBundledContentIfNeeded()
             // After the seeder, so bundled bases exist to pair with.
