@@ -165,6 +165,18 @@ pr_review:
 
             Getting into a game and seeing it render is worth more than
             breadth across the settings screens.
+    # Empty until the two definitions in .revyl/tests/ are pushed and grouped:
+    # this field takes workflow UUIDs, not names (a name is rejected as
+    # "invalid value at pr_review.workflow_ids.0"), and a UUID only exists once
+    # the workflow does. Wiring them in is therefore a deliberate act that
+    # creates org-side resources:
+    #
+    #   revyl test create shelf-details-sheet --from-file .revyl/tests/shelf-details-sheet.yaml
+    #   revyl test create shelf-preset-details-edit --from-file .revyl/tests/shelf-preset-details-edit.yaml
+    #   revyl workflow create <name> --tests shelf-details-sheet,shelf-preset-details-edit
+    #
+    # Until then the tests are version-controlled and validated but do not run
+    # on pull requests; proof_of_changes below does not depend on them.
     workflow_ids: []
     strict_ci_check:
         # false until the upload step has proven itself on a real pull

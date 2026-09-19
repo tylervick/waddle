@@ -1,0 +1,142 @@
+# Long-press -> Details -> the detail sheet, from the shelf.
+#
+# WHY THIS FLOW HAS ITS OWN PULL-REQUEST TEST
+#
+# This is the exact path of the incident recorded in the header of
+# .github/workflows/ui-tests.yml. WaddleUITests runs on `push: main` only;
+# between 2026-07-29 and 2026-08-16 eighty-four pull requests merged without
+# it running at all. One of them (PR #144) replaced the whole app shell, and
+# the regression it carried -- long-press to Details never opening the detail
+# sheet -- merged, shipped to TestFlight, and was found weeks later by
+# accident. Two XCTest cases had been red on main the entire time with no red
+# check anywhere.
+#
+# Revyl PR review runs on pull requests (.revyl/config.yaml, pr_review), so
+# this is the cheapest place to put a *pre-merge* signal on the one flow that
+# has already been shipped broken once. It deliberately duplicates
+# WaddleUITests/PlayTabTests/testBaseGameDetailControlsOverridePersists, which
+# is red at HEAD (docs/learnings/ui-tests-are-red-at-head.md) -- so a failure
+# here is a plausible and legitimate outcome, not a reason to soften the test.
+# Do not tune this file until it goes green; fix the app or record the failure.
+#
+# STATE ASSUMPTIONS
+#
+# Freedoom Phase 1 and Phase 2 are bundled in the app, so a fresh install
+# always has playable items and there is nothing to import -- a test device
+# has no files to import anyway. There are no saved games on a fresh install,
+# so the shelf's and the detail sheet's primary action reads "New Game"/"Play"
+# rather than "Continue"; the steps below accept either, because a device that
+# has already run another test may carry a save forward.
+#
+# ACCESSIBILITY TRAPS THIS FILE STEERS AROUND
+#
+# - docs/learnings/lazy-form-hides-rows-from-uitests.md: the detail sheet is a
+#   SwiftUI Form (lazy). Rows below the fold are not merely off-screen, they
+#   are absent from the accessibility hierarchy, which reads exactly like a
+#   sheet that never presented. The Controls step says to scroll, so "not
+#   found" means missing rather than unbuilt. That defect (issue #169) was the
+#   header art being drawn at the tile's 3:4 ratio -- 481 pt of a 708 pt sheet
+#   -- and its fix (PlayableDetailLayout's height cap) is exactly what step 4
+#   would catch regressing.
+# - docs/learnings/ios26-tabview-accessibility.md: identifiers set on TabView
+#   tabs never reach the rendered buttons. It does not bite here -- the shelf
+#   replaced the Play/Library TabView -- but it is why every instruction below
+#   names controls by visible label rather than by identifier.
+# - A SHORT tap on a shelf tile with no save launches the engine immediately
+#   (Shelf.tapAction -> .launchNewGame). Once the engine is up the screen is an
+#   SDL/Metal surface with no accessibility tree. The long press has to be a
+#   real hold, which is why step 2 says so.
+test:
+  metadata:
+    name: shelf-details-sheet
+    platform: ios
+    tags:
+      - shelf
+      - regression
+      - pr-review
+  variables:
+    # The bundled base game the flow is exercised against. Phase 1 is the one
+    # with a stable identifier in the XCTest suites (playFreedoom1) and the one
+    # the Proof of Changes run has already reached gameplay on.
+    game-name: Freedoom Phase 1
+    # Modern, not Classic, on purpose: with no override the picker renders
+    # "Default (Classic)", so a persisted *Classic* would be indistinguishable
+    # from no selection at all. Modern is unambiguous.
+    control-layout: Modern
+  blocks:
+    # 1. The shelf itself. Also the packaging check: an empty shelf means the
+    #    GameData/ folder reference did not reach the bundle.
+    - type: validation
+      step_description: >-
+        The Waddle shelf is on screen showing cover-art tiles for the bundled
+        games {{game-name}} and Freedoom Phase 2, and no error alert is
+        covering it.
+
+    # 2. The gesture the incident broke. Deliberately one intent rather than
+    #    "press", "wait", "tap Details": Revyl re-derives the concrete actions
+    #    from the live screen each run, and a shelf item can be either a grid
+    #    tile or the large Continue hero at the top depending on save state --
+    #    both carry the same context menu (Shelf.gridItems drops the hero's
+    #    game from the grid, ShelfView.contextMenuItems is shared).
+    - type: instructions
+      step_description: >-
+        Open the Details page for {{game-name}} from the shelf: press and hold
+        its cover art for a full second until the context menu appears, then
+        choose "Details" from that menu. It may be a tile in the grid or the
+        large hero at the top of the screen; both offer the same menu. Hold
+        rather than tap -- a quick tap starts the game instead.
+
+    # 3. THE regression checkpoint. This single assertion is what was shipped
+    #    broken: the menu's Details item did nothing and no sheet appeared.
+    #    Phrased against what the sheet always shows regardless of save state
+    #    -- its navigation title and the primary action in its header -- rather
+    #    than against any row further down, which lazy-Form geometry can
+    #    legitimately keep unbuilt.
+    - type: validation
+      step_description: >-
+        A detail sheet for {{game-name}} has opened over the shelf. It is
+        titled "{{game-name}}", shows the game's artwork, and offers a primary
+        play action directly beneath it -- "Play" when the game has no saves,
+        or "Continue" alongside "New Game" when it does.
+
+    # 4. Past the fold on purpose: the Controls picker is the row the 2026-08-16
+    #    lazy-Form defect hid, so reaching it proves the sheet is not just
+    #    present but usable.
+    - type: instructions
+      step_description: >-
+        In the detail sheet, scroll down to the "Controls" section and set its
+        "Layout" option to {{control-layout}}.
+
+    - type: validation
+      step_description: >-
+        The detail sheet's Controls section shows Layout set to
+        {{control-layout}}. It must read exactly "{{control-layout}}" and not
+        "Default (Classic)", which is what the picker shows when no override
+        has been chosen.
+
+    # 5. Close and reopen. The override is written straight through to the
+    #    library (PlayableDetailView.applySchemeOverride), so reopening is what
+    #    proves it was persisted rather than held in view state -- and it walks
+    #    the long-press -> Details path a second time, which is where the
+    #    shipped regression actually bit.
+    - type: instructions
+      step_description: >-
+        Dismiss the detail sheet by swiping it down from its title bar, so the
+        shelf is showing again.
+
+    - type: validation
+      step_description: >-
+        The detail sheet is gone and the shelf's grid of game tiles is visible
+        again.
+
+    - type: instructions
+      step_description: >-
+        Open the Details page for {{game-name}} again the same way: press and
+        hold its cover art until the context menu appears, then choose
+        "Details".
+
+    - type: validation
+      step_description: >-
+        The detail sheet for {{game-name}} is open again and its Controls
+        section still shows Layout set to {{control-layout}}, proving the
+        override survived the sheet being closed.

@@ -1,0 +1,104 @@
+# Long-press -> Details -> the detail sheet's own Edit button, for a preset.
+#
+# WHY A SECOND TEST FOR THE SAME GESTURE
+#
+# shelf-details-sheet.yaml covers the sheet opening for a BASE game. This one
+# covers the other half of the same regression surface, and the other test
+# that is red at HEAD: WaddleUITests/PresetEditTests/
+# testEditFromDetailPageOpensEditor (docs/learnings/ui-tests-are-red-at-head.md).
+# Both red tests fail identically -- long-press, tap "Details", and the sheet
+# never opens -- so a failure here is a plausible, legitimate outcome rather
+# than a test to soften.
+#
+# Two things only this path exercises:
+#
+#   * The Contents section, and its Edit button, exist ONLY for a preset --
+#     PlayableDetailView hides the whole Mods/Patches/Compat/Edit group when
+#     `game.isBaseGame`. A base-game run can never reach them.
+#   * Edit sets an intent (`pendingEditGame`) that ShelfView promotes in the
+#     detail sheet's `onDismiss`, rather than presenting the editor in the same
+#     transaction that dismisses the sheet. That same-transaction
+#     dismiss-then-present race was already fixed once on the create path
+#     (cfaed69) and the fix on this path is what the final validation below
+#     pins: a regression there does not crash, it silently does nothing.
+#
+# NO IMPORT STEP: a test device has no files to import. The preset this test
+# needs is built from the bundled Freedoom Phase 1 through Manage -> New
+# Preset, which touches no file picker.
+#
+# The naming matters. PresetName.suggested seeds a preset's name with its base
+# game's name verbatim, so a preset left at its default would be called
+# "Freedoom Phase 1" and be indistinguishable from the base game on the shelf.
+# Renaming it is what makes every later step unambiguous.
+#
+# Also see docs/learnings/lazy-form-hides-rows-from-uitests.md: the detail
+# sheet is a lazy Form, and rows below the fold are absent from the
+# accessibility hierarchy rather than merely off-screen -- which is why the
+# Edit step says to scroll to the Contents section instead of assuming it is
+# already visible.
+test:
+  metadata:
+    name: shelf-preset-details-edit
+    platform: ios
+    tags:
+      - shelf
+      - regression
+      - pr-review
+  variables:
+    # The bundled base game every preset here is built from.
+    base-game: Freedoom Phase 1
+    # Deliberately unlike any bundled title, so "the preset" is never confused
+    # with "the base game it was made from" on the shelf or in a menu.
+    preset-name: Detail Probe
+  blocks:
+    - type: validation
+      step_description: >-
+        The Waddle shelf is on screen showing cover-art tiles for the bundled
+        games {{base-game}} and Freedoom Phase 2, and no error alert is
+        covering it.
+
+    # One intent, not five taps: Manage -> New Preset -> pick base -> rename ->
+    # Save is a single user goal, and Revyl re-derives the taps from the live
+    # screen. Naming Manage and the base game keeps it unambiguous; everything
+    # else is left to the agent.
+    - type: instructions
+      step_description: >-
+        Create a preset named "{{preset-name}}" based on {{base-game}}: open
+        Manage from the shelf's toolbar, start a new preset, choose
+        {{base-game}} as its base game, replace the suggested name with
+        "{{preset-name}}", and save it, then go back to the Waddle shelf.
+        Leave the mods and patches empty.
+
+    - type: validation
+      step_description: >-
+        The shelf now shows a "{{preset-name}}" item alongside the bundled
+        Freedoom games.
+
+    # The gesture the incident broke. A preset's context menu carries an "Edit"
+    # item of its own, which is a different shortcut and NOT the path under
+    # test -- hence the explicit "Details".
+    - type: instructions
+      step_description: >-
+        Open the Details page for "{{preset-name}}" from the shelf: press and
+        hold its tile for a full second until the context menu appears, then
+        choose "Details" -- not the "Edit" item in that same menu. Hold rather
+        than tap; a quick tap starts the game instead.
+
+    - type: validation
+      step_description: >-
+        A detail sheet titled "{{preset-name}}" has opened over the shelf,
+        showing the preset's artwork and a primary play action beneath it.
+
+    - type: instructions
+      step_description: >-
+        Scroll down in the detail sheet to its "Contents" section, which lists
+        {{base-game}} as the Base, and tap the "Edit" button inside that
+        section.
+
+    # The race. Before the fix the sheet dismissed and the editor never
+    # arrived -- no crash, no alert, just the shelf again.
+    - type: validation
+      step_description: >-
+        The preset editor has opened, titled "Edit Preset", with a name field
+        containing "{{preset-name}}". Landing back on the bare shelf with no
+        editor is a failure, not a pass.
