@@ -68,6 +68,29 @@ Most of the backlog is worked by an unattended loop, whose protocol is
 `agent:blocked`; [`docs/owner-side-issues.md`](docs/owner-side-issues.md) is the
 counterpart process for clearing those by hand.
 
+### Agent code review (Blink)
+
+[Blink](https://blink.review) reviews each Claude Code turn's diff and feeds
+the findings back to the agent before you see them. It is **optional and
+per-developer** — nothing in CI depends on it — but the CLI is pinned in
+`mise.toml` so everyone who opts in runs the same build:
+
+```sh
+mise install            # includes the pinned blink
+mise run blink-setup    # sign in, install the hooks, check they will resolve
+```
+
+`blink setup` writes its hooks to your user-level `~/.claude/settings.json`,
+not into this repository; `blink setup claude-code --remove` takes them out
+again. The hooks invoke a bare `blink`, which for a mise-managed tool resolves
+only through mise's shims directory — `mise run blink-setup` verifies that and
+tells you what to add to your shell profile if it is missing. Background:
+[`docs/learnings/blink-hook-needs-mise-shims-on-path.md`](docs/learnings/blink-hook-needs-mise-shims-on-path.md).
+
+Blink is not in the mise registry and has no release tags, so Renovate cannot
+bump it. Run `Scripts/update-blink-pin.sh` (add `--write` to apply) instead of
+editing the URLs and checksums by hand.
+
 ## Licensing
 
 Waddle is free software under the **GNU GPL v3** (see [COPYING](COPYING)).
