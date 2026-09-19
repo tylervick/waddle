@@ -35,19 +35,36 @@ shell where mise is active cannot distinguish the two cases; only the inherited
 ```sh
 # from a mise task: the install dir is on PATH here regardless, so probing with
 # `command -v blink` always succeeds and proves nothing.
-case ":$PATH:" in
-  *":${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims:"*) ;; # hook will resolve
-  *) ;;                                                     # hook will not
-esac
+mise doctor --json   # -> .shims_on_path, computed against the inherited PATH
 ```
 
 The same trap applies to any future user-level agent hook that shells out to a
 tool this repository pins, which is why it is worth a file rather than a
 comment.
 
+## Ask mise where the shims are; do not rebuild the path
+
+The first version of this check tested `$PATH` against
+`${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims`, which is right only for a
+default installation. Three separate things move that directory —
+`MISE_SHIMS_DIR`, a `shims_dir` setting, and `$XDG_DATA_HOME` — and getting it
+wrong inverts the check: a contributor whose shims live elsewhere and *are* on
+`PATH` is told to add a directory that does not exist, and the fix printed for
+them makes nothing better.
+
+`mise doctor --json` has already resolved all three. It reports `dirs.shims` as
+an absolute path, and `shims_on_path` as a boolean computed against the `PATH`
+it inherited — which, run from inside the task, is the same `PATH` the hook will
+inherit. Two facts, from the tool that owns them, instead of a reconstruction
+that has to keep up with mise's settings.
+
+Read the JSON rather than `mise doctor`'s plain output: that output is a report
+for a person, with reworded labels and `~`-abbreviated paths, while `--json` is
+the interface meant for a program.
+
 ## The check
 
-`mise run blink-setup` ends with exactly the test above and fails with the
+`mise run blink-setup` ends with exactly that test and fails with the
 `export PATH=` line to paste if the shims directory is missing. It cannot be a
 CI check: the file it would have to inspect is each contributor's own
 `~/.claude/settings.json`, which is outside the repository by design — the

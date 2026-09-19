@@ -127,21 +127,62 @@ blink setup claude-code
 # `mise run` prepend the tool's own install directory instead, which is
 # exactly why `blink` works in this task whether or not the hook will.
 #
-# So the check below reads $PATH as inherited rather than probing with
+# So the check below asks about $PATH as INHERITED rather than probing with
 # `command -v`: mise adds the install directory to this task's PATH but never
-# the shims directory, so what it sees is the shell environment Claude Code
+# the shims directory, so what it describes is the shell environment Claude Code
 # was launched with. See docs/learnings/blink-hook-needs-mise-shims-on-path.md.
-shims="${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims"
-case ":$PATH:" in
-  *":$shims:"*)
+#
+# It asks mise for that directory rather than rebuilding it from $MISE_DATA_DIR,
+# because MISE_SHIMS_DIR, a `shims_dir` setting and $XDG_DATA_HOME each move it,
+# and naming the wrong one fails a machine that is configured correctly. `mise
+# doctor` has resolved all three already, and its `shims_on_path` is this very
+# question, answered against the PATH it inherited from this task.
+#
+# Through --json, and parsed rather than grepped: doctor's human output is a
+# report, whose labels and tilde-abbreviated paths can be reworded at any
+# release, while the JSON is the interface meant to be read by a program.
+# python3 is what Scripts/asc-jwt.sh and Scripts/check-icon-json.sh already
+# reach for, and nothing here builds without an Xcode toolchain anyway.
+#
+# Nothing below inspects an exit status, and that is required rather than
+# sloppy. `mise doctor` exits 1 on ANY problem it finds -- an untrusted config
+# file, a tool that some other mise.toml pins and nobody installed -- while
+# still printing complete JSON. Measured: a directory with an untrusted config
+# and one uninstalled tool exits 1 and still reports both keys read here. Gating
+# on the status would turn every unrelated complaint into "could not read
+# shims_on_path" and a refused setup on a machine whose shims are fine.
+#
+# The parser catches nothing, which covers the same ground from the other side:
+# every way this can go wrong -- doctor missing, output that is not JSON, a
+# doctor that no longer reports these two keys, a typo in the key names here --
+# ends in a traceback on the suppressed stderr and an empty $probe, which is the
+# one condition the branches test.
+probe="$(mise doctor --json 2>/dev/null | python3 -c '
+import json, sys
+doctor = json.load(sys.stdin)
+print(doctor["dirs"]["shims"])
+print("yes" if doctor["shims_on_path"] else "no")
+' 2>/dev/null || true)"
+shims="$(printf '%s\n' "$probe" | sed -n 1p)"
+
+case "$(printf '%s\n' "$probe" | sed -n 2p)" in
+  yes)
     echo "ok - $shims is on PATH, so the hook will resolve blink"
     ;;
-  *)
+  no)
     echo "ERROR: $shims is not on your PATH." >&2
     echo "The hook just installed runs a bare 'blink', so it would fail with" >&2
     echo "'command not found' at the end of every Claude Code turn." >&2
     echo "Add this to your shell profile, then open a new terminal:" >&2
     echo "  export PATH=\"$shims:\$PATH\"" >&2
+    exit 1
+    ;;
+  *)
+    # Fail closed: a `mise doctor` that no longer answers this is not evidence
+    # that the hook works.
+    echo "ERROR: could not read shims_on_path out of 'mise doctor --json'." >&2
+    echo "Check by hand that mise's shims directory is on your PATH -- the hook" >&2
+    echo "just installed runs a bare 'blink' and resolves it only through there." >&2
     exit 1
     ;;
 esac
