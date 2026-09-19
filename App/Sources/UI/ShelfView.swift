@@ -453,7 +453,7 @@ struct ShelfView: View {
             present(EngineErrorAlert.from(exitCode: exitCode,
                                           engineMessage: EngineSession.lastErrorMessage))
         } catch {
-            let message = "A file in this game is missing from the library."
+            let message = LaunchFailure.message(for: error)
             lastExitCode = EngineSession.ExitCode.argumentFailure
             BreadcrumbLog.shared.record(
                 .sessionEnd(exitCode: EngineSession.ExitCode.argumentFailure,

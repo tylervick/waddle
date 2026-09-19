@@ -168,9 +168,11 @@ bottom banner alongside today's duplicate/rejection lines:
 
 - a new game tile on the shelf;
 - an add-on — "Imported smoothdoom.wad as an add-on. Attach it from any
-  game's page.";
+  game's page."; several at once pluralize — "Imported smoothdoom.wad,
+  other.wad as add-ons. Attach them from any game's page.";
 - an unpaired game — "No base game found for sunlust.wad. Choose one on its
-  page."
+  page."; several at once pluralize — "No base game found for sunlust.wad,
+  other.wad. Choose one on their pages."
 
 ## 4. Rules
 
@@ -246,6 +248,12 @@ Continue hero back untouched.
 and `WADFile`'s three moved fields stay, written by nothing and read only by
 the migration. **Follow-up PR** after a TestFlight build has migrated real
 data: drop them (a lightweight SwiftData change).
+
+Plan 3 adds a second flagged launch step, `adoptOrphanMapSets`, after the
+seeder: every non-bundled map set no game loads gets a paired game once, so
+files imported before pairing existed become tiles. The launch order is now
+`reconcileBundledBaseGameLoadouts` → `migrateToGames` → `seedBundledContentIfNeeded`
+→ `adoptOrphanMapSets`.
 
 ## 6. Testing
 

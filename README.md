@@ -234,9 +234,11 @@ from another app, or drop files into the app's folder in the Files app
 containing any of those all work; zips are recursed into and duplicates are
 deduped by content hash. Files that fail to import (bad header, unsupported
 type, etc.) are never silently deleted — they're moved to `Documents/Import
-Failed/`, visible and recoverable from the Files app. Any game can be
-duplicated and given map sets and add-ons on its page; each game keeps its
-own save games. Freedoom Phase 1+2 are bundled as base games.
+Failed/`, visible and recoverable from the Files app. A WAD with maps
+becomes a game on the shelf as soon as it is imported, paired to a base
+game of its family; patches and map-less WADs import as add-ons you attach
+from a game's page. Any game can be duplicated and given map sets and
+add-ons on its page; each game keeps its own save games. Freedoom Phase 1+2 are bundled as base games.
 
 ## Controls
 

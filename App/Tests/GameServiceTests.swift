@@ -298,9 +298,9 @@ final class GameServiceTests: XCTestCase {
         XCTAssertFalse(try service.isFactoryState())
     }
 
-    func testFactoryStateEndsWithAnImportedFileEvenIfItIsNotAGame() throws {
+    func testFactoryStateEndsWithAnyImportedFile() throws {
         try service.seedBundledContentIfNeeded()
-        _ = try pwad()
+        _ = try pwad("smooth.wad", hasMaps: false)
         XCTAssertFalse(try service.isFactoryState())
     }
 
