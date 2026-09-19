@@ -354,12 +354,15 @@ jobs:
       # dirty, which is precisely what check-red-green.sh refuses to run
       # against (docs/learnings/fixture-stub-trips-own-dirty-tree-guard.md).
       #
-      # COST IS UNMEASURED. Every other timing comment in this file is a real
-      # figure off a real runner; this one has never run on a pull request, so
-      # there is no honest number to write. Measure it on the first green run
-      # and record it here -- and if it is dear, the cheap fix is the same one
-      # the iPad leg documents: move this to `push: main` rather than delete
-      # it.
+      # Measured on hosted runners, now that it has actually run: 2m40s on
+      # run 35410095359 and 1m11s on 35410545973. The spread is the engine
+      # cache -- this step's own -derivedDataPath is a fresh tree every time
+      # (DerivedData is cached nowhere in this repository, deliberately), so
+      # the Swift compile is always cold and the rest tracks whether
+      # Vendor/out was restored.
+      #
+      # If it ever grows dear, the cheap fix is the one the iPad leg
+      # documents: move this to `push: main` rather than delete it.
       #
       # ARCHS=arm64 is required, not tidiness: a generic simulator destination
       # builds x86_64 too and the engine xcframework has only an arm64
@@ -405,9 +408,14 @@ jobs:
           # ephemeral merge commit on a pull_request event, which exists on no
           # branch and is not what Revyl matches a review against; passing it
           # would register builds against a commit nobody can look up.
+          # Without --version the CLI names the build after the clock
+          # ("20260919-010233"), which identifies nothing in a list. The PR
+          # number and head sha are what someone reading the dashboard
+          # actually wants.
           revyl build upload \
             --file build/Waddle.app.zip \
             --platform ios \
+            --version "pr${{ github.event.pull_request.number }}-$(echo '${{ github.event.pull_request.head.sha }}' | cut -c1-7)" \
             --app "8d5b0635-f1df-4a9f-8978-366771843c12" \
             --repo "${{ github.repository }}" \
             --commit "${{ github.event.pull_request.head.sha }}" \

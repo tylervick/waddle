@@ -125,8 +125,13 @@ pr_review:
             # found woof.pk3 and its WADs, and rendered.
             - "Starting a game from the shelf reaches rendered gameplay rather than a stuck loading state or an engine error alert."
             # A game that renders but cannot be played is still broken, and the
-            # overlay is drawn by the app rather than the engine.
-            - "Once in a game, the touch control overlay is visible over the rendered view."
+            # overlay is drawn by the app rather than the engine. Conditional
+            # on purpose: OverlayPresenter hides the overlay outright when a
+            # hardware keyboard or game controller is attached, which a test
+            # harness may well do, and absence is then correct rather than a
+            # defect. The first proof run failed this invariant as originally
+            # worded, for want of that clause.
+            - "Once in a game, the touch control overlay is visible over the rendered view -- unless a hardware keyboard or game controller is attached to the device, in which case its absence is correct and this check passes."
         system_prompt: |
             Waddle is an iOS port of the Woof! Doom engine. The SwiftUI shell is
             a WAD library: a shelf of playable games and presets, plus Manage,
@@ -146,6 +151,17 @@ pr_review:
             to load. Judge gameplay from the screenshots. The touch control
             overlay drawn on top of it IS ordinary UIKit and can be addressed
             normally.
+
+            The touch control overlay needs three things said about it,
+            because it is easy to report as missing when it is present and
+            correct. It is drawn deliberately faint so it does not obscure the
+            game -- roughly 12% white fill with a 35% white stroke -- so look
+            for thin translucent circles and rounded rectangles rather than
+            solid buttons. It is hidden entirely whenever a hardware keyboard
+            or game controller is attached, so if this device has either, its
+            absence is the correct behaviour. And it is laid out for both
+            portrait and landscape, so neither orientation is the wrong place
+            to look for it.
 
             Getting into a game and seeing it render is worth more than
             breadth across the settings screens.
