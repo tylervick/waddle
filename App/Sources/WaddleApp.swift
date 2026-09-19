@@ -10,6 +10,10 @@ struct WaddleApp: App {
     let importer: ImportService?
     @Environment(\.scenePhase) private var scenePhase
     @State private var isAdopting = false
+    /// Coalesces re-entrant adoption requests. A request arriving while one is
+    /// already running does not start a second pass or get dropped; it sets
+    /// this, and the loop below runs exactly one more pass once the current
+    /// one finishes, however many arrived in the meantime.
     @State private var adoptionQueued = false
 
     init() {
