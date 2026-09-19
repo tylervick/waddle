@@ -93,7 +93,7 @@ final class RealWADTests: XCTestCase {
             app.buttons["duplicateButton"].tap()
             openGamePage(app, tile: "game-\(iwad) copy", file: file, line: line)
             app.buttons["gameNameButton"].tap()
-            let field = app.textFields["renameField"]
+            let field = renameField(in: app)
             XCTAssertTrue(field.waitForExistence(timeout: 5), file: file, line: line)
             clearAndType(field, name)
             app.buttons["Save"].tap()

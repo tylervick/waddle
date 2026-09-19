@@ -31,7 +31,7 @@ final class GamePageTests: XCTestCase {
         openGamePage(app, tile: "game-Freedoom Phase 1 copy")
 
         app.buttons["gameNameButton"].tap()
-        let field = app.textFields["renameField"]
+        let field = renameField(in: app)
         XCTAssertTrue(field.waitForExistence(timeout: 5), "rename field never appeared")
         clearAndType(field, "Renamed Game")
         app.buttons["Save"].tap()
@@ -53,7 +53,10 @@ final class GamePageTests: XCTestCase {
         openGamePage(app, tile: "game-Freedoom Phase 1 copy")
         scrollTo(app.buttons["deleteGameButton"], in: app)
         app.buttons["deleteGameButton"].tap()
-        app.buttons["deleteGameAndSavesAction"].tap()
+        // Confirmation-dialog buttons surface twice in the accessibility tree
+        // (docs/learnings/alert-textfield-identifiers-are-dropped.md) — `.firstMatch`
+        // avoids the "multiple matching elements" ambiguity error.
+        app.buttons.matching(identifier: "deleteGameAndSavesAction").firstMatch.tap()
 
         XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 5), "did not pop to the shelf")
         XCTAssertFalse(app.buttons["game-Freedoom Phase 1 copy"].waitForExistence(timeout: 2),

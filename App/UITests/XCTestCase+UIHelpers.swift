@@ -63,4 +63,11 @@ extension XCTestCase {
         while !element.exists && swipes < maxSwipes { app.swipeUp(); swipes += 1 }
         XCTAssertTrue(element.waitForExistence(timeout: 2), "\(element) never scrolled into view", file: file, line: line)
     }
+
+    /// The Rename alert's text field. SwiftUI does not forward an
+    /// `accessibilityIdentifier` set on an alert's `TextField`, so it is found
+    /// through the alert itself.
+    func renameField(in app: XCUIApplication) -> XCUIElement {
+        app.alerts["Rename"].textFields.firstMatch
+    }
 }

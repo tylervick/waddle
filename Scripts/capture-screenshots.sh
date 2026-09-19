@@ -121,8 +121,8 @@ final class ScreenshotCaptureTests: XCTestCase {
     /// available to this script, strictly worse than a crash, because nothing
     /// downstream re-checks the pixels. Assert every step.
 
-    /// `openGamePage`, `returnToShelf`, `openFiles`, `closeSettings`, and
-    /// `clearAndType` are NOT defined here. They live in
+    /// `openGamePage`, `returnToShelf`, `openFiles`, `closeSettings`,
+    /// `clearAndType`, and `renameField` are NOT defined here. They live in
     /// App/UITests/XCTestCase+UIHelpers.swift, which compiles into this same UI
     /// test target, and both already assert. Redeclaring them as private
     /// methods on this subclass does not shadow the extension — it is a compile
@@ -291,7 +291,7 @@ final class ScreenshotCaptureTests: XCTestCase {
             app.buttons["duplicateButton"].tap()
             openGamePage(app, tile: "game-\(presetBase) copy")
             app.buttons["gameNameButton"].tap()
-            let field = app.textFields["renameField"]
+            let field = renameField(in: app)
             XCTAssertTrue(field.waitForExistence(timeout: 5), "rename field never appeared")
             clearAndType(field, presetName)
             app.buttons["Save"].tap()
