@@ -32,7 +32,11 @@ final class HiddenGamesScreenTests: XCTestCase {
         XCTAssertTrue(restore.waitForExistence(timeout: 5), "no Restore button for the hidden game")
         restore.tap()
 
-        let settingsBack = app.navigationBars.buttons["Settings"]
+        // Scoped to this navigation bar, not `app.navigationBars.buttons`
+        // app-wide: the shelf sits underneath this sheet and its own gear
+        // button is also labeled "Settings", so an unscoped query matches
+        // both it and this screen's actual back button.
+        let settingsBack = app.navigationBars["Hidden Games"].buttons["Settings"]
         XCTAssertTrue(settingsBack.waitForExistence(timeout: 5), "no way back to the Settings root")
         settingsBack.tap()
         let done = app.buttons["Done"]

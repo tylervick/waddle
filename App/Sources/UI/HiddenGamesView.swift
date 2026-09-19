@@ -13,8 +13,13 @@ struct HiddenGamesView: View {
                     .foregroundStyle(.secondary)
             }
             ForEach(hidden, id: \.id) { game in
+                // No identifier on this HStack itself: a container identifier
+                // here collapses onto the row and overwrites the Restore
+                // button's own identifier below, so the button can no longer
+                // be found by it.
                 HStack {
                     Text(game.name)
+                        .accessibilityIdentifier("hiddenRow-\(game.id)")
                     Spacer()
                     Button("Restore") {
                         try? library.restore(game)
@@ -27,7 +32,6 @@ struct HiddenGamesView: View {
                     .buttonStyle(.borderless)
                     .accessibilityIdentifier("restore-\(game.id)")
                 }
-                .accessibilityIdentifier("hiddenRow-\(game.id)")
             }
         }
         .waddleScrollSurface()
