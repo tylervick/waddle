@@ -166,7 +166,7 @@ Machinery unchanged (multi-select, zip, hash dedupe, off-main hashing). Each
 imported file lands as one of three outcomes, reported in the existing
 bottom banner alongside today's duplicate/rejection lines:
 
-- a new game tile on the shelf;
+- a new game tile on the shelf — "Added <names>";
 - an add-on — "Imported smoothdoom.wad as an add-on. Attach it from any
   game's page."; several at once pluralize — "Imported smoothdoom.wad,
   other.wad as add-ons. Attach them from any game's page.";

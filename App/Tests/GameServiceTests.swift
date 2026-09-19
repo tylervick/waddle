@@ -65,9 +65,12 @@ final class GameServiceTests: XCTestCase {
     func testRegisteringAPWADWithMapsCreatesAPairedGame() throws {
         // Was "creates no game" before plan 3; pairing itself is covered in
         // detail by the "Import pairing" tests below.
+        try service.seedBundledContentIfNeeded()
         let map = try pwad()
-        let game = try XCTUnwrap(try service.games().first)
+        let game = try XCTUnwrap(try service.games().first { $0.fileIDs == [map.id] })
         XCTAssertEqual(game.fileIDs, [map.id])
+        let freedoom2 = try XCTUnwrap(try service.allWADs().first { $0.filename == "freedoom2.wad" })
+        XCTAssertEqual(game.baseID, freedoom2.id)
     }
 
     func testSeederCreatesOneBaseGamePerBundledIWAD() throws {
@@ -484,6 +487,23 @@ final class GameServiceTests: XCTestCase {
         _ = try service.registerImported(filename: "fix.deh", sha1: "p", kind: WADKind.deh.rawValue,
                                          family: GameFamily.unknown.rawValue)
         XCTAssertEqual(try service.games().count, 2, "only the two bundled base games")
+    }
+
+    /// `adoptMapSet` is the one construction `registerImported` and
+    /// `adoptOrphanMapSets` now share — exercise it directly.
+    func testAdoptMapSetPairsAndReturnsItsGame() throws {
+        try service.seedBundledContentIfNeeded()
+        let wad = WADFile(filename: "old.wad", displayName: "old", kindRaw: WADKind.pwad.rawValue,
+                          sha1: "o", gameFamilyRaw: GameFamily.doom2.rawValue, hasMaps: true)
+        context.insert(wad)
+        try context.save()
+
+        let game = try service.adoptMapSet(wad)
+
+        XCTAssertEqual(game.fileIDs, [wad.id])
+        let freedoom2 = try XCTUnwrap(try service.allWADs().first { $0.filename == "freedoom2.wad" })
+        XCTAssertEqual(game.baseID, freedoom2.id)
+        XCTAssertEqual(try service.gamesUsing(fileID: wad.id).first?.id, game.id)
     }
 
     // MARK: Orphan map-set sweep (spec §5 amendment)

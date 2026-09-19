@@ -407,9 +407,7 @@ final class LibraryService {
         case .base:
             context.insert(Game.baseGame(for: wad))
         case .mapSet:
-            // A map set is a game the moment it arrives, paired once (spec §3.5, §4.1).
-            let base = try pairBase(forFamily: wad.gameFamily)
-            context.insert(Game(name: wad.displayName, baseID: base?.id, fileIDs: [wad.id]))
+            try adoptMapSet(wad)
         case .addOn:
             break
         }
@@ -453,6 +451,19 @@ final class LibraryService {
         return Pairing.chooseBase(forFamily: family, among: candidates)
     }
 
+    /// Turns a map-set file into its own game, paired once (spec §3.5, §4.1).
+    /// The one construction shared by every site that adopts a map set: fresh
+    /// import (`registerImported`), the one-time sweep (`adoptOrphanMapSets`),
+    /// and `ImportService` restoring a row whose backing file had vanished.
+    @discardableResult
+    func adoptMapSet(_ wad: WADFile) throws -> Game {
+        let base = try pairBase(forFamily: wad.gameFamily)
+        let game = Game(name: wad.displayName, baseID: base?.id, fileIDs: [wad.id])
+        context.insert(game)
+        try context.save()
+        return game
+    }
+
     /// One-time sweep (spec §5, amended for plan 3): map sets imported before
     /// pairing existed have a row but no tile. Each non-bundled map set used by
     /// no game gets a paired game, exactly as if it had just been imported.
@@ -462,10 +473,8 @@ final class LibraryService {
         guard !defaults.bool(forKey: Self.didAdoptOrphanMapSetsKey) else { return }
         for wad in try allWADs() where wad.role == .mapSet && !wad.isBundled {
             guard try gamesUsing(fileID: wad.id).isEmpty else { continue }
-            let base = try pairBase(forFamily: wad.gameFamily)
-            context.insert(Game(name: wad.displayName, baseID: base?.id, fileIDs: [wad.id]))
+            try adoptMapSet(wad)
         }
-        try context.save()
         defaults.set(true, forKey: Self.didAdoptOrphanMapSetsKey)
     }
 

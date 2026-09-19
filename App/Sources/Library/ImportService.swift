@@ -264,7 +264,7 @@ final class ImportService {
             outcome.games.append(name)
         case .mapSet:
             let game = (try? library.gamesUsing(fileID: wad.id))?.first
-            if game?.baseID == nil { outcome.unpaired.append(name) } else { outcome.games.append(name) }
+            if let game, game.baseID == nil { outcome.unpaired.append(name) } else { outcome.games.append(name) }
         case .addOn:
             outcome.addOns.append(name)
         }
@@ -288,7 +288,14 @@ final class ImportService {
             do {
                 let stored = try store.store(fileAt: url, preferredName: name, precomputedSHA1: sha1)
                 try library.repairFilename(of: existing, to: stored.filename, hasMaps: hasMaps)
-                outcome.imported.append((stored.filename as NSString).deletingPathExtension)
+                let displayName = (stored.filename as NSString).deletingPathExtension
+                outcome.imported.append(displayName)
+                // A restored map set never got a tile if it arrived with no
+                // game of its own — adopt it now, same as a fresh import.
+                if existing.role == .mapSet, (try? library.gamesUsing(fileID: existing.id))?.isEmpty == true {
+                    try? library.adoptMapSet(existing)
+                }
+                categorize(existing, as: displayName, into: &outcome)
             } catch {
                 outcome.rejected[name] = "Could not copy file into the library."
             }
@@ -411,7 +418,14 @@ final class ImportService {
             do {
                 let stored = try await copyIntoStore(url: url, name: name, sha1: sha1)
                 try library.repairFilename(of: existing, to: stored.filename, hasMaps: hasMaps)
-                outcome.imported.append((stored.filename as NSString).deletingPathExtension)
+                let displayName = (stored.filename as NSString).deletingPathExtension
+                outcome.imported.append(displayName)
+                // A restored map set never got a tile if it arrived with no
+                // game of its own — adopt it now, same as a fresh import.
+                if existing.role == .mapSet, (try? library.gamesUsing(fileID: existing.id))?.isEmpty == true {
+                    try? library.adoptMapSet(existing)
+                }
+                categorize(existing, as: displayName, into: &outcome)
             } catch {
                 outcome.rejected[name] = "Could not copy file into the library."
             }
