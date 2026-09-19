@@ -43,3 +43,6 @@ duplicate an enforcement that already exists at the only moment it matters.
 
 Related: `docs/learnings/git-fixtures-inherit-signing-config.md` covers the
 opposite direction — inherited signing config breaking throwaway fixtures.
+`docs/learnings/signing-commits-without-a-local-key.md` covers the case this
+remedy cannot reach: a machine with no signing key at all, where there is
+nothing to re-sign with and the fix has to happen server-side.
