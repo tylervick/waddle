@@ -72,4 +72,51 @@ Empty output means the change is byte-identical and only the base moved.
 ruleset already fails closed at the only moment it matters. A local check
 would duplicate an enforcement that exists server-side and cannot be skipped.
 
+## Superseded on the build host: give the machine a key instead
+
+The server-side replay above is the remedy when there is genuinely no key. On
+this build host there now is one, so reach for the ordinary
+`git rebase --force-rebase --gpg-sign` remedy first and treat
+`createCommitOnBranch` as the fallback for a machine that still has nothing.
+
+What was missing was never the *ability* to sign — `ssh-keygen` ships with
+macOS — only a key and the config pointing at it:
+
+```bash
+ssh-keygen -t ed25519 -C "<github-noreply-email>" -f ~/.ssh/id_ed25519_signing -N ""
+git config --global gpg.format ssh
+git config --global user.signingkey ~/.ssh/id_ed25519_signing.pub
+git config --global commit.gpgsign true
+```
+
+Three things that are easy to get wrong:
+
+- **Register the public half as a *Signing Key*, not an Authentication Key**
+  (<https://github.com/settings/ssh/new>). They are separate lists on the same
+  page, and a key in the wrong one verifies nothing. Signing-only is also what
+  makes a passphrase-less key defensible here: it proves authorship and grants
+  no repository access.
+- **`gh` cannot do that registration under a fine-grained PAT.** `user/ssh_signing_keys`
+  answers `403 Resource not accessible by personal access token`, and
+  `gh auth refresh` does not apply to PAT logins. Paste it in the browser rather
+  than re-authenticating `gh` and disturbing the token the loop runs on.
+- **Do not set `tag.gpgSign`** while you are in there — see
+  [git-fixtures-inherit-signing-config.md](git-fixtures-inherit-signing-config.md)
+  for the `fatal: no tag message?` cycle it costs. Commit signing alone is what
+  the ruleset requires.
+
+Global identity has to be set too, not just signing: it was unset machine-wide,
+and every repository here that works does so because it sets `user.email`
+*locally*. A repository that does not — `~/repos/graphghan` — could not commit
+at all. `git -C <repo> var GIT_AUTHOR_IDENT` answers that question without
+making a commit.
+
+Verification still cannot come from `%G?` alone. It reports `G` as soon as the
+signature checks out against `gpg.ssh.allowedSignersFile`, which is a local
+file and says nothing about what GitHub will accept. Confirm through the API:
+
+```bash
+gh api repos/<owner>/<repo>/commits/<sha> --jq '.commit.verification'
+```
+
 **Paid for on 2026-09-18**, merging #225 from a build host with no keychain.
