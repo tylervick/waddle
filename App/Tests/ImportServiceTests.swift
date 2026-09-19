@@ -11,7 +11,7 @@ final class ImportServiceTests: XCTestCase {
 
     override func setUpWithError() throws {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self, configurations: config)
+        let container = try ModelContainer(for: WADFile.self, Game.self, configurations: config)
         tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -36,7 +36,7 @@ final class ImportServiceTests: XCTestCase {
     /// under `tmp`, so tearDown removes it with everything else.
     private func freshStack() throws -> (LibraryService, ImportService) {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self, configurations: config)
+        let container = try ModelContainer(for: WADFile.self, Game.self, configurations: config)
         let store = WADStore(directory: tmp.appendingPathComponent(UUID().uuidString,
                                                                    isDirectory: true))
         let library = LibraryService(context: ModelContext(container), store: store)

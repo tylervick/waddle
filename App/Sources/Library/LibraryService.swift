@@ -68,9 +68,8 @@ final class LibraryService {
     /// `GameServiceTests.testSeederLeavesAHiddenBaseGameAlone`.
     ///
     /// Must run **after** `migrateToGames()`: on an upgraded install the
-    /// migration is what creates the bundled rows' base games, carrying their
-    /// hidden flag and last-played date across. Run first, this would create
-    /// them blank.
+    /// migration is what creates the bundled rows' base games. Run first,
+    /// this would create them blank.
     func seedBundledContentIfNeeded() throws {
         let bundled: [(file: String, title: String, family: GameFamily)] = [
             ("freedoom1.wad", "Freedoom Phase 1", .doom1),
@@ -95,165 +94,34 @@ final class LibraryService {
         try context.save()
     }
 
-    /// `UserDefaults` keys for the two one-time launch-order migration steps
-    /// (see `WaddleApp`, which also clears both under `WADDLE_RESET_STORE`).
-    static let didReconcileBundledBaseGameLoadoutsKey = "didReconcileBundledBaseGameLoadouts"
+    /// `UserDefaults` keys for the one-time launch-order migration steps (see
+    /// `WaddleApp`, which also clears both under `WADDLE_RESET_STORE`).
     static let didMigrateToGamesKey = "didMigrateToGames"
     static let didAdoptOrphanMapSetsKey = "didAdoptOrphanMapSets"
 
-    /// Titles the one-door preset flow auto-assigns a modless Freedoom preset,
-    /// which is indistinguishable from the legacy phantom shape (no PWAD/DEH,
-    /// bundled IWAD) `reconcileBundledBaseGameLoadouts` removes.
-    private static let seededTitles: Set<String> = ["Freedoom Phase 1", "Freedoom Phase 2"]
-
-    /// Shape-only test for the legacy phantom: a modless loadout named exactly
-    /// one of `seededTitles` on a *bundled* IWAD. Shared by
-    /// `reconcileBundledBaseGameLoadouts` (which deletes a lone match) and
-    /// `migrateToGames` (which must not turn one into a permanent `Game`
-    /// before the reconcile has had a chance to remove it — see that method's
-    /// doc comment).
-    private func isPhantomBundledLoadout(_ loadout: Loadout) throws -> Bool {
-        guard loadout.pwadIDs.isEmpty && loadout.dehIDs.isEmpty
-                && Self.seededTitles.contains(loadout.name) else { return false }
-        return try wad(id: loadout.iwadID)?.isBundled == true
-    }
-
-    /// One-time migration: earlier builds auto-created a Loadout per bundled
-    /// Freedoom phase so the base game could launch. Base games are now
-    /// directly playable, so these phantom loadouts are removed once; any saves
-    /// they accumulated migrate to the base game's own saves key (its
-    /// WADFile.id), so on-device progress survives. User-authored presets are
-    /// never touched.
+    /// One-time migration onto `Game` (spec §5). Every IWAD row without a game
+    /// becomes its base game **under the IWAD's id**, so `Documents/Saves/<id>/`
+    /// stays where the pre-`Game` build left it; present PWADs are re-parsed
+    /// to fill `hasMaps`. Runs at most once per install.
     ///
-    /// Guarded by a persisted flag so this runs at most once per install.
-    ///
-    /// Two safeguards against destroying real user data:
-    /// - **Ambiguity:** a legacy install created *exactly one* phantom per
-    ///   phase, so only a lone match for a seeded title is treated as a
-    ///   phantom. If two+ loadouts share the shape (e.g. the user also made
-    ///   their own "Freedoom Phase 1"), none are touched.
-    /// - **Atomicity:** a loadout is deleted only after its saves migrate
-    ///   successfully; `migrateSaves` merges into an existing base-game saves
-    ///   dir without clobbering, and throws on any failure so the caller keeps
-    ///   the loadout (and retries next launch) rather than orphaning saves.
-    /// The flag is set only when every migration succeeded.
-    func reconcileBundledBaseGameLoadouts(defaults: UserDefaults = .standard) throws {
-        let flagKey = Self.didReconcileBundledBaseGameLoadoutsKey
-        guard !defaults.bool(forKey: flagKey) else { return }
-
-        // Candidates: modless loadouts with a seeded title on a *bundled* IWAD.
-        var phantoms: [Loadout] = []
-        for loadout in try context.fetch(FetchDescriptor<Loadout>())
-        where try isPhantomBundledLoadout(loadout) {
-            phantoms.append(loadout)
-        }
-        // Ambiguity guard: only delete a title with a single matching loadout.
-        var countByName: [String: Int] = [:]
-        for p in phantoms { countByName[p.name, default: 0] += 1 }
-
-        var allMigrationsSucceeded = true
-        for loadout in phantoms where countByName[loadout.name] == 1 {
-            do {
-                try migrateSaves(fromKey: loadout.id, toKey: loadout.iwadID)
-                context.delete(loadout)
-            } catch {
-                // Keep the loadout so its saves aren't orphaned; leaving the
-                // flag unset makes reconciliation retry on the next launch.
-                allMigrationsSucceeded = false
-            }
-        }
-        try context.save()
-        if allMigrationsSucceeded { defaults.set(true, forKey: flagKey) }
-    }
-
-    /// One-time migration onto `Game` (spec §5). Every IWAD row becomes its
-    /// base game and every `Loadout` becomes a game, **each under its old id**,
-    /// so `Documents/Saves/<id>/` stays exactly where the previous build left
-    /// it and a player updating mid-campaign gets their Continue hero back.
-    /// Present PWADs are re-parsed to fill `hasMaps`; a missing or unreadable
-    /// file keeps the default.
-    ///
-    /// Runs at most once per install (persisted flag), and never overwrites a
-    /// game that already exists — the legacy fields are copied only into games
-    /// this call creates. The `Loadout` rows and `WADFile`'s moved fields are
-    /// left in place: written by nothing from here on, dropped by a later
-    /// release. Same pattern as `reconcileBundledBaseGameLoadouts`, and it
-    /// must run after it (so phantom loadouts are gone) and **before**
-    /// `seedBundledContentIfNeeded()` (so the bundled rows' games are made here,
-    /// with their flags, rather than blank by the seeder).
-    ///
-    /// Not gated on the reconcile flag as a whole — that would silently skip
-    /// every user preset forever on an install where the reconcile never
-    /// manages to set it (e.g. a save migration keeps failing). Instead, only
-    /// a loadout that still matches the phantom shape is skipped while the
-    /// reconcile flag is unset, so it is picked up as a game on whatever later
-    /// launch finally reconciles or permanently fails to (in which case it
-    /// migrates as an ordinary, if oddly named, game rather than vanishing).
-    /// The completion flag itself is withheld while a phantom was skipped, so
-    /// the loadout is picked up once the reconcile has run, at the cost of
-    /// re-running the (idempotent) migration on each launch until then.
+    /// Plan 4 dropped the `Loadout` table and `WADFile`'s moved fields, so a
+    /// device coming straight from a pre-`Game` build gets base games with
+    /// default flags and no migrated presets — the accepted window recorded in
+    /// spec §5 and `docs/learnings/schema-drop-cannot-wait-for-skipped-versions.md`.
     func migrateToGames(defaults: UserDefaults = .standard) throws {
         let flagKey = Self.didMigrateToGamesKey
         guard !defaults.bool(forKey: flagKey) else { return }
-
         for wad in try allWADs() where wad.kindRaw == WADKind.iwad.rawValue {
             guard try game(id: wad.id) == nil else { continue }
-            let game = Game.baseGame(for: wad)
-            game.schemeOverrideRaw = wad.schemeOverrideRaw
-            game.isHidden = wad.isHidden
-            game.lastPlayed = wad.lastPlayed
-            context.insert(game)
-        }
-        let reconcileHasRun = defaults.bool(forKey: Self.didReconcileBundledBaseGameLoadoutsKey)
-        var skippedPhantom = false
-        for loadout in try context.fetch(FetchDescriptor<Loadout>()) {
-            guard try game(id: loadout.id) == nil else { continue }
-            if try !reconcileHasRun && isPhantomBundledLoadout(loadout) {
-                skippedPhantom = true
-                continue
-            }
-            context.insert(Game(id: loadout.id, name: loadout.name, baseID: loadout.iwadID,
-                                fileIDs: loadout.pwadIDs + loadout.dehIDs,
-                                complevel: loadout.complevel,
-                                schemeOverrideRaw: loadout.schemeOverrideRaw,
-                                isHidden: loadout.isHidden, lastPlayed: loadout.lastPlayed,
-                                createdAt: loadout.createdAt, isBaseGame: false))
+            context.insert(Game.baseGame(for: wad))
         }
         for wad in try allWADs() where wad.kindRaw == WADKind.pwad.rawValue {
-            // Directory only: `WADParser.parse` reads the header and lump table,
-            // and the mapping keeps a 300 MB megawad from becoming one allocation.
             guard let data = try? Data(contentsOf: fileURL(for: wad), options: .mappedIfSafe),
                   let parsed = try? WADParser.parse(data) else { continue }
             wad.hasMaps = WADParser.mapFormat(of: parsed.lumpNames) != .none
         }
         try context.save()
-        if !skippedPhantom { defaults.set(true, forKey: flagKey) }
-    }
-
-    /// Moves the legacy per-loadout saves dir onto the base game's saves key.
-    /// If the destination already exists, merges file-by-file and never
-    /// overwrites an existing base-game save (its version wins; the stale
-    /// duplicate is left in place, not deleted). Throws on any filesystem
-    /// failure so the caller can keep the loadout instead of orphaning saves.
-    private func migrateSaves(fromKey old: UUID, toKey new: UUID) throws {
-        let fm = FileManager.default
-        let src = Self.savesDirectory(forGameID: old)
-        let dst = Self.savesDirectory(forGameID: new)
-        guard fm.fileExists(atPath: src.path) else { return }   // nothing to migrate
-
-        if !fm.fileExists(atPath: dst.path) {
-            try fm.createDirectory(at: dst.deletingLastPathComponent(),
-                                   withIntermediateDirectories: true)
-            try fm.moveItem(at: src, to: dst)
-            return
-        }
-        // Destination exists (e.g. the base game was played before migration):
-        // merge non-colliding entries; keep the base game's existing saves.
-        for entry in try fm.contentsOfDirectory(atPath: src.path) {
-            let to = dst.appendingPathComponent(entry)
-            guard !fm.fileExists(atPath: to.path) else { continue }
-            try fm.moveItem(at: src.appendingPathComponent(entry), to: to)
-        }
+        defaults.set(true, forKey: flagKey)
     }
 
     // MARK: Queries

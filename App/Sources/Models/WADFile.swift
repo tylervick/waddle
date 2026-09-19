@@ -15,12 +15,6 @@ final class WADFile {
     /// Decides a PWAD's role (spec §2.1). Defaulted so existing stores migrate
     /// lightweight; `LibraryService.migrateToGames` fills it for present files.
     var hasMaps: Bool = false
-    /// Legacy: moved to `Game`. Read only by `LibraryService.migrateToGames`; dropped in a later release (spec §5).
-    var lastPlayed: Date?
-    /// Legacy: moved to `Game`. Read only by `LibraryService.migrateToGames`; dropped in a later release (spec §5).
-    var schemeOverrideRaw: String?
-    /// Legacy: moved to `Game`. Read only by `LibraryService.migrateToGames`; dropped in a later release (spec §5).
-    var isHidden: Bool = false
 
     init(id: UUID = UUID(), filename: String, displayName: String, kindRaw: String,
          sha1: String, gameFamilyRaw: String, isBundled: Bool = false,
@@ -33,8 +27,6 @@ final class WADFile {
         self.gameFamilyRaw = gameFamilyRaw
         self.isBundled = isBundled
         self.importDate = importDate
-        self.lastPlayed = nil
-        self.schemeOverrideRaw = nil
         self.hasMaps = hasMaps
     }
 

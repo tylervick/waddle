@@ -19,7 +19,7 @@ final class LibraryServiceTests: XCTestCase {
     // setUp/tearDown pair per test, synchronously in effect.
     override func setUp() async throws {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: WADFile.self, Loadout.self, Game.self, configurations: config)
+        let container = try ModelContainer(for: WADFile.self, Game.self, configurations: config)
         context = ModelContext(container)
         tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -42,136 +42,11 @@ final class LibraryServiceTests: XCTestCase {
         }
     }
 
-    /// A pre-`Game` preset row, inserted directly now that the legacy
-    /// loadout-creation API is gone; the reconcile these tests cover reads
-    /// the tombstone table directly.
-    @discardableResult
-    private func insertLegacyLoadout(name: String, iwadID: UUID,
-                                     pwadIDs: [UUID] = [], dehIDs: [UUID] = []) throws -> Loadout {
-        let loadout = Loadout(name: name, iwadID: iwadID, pwadIDs: pwadIDs, dehIDs: dehIDs)
-        context.insert(loadout)
-        try context.save()
-        return loadout
-    }
-
-    private func legacyLoadouts() throws -> [Loadout] {
-        try context.fetch(FetchDescriptor<Loadout>())
-    }
-
-    func testReconcileRemovesPhantomBaseGameLoadoutAndMigratesSaves() throws {
-        // Arrange an old-install shape: a bundled Freedoom IWAD + a phantom
-        // "Freedoom Phase 1" loadout (no PWAD/DEH) that accumulated a save.
-        // isBundled must be true for reconciliation to treat it as a phantom;
-        // registerImported creates a non-bundled row, so set the flag after.
-        let base = try service.registerImported(
-            filename: "freedoom1.wad", sha1: "bundled:freedoom1.wad",
-            kind: WADKind.iwad.rawValue, family: GameFamily.doom1.rawValue)
-        base.isBundled = true
-        try service.saveChanges()
-        let phantom = try insertLegacyLoadout(name: "Freedoom Phase 1", iwadID: base.id)
-        let oldDir = LibraryService.savesDirectory(forGameID: phantom.id)
-        try FileManager.default.createDirectory(at: oldDir, withIntermediateDirectories: true)
-        try Data("save".utf8).write(to: oldDir.appendingPathComponent("slot.dsg"))
-
-        // Fresh, empty UserDefaults so the one-time guard's flag starts unset.
-        let d = UserDefaults(suiteName: "reconcile-\(UUID().uuidString)")!
-        try service.reconcileBundledBaseGameLoadouts(defaults: d)
-
-        XCTAssertTrue(try legacyLoadouts().isEmpty, "phantom loadout not removed")
-        let newDir = LibraryService.savesDirectory(forGameID: base.id)
-        XCTAssertTrue(
-            FileManager.default.fileExists(atPath: newDir.appendingPathComponent("slot.dsg").path),
-            "saves not migrated to base-game key")
-        try? FileManager.default.removeItem(at: newDir)
-
-        // A second call with the same defaults is a no-op: the flag is set,
-        // and re-creating the phantom shape (name only, no isBundled tie yet)
-        // would otherwise be silently swept away by a later launch.
-        let again = try insertLegacyLoadout(name: "Freedoom Phase 1", iwadID: base.id)
-        try service.reconcileBundledBaseGameLoadouts(defaults: d)
-        XCTAssertEqual(Set(try legacyLoadouts().map(\.name)), Set(["Freedoom Phase 1"]),
-                       "second call should be a no-op once the flag is set")
-        context.delete(again)
-        try context.save()
-    }
-
-    func testReconcileLeavesUserPresetsUntouched() throws {
-        let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i", kind: WADKind.iwad.rawValue, family: "doom2")
-        _ = try insertLegacyLoadout(name: "My Stack", iwadID: iwad.id)
-        let d = UserDefaults(suiteName: "reconcile-\(UUID().uuidString)")!
-        try service.reconcileBundledBaseGameLoadouts(defaults: d)
-        XCTAssertEqual(Set(try legacyLoadouts().map(\.name)), Set(["My Stack"]))
-    }
-
-    func testReconcilePreservesAmbiguousDuplicateSeededTitles() throws {
-        // Two modless loadouts share the seeded phantom shape on the bundled
-        // IWAD. A legacy install made exactly one phantom per phase, so this is
-        // ambiguous (the user likely made one) — neither may be deleted.
-        let base = try service.registerImported(
-            filename: "freedoom1.wad", sha1: "bundled:freedoom1.wad",
-            kind: WADKind.iwad.rawValue, family: GameFamily.doom1.rawValue)
-        base.isBundled = true
-        try service.saveChanges()
-        _ = try insertLegacyLoadout(name: "Freedoom Phase 1", iwadID: base.id)
-        _ = try insertLegacyLoadout(name: "Freedoom Phase 1", iwadID: base.id)
-
-        let d = UserDefaults(suiteName: "reconcile-\(UUID().uuidString)")!
-        try service.reconcileBundledBaseGameLoadouts(defaults: d)
-
-        XCTAssertEqual(try legacyLoadouts().filter { $0.name == "Freedoom Phase 1" }.count, 2,
-                       "ambiguous duplicate titles must be preserved, not deleted")
-    }
-
-    func testReconcileMergesSavesWithoutClobberingExistingBaseGameSaves() throws {
-        let base = try service.registerImported(
-            filename: "freedoom1.wad", sha1: "bundled:freedoom1.wad",
-            kind: WADKind.iwad.rawValue, family: GameFamily.doom1.rawValue)
-        base.isBundled = true
-        try service.saveChanges()
-        let phantom = try insertLegacyLoadout(name: "Freedoom Phase 1", iwadID: base.id)
-        // Legacy saves under the loadout key: a.dsg (collides) + b.dsg (new).
-        let oldDir = LibraryService.savesDirectory(forGameID: phantom.id)
-        try FileManager.default.createDirectory(at: oldDir, withIntermediateDirectories: true)
-        try Data("old-a".utf8).write(to: oldDir.appendingPathComponent("a.dsg"))
-        try Data("old-b".utf8).write(to: oldDir.appendingPathComponent("b.dsg"))
-        // Base game already played: its saves dir exists with a colliding a.dsg.
-        let newDir = LibraryService.savesDirectory(forGameID: base.id)
-        try FileManager.default.createDirectory(at: newDir, withIntermediateDirectories: true)
-        try Data("base-a".utf8).write(to: newDir.appendingPathComponent("a.dsg"))
-
-        let d = UserDefaults(suiteName: "reconcile-\(UUID().uuidString)")!
-        try service.reconcileBundledBaseGameLoadouts(defaults: d)
-
-        XCTAssertTrue(try legacyLoadouts().isEmpty, "lone phantom should be removed after successful migration")
-        XCTAssertEqual(try String(contentsOf: newDir.appendingPathComponent("a.dsg"), encoding: .utf8),
-                       "base-a", "existing base-game save must not be clobbered")
-        XCTAssertEqual(try String(contentsOf: newDir.appendingPathComponent("b.dsg"), encoding: .utf8),
-                       "old-b", "non-colliding legacy save must migrate in")
-        try? FileManager.default.removeItem(at: newDir)
-        try? FileManager.default.removeItem(at: oldDir)
-    }
-
     func testRegisterAndFindBySHA1() throws {
         let wad = try service.registerImported(filename: "sunlust.wad", sha1: "abc123",
                                                kind: WADKind.pwad.rawValue, family: "doom2")
         XCTAssertEqual(try service.findWAD(sha1: "abc123")?.id, wad.id)
         XCTAssertNil(try service.findWAD(sha1: "nope"))
-    }
-
-    func testDeleteWADBlockedByALegacyLoadoutIsNotAThing() throws {
-        // Loadout rows are a schema tombstone: nothing reads them for
-        // in-use checks any more. `GameServiceTests.testDeleteWADIsBlockedByAnyOtherGameUsingIt`
-        // is where the in-use rule lives now.
-        let pwad = try service.registerImported(filename: "sunlust.wad", sha1: "p1",
-                                                kind: WADKind.pwad.rawValue, family: "doom2")
-        let iwad = try service.registerImported(filename: "doom2.wad", sha1: "i1",
-                                                 kind: WADKind.iwad.rawValue, family: "doom2")
-        try insertLegacyLoadout(name: "Legacy", iwadID: iwad.id, pwadIDs: [pwad.id])
-
-        try service.deleteWAD(pwad)
-
-        XCTAssertNil(try service.wad(id: pwad.id))
-        XCTAssertEqual(try legacyLoadouts().count, 1, "the tombstone row is untouched and never a blocker")
     }
 
     func testSaveSlotsListsFilesNewestFirst() throws {
