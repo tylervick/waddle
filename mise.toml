@@ -3,6 +3,36 @@ cmake = "4.4.3"
 ninja = "1.13.2"
 xcodegen = "2.46.0"
 
+# Blink (https://blink.review) reviews each Claude Code turn's diff and hands
+# the findings back to the agent. Its own install path is
+# `curl -fsSL https://blink.review/install.sh | sh`, which always takes the
+# newest build and drops it in ~/.local/bin -- unpinned, and invisible to
+# everyone else working here. This pins it the way every other tool above is
+# pinned, through mise's `http` backend.
+#
+# Why a raw URL rather than a registry name: Blink ships from the vendor's own
+# CDN. There is no GitHub repository, no release tag, and no mise registry
+# entry, so `ubi:`/`aqua:` have nothing to resolve. The CDN's download URL is
+# content-addressed by the binary's own SHA-256, which turns out to be the
+# stronger pin anyway -- the URL and the checksum are the same fact, so the
+# two cannot drift apart and a tampered or rolled build cannot answer to this
+# name.
+#
+# Two consequences to know about:
+#   * Renovate cannot see this (nothing to query), so bumps are manual. Run
+#     `Scripts/update-blink-pin.sh`; do not hand-edit the four values below.
+#   * The vendor prunes superseded content-addressed files, so an old pin
+#     eventually 404s. That failure is loud, at `mise install`, and the fix is
+#     the same bump script.
+# blink-pin:begin -- managed by Scripts/update-blink-pin.sh, do not hand-edit
+[tools."http:blink"]
+version = "0.1.1"
+platforms.macos-arm64.url = "https://blink.review/downloads/cli/blink-darwin-arm64-872622c26db0e9ba8dc16b163d32ddd95f40963a517bb69c2e8b9a5163d6d600.gz"
+platforms.macos-arm64.checksum = "sha256:872622c26db0e9ba8dc16b163d32ddd95f40963a517bb69c2e8b9a5163d6d600"
+platforms.macos-x64.url = "https://blink.review/downloads/cli/blink-darwin-x64-9afe227a985f479c38117fcd38e9d8082211ce5ee78e29ff1c98f061858facb8.gz"
+platforms.macos-x64.checksum = "sha256:9afe227a985f479c38117fcd38e9d8082211ce5ee78e29ff1c98f061858facb8"
+# blink-pin:end
+
 [tasks.build-deps]
 description = "SDL3 + OpenAL Soft static libs (device + simulator)"
 run = "Scripts/build-deps.sh"
@@ -69,3 +99,50 @@ run = """
 Scripts/check-icon-json.sh
 Scripts/check-icons-fresh.sh
 """
+
+[tasks.blink-setup]
+description = "Sign in to Blink and install its Claude Code review hooks (once per machine)"
+# Per-developer, not per-checkout: `blink setup` writes to the USER-level
+# ~/.claude/settings.json (or $CLAUDE_CONFIG_DIR), which is deliberately not
+# something this repository can carry -- .gitignore excludes .claude/* here,
+# and the hooks are a choice each contributor makes for their own machine.
+# What the repository DOES carry is the pinned CLI above, so everyone who opts
+# in runs the same build.
+#
+# Undo with `blink setup claude-code --remove`, or `blink uninstall` for the
+# token and config too. Neither touches the mise pin.
+run = '''
+if blink auth status >/dev/null 2>&1; then
+  echo "already signed in to Blink"
+else
+  blink auth login
+fi
+blink setup claude-code
+
+# `blink setup` writes a BARE `blink review --hook claude-code` into that
+# user-level settings file -- outside this repository, and outside mise's
+# reach. A mise-managed blink answers that bare name only through the shims
+# directory, so the hook resolves only if the shims directory is on the PATH
+# the hook inherits. mise does not arrange that: both `mise activate` and
+# `mise run` prepend the tool's own install directory instead, which is
+# exactly why `blink` works in this task whether or not the hook will.
+#
+# So the check below reads $PATH as inherited rather than probing with
+# `command -v`: mise adds the install directory to this task's PATH but never
+# the shims directory, so what it sees is the shell environment Claude Code
+# was launched with. See docs/learnings/blink-hook-needs-mise-shims-on-path.md.
+shims="${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims"
+case ":$PATH:" in
+  *":$shims:"*)
+    echo "ok - $shims is on PATH, so the hook will resolve blink"
+    ;;
+  *)
+    echo "ERROR: $shims is not on your PATH." >&2
+    echo "The hook just installed runs a bare 'blink', so it would fail with" >&2
+    echo "'command not found' at the end of every Claude Code turn." >&2
+    echo "Add this to your shell profile, then open a new terminal:" >&2
+    echo "  export PATH=\"$shims:\$PATH\"" >&2
+    exit 1
+    ;;
+esac
+'''
