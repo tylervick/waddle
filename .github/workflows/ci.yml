@@ -370,6 +370,61 @@ jobs:
   # jobs racing on the same cache keys is also expected: whichever finishes
   # second finds the key already reserved and logs a cache-save warning. That
   # is a warning, not a failure, and the restore path is unaffected.
+  # Decides whether a preview build is worth a macOS runner at all.
+  #
+  # It exists because the two halves of this pipeline were gated differently.
+  # .revyl/config.yaml's pr_review.review_triggers.paths already scopes what
+  # Revyl will REVIEW -- App/**, Engine/**, Scripts/**, mise.toml -- but the
+  # publish job below had no filter, so a docs-only pull request restored the
+  # caches, built the app and uploaded an artifact that Revyl then ignored.
+  # #228 did exactly that.
+  #
+  # The two path lists are a pair and have to stay in step. They are duplicated
+  # rather than shared because one lives in a workflow and the other in a Revyl
+  # config, and nothing reads both. Drift one way wastes a build; drift the
+  # other way withholds the artifact from a review that wanted one, which stops
+  # being harmless once pr_review.strict_ci_check.build is true.
+  #
+  # Ubuntu rather than macOS, and one API call rather than a checkout: a gate
+  # that cost what it saves would be pointless.
+  changed-paths:
+    name: Detect app changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+    steps:
+      - id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_FILES_URL: repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files
+        run: |
+          # The API reports the pull request's own file list, so this needs no
+          # checkout and no merge-base arithmetic. --paginate is load-bearing:
+          # a page is 30 files by default and this repository has merged far
+          # larger changes than that.
+          files="$(gh api --paginate "$PR_FILES_URL" --jq '.[].filename')"
+
+          # `case` patterns, where * spans / -- so App/* matches a file at any
+          # depth under App/, which is what the Revyl path list means by
+          # "App/**". Globbing rules differ from pathname expansion here, and
+          # that difference is the reason this reads as it does.
+          while IFS= read -r f; do
+            case "$f" in
+              App/*|Engine/*|Scripts/*|mise.toml)
+                echo "app=true" >> "$GITHUB_OUTPUT"
+                echo "::notice::$f can change the binary; building a preview"
+                exit 0
+                ;;
+            esac
+          done <<< "$files"
+
+          echo "app=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::no App/, Engine/, Scripts/ or mise.toml change; skipping the preview build"
+
   revyl-preview:
     name: Revyl preview build
     # Pull requests only: the whole point is an artifact bound to a review.
@@ -378,7 +433,22 @@ jobs:
     # The `success()` half of the old condition is gone with the move -- there
     # is no prior step in this job whose success it could mean, and gating on
     # build-and-test is the thing this job exists not to do.
-    if: github.event_name == 'pull_request'
+    #
+    # draft: pr_review.review_triggers.drafts is false, so Revyl would not
+    # review a draft's artifact even if one arrived. Building it is spend with
+    # no reader.
+    #
+    # fork: a pull request from a fork receives no secrets, so REVYL_API_KEY is
+    # absent and the upload step takes its skip path -- but only AFTER a full
+    # checkout, toolchain setup and app build have been paid for. Deciding here
+    # instead makes that cost nothing. Fork contributors got no preview either
+    # way; this only stops charging for the disappointment.
+    needs: changed-paths
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.draft == false
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && needs.changed-paths.outputs.app == 'true'
     runs-on: macos-26
     # Headroom, not a measurement: the upload step itself was measured at 2m40s
     # and 1m11s (see below) and setup at 12s warm / 3m59s cold in the job above.
