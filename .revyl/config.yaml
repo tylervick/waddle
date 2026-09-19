@@ -61,5 +61,14 @@ build:
                     # signing pinned to "Apple Distribution" and the
                     # "WADdle App Store CI" provisioning profile, neither of
                     # which exists on a build runner.
-                    - xcodebuild -project App/Waddle.xcodeproj -scheme Waddle -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build ENABLE_DEBUG_DYLIB=NO CODE_SIGNING_ALLOWED=NO
+                    #
+                    # ARCHS=arm64 is load-bearing, not tidiness. A generic
+                    # iOS Simulator destination builds every simulator
+                    # architecture, and WoofEngine.xcframework carries only an
+                    # arm64 simulator slice -- so the x86_64 pass skips every
+                    # object in libWoofEngine.a ("found architecture 'arm64',
+                    # required architecture 'x86_64'") and the link fails with
+                    # exit 65. The warnings name the architecture but nothing
+                    # names the destination that asked for it.
+                    - xcodebuild -project App/Waddle.xcodeproj -scheme Waddle -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build ENABLE_DEBUG_DYLIB=NO CODE_SIGNING_ALLOWED=NO ARCHS=arm64
                 output_path: build/Build/Products/Debug-iphonesimulator/Waddle.app
