@@ -22,6 +22,14 @@ CONFIG="$ROOT/mise.toml"
 BASE="${BLINK_DOWNLOAD_BASE_URL:-https://blink.review/downloads/cli}"
 BASE="${BASE%/}"
 
+# Matching the timeouts the vendor's own installer uses. Without them a CDN
+# that accepts the connection and then never answers hangs this script
+# forever, with no output and nothing to interrupt but the terminal -- and the
+# one place that bites hardest is the unattended loop, where a wedged bump is
+# indistinguishable from a slow one.
+CURL_OPTS=(--fail --silent --show-error --location --retry 2
+           --connect-timeout 15 --max-time 300)
+
 WRITE=false
 case "${1:-}" in
   --write) WRITE=true ;;
@@ -56,7 +64,7 @@ for pair in $PLATFORMS; do
   vendor="${pair%%:*}"
   mise_name="${pair##*:}"
 
-  sha="$(curl -fsSL --retry 2 "$BASE/$vendor.sha256")"
+  sha="$(curl "${CURL_OPTS[@]}" "$BASE/$vendor.sha256")"
   # Validate before interpolating it into a URL. A truncated or HTML response
   # would otherwise be pinned verbatim and fail much later, at `mise install`
   # on someone else's machine.
@@ -66,7 +74,7 @@ for pair in $PLATFORMS; do
   [ "${#sha}" -eq 64 ] || { echo "ERROR: $vendor.sha256 is not 64 characters: $sha" >&2; exit 1; }
 
   url="$BASE/blink-$vendor-$sha.gz"
-  curl -fsSL --retry 2 -o "$TMP/$vendor.gz" "$url"
+  curl "${CURL_OPTS[@]}" -o "$TMP/$vendor.gz" "$url"
 
   # Verify rather than trust. The published digest and the download come from
   # the same host, so this proves only that the transfer was intact -- but that
