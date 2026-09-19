@@ -21,10 +21,9 @@ final class RealWADTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Waddle"].waitForExistence(timeout: 90),
                       "launcher UI never appeared")
         // Dismiss the loose-file adoption alert if it fired this launch.
-        // NOTE: launch-time adoption is currently silent (no alert; the
-        // "Import complete" alert only fires from LibraryView's manual
-        // import flow) so this is expected to be a no-op today. Kept as a
-        // guard in case that changes.
+        // NOTE: launch-time adoption is currently silent (no alert fires),
+        // so this is expected to be a no-op today. Kept as a guard in case
+        // that changes.
         let ok = app.alerts.buttons["OK"]
         if ok.waitForExistence(timeout: 3) { ok.tap() }
         return app
@@ -90,6 +89,7 @@ final class RealWADTests: XCTestCase {
             // (spec §3.2): Duplicate the base, open the copy, rename, Add….
             let baseTile = iwad == "Freedoom Phase 1" ? "playFreedoom1" : "game-\(iwad)"
             openGamePage(app, tile: baseTile, file: file, line: line)
+            scrollTo(app.buttons["duplicateButton"], in: app)
             app.buttons["duplicateButton"].tap()
             openGamePage(app, tile: "game-\(iwad) copy", file: file, line: line)
             app.buttons["gameNameButton"].tap()
@@ -98,6 +98,7 @@ final class RealWADTests: XCTestCase {
             clearAndType(field, name)
             app.buttons["Save"].tap()
             if let pwad {
+                scrollTo(app.buttons["addFileButton"], in: app)
                 app.buttons["addFileButton"].tap()
                 let row = app.buttons["addFile-\(pwad)"]
                 XCTAssertTrue(row.waitForExistence(timeout: 5), "\(pwad) missing from the Add picker", file: file, line: line)

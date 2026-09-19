@@ -325,6 +325,15 @@ final class GameServiceTests: XCTestCase {
         XCTAssertEqual(try service.game(id: base.id)?.baseID, base.id)
     }
 
+    func testSetBaseOnAnUnpairedGamePairsIt() throws {
+        let base = try iwad("doom2.wad")
+        let game = try service.createGame(name: "Orphan", baseID: nil, fileIDs: [])
+
+        try service.setBase(game, baseID: base.id)
+
+        XCTAssertEqual(try service.game(id: game.id)?.baseID, base.id)
+    }
+
     func testDuplicateCopiesContentsUnderANewIdWithNoSavesOrHistory() throws {
         let base = try iwad("doom2.wad")
         let a = try pwad("a.wad")

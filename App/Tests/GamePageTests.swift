@@ -58,6 +58,9 @@ final class GamePageTests: XCTestCase {
                        "Delete Sunlust and its 1 save?")
         XCTAssertEqual(GamePage.deleteMessage(gameName: "Sunlust", saveCount: 0, deletableFiles: ["a.wad", "b.wad"]),
                        "Delete Sunlust?\na.wad and b.wad aren't used by any other game.")
+        XCTAssertEqual(GamePage.deleteMessage(gameName: "Sunlust", saveCount: 0,
+                                              deletableFiles: ["a.wad", "b.wad", "c.wad"]),
+                       "Delete Sunlust?\na.wad, b.wad and c.wad aren't used by any other game.")
     }
 
     // MARK: Files screen copy

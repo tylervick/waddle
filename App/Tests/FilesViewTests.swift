@@ -176,7 +176,7 @@ final class FilesViewTests: XCTestCase {
                                                    kind: WADKind.pwad.rawValue, family: "doom2")
         _ = try library.createGame(name: "Sunlust MP", baseID: iwad.id, fileIDs: [sunlust.id])
         let existing = [FilesView.BlockedFile(filename: "eviternity.wad",
-                                                games: ["Eviternity"])]
+                                              games: ["Eviternity"])]
 
         let blocked = FilesView.deleting([sunlust], from: library, blocked: existing)
 

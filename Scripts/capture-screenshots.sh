@@ -288,6 +288,9 @@ final class ScreenshotCaptureTests: XCTestCase {
             let baseTile = app.buttons["game-\(presetBase)"]
             XCTAssertTrue(scrollIntoView(app, baseTile), "\(presetBase) base tile missing from the shelf")
             openGamePage(app, tile: "game-\(presetBase)")
+            // Landscape here (forceLandscape() above) pushes the footer
+            // further below the fold than the portrait UI tests ever see it.
+            scrollTo(app.buttons["duplicateButton"], in: app)
             app.buttons["duplicateButton"].tap()
             openGamePage(app, tile: "game-\(presetBase) copy")
             app.buttons["gameNameButton"].tap()
@@ -297,6 +300,7 @@ final class ScreenshotCaptureTests: XCTestCase {
             app.buttons["Save"].tap()
             // Add the mod before shooting: a freshly-renamed page has no
             // load-order list, which is the part worth photographing.
+            scrollTo(app.buttons["addFileButton"], in: app)
             app.buttons["addFileButton"].tap()
             let addFile = app.buttons["addFile-\(presetPWAD)"]
             XCTAssertTrue(addFile.waitForExistence(timeout: 5), "\(presetPWAD) missing from the Add picker")
