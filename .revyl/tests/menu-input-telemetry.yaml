@@ -2,10 +2,10 @@
 
 _meta:
     remote_id: 71d28d63-ed92-4efb-bb8a-e925308e5ac4
-    remote_version: 2
-    local_version: 2
-    last_synced_at: "2026-09-20T12:06:14-07:00"
-    checksum: beaa4bd0ce541fe5d32587af0297de8c8420a568e4c01cf5236d2249cbe92a15
+    remote_version: 4
+    local_version: 4
+    last_synced_at: "2026-09-20T13:35:43-07:00"
+    checksum: 7691c5320dced5add0cf1c42308ff9213b4f27e22f54fe3ad8ea5e1443db80f9
 test:
     metadata:
         name: menu-input-telemetry
@@ -22,26 +22,26 @@ test:
         - type: instructions
           step_description: Start Freedoom Phase 2 from the shelf and wait for the engine's title screen to render. A thin line of small monospaced text (the debug strip) sits at the very top of the screen while the game runs.
         - type: extraction
-          step_description: Read the debug strip at the top of the screen and extract, verbatim, the part that starts with 'pad=' through the end of the line (it contains pad=, pads=, btn= and menu= fields).
+          step_description: Read the debug strip at the top of the screen (small monospaced text, two or more lines) and extract, verbatim, the line that starts with 'pad=' (it contains pad=, pads=, btn= and menu= fields).
           variable_name: strip_on_title
         - type: instructions
           step_description: Tap the round menu button in the top-right corner of the touch overlay (three horizontal lines) once, so the Doom main menu opens. Tap nothing else.
         - type: extraction
-          step_description: Read the debug strip again and extract the part from 'pad=' to the end of the line.
+          step_description: Read the debug strip again and extract, verbatim, the line that starts with 'pad='.
           variable_name: strip_menu_open
         - type: validation
           step_description: The Doom main menu is open with the skull cursor on New Game, and the debug strip ends with 'menu=0'. If it still says 'menu=off', the START press never reached the engine's menu.
         - type: instructions
           step_description: Press the round USE button at the bottom right of the touch overlay exactly once, with a normal quick tap. Do not tap anything else.
         - type: extraction
-          step_description: Read the debug strip again and extract the part from 'pad=' to the end of the line.
+          step_description: Read the debug strip again and extract, verbatim, the line that starts with 'pad='.
           variable_name: strip_after_use
         - type: validation
           step_description: Compared with {{strip_menu_open}}, the btn= number in {{strip_after_use}} has grown by at least 2, and the screen has left the main menu for the skill (difficulty) selection screen. If btn= did not grow, the USE tap never reached the engine; if it grew but the menu did not change, the engine ignored the press.
         - type: instructions
-          step_description: Go back to the main menu if the skill screen is showing (the menu button, top right, backs out one screen). Then press and HOLD one finger in the empty lower-left quarter of the screen and drag it downward about a quarter of the screen height, hold there for two seconds, and release. This is the virtual movement stick.
+          step_description: 'Get the Doom main menu back on screen with New Game highlighted: tapping the round menu button (top right) closes whatever menu is open, and tapping it once more opens the main menu again. Then, with the main menu showing, press and HOLD one finger in the empty lower-left quarter of the screen, drag it downward about a quarter of the screen height, keep holding there for two full seconds, and only then release. This is the virtual movement stick; a quick flick is not enough.'
         - type: extraction
-          step_description: Read the debug strip again and extract the part from 'pad=' to the end of the line.
+          step_description: Read the debug strip again and extract, verbatim, the line that starts with 'pad='.
           variable_name: strip_after_stick
         - type: validation
           step_description: The menu= number in {{strip_after_stick}} is greater than 0, meaning the stick drag moved the skull cursor down. If it is still 0 while pad= says 'foreign', another controller owns the stick axes; if pad= says 'virtual' and it is still 0, the drag never registered as stick input.

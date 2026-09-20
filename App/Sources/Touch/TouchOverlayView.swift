@@ -183,7 +183,13 @@ final class TouchOverlayView: UIView {
             label.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
             label.textColor = UIColor.white.withAlphaComponent(0.6)
             label.backgroundColor = UIColor.black.withAlphaComponent(0.3)
-            label.textAlignment = .center
+            label.textAlignment = .left
+            // Wrap rather than truncate: on a phone the strip is longer than
+            // one line, and a Revyl device run reads its tail (the pad= ...
+            // menu= segment) off a screenshot. An ellipsis there is the one
+            // thing the strip must never show.
+            label.numberOfLines = 0
+            label.lineBreakMode = .byWordWrapping
             label.isUserInteractionEnabled = false // never intercepts touches
             addSubview(label)
             debugHUDLabel = label
@@ -332,7 +338,7 @@ final class TouchOverlayView: UIView {
         // menu cursor. DebugHUDInputTelemetryTests parses it; a Revyl device
         // run reads it off a screenshot.
         debugHUDLabel?.text = String(
-            format: "build %@ (%@) · %@ · events %d · trigger %.2f · turn %.2f · dz %.2f · move %.2f · %@",
+            format: "build %@ (%@) · %@ · events %d · trigger %.2f · turn %.2f · dz %.2f · move %.2f\n%@",
             BuildInfo.commit, BuildInfo.branch, scheme == .classic ? "classic" : "modern",
             WoofIOS_DebugTouchEventCount(), trigger,
             tuning.turnSpeed, tuning.stickDeadZone, tuning.moveSensitivity,
@@ -354,8 +360,9 @@ final class TouchOverlayView: UIView {
     }
 
     /// Height of the strip the debug HUD claims along the top edge (only
-    /// when the "Show Debug Info" toggle is on).
-    private static let debugHUDStripHeight: CGFloat = 22
+    /// when the "Show Debug Info" toggle is on): four lines of the 11 pt
+    /// monospaced font, which is what the wrapped strip needs at phone width.
+    private static let debugHUDStripHeight: CGFloat = 60
 
     /// Live geometry for the current bounds. Recomputed rather than cached:
     /// it is a handful of arithmetic ops, and iPadOS windowed multitasking

@@ -50,6 +50,12 @@ final class DebugHUDInputTelemetryTests: XCTestCase {
         app.buttons["menuButton"].tap()
         let menuOpen = waitForHUD(hud, timeout: 10) { $0["menu"] == "0" }
         XCTAssertEqual(menuOpen["menu"], "0", "menu cursor should be on item 0 after START: \(lastSeenStrip)")
+        // For a human: the whole strip, including its pad= line, must be
+        // readable on screen, since a device run reads it from a screenshot.
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "debug-hud-strip-with-menu-open"
+        shot.lifetime = .keepAlways
+        add(shot)
 
         // The stick, while the main menu is up: press in the overlay's stick
         // region (lower left) and drag down, holding at the end so the axis
@@ -109,7 +115,7 @@ final class DebugHUDInputTelemetryTests: XCTestCase {
     private func fields(of label: String) -> [String: String] {
         let keys = ["pad", "pads", "btn", "menu"]
         var result: [String: String] = [:]
-        for segment in label.components(separatedBy: " · ") {
+        for segment in label.components(separatedBy: "\n").flatMap({ $0.components(separatedBy: " · ") }) {
             guard segment.hasPrefix("pad=") else { continue }
             var rest = segment
             for (i, key) in keys.enumerated() {
