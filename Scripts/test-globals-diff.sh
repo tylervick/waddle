@@ -44,6 +44,15 @@ out_bo="$(python3 "$ROOT/Scripts/globals-diff.py" --log "$FIX/session-base-offse
 check "a base+offset location resolves to the offset variable" "NewDef+0x0" "$out_bo"
 refute "the bare-base variable does not claim the range" "EpiMenuEpi+0x58" "$out_bo"
 
+# Two file-scope statics can share a name (`ret` in i_printf.c and m_misc.c
+# both do). Each is its own variable with its own address and file; a report
+# keyed on the name alone folds the second into the first and prints its
+# ranges at the wrong offset under the wrong file.
+out_sn="$(python3 "$ROOT/Scripts/globals-diff.py" --log "$FIX/session-same-name.log" --dwarf-text "$FIX/dwarf.txt")"
+check "first same-named variable keeps its own file" "ret+0x4 len=1 00 -> 01  (Engine/woof/src/i_printf.c:38)" "$out_sn"
+check "second same-named variable keeps its own file and offset" "ret+0x4 len=1 00 -> 02  (Engine/woof/src/m_misc.c:90)" "$out_sn"
+refute "the second is not reported as an offset into the first" "ret+0x44" "$out_sn"
+
 # A log with no GLOBALDIFF lines is a failure, not an empty success: the seam
 # was not armed, or the session never reached its checkpoint.
 if python3 "$ROOT/Scripts/globals-diff.py" --log /dev/null --dwarf-text "$FIX/dwarf.txt" >/dev/null 2>&1; then

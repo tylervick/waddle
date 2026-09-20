@@ -32,3 +32,15 @@
                 DW_AT_decl_file	("/Users/builder/repos/waddle/Engine/woof/src/mn_menu.c")
                 DW_AT_decl_line	(700)
                 DW_AT_location	(DW_OP_addr 0x1200, DW_OP_plus_uconst 0x58)
+
+0x00000240:   DW_TAG_variable
+                DW_AT_name	("ret")
+                DW_AT_decl_file	("/Users/builder/repos/waddle/Engine/woof/src/i_printf.c")
+                DW_AT_decl_line	(38)
+                DW_AT_location	(DW_OP_addr 0x1300)
+
+0x00000280:   DW_TAG_variable
+                DW_AT_name	("ret")
+                DW_AT_decl_file	("/Users/builder/repos/waddle/Engine/woof/src/m_misc.c")
+                DW_AT_decl_line	(90)
+                DW_AT_location	(DW_OP_addr 0x1340)

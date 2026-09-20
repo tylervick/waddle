@@ -199,11 +199,15 @@ def main():
         if var is None or (not args.all and not is_engine(var)):
             outside += 1
             continue
-        hits.setdefault(var["name"], (var, []))[1].append(r)
+        # Keyed on the variable, not its name: file-scope statics in different
+        # objects share names (`ret`, `msg`, `buffer`), and each is its own
+        # address and source location.
+        hits.setdefault(var["addr"], (var, []))[1].append(r)
 
     print(f"# {log_path}")
     print(f"# image: {image_in_log or args.image}")
-    for name, (var, rs) in sorted(hits.items(), key=lambda kv: kv[1][0]["addr"]):
+    for _, (var, rs) in sorted(hits.items(), key=lambda kv: kv[1][0]["addr"]):
+        name = var["name"]
         where = (f"{os.path.relpath(var['file'], ROOT)}:{var.get('line', '?')}" if var.get("file")
                  else "nm symbol, no source location")
         for r in rs:

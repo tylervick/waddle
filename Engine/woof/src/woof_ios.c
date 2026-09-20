@@ -662,8 +662,15 @@ void WoofIOS_DebugGlobalsCheckpoint(void)
         }
         else
         {
+            uint8_t *fresh = malloc(size);
+            if (!fresh)
+            {
+                I_Printf(VB_WARNING, "GLOBALDIFF: could not allocate %lu bytes for %s,%s",
+                         size, globals_sections[s].segment, globals_sections[s].section);
+                continue;
+            }
             free(snapshot);
-            snapshot = malloc(size);
+            snapshot = fresh;
             globals_sections[s].snapshot = snapshot;
             globals_sections[s].size = size;
         }
