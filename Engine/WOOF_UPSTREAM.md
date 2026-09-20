@@ -338,6 +338,21 @@ only ever runs once):
   session; the string ends with `bigfont=<priority>`, which the same test
   requires to be equal across two sessions of one game.
 
+- `src/d_main.c`, `src/woof_ios.c`, `src/woof_ios.h` -- the enumerator for
+  this whole section. `WoofIOS_DebugGlobalsCheckpoint()` (no-op unless
+  `WADDLE_DEBUG_GLOBALS_DIFF` is in the environment) is called from a
+  `WOOF_IOS`-guarded block right after `D_StartGameLoop()`, once per session,
+  after every init step and before the first tic. It snapshots the writable
+  data sections (`__DATA`/`__DATA_DIRTY` `__data`, `__bss`, `__common`) of the
+  image the engine is linked into and, from the second session on, prints a
+  `GLOBALDIFF` line per byte range that changed since the previous session.
+  `Scripts/globals-diff.py` maps those to variable names through the image's
+  DWARF (which is why `Scripts/build-engine.sh` now builds with `-g`) and
+  `WaddleUITests/GlobalsDiffProbeTests` drives the sessions. Two sessions of
+  one game list state that leaks between sessions; game A then game B lists
+  what depends on the previous game -- the list is candidates to read, not a
+  verdict: tic counters, RNG state and heap pointers differ legitimately.
+
 Related (not upstream files): `Scripts/build-engine.sh` passes
 `-DCMAKE_FIND_ROOT_PATH="$OUT/$platform"` in addition to
 `-DCMAKE_PREFIX_PATH`. When `CMAKE_SYSTEM_NAME=iOS`, CMake restricts

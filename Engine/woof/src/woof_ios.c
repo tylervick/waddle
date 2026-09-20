@@ -8,6 +8,9 @@
 #include <pthread.h>
 #include <setjmp.h>
 #include <signal.h>
+#include <dlfcn.h>
+#include <mach-o/dyld.h>
+#include <mach-o/getsect.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -540,6 +543,137 @@ const char *WoofIOS_LastErrorMessage(void)
     // i_system.c's WOOF_IOS-only patch block.
     extern const char *I_GetErrorMessage(void);
     return I_GetErrorMessage();
+}
+
+// --- Writable-globals diff (Scripts/globals-diff.py) ---
+//
+// Everything below D_DoomMain was written for one run per process, so any
+// file-scope static it writes during init can outlive a session here and be
+// inherited by the next one (WOOF_UPSTREAM.md, "Task 10"; issue #253 is the
+// seventh instance). Rather than find each one from a crash, this compares
+// the bytes of every writable data section between two checkpoints taken at
+// the same point of two sessions: whatever differs between two sessions of
+// the SAME game is a candidate. It looks at the whole image the engine is
+// linked into (the Debug dylib or the app binary), so SDL, OpenAL and Swift
+// statics show up too; the script filters to Engine/woof/ by default.
+//
+// The snapshot buffers are heap, but the table holding their pointers and
+// the checkpoint counter live in these very sections, so the counter always
+// appears in the diff. That is the mechanism's own liveness check.
+static struct
+{
+    const char *segment;
+    const char *section;
+    uint8_t *snapshot;
+    unsigned long size;
+} globals_sections[] = {
+    {"__DATA",       "__data"  },
+    {"__DATA",       "__bss"   },
+    {"__DATA",       "__common"},
+    {"__DATA_DIRTY", "__data"  },
+    {"__DATA_DIRTY", "__bss"   },
+    {"__DATA_DIRTY", "__common"},
+};
+static int globals_checkpoints;
+
+#define GLOBALDIFF_HEX_BYTES 16
+#define GLOBALDIFF_MAX_RANGES 20000
+
+static void HexBytes(char *out, const uint8_t *bytes, unsigned long len)
+{
+    unsigned long n = len < GLOBALDIFF_HEX_BYTES ? len : GLOBALDIFF_HEX_BYTES;
+    for (unsigned long i = 0; i < n; i++)
+    {
+        sprintf(out + 2 * i, "%02x", bytes[i]);
+    }
+    out[2 * n] = '\0';
+}
+
+void WoofIOS_DebugGlobalsCheckpoint(void)
+{
+    if (!getenv("WADDLE_DEBUG_GLOBALS_DIFF"))
+    {
+        return;
+    }
+
+    Dl_info info;
+    if (!dladdr((void *)WoofIOS_Run, &info) || !info.dli_fbase)
+    {
+        I_Printf(VB_WARNING, "GLOBALDIFF: dladdr could not find the engine's image");
+        return;
+    }
+    const struct mach_header_64 *header = info.dli_fbase;
+    intptr_t slide = 0;
+    for (uint32_t i = 0; i < _dyld_image_count(); i++)
+    {
+        if (_dyld_get_image_header(i) == (const struct mach_header *)header)
+        {
+            slide = _dyld_get_image_vmaddr_slide(i);
+            break;
+        }
+    }
+
+    globals_checkpoints++;
+    if (globals_checkpoints == 1)
+    {
+        I_Printf(VB_ALWAYS, "GLOBALDIFF-IMAGE %s slide=0x%lx", info.dli_fname,
+                 (unsigned long)slide);
+    }
+
+    int ranges = 0;
+    for (size_t s = 0; s < arrlen(globals_sections); s++)
+    {
+        unsigned long size = 0;
+        uint8_t *data = getsectiondata(header, globals_sections[s].segment,
+                                       globals_sections[s].section, &size);
+        if (!data || !size)
+        {
+            continue;
+        }
+
+        uint8_t *snapshot = globals_sections[s].snapshot;
+        if (snapshot && globals_sections[s].size == size)
+        {
+            for (unsigned long i = 0; i < size;)
+            {
+                if (data[i] == snapshot[i])
+                {
+                    i++;
+                    continue;
+                }
+                unsigned long start = i;
+                while (i < size && data[i] != snapshot[i])
+                {
+                    i++;
+                }
+                if (++ranges > GLOBALDIFF_MAX_RANGES)
+                {
+                    continue;
+                }
+                char old_hex[2 * GLOBALDIFF_HEX_BYTES + 1];
+                char new_hex[2 * GLOBALDIFF_HEX_BYTES + 1];
+                HexBytes(old_hex, snapshot + start, i - start);
+                HexBytes(new_hex, data + start, i - start);
+                I_Printf(VB_ALWAYS, "GLOBALDIFF %s,%s unslid=0x%lx len=%lu old=%s new=%s",
+                         globals_sections[s].segment, globals_sections[s].section,
+                         (unsigned long)((uintptr_t)(data + start) - slide),
+                         i - start, old_hex, new_hex);
+            }
+        }
+        else
+        {
+            free(snapshot);
+            snapshot = malloc(size);
+            globals_sections[s].snapshot = snapshot;
+            globals_sections[s].size = size;
+        }
+        memcpy(snapshot, data, size);
+    }
+    if (globals_checkpoints > 1)
+    {
+        I_Printf(VB_ALWAYS, "GLOBALDIFF-END checkpoint=%d ranges=%d%s", globals_checkpoints,
+                 ranges, ranges > GLOBALDIFF_MAX_RANGES ? " (truncated)" : "");
+    }
 }
 
 const char *WoofIOS_DebugMenuGeometry(void)

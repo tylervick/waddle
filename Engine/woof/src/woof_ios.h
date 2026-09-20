@@ -75,6 +75,15 @@ float WoofIOS_DebugTriggerValue(void);
 // ends this is what the next session inherits (issue #253).
 const char *WoofIOS_DebugMenuGeometry(void);
 
+// Debug/test telemetry only, engine-internal (called from d_main.c at the top
+// of the game loop): with WADDLE_DEBUG_GLOBALS_DIFF in the environment,
+// snapshots the writable data sections of the image the engine is linked
+// into and, from the second call on, prints one GLOBALDIFF line per byte
+// range that changed since the previous call. Scripts/globals-diff.py names
+// the variables. This is how the stale-static family behind issue #253 gets
+// enumerated instead of found one crash at a time.
+void WoofIOS_DebugGlobalsCheckpoint(void);
+
 // Engine-internal: called only from i_input.c's I_ReadMouse (WOOF_IOS
 // build), not part of the overlay-facing API above. Returns the turn
 // accumulated since the last call and resets it to 0.

@@ -1,0 +1,2 @@
+GLOBALDIFF-IMAGE /path/Waddle.debug.dylib slide=0x10000
+GLOBALDIFF __DATA,__data unslid=0x1258 len=1 old=05 new=04
