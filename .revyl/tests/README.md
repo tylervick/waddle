@@ -161,3 +161,17 @@ Three things about how it is written:
   tracks the fix asks for a debug telemetry seam so that test can assert on the
   table values rather than pixels. This definition exists because Revyl runs on
   pull requests and the XCTest suite does not.
+
+### `menu-input-telemetry.yaml` — why USE and the stick do nothing in the menu on the farm device
+
+A diagnostic, not a regression test: it exists to answer the observation
+recorded under `menu-state-across-sessions` above. The in-game debug strip
+(Settings ▸ Show Debug Info) ends with what the engine sees of the overlay's
+input -- `pad=<name> <virtual|foreign|none> pads=<n> btn=<events> menu=<item|off>`
+-- and the steps read it before and after a menu-button tap, a USE tap and a
+stick drag. Each validation says which failure its outcome means, so the
+report localizes the problem to one of: the tap never reached the overlay,
+the press never reached the engine (`btn=` unchanged), a foreign controller
+owns the axes (`pad=... foreign`), or the engine ignored the input. Run it
+against a build that has the strip (any build after the telemetry landed),
+and read the extracted variables in `revyl test report`.

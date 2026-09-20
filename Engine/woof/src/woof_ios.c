@@ -11,6 +11,7 @@
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
 #include <mach-o/getsect.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -181,6 +182,10 @@ int WoofIOS_Run(int argc, char **argv)
     // see MN_ResetMenuTables for why this cannot live in M_Init).
     extern void MN_ResetMenuTables(void);
     MN_ResetMenuTables();
+
+    // Debug counter for the HUD's btn= field; per session, like the rest.
+    extern void I_DebugResetGamepadCounters(void);
+    I_DebugResetGamepadCounters();
 
     // Same fresh-session hygiene for the touch shim's event counter: it
     // backs WoofIOS_DebugTouchEventCount(), which the app reads *after* a
@@ -681,6 +686,47 @@ void WoofIOS_DebugGlobalsCheckpoint(void)
         I_Printf(VB_ALWAYS, "GLOBALDIFF-END checkpoint=%d ranges=%d%s", globals_checkpoints,
                  ranges, ranges > GLOBALDIFF_MAX_RANGES ? " (truncated)" : "");
     }
+}
+
+void WoofIOS_SelectTouchGamepad(void)
+{
+    extern void I_SelectGamepad(SDL_JoystickID instance_id);
+    if (touch_joystick_id)
+    {
+        I_SelectGamepad(touch_joystick_id);
+    }
+}
+
+const char *WoofIOS_DebugInputState(void)
+{
+    // All four live in i_input.c's and mn_menu.c's WOOF_IOS blocks; declared
+    // here rather than in a header, same as the other debug accessors.
+    extern const char *I_DebugGamepadName(void);
+    extern SDL_JoystickID I_DebugGamepadID(void);
+    extern int I_DebugGamepadCount(void);
+    extern const char *I_DebugGamepadNames(void);
+    extern int I_DebugGamepadButtonEvents(void);
+    extern int MN_DebugMenuCursor(void);
+
+    static char buf[320];
+    const char *name = I_DebugGamepadName();
+    SDL_JoystickID id = I_DebugGamepadID();
+    const char *kind = !name ? "none"
+                       : (touch_joystick_id && id == touch_joystick_id) ? "virtual"
+                       : "foreign";
+    int cursor = MN_DebugMenuCursor();
+    if (cursor < 0)
+    {
+        snprintf(buf, sizeof(buf), "pad=%s %s pads=%d%s btn=%d menu=off", name ? name : "none",
+                 kind, I_DebugGamepadCount(), I_DebugGamepadNames(), I_DebugGamepadButtonEvents());
+    }
+    else
+    {
+        snprintf(buf, sizeof(buf), "pad=%s %s pads=%d%s btn=%d menu=%d", name ? name : "none",
+                 kind, I_DebugGamepadCount(), I_DebugGamepadNames(), I_DebugGamepadButtonEvents(),
+                 cursor);
+    }
+    return buf;
 }
 
 const char *WoofIOS_DebugMenuGeometry(void)

@@ -224,6 +224,67 @@ static void UpdateTouchState(boolean menu, boolean on)
     }
 }
 
+#ifdef WOOF_IOS
+// Debug/test telemetry for the host app's HUD (WoofIOS_DebugInputState): what
+// the engine sees of the touch overlay's virtual gamepad. Button events are
+// counted where they become engine events, so a count that does not move
+// after an overlay tap means the press never reached this file.
+static int gamepad_button_events;
+
+const char *I_DebugGamepadName(void)
+{
+    return gamepad ? SDL_GetGamepadName(gamepad) : NULL;
+}
+
+SDL_JoystickID I_DebugGamepadID(void)
+{
+    return gamepad ? gamepad_instance_id : 0;
+}
+
+int I_DebugGamepadCount(void)
+{
+    int count = 0;
+    SDL_JoystickID *ids = SDL_GetGamepads(&count);
+    SDL_free(ids);
+    return count;
+}
+
+int I_DebugGamepadButtonEvents(void)
+{
+    return gamepad_button_events;
+}
+
+void I_DebugResetGamepadCounters(void)
+{
+    gamepad_button_events = 0;
+}
+
+// Every gamepad SDL currently sees, "[name;name]", so the HUD can say what
+// got opened ahead of the overlay's virtual pad.
+const char *I_DebugGamepadNames(void)
+{
+    static char buf[160];
+    int count = 0;
+    SDL_JoystickID *ids = SDL_GetGamepads(&count);
+    size_t used = 0;
+    buf[used++] = '[';
+    for (int i = 0; i < count && used < sizeof(buf) - 2; i++)
+    {
+        const char *name = SDL_GetGamepadNameForID(ids[i]);
+        used += snprintf(buf + used, sizeof(buf) - 1 - used, "%s%s", i ? ";" : "",
+                         name ? name : "?");
+        if (used > sizeof(buf) - 2)
+        {
+            used = sizeof(buf) - 2;
+        }
+    }
+    buf[used++] = ']';
+    buf[used] = '\0';
+    SDL_free(ids);
+    return buf;
+}
+#endif
+
 static void UpdateGamepadButtonState(unsigned int button, boolean on)
 {
     static event_t event;
@@ -238,6 +299,9 @@ static void UpdateGamepadButtonState(unsigned int button, boolean on)
 
     event.data1.i = button;
     D_PostEvent(&event);
+#ifdef WOOF_IOS
+    gamepad_button_events++;
+#endif
 }
 
 boolean I_UseGamepad(void)
@@ -562,6 +626,25 @@ static void CloseGamepad(void)
         I_ResetGamepad();
     }
 }
+
+#ifdef WOOF_IOS
+// Open this gamepad even though another one is active. The host app calls
+// it (WoofIOS_SelectTouchGamepad) whenever its touch overlay is the intended
+// input: I_OpenGamepad keeps whichever gamepad it opened first, and both the
+// simulator and Revyl's farm devices present an MFi "Gamepad" before the
+// overlay attaches its virtual pad, so the engine read stick axes from a
+// controller nobody was holding while the overlay's buttons still arrived
+// (button events come from any open gamepad; axes only from this one).
+void I_SelectGamepad(SDL_JoystickID instance_id)
+{
+    if (gamepad_instance_id == instance_id)
+    {
+        return;
+    }
+    CloseGamepad();
+    I_OpenGamepad(instance_id);
+}
+#endif
 
 void I_OpenGamepad(SDL_JoystickID instance_id)
 {

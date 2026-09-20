@@ -181,15 +181,23 @@ final class OverlayPresenter {
         // XCUITest -- TouchControlsTests couldn't verify install, input, or
         // teardown at all. Only ever set by the UI test; never present in a
         // real session.
+        let shown: Bool
         if overlayForcedVisibleByHarness {
-            overlay?.isHidden = false
-            return
+            shown = true
+        } else {
+            let policy = PhysicalInputPolicy(
+                controllerConnected: !GCController.controllers().isEmpty,
+                hardwareKeyboardConnected: GCKeyboard.coalesced != nil
+            )
+            shown = policy.overlayShouldShow
         }
-
-        let policy = PhysicalInputPolicy(
-            controllerConnected: !GCController.controllers().isEmpty,
-            hardwareKeyboardConnected: GCKeyboard.coalesced != nil
-        )
-        overlay?.isHidden = !policy.overlayShouldShow
+        overlay?.isHidden = !shown
+        // A visible overlay is the input the player has, forced or not; make
+        // the engine read its stick from our pad rather than from whatever
+        // MFi controller it opened first -- the same phantom controller the
+        // comment above describes is what the engine picks up, and Revyl's
+        // farm devices present one too. Hidden means a real controller or
+        // keyboard is in use, and the engine's own choice stands.
+        if shown { gamepad.selectAsEngineInput() }
     }
 }

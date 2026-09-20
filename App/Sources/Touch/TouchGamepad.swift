@@ -135,6 +135,11 @@ extension TouchGamepad: TextInjecting {
 
     func injectMenuConfirm() { WoofIOS_InjectMenuConfirm() }
 
+    /// Makes the engine read gamepad input from this virtual pad even if a
+    /// controller was opened before it (the simulator and Revyl's farm both
+    /// present one). Called whenever the overlay is the intended input.
+    func selectAsEngineInput() { WoofIOS_SelectTouchGamepad() }
+
     /// Current engine text-input context, mirrored from the C bridge.
     func currentTextInputContext() -> TextInputContext {
         let ctx = WoofIOS_GetTextInputContext()

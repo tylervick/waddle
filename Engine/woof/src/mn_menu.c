@@ -2428,6 +2428,13 @@ void MN_ResetMenuTables(void)
 // Debug/test telemetry (WoofIOS_DebugMenuGeometry): the four table values
 // that M_Init() edits in place per gamemode, plus the DBIGFONT priority, so a UITest can read what the
 // NEXT session in this process will inherit. Read-only; engine-internal.
+// Debug/test telemetry (WoofIOS_DebugInputState): the menu cursor, or -1
+// when no menu is up, so a HUD can show whether a stick drag moved it.
+int MN_DebugMenuCursor(void)
+{
+    return menuactive ? itemOn : -1;
+}
+
 const char *MN_DebugMenuGeometry(void)
 {
     static char buf[64];

@@ -326,11 +326,17 @@ final class TouchOverlayView: UIView {
 
     private func updateDebugHUD() {
         let trigger = WoofIOS_DebugTriggerValue()
+        // The last segment is what the engine sees of this overlay's input
+        // (WoofIOS_DebugInputState): which gamepad it has open and whether
+        // that is our virtual pad, button events it has processed, and the
+        // menu cursor. DebugHUDInputTelemetryTests parses it; a Revyl device
+        // run reads it off a screenshot.
         debugHUDLabel?.text = String(
-            format: "build %@ (%@) · %@ · events %d · trigger %.2f · turn %.2f · dz %.2f · move %.2f",
+            format: "build %@ (%@) · %@ · events %d · trigger %.2f · turn %.2f · dz %.2f · move %.2f · %@",
             BuildInfo.commit, BuildInfo.branch, scheme == .classic ? "classic" : "modern",
             WoofIOS_DebugTouchEventCount(), trigger,
-            tuning.turnSpeed, tuning.stickDeadZone, tuning.moveSensitivity)
+            tuning.turnSpeed, tuning.stickDeadZone, tuning.moveSensitivity,
+            String(cString: WoofIOS_DebugInputState()))
     }
 
     // MARK: Buttons
