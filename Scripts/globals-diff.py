@@ -151,6 +151,18 @@ def is_engine(var):
     return "Engine/woof/" in var.get("file", "")
 
 
+def display_path(path):
+    """A DWARF decl_file is absolute on the machine that built the image, which
+    need not be this one (CI builds it under /Users/runner/...), so a path
+    relative to this checkout can come out as ../../../../builder/... Print
+    from the repository's Engine/ or App/ marker instead."""
+    for marker in ("/Engine/", "/App/", "/Scripts/"):
+        i = path.find(marker)
+        if i >= 0:
+            return path[i + 1:]
+    return path
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     src = ap.add_mutually_exclusive_group(required=True)
@@ -208,7 +220,7 @@ def main():
     print(f"# image: {image_in_log or args.image}")
     for _, (var, rs) in sorted(hits.items(), key=lambda kv: kv[1][0]["addr"]):
         name = var["name"]
-        where = (f"{os.path.relpath(var['file'], ROOT)}:{var.get('line', '?')}" if var.get("file")
+        where = (f"{display_path(var['file'])}:{var.get('line', '?')}" if var.get("file")
                  else "nm symbol, no source location")
         for r in rs:
             off = r["addr"] - var["addr"]
