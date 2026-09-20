@@ -607,7 +607,10 @@ final class OverlayButton: UIView {
     // still pending flushes that release first, so the engine sees two
     // distinct presses rather than one long one.
     private var timing = OverlayPressTiming.engineSafe
-    private var pendingRelease: DispatchWorkItem?
+    // Tagged, so a delayed release fires only if it is still the current
+    // one: a second tap flushes and replaces it, and the closure of the
+    // replaced item must not release the new press.
+    private var pendingRelease: (id: UUID, work: DispatchWorkItem)?
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         Self.debugPressCount += 1
@@ -632,18 +635,19 @@ final class OverlayButton: UIView {
             onPress(false)
             return
         }
+        let id = UUID()
         let work = DispatchWorkItem { [weak self] in
-            guard let self, self.pendingRelease != nil else { return }
+            guard let self, self.pendingRelease?.id == id else { return }
             self.pendingRelease = nil
             self.onPress(false)
         }
-        pendingRelease = work
+        pendingRelease = (id, work)
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     private func flushPendingRelease() {
         guard let pending = pendingRelease else { return }
-        pending.cancel()
+        pending.work.cancel()
         pendingRelease = nil
         onPress(false)
     }
