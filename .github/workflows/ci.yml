@@ -26,6 +26,14 @@ env:
   # from GitHub releases, so an unpinned CLI changes under the job without a
   # commit. This is the version the recipe was proven against.
   REVYL_VERSION: "v0.1.119"
+  # SHA-256 of the revyl-darwin-arm64 release asset for REVYL_VERSION, from
+  # https://github.com/RevylAI/revyl-cli/releases/download/<version>/checksums.txt.
+  # The two Revyl jobs download that exact asset and verify it against this
+  # before it runs, instead of piping the vendor's installer into a shell:
+  # the installer is remote code that changes without notice, and it would
+  # run in a job that also holds REVYL_API_KEY. Bump the version and this
+  # digest together; a mismatch fails the job before anything credentialed.
+  REVYL_CLI_SHA256: "455e2a8a247dfa808e5598a84668c097f7f5ec4efb8a00d1c2e3c3bac39287cc"
   SIMULATOR_OS: "26.2"
   SIMULATOR_DEVICE: "iPhone 17 Pro"
   # The app ships universal (App/project.yml sets TARGETED_DEVICE_FAMILY
@@ -507,6 +515,19 @@ jobs:
       # builds x86_64 too and the engine xcframework has only an arm64
       # simulator slice. See
       # docs/learnings/generic-simulator-destination-adds-x86_64.md.
+      # Same pinned, verified download as the revyl-main job below, and for
+      # the same reason: the step that holds REVYL_API_KEY should not also be
+      # the one that runs whatever the vendor's installer says today.
+      - name: Install the Revyl CLI
+        run: |
+          curl -fsSL -o revyl-darwin-arm64 \
+            "https://github.com/RevylAI/revyl-cli/releases/download/${REVYL_VERSION}/revyl-darwin-arm64"
+          echo "${REVYL_CLI_SHA256}  revyl-darwin-arm64" | shasum -a 256 -c -
+          mkdir -p "$HOME/.revyl/bin"
+          install -m 0755 revyl-darwin-arm64 "$HOME/.revyl/bin/revyl"
+          rm -f revyl-darwin-arm64
+          echo "$HOME/.revyl/bin" >> "$GITHUB_PATH"
+          "$HOME/.revyl/bin/revyl" --version
       - name: Publish build to Revyl
         # Paired with pr_review.strict_ci_check.build: false in
         # .revyl/config.yaml. Neither this nor that is a permanent setting --
@@ -525,9 +546,6 @@ jobs:
             echo "::notice::REVYL_API_KEY is not set; skipping the Revyl upload"
             exit 0
           fi
-          curl -fsSL https://revyl.com/install.sh | sh
-          export PATH="$HOME/.revyl/bin:$PATH"
-          revyl --version
 
           # SWIFT_ACTIVE_COMPILATION_CONDITIONS carries WADDLE_PROOF_HARNESS,
           # which keeps OverlayPresenter from hiding the touch overlay when
@@ -617,15 +635,17 @@ jobs:
       - uses: ./.github/actions/setup-waddle-build
         with:
           xcode-version: ${{ env.XCODE_VERSION }}
-      # The CLI is installed in a step of its own, with no secret in its
-      # environment: the vendor's installer is remote shell that changes
-      # without notice, and REVYL_VERSION (workflow env) pins only the binary
-      # it fetches, whose checksum the installer verifies. Keeping
-      # REVYL_API_KEY out of this step is what bounds a bad installer to a
-      # bad build rather than a leaked key.
+      # A step of its own, with no secret in its environment, and no installer
+      # script: the exact release asset, verified against REVYL_CLI_SHA256
+      # (workflow env) before it can run.
       - name: Install the Revyl CLI
         run: |
-          curl -fsSL https://revyl.com/install.sh | sh
+          curl -fsSL -o revyl-darwin-arm64 \
+            "https://github.com/RevylAI/revyl-cli/releases/download/${REVYL_VERSION}/revyl-darwin-arm64"
+          echo "${REVYL_CLI_SHA256}  revyl-darwin-arm64" | shasum -a 256 -c -
+          mkdir -p "$HOME/.revyl/bin"
+          install -m 0755 revyl-darwin-arm64 "$HOME/.revyl/bin/revyl"
+          rm -f revyl-darwin-arm64
           echo "$HOME/.revyl/bin" >> "$GITHUB_PATH"
           "$HOME/.revyl/bin/revyl" --version
       - name: Publish main to Revyl as the current build
