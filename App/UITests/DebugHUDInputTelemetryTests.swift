@@ -8,8 +8,11 @@ import XCTest
 /// .revyl/tests/README.md, menu-state-across-sessions): the screenshots can
 /// show the strip, and nothing else on a farm device is readable.
 ///
-/// Format, one segment of the strip:
-///     pad=<name> <virtual|foreign|none> pads=<count> btn=<events> menu=<item|off>
+/// Format, the strip's last line:
+///     pad=<name> <virtual|foreign|none> pads=<count>[names] btn=<events>
+///     ly=<left stick Y> lypk=<its peak since the pad was opened> vly=<the
+///     value the overlay wrote> ab=<axis-derived presses> mv=<menu moves>
+///     menu=<item|off>
 final class DebugHUDInputTelemetryTests: XCTestCase {
 
     private let autoquitSeconds = 20.0
@@ -60,16 +63,23 @@ final class DebugHUDInputTelemetryTests: XCTestCase {
         // The stick, while the main menu is up: press in the overlay's stick
         // region (lower left) and drag down, holding at the end so the axis
         // stays deflected across several tics. The engine turns a held
-        // left-stick axis into menu-down presses, so the cursor must leave
-        // item 0. Before the fix this stayed at 0 with pad=... foreign: the
-        // axes were read from the phantom controller, not from our pad.
+        // left-stick axis into a menu-down press that then auto-repeats, and
+        // mv= counts the moves the menu acted on. That counter is the
+        // assertion, not the cursor's final position: a hold long enough to
+        // repeat walks a five-entry menu round in a loop, and ten moves land
+        // on New Game again (measured, and mistaken for a dead stick until
+        // the counters existed). Before the fix mv= stayed at 0 with
+        // pad=... foreign: the axes were read from the phantom controller.
+        let movesBefore = Int(menuOpen["mv"] ?? "") ?? 0
         let stickStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.22, dy: 0.72))
         let stickEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.22, dy: 0.90))
         stickStart.press(forDuration: 0.2, thenDragTo: stickEnd, withVelocity: .fast,
                          thenHoldForDuration: 1.0)
-        let afterStick = waitForHUD(hud, timeout: 10) { (Int($0["menu"] ?? "") ?? 0) > 0 }
-        XCTAssertGreaterThan(Int(afterStick["menu"] ?? "") ?? 0, 0,
-            "a held stick drag should move the menu cursor off item 0: \(lastSeenStrip)")
+        let afterStick = waitForHUD(hud, timeout: 10) { (Int($0["mv"] ?? "") ?? 0) > movesBefore }
+        XCTAssertGreaterThan(Int(afterStick["mv"] ?? "") ?? 0, movesBefore,
+            "a held stick drag should produce menu moves: \(lastSeenStrip)")
+        XCTAssertGreaterThan(Int(afterStick["lypk"] ?? "") ?? 0, 0,
+            "the engine should have polled the stick's deflection from our pad: \(lastSeenStrip)")
 
         // USE is gamepad confirm: one press is a down and an up event, on top
         // of START's two. (Whatever item it confirms is irrelevant here; a
@@ -113,7 +123,7 @@ final class DebugHUDInputTelemetryTests: XCTestCase {
     /// Splits "… · pad=Virtual Gamepad virtual pads=1 btn=4 menu=0 · …" into
     /// the telemetry fields; a value runs until the next known key.
     private func fields(of label: String) -> [String: String] {
-        let keys = ["pad", "pads", "btn", "menu"]
+        let keys = ["pad", "pads", "btn", "ly", "lypk", "vly", "ab", "mv", "menu"]
         var result: [String: String] = [:]
         for segment in label.components(separatedBy: "\n").flatMap({ $0.components(separatedBy: " · ") }) {
             guard segment.hasPrefix("pad=") else { continue }

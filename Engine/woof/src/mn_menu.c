@@ -2435,6 +2435,13 @@ int MN_DebugMenuCursor(void)
     return menuactive ? itemOn : -1;
 }
 
+// How many MENU_UP/MENU_DOWN actions M_Responder has acted on this session.
+static int menu_moves;
+int MN_DebugMenuMoves(void)
+{
+    return menu_moves;
+}
+
 const char *MN_DebugMenuGeometry(void)
 {
     static char buf[64];
@@ -3399,6 +3406,7 @@ boolean M_Responder(event_t *ev)
 
     if (action == MENU_DOWN) // phares 3/7/98
     {
+        menu_moves++; // WOOF_IOS debug telemetry (MN_DebugMenuMoves)
         do
         {
             if (itemOn + 1 > currentMenu->numitems - 1)
@@ -3416,6 +3424,7 @@ boolean M_Responder(event_t *ev)
 
     if (action == MENU_UP) // phares 3/7/98
     {
+        menu_moves++; // WOOF_IOS debug telemetry (MN_DebugMenuMoves)
         do
         {
             if (!itemOn)

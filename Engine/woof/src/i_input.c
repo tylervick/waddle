@@ -43,6 +43,15 @@
 static const char **gamepad_strings;
 static SDL_Gamepad *gamepad;
 static SDL_JoystickID gamepad_instance_id;
+#ifdef WOOF_IOS
+// Debug telemetry, read by the accessors further down: the largest
+// |left-stick Y| the engine has polled since it last opened a gamepad
+// (I_UpdateGamepad; reset in I_SelectGamepad so a phantom pad's stuck axis
+// cannot masquerade as the overlay's), and how many axis-derived button
+// presses AxisToButton has posted.
+static int lefty_peak;
+static int axis_button_downs;
+#endif
 static boolean gyro_supported;
 static joy_platform_t platform;
 
@@ -87,6 +96,9 @@ static void AxisToButton(int value, int *state, int direction)
             down.data1.i = button;
             down.type = ev_joyb_down;
             D_PostEvent(&down);
+#ifdef WOOF_IOS
+            axis_button_downs++;
+#endif
         }
 
         *state = button;
@@ -168,6 +180,12 @@ void I_UpdateGamepad(evtype_t type, boolean axis_buttons)
     {
         ev.data1.i = I_GetAxisState(SDL_GAMEPAD_AXIS_LEFTX);
         ev.data2.i = I_GetAxisState(SDL_GAMEPAD_AXIS_LEFTY);
+#ifdef WOOF_IOS
+        if (abs(ev.data2.i) > lefty_peak)
+        {
+            lefty_peak = abs(ev.data2.i);
+        }
+#endif
         ev.data3.i = I_GetAxisState(SDL_GAMEPAD_AXIS_RIGHTX);
         ev.data4.i = I_GetAxisState(SDL_GAMEPAD_AXIS_RIGHTY);
         D_PostEvent(&ev);
@@ -257,6 +275,28 @@ int I_DebugGamepadButtonEvents(void)
 void I_DebugResetGamepadCounters(void)
 {
     gamepad_button_events = 0;
+    lefty_peak = 0;
+    axis_button_downs = 0;
+}
+
+// The left stick's Y axis as the engine polls it from the gamepad it has
+// open (I_GetAxisState), or 0 with none open: whether a stick drag on the
+// overlay is reaching the axis the menu and movement code read.
+int I_DebugLeftStickY(void)
+{
+    return gamepad ? I_GetAxisState(SDL_GAMEPAD_AXIS_LEFTY) : 0;
+}
+
+// Largest |left-stick Y| the engine has read this session, so a strip read
+// after a drag ended still says whether the engine ever saw it deflect.
+int I_DebugLeftStickYPeak(void)
+{
+    return lefty_peak;
+}
+
+int I_DebugAxisButtonDowns(void)
+{
+    return axis_button_downs;
 }
 
 // Every gamepad SDL currently sees, "[name;name]", so the HUD can say what
@@ -641,8 +681,11 @@ void I_SelectGamepad(SDL_JoystickID instance_id)
     {
         return;
     }
+    // I_OpenGamepad reports the outcome itself ("Found a valid gamepad,
+    // named: ..." or the error), so nothing is logged here ahead of it.
     CloseGamepad();
     I_OpenGamepad(instance_id);
+    lefty_peak = 0;
 }
 #endif
 

@@ -93,6 +93,13 @@ const char *WoofIOS_DebugInputState(void);
 // called, so the engine keeps that controller. No-op before the pad exists.
 void WoofIOS_SelectTouchGamepad(void);
 
+// The converse: a physical controller connected and the host app hid its
+// overlay, so the engine should read that controller. Picks the first
+// gamepad SDL lists that is not the overlay's virtual pad; no-op when there
+// is none. The virtual pad stays attached, so WoofIOS_SelectTouchGamepad can
+// take input back when the controller goes away.
+void WoofIOS_SelectPhysicalGamepad(void);
+
 // Debug/test telemetry only, engine-internal (called from d_main.c at the top
 // of the game loop): with WADDLE_DEBUG_GLOBALS_DIFF in the environment,
 // snapshots the writable data sections of the image the engine is linked

@@ -32,5 +32,10 @@ path used to `return` before the policy path ran, so the first version of the
 call never executed under the harness -- the strip is what caught that too.
 
 `WaddleUITests/DebugHUDInputTelemetryTests` reads the strip and requires
-`pad=... virtual`, a cursor at item 0 after START, a button-event count that
-grows on USE, and a cursor that leaves item 0 on a held stick drag.
+`pad=... virtual`, a cursor at item 0 after START, a menu-move count (`mv=`)
+that grows on a held stick drag, and a button-event count that grows on USE.
+It asserts the move count rather than where the cursor ends up: a hold long
+enough to auto-repeat walks a five-entry menu round in a loop, and ten moves
+land on New Game again -- which looked exactly like a dead stick for five
+runs until the strip grew `lypk=` (peak axis since the pad was opened),
+`ab=` (axis-derived presses posted) and `mv=`.

@@ -697,6 +697,22 @@ void WoofIOS_SelectTouchGamepad(void)
     }
 }
 
+void WoofIOS_SelectPhysicalGamepad(void)
+{
+    extern void I_SelectGamepad(SDL_JoystickID instance_id);
+    int count = 0;
+    SDL_JoystickID *ids = SDL_GetGamepads(&count);
+    for (int i = 0; i < count; i++)
+    {
+        if (ids[i] != touch_joystick_id)
+        {
+            I_SelectGamepad(ids[i]);
+            break;
+        }
+    }
+    SDL_free(ids);
+}
+
 const char *WoofIOS_DebugInputState(void)
 {
     // All four live in i_input.c's and mn_menu.c's WOOF_IOS blocks; declared
@@ -706,7 +722,11 @@ const char *WoofIOS_DebugInputState(void)
     extern int I_DebugGamepadCount(void);
     extern const char *I_DebugGamepadNames(void);
     extern int I_DebugGamepadButtonEvents(void);
+    extern int I_DebugLeftStickY(void);
+    extern int I_DebugLeftStickYPeak(void);
+    extern int I_DebugAxisButtonDowns(void);
     extern int MN_DebugMenuCursor(void);
+    extern int MN_DebugMenuMoves(void);
 
     static char buf[320];
     const char *name = I_DebugGamepadName();
@@ -715,16 +735,23 @@ const char *WoofIOS_DebugInputState(void)
                        : (touch_joystick_id && id == touch_joystick_id) ? "virtual"
                        : "foreign";
     int cursor = MN_DebugMenuCursor();
+    // ly is the engine's read of the left stick's Y axis, and vly the raw
+    // value the overlay wrote to its virtual pad: equal while the engine
+    // holds our pad, and the pair says whether a drag reached the engine.
+    int vly = touch_joystick ? SDL_GetJoystickAxis(touch_joystick, SDL_GAMEPAD_AXIS_LEFTY) : 0;
     if (cursor < 0)
     {
-        snprintf(buf, sizeof(buf), "pad=%s %s pads=%d%s btn=%d menu=off", name ? name : "none",
-                 kind, I_DebugGamepadCount(), I_DebugGamepadNames(), I_DebugGamepadButtonEvents());
+        snprintf(buf, sizeof(buf), "pad=%s %s pads=%d%s btn=%d ly=%d lypk=%d vly=%d ab=%d mv=%d menu=off",
+                 name ? name : "none", kind, I_DebugGamepadCount(), I_DebugGamepadNames(),
+                 I_DebugGamepadButtonEvents(), I_DebugLeftStickY(), I_DebugLeftStickYPeak(), vly,
+                 I_DebugAxisButtonDowns(), MN_DebugMenuMoves());
     }
     else
     {
-        snprintf(buf, sizeof(buf), "pad=%s %s pads=%d%s btn=%d menu=%d", name ? name : "none",
-                 kind, I_DebugGamepadCount(), I_DebugGamepadNames(), I_DebugGamepadButtonEvents(),
-                 cursor);
+        snprintf(buf, sizeof(buf), "pad=%s %s pads=%d%s btn=%d ly=%d lypk=%d vly=%d ab=%d mv=%d menu=%d",
+                 name ? name : "none", kind, I_DebugGamepadCount(), I_DebugGamepadNames(),
+                 I_DebugGamepadButtonEvents(), I_DebugLeftStickY(), I_DebugLeftStickYPeak(), vly,
+                 I_DebugAxisButtonDowns(), MN_DebugMenuMoves(), cursor);
     }
     return buf;
 }

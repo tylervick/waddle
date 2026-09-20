@@ -140,6 +140,10 @@ extension TouchGamepad: TextInjecting {
     /// present one). Called whenever the overlay is the intended input.
     func selectAsEngineInput() { WoofIOS_SelectTouchGamepad() }
 
+    /// The converse: a physical controller connected and the overlay is
+    /// hiding for it, so the engine should read that controller instead.
+    func yieldToPhysicalController() { WoofIOS_SelectPhysicalGamepad() }
+
     /// Current engine text-input context, mirrored from the C bridge.
     func currentTextInputContext() -> TextInputContext {
         let ctx = WoofIOS_GetTextInputContext()

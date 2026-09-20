@@ -182,6 +182,7 @@ final class OverlayPresenter {
         // teardown at all. Only ever set by the UI test; never present in a
         // real session.
         let shown: Bool
+        var controllerConnected = false
         if overlayForcedVisibleByHarness {
             shown = true
         } else {
@@ -190,14 +191,24 @@ final class OverlayPresenter {
                 hardwareKeyboardConnected: GCKeyboard.coalesced != nil
             )
             shown = policy.overlayShouldShow
+            controllerConnected = policy.controllerConnected
         }
         overlay?.isHidden = !shown
         // A visible overlay is the input the player has, forced or not; make
         // the engine read its stick from our pad rather than from whatever
         // MFi controller it opened first -- the same phantom controller the
         // comment above describes is what the engine picks up, and Revyl's
-        // farm devices present one too. Hidden means a real controller or
-        // keyboard is in use, and the engine's own choice stands.
-        if shown { gamepad.selectAsEngineInput() }
+        // farm devices present one too. The engine keeps whichever gamepad
+        // it opened first, so the converse needs saying too: when a physical
+        // controller is what hid the overlay, hand the engine that
+        // controller, or a pad that connected after ours would never be
+        // read. A keyboard-only hide changes nothing; our pad stays
+        // attached either way so it can take input back when the
+        // controller goes.
+        if shown {
+            gamepad.selectAsEngineInput()
+        } else if controllerConnected {
+            gamepad.yieldToPhysicalController()
+        }
     }
 }

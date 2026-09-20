@@ -357,7 +357,9 @@ only ever runs once):
   for the in-game debug HUD, added to explain why a Revyl farm device could
   open the menu from the overlay's menu button but neither USE nor the
   virtual stick did anything in it. `WoofIOS_DebugInputState()` composes
-  `pad=<name> <virtual|foreign|none> pads=<count> btn=<events> menu=<item|off>`
+  `pad=<name> <virtual|foreign|none> pads=<count>[names] btn=<events> ly=<left
+  stick Y> lypk=<its peak since the pad was opened> vly=<value the overlay
+  wrote> ab=<axis-derived presses> mv=<menu moves> menu=<item|off>`
   from `WOOF_IOS`-only accessors: `I_DebugGamepadName/ID/Count()` (which
   gamepad `I_OpenGamepad` has open -- the engine reads stick axes only from
   that one, while button events arrive from any gamepad SDL has open),

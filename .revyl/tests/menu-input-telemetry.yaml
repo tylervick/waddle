@@ -2,10 +2,10 @@
 
 _meta:
     remote_id: 71d28d63-ed92-4efb-bb8a-e925308e5ac4
-    remote_version: 4
-    local_version: 4
-    last_synced_at: "2026-09-20T13:35:43-07:00"
-    checksum: 7691c5320dced5add0cf1c42308ff9213b4f27e22f54fe3ad8ea5e1443db80f9
+    remote_version: 5
+    local_version: 5
+    last_synced_at: "2026-09-20T15:36:40-07:00"
+    checksum: 8b95589fc33f5541d4caea90a45e0e9e233bb2c095b802bd5132a17e3713c0df
 test:
     metadata:
         name: menu-input-telemetry
@@ -44,4 +44,4 @@ test:
           step_description: Read the debug strip again and extract, verbatim, the line that starts with 'pad='.
           variable_name: strip_after_stick
         - type: validation
-          step_description: The menu= number in {{strip_after_stick}} is greater than 0, meaning the stick drag moved the skull cursor down. If it is still 0 while pad= says 'foreign', another controller owns the stick axes; if pad= says 'virtual' and it is still 0, the drag never registered as stick input.
+          step_description: Compared with {{strip_menu_open}}, the mv= number in {{strip_after_stick}} has grown, meaning the stick drag produced menu moves (the skull cursor may have wrapped round to New Game again; that is fine). If mv= did not grow while pad= says foreign, another controller owns the stick axes; if pad= says virtual and lypk= is 0, the drag never registered as stick input; if lypk= is large but mv= did not grow, the engine saw the axis and the menu ignored it.

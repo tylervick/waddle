@@ -601,19 +601,50 @@ final class OverlayButton: UIView {
         return dx * dx + dy * dy <= radius * radius
     }
 
+    // The engine samples the virtual pad only when it pumps events, so a
+    // release is held back until the press has lasted long enough to be
+    // seen (OverlayPressTiming). A new press arriving while a release is
+    // still pending flushes that release first, so the engine sees two
+    // distinct presses rather than one long one.
+    private var timing = OverlayPressTiming.engineSafe
+    private var pendingRelease: DispatchWorkItem?
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         Self.debugPressCount += 1
+        flushPendingRelease()
         backgroundColor = UIColor.white.withAlphaComponent(0.3)
+        timing.pressed(at: ProcessInfo.processInfo.systemUptime)
         onPress(true)
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        backgroundColor = UIColor.white.withAlphaComponent(0.12)
-        onPress(false)
+        release()
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        release()
+    }
+
+    private func release() {
         backgroundColor = UIColor.white.withAlphaComponent(0.12)
+        let delay = timing.released(at: ProcessInfo.processInfo.systemUptime)
+        guard delay > 0 else {
+            onPress(false)
+            return
+        }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.pendingRelease != nil else { return }
+            self.pendingRelease = nil
+            self.onPress(false)
+        }
+        pendingRelease = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func flushPendingRelease() {
+        guard let pending = pendingRelease else { return }
+        pending.cancel()
+        pendingRelease = nil
         onPress(false)
     }
 }
