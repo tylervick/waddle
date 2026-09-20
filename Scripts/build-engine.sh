@@ -34,6 +34,15 @@ FP_BEFORE="$("$ROOT/Scripts/engine-fingerprint.sh")"
 export PKG_CONFIG_LIBDIR=""
 export PKG_CONFIG_PATH=""
 
+# CMAKE_C_FLAGS_RELEASE keeps CMake's own Release flags and adds -g. The DWARF
+# stays in the archive's objects and never reaches the linked app: a Debug
+# link keeps only a debug map pointing back at the .o files, and a Release
+# link folds it into the dSYM. Two things need it. Crash reports from
+# TestFlight symbolicate engine frames to source lines instead of offsets.
+# And Scripts/globals-diff.py can name an initialised `static` -- clang -O3
+# emits no symbol at all for one (MainDef in mn_menu.c has no entry in `nm`),
+# so DWARF is the only thing that can say which variable a changed byte
+# range belongs to. See docs/learnings/release-objects-lose-static-symbols.md.
 for platform in iphoneos iphonesimulator; do
     bdir="$ROOT/Vendor/build/woof-$platform"
     cmake -S "$ROOT/Engine/woof" -B "$bdir" -G Ninja \
@@ -42,6 +51,7 @@ for platform in iphoneos iphonesimulator; do
         -DCMAKE_OSX_ARCHITECTURES=arm64 \
         -DCMAKE_OSX_DEPLOYMENT_TARGET="$IOS_DEPLOYMENT_TARGET" \
         -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_C_FLAGS_RELEASE="-O3 -DNDEBUG -g" \
         -DCMAKE_PREFIX_PATH="$OUT/$platform" \
         -DCMAKE_FIND_ROOT_PATH="$OUT/$platform" \
         -DWITH_SNDFILE=ON -DWITH_FLUIDSYNTH=OFF -DWITH_XMP=OFF \

@@ -307,6 +307,52 @@ only ever runs once):
   with `fft.setup` already allocated there (FreeFFT runs only at process
   shutdown, after which nothing calls `InitFFT` again).
 
+- `src/mn_menu.c`, `src/woof_ios.c` -- seventh instance (issue #253), the
+  first one visible without a crash: `M_Init()` edits its file-scope menu
+  tables in place per gamemode -- `MainMenu[readthis] = MainMenu[quitdoom]`,
+  `MainDef.numitems--`, `MainDef.y += 8`, `EpiDef.numitems--` (for any
+  `gameversion < exe_ultimate`, which Freedoom Phase 2 is), the `ReadDef1`/
+  `ReadDef2` rebinding -- and never restores them. Measured on the simulator
+  and on a Revyl device: every commercial session took one entry off the main
+  menu and shifted it 8 px down, for itself and every later session; a retail
+  game played after two commercial sessions showed four main-menu entries (no
+  Read This!, no Quit Game) and two of its four episodes. `EngineSmokeTests`
+  never saw it because it replays Freedoom Phase 1, and the retail branch is
+  the one branch of `M_Init()` with no cumulative edit. Fixed with a
+  `WOOF_IOS`-only `MN_ResetMenuTables()` that snapshots `MainMenu`, `MainDef`,
+  `EpisodeMenu`, `EpiDef`, `EpiMenuMap`/`EpiMenuEpi`, `EpiCustom`, `NewDef`,
+  `ReadMenu1`, `ReadMenu2` (rebound to `M_ExtHelp` by `M_InitExtendedHelp()`
+  when a session has `HELP01`), `ReadDef1`, `ReadDef2` and `bigfont_priority`
+  on its first call and restores them on every later one (freeing a previous
+  UMAPINFO's `strdup`'d episode names first, and the previous session's FON2
+  glyphs through `MN_ResetFon2()` in `mn_font.c`, which upstream loads once
+  per process and never frees), called from `WoofIOS_Run` before
+  `D_DoomMain()`. `w_wad.c`'s lump priority counter, a function-local static
+  that kept climbing across sessions, is now file-scope and restarts in
+  `W_Close()`, so a remembered priority compares against the list it came
+  from. Not inside
+  `M_Init()`: `G_ParseMapInfo()` populates the episode tables from the current
+  session's UMAPINFO before `M_Init()` runs. A `DEBUG`-gated
+  `WoofIOS_DebugMenuGeometry()` exposes the four table values so
+  `WaddleUITests/MenuStateAcrossSessionsTests` can assert on them after each
+  session; the string ends with `bigfont=<priority>`, which the same test
+  requires to be equal across two sessions of one game.
+
+- `src/d_main.c`, `src/woof_ios.c`, `src/woof_ios.h` -- the enumerator for
+  this whole section. `WoofIOS_DebugGlobalsCheckpoint()` (no-op unless
+  `WADDLE_DEBUG_GLOBALS_DIFF` is in the environment) is called from a
+  `WOOF_IOS`-guarded block right after `D_StartGameLoop()`, once per session,
+  after every init step and before the first tic. It snapshots the writable
+  data sections (`__DATA`/`__DATA_DIRTY` `__data`, `__bss`, `__common`) of the
+  image the engine is linked into and, from the second session on, prints a
+  `GLOBALDIFF` line per byte range that changed since the previous session.
+  `Scripts/globals-diff.py` maps those to variable names through the image's
+  DWARF (which is why `Scripts/build-engine.sh` now builds with `-g`) and
+  `WaddleUITests/GlobalsDiffProbeTests` drives the sessions. Two sessions of
+  one game list state that leaks between sessions; game A then game B lists
+  what depends on the previous game -- the list is candidates to read, not a
+  verdict: tic counters, RNG state and heap pointers differ legitimately.
+
 Related (not upstream files): `Scripts/build-engine.sh` passes
 `-DCMAKE_FIND_ROOT_PATH="$OUT/$platform"` in addition to
 `-DCMAKE_PREFIX_PATH`. When `CMAKE_SYSTEM_NAME=iOS`, CMake restricts

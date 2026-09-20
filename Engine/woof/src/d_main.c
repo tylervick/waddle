@@ -2453,6 +2453,17 @@ void D_DoomMain(void)
 
   D_StartGameLoop();
 
+#ifdef WOOF_IOS
+  // Writable-globals checkpoint for Scripts/globals-diff.py: every session
+  // passes here exactly once, after all of D_DoomMain's init and before the
+  // first tic, so two sessions of one game should leave these bytes alike.
+  // No-op unless WADDLE_DEBUG_GLOBALS_DIFF is set (woof_ios.c).
+  {
+      extern void WoofIOS_DebugGlobalsCheckpoint(void);
+      WoofIOS_DebugGlobalsCheckpoint();
+  }
+#endif
+
   for (;;)
     {
       // frame syncronous IO operations

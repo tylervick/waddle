@@ -114,3 +114,50 @@ the XCTest suites: `playFreedoom1`, `continueHero`, `detailPlayButton` /
 These run on pull requests only once `pr_review.workflow_ids` in
 `.revyl/config.yaml` names a workflow UUID. See the comment at that field.
 Creating it pushes these definitions — at which point the headers below go.
+
+### `menu-state-across-sessions.yaml` — engine relaunch, menu tables
+
+The engine runs in-process: `WoofIOS_Run` calls `D_DoomMain` once per play
+session, and the process lives on between sessions. Woof! was written for one
+`D_DoomMain` per process, so its file-scope statics assume a process exit ends
+their lifetime. `Engine/WOOF_UPSTREAM.md` ("Task 10") lists the ones already
+caught. This definition covers the menu tables in `Engine/woof/src/mn_menu.c`:
+`M_Init` edits `MainMenu`, `MainDef`, `EpiDef` and the Read This! menus in
+place according to `gamemode`, and every *commercial* session (Freedoom Phase
+2 is one) applies the edits again on top of the last session's. Measured
+2026-09-19: the second Phase 2 session of a launch has no Quit Game entry, and
+a Phase 1 session after two Phase 2 sessions has lost Read This!, Quit Game
+and two of its four episodes.
+
+Pushed to Revyl on 2026-09-20 as `a82389c1-e0e8-4e5c-8934-539eb1cf7a00`;
+the `_meta.remote_id` line in the YAML is that link, and `build.name:
+development` is what binds the test to the app -- a push without it is refused
+with "a test must be associated with an app", and `revyl test create --app`
+does not substitute for it.
+
+Three things about how it is written:
+
+- **The engine ends each session by itself, and the test never navigates
+  Doom's menu.** The org launch variable `WADDLE_AUTOQUIT_SECONDS=120` is
+  attached to this test (`revyl test launch-var list menu-state-across-sessions`),
+  and the Debug build's `EngineSession` seam quits the engine that many
+  seconds after it starts. The first two device runs (2026-09-20) tried the
+  real quit path instead and never left session 1: the agent could open the
+  menu with the overlay's menu button every time, but neither stick swipes
+  nor the USE button did anything on the farm's iPhone 17 Pro Max, and taps on
+  the menu entries themselves are swallowed by the overlay. The same USE tap
+  opens the episode screen in the simulator, so that is an open observation
+  about the device, not a known defect. Until it is understood, the only
+  overlay control this test relies on is the menu button. It never uses
+  `kill_app`/`open_app` either: the defect exists only while one process keeps
+  running, and a relaunch would reset every static and pass vacuously.
+- **It is judged from screenshots.** The engine surface has no accessibility
+  tree, so the validations describe what the Doom menu must show (entry names,
+  count, position) rather than elements to query.
+- **Its XCTest counterpart is the assertion.** `WaddleUITests/
+  MenuStateAcrossSessionsTests` runs four sessions in the simulator with the
+  same autoquit seam, also opens the episode screen (which needs USE, so the
+  device test leaves it out) and captures the menus as attachments; the issue that
+  tracks the fix asks for a debug telemetry seam so that test can assert on the
+  table values rather than pixels. This definition exists because Revyl runs on
+  pull requests and the XCTest suite does not.

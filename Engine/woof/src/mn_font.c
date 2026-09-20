@@ -56,6 +56,27 @@ static int kerning;
 
 #define FON2_SPACE 12
 
+#ifdef WOOF_IOS
+// Issue #253 review. MN_LoadFon2() runs once per process upstream; here it
+// runs once per session that has a DBIGFONT, on top of the previous
+// session's glyphs (a malloc'd table and PU_STATIC patches, which nothing
+// frees), and a session WITHOUT the lump would keep drawing the last one's
+// glyphs. Called from MN_ResetMenuTables() before each session's D_DoomMain.
+void MN_ResetFon2(void)
+{
+    for (int i = 0; i < numchars; ++i)
+    {
+        if (chars[i].width && chars[i].patch)
+        {
+            Z_Free(chars[i].patch);
+        }
+    }
+    free(chars);
+    chars = NULL;
+    numchars = 0;
+}
+#endif
+
 boolean MN_LoadFon2(const byte *gfx_data, int size)
 {
     if (size < (int)sizeof(fon2_header_t))

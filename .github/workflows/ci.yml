@@ -103,6 +103,7 @@ jobs:
           Scripts/test-loop-precheck.sh
           Scripts/test-check-masked-gh-status.sh
           Scripts/test-check-proof-harness-flag.sh
+          Scripts/test-globals-diff.sh
           Scripts/test-check-eas-bank.sh
           Scripts/test-check-eas-realtime.sh
           # Both hermetic: test-asc-jwt.sh generates its own throwaway EC key

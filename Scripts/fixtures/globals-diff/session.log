@@ -1,0 +1,6 @@
+Woof 15.2.0 (iOS)
+GLOBALDIFF-IMAGE /path/Waddle.debug.dylib slide=0x10000
+GLOBALDIFF __DATA,__data unslid=0x1004 len=4 old=05000000 new=04000000
+GLOBALDIFF __DATA,__data unslid=0x1044 len=2 old=0300 new=0200
+GLOBALDIFF __DATA,__bss unslid=0x2008 len=1 old=00 new=01
+GLOBALDIFF __DATA,__bss unslid=0x3000 len=1 old=00 new=01

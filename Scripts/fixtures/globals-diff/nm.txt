@@ -1,0 +1,3 @@
+0000000000000fe0 d _some_engine_thing
+0000000000002800 D _SDL_something
+0000000000002ff0 b _alcNoise

@@ -1,0 +1,46 @@
+0x00000010:   DW_TAG_compile_unit
+                DW_AT_name	("/Users/runner/work/waddle/waddle/Engine/woof/src/mn_menu.c")
+
+0x00000100:   DW_TAG_variable
+                DW_AT_name	("MainDef")
+                DW_AT_type	(0x00000119 "menu_t")
+                DW_AT_decl_file	("/Users/runner/work/waddle/waddle/Engine/woof/src/mn_menu.c")
+                DW_AT_decl_line	(335)
+                DW_AT_location	(DW_OP_addr 0x1000)
+
+0x00000140:   DW_TAG_variable
+                DW_AT_name	("EpiDef")
+                DW_AT_type	(0x00000119 "menu_t")
+                DW_AT_decl_file	("/Users/runner/work/waddle/waddle/Engine/woof/src/mn_menu.c")
+                DW_AT_decl_line	(571)
+                DW_AT_location	(DW_OP_addr 0x1040)
+
+0x00000180:   DW_TAG_variable
+                DW_AT_name	("swiftThing")
+                DW_AT_decl_file	("/Users/runner/work/waddle/waddle/App/Sources/Foo.swift")
+                DW_AT_decl_line	(1)
+                DW_AT_location	(DW_OP_addr 0x2000)
+
+0x000001c0:   DW_TAG_variable
+                DW_AT_name	("EpiMenuEpi")
+                DW_AT_decl_file	("/Users/runner/work/waddle/waddle/Engine/woof/src/mn_menu.c")
+                DW_AT_decl_line	(583)
+                DW_AT_location	(DW_OP_addr 0x1200)
+
+0x00000200:   DW_TAG_variable
+                DW_AT_name	("NewDef")
+                DW_AT_decl_file	("/Users/runner/work/waddle/waddle/Engine/woof/src/mn_menu.c")
+                DW_AT_decl_line	(700)
+                DW_AT_location	(DW_OP_addr 0x1200, DW_OP_plus_uconst 0x58)
+
+0x00000240:   DW_TAG_variable
+                DW_AT_name	("ret")
+                DW_AT_decl_file	("/Users/runner/work/waddle/waddle/Engine/woof/src/i_printf.c")
+                DW_AT_decl_line	(38)
+                DW_AT_location	(DW_OP_addr 0x1300)
+
+0x00000280:   DW_TAG_variable
+                DW_AT_name	("ret")
+                DW_AT_decl_file	("/Users/runner/work/waddle/waddle/Engine/woof/src/m_misc.c")
+                DW_AT_decl_line	(90)
+                DW_AT_location	(DW_OP_addr 0x1340)
