@@ -75,6 +75,31 @@ float WoofIOS_DebugTriggerValue(void);
 // ends this is what the next session inherits (issue #253).
 const char *WoofIOS_DebugMenuGeometry(void);
 
+// Debug/test telemetry only: what the engine sees of the overlay's input,
+// for the in-game debug HUD --
+//   "pad=<name> <virtual|foreign|none> pads=<count> btn=<events> menu=<item|off>"
+// where virtual means the gamepad the engine has open IS the overlay's
+// virtual pad (so its axes are read), foreign means some other controller
+// got there first (buttons still arrive, axes do not), btn counts gamepad
+// button events the engine has turned into its own events this session, and
+// menu is the cursor item while a menu is up. Built so a Revyl device run
+// can read from a screenshot why a USE tap or a stick drag did nothing.
+const char *WoofIOS_DebugInputState(void);
+
+// Make the engine read its gamepad input from the overlay's virtual pad even
+// if another controller was opened first. The host app calls this whenever
+// the overlay is the intended input (visible, or forced by the proof
+// harness); with a real controller in use the overlay hides and this is not
+// called, so the engine keeps that controller. No-op before the pad exists.
+void WoofIOS_SelectTouchGamepad(void);
+
+// The converse: a physical controller connected and the host app hid its
+// overlay, so the engine should read that controller. Picks the first
+// gamepad SDL lists that is not the overlay's virtual pad; no-op when there
+// is none. The virtual pad stays attached, so WoofIOS_SelectTouchGamepad can
+// take input back when the controller goes away.
+void WoofIOS_SelectPhysicalGamepad(void);
+
 // Debug/test telemetry only, engine-internal (called from d_main.c at the top
 // of the game loop): with WADDLE_DEBUG_GLOBALS_DIFF in the environment,
 // snapshots the writable data sections of the image the engine is linked

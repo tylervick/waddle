@@ -183,7 +183,13 @@ final class TouchOverlayView: UIView {
             label.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
             label.textColor = UIColor.white.withAlphaComponent(0.6)
             label.backgroundColor = UIColor.black.withAlphaComponent(0.3)
-            label.textAlignment = .center
+            label.textAlignment = .left
+            // Wrap rather than truncate: on a phone the strip is longer than
+            // one line, and a Revyl device run reads its tail (the pad= ...
+            // menu= segment) off a screenshot. An ellipsis there is the one
+            // thing the strip must never show.
+            label.numberOfLines = 0
+            label.lineBreakMode = .byWordWrapping
             label.isUserInteractionEnabled = false // never intercepts touches
             addSubview(label)
             debugHUDLabel = label
@@ -326,11 +332,17 @@ final class TouchOverlayView: UIView {
 
     private func updateDebugHUD() {
         let trigger = WoofIOS_DebugTriggerValue()
+        // The last segment is what the engine sees of this overlay's input
+        // (WoofIOS_DebugInputState): which gamepad it has open and whether
+        // that is our virtual pad, button events it has processed, and the
+        // menu cursor. DebugHUDInputTelemetryTests parses it; a Revyl device
+        // run reads it off a screenshot.
         debugHUDLabel?.text = String(
-            format: "build %@ (%@) · %@ · events %d · trigger %.2f · turn %.2f · dz %.2f · move %.2f",
+            format: "build %@ (%@) · %@ · events %d · trigger %.2f · turn %.2f · dz %.2f · move %.2f\n%@",
             BuildInfo.commit, BuildInfo.branch, scheme == .classic ? "classic" : "modern",
             WoofIOS_DebugTouchEventCount(), trigger,
-            tuning.turnSpeed, tuning.stickDeadZone, tuning.moveSensitivity)
+            tuning.turnSpeed, tuning.stickDeadZone, tuning.moveSensitivity,
+            String(cString: WoofIOS_DebugInputState()))
     }
 
     // MARK: Buttons
@@ -348,8 +360,9 @@ final class TouchOverlayView: UIView {
     }
 
     /// Height of the strip the debug HUD claims along the top edge (only
-    /// when the "Show Debug Info" toggle is on).
-    private static let debugHUDStripHeight: CGFloat = 22
+    /// when the "Show Debug Info" toggle is on): four lines of the 11 pt
+    /// monospaced font, which is what the wrapped strip needs at phone width.
+    private static let debugHUDStripHeight: CGFloat = 60
 
     /// Live geometry for the current bounds. Recomputed rather than cached:
     /// it is a handful of arithmetic ops, and iPadOS windowed multitasking
@@ -588,19 +601,54 @@ final class OverlayButton: UIView {
         return dx * dx + dy * dy <= radius * radius
     }
 
+    // The engine samples the virtual pad only when it pumps events, so a
+    // release is held back until the press has lasted long enough to be
+    // seen (OverlayPressTiming). A new press arriving while a release is
+    // still pending flushes that release first, so the engine sees two
+    // distinct presses rather than one long one.
+    private var timing = OverlayPressTiming.engineSafe
+    // Tagged, so a delayed release fires only if it is still the current
+    // one: a second tap flushes and replaces it, and the closure of the
+    // replaced item must not release the new press.
+    private var pendingRelease: (id: UUID, work: DispatchWorkItem)?
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         Self.debugPressCount += 1
+        flushPendingRelease()
         backgroundColor = UIColor.white.withAlphaComponent(0.3)
+        timing.pressed(at: ProcessInfo.processInfo.systemUptime)
         onPress(true)
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        backgroundColor = UIColor.white.withAlphaComponent(0.12)
-        onPress(false)
+        release()
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        release()
+    }
+
+    private func release() {
         backgroundColor = UIColor.white.withAlphaComponent(0.12)
+        let delay = timing.released(at: ProcessInfo.processInfo.systemUptime)
+        guard delay > 0 else {
+            onPress(false)
+            return
+        }
+        let id = UUID()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.pendingRelease?.id == id else { return }
+            self.pendingRelease = nil
+            self.onPress(false)
+        }
+        pendingRelease = (id, work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func flushPendingRelease() {
+        guard let pending = pendingRelease else { return }
+        pending.work.cancel()
+        pendingRelease = nil
         onPress(false)
     }
 }

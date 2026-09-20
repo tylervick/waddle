@@ -353,6 +353,31 @@ only ever runs once):
   what depends on the previous game -- the list is candidates to read, not a
   verdict: tic counters, RNG state and heap pointers differ legitimately.
 
+- `src/i_input.c`, `src/mn_menu.c`, `src/woof_ios.c`/`.h` -- input telemetry
+  for the in-game debug HUD, added to explain why a Revyl farm device could
+  open the menu from the overlay's menu button but neither USE nor the
+  virtual stick did anything in it. `WoofIOS_DebugInputState()` composes
+  `pad=<name> <virtual|foreign|none> pads=<count>[names] btn=<events> ly=<left
+  stick Y> lypk=<its peak since the pad was opened> vly=<value the overlay
+  wrote> ab=<axis-derived presses> mv=<menu moves> menu=<item|off>`
+  from `WOOF_IOS`-only accessors: `I_DebugGamepadName/ID/Count()` (which
+  gamepad `I_OpenGamepad` has open -- the engine reads stick axes only from
+  that one, while button events arrive from any gamepad SDL has open),
+  `I_DebugGamepadButtonEvents()` (incremented in `UpdateGamepadButtonState`,
+  i.e. counted where a gamepad button becomes an engine event; reset per
+  session from `WoofIOS_Run`), and `MN_DebugMenuCursor()` (`itemOn` while
+  `menuactive`). `WaddleUITests/DebugHUDInputTelemetryTests` parses the
+  segment in the simulator; `.revyl/tests/menu-input-telemetry` reads it off
+  the device. What the strip showed was `pad=Gamepad foreign pads=2`: the
+  phantom MFi controller that GameController reports under automation (and
+  on Revyl's farm) is opened by `I_InitGamepad` before the overlay's virtual
+  pad exists, and `I_OpenGamepad` keeps its first choice, so the overlay's
+  buttons arrived but its axes never did. `I_SelectGamepad()` (`WOOF_IOS`)
+  closes the active gamepad and opens a given one; `WoofIOS_SelectTouchGamepad()`
+  applies it to the virtual pad, and `OverlayPresenter` calls that whenever
+  the overlay is the intended input. See
+  `docs/learnings/engine-reads-axes-from-the-first-gamepad.md`.
+
 Related (not upstream files): `Scripts/build-engine.sh` passes
 `-DCMAKE_FIND_ROOT_PATH="$OUT/$platform"` in addition to
 `-DCMAKE_PREFIX_PATH`. When `CMAKE_SYSTEM_NAME=iOS`, CMake restricts
