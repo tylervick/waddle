@@ -609,9 +609,25 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Nothing here pushes or reads a private remote, so the job has no
+          # use for a stored GitHub credential, and the installer step below
+          # runs vendor shell it should not be able to find one next to.
+          persist-credentials: false
       - uses: ./.github/actions/setup-waddle-build
         with:
           xcode-version: ${{ env.XCODE_VERSION }}
+      # The CLI is installed in a step of its own, with no secret in its
+      # environment: the vendor's installer is remote shell that changes
+      # without notice, and REVYL_VERSION (workflow env) pins only the binary
+      # it fetches, whose checksum the installer verifies. Keeping
+      # REVYL_API_KEY out of this step is what bounds a bad installer to a
+      # bad build rather than a leaked key.
+      - name: Install the Revyl CLI
+        run: |
+          curl -fsSL https://revyl.com/install.sh | sh
+          echo "$HOME/.revyl/bin" >> "$GITHUB_PATH"
+          "$HOME/.revyl/bin/revyl" --version
       - name: Publish main to Revyl as the current build
         env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
@@ -620,9 +636,6 @@ jobs:
             echo "::notice::REVYL_API_KEY is not set; skipping the Revyl upload"
             exit 0
           fi
-          curl -fsSL https://revyl.com/install.sh | sh
-          export PATH="$HOME/.revyl/bin:$PATH"
-          revyl --version
           xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
             -configuration Debug -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
