@@ -38,6 +38,51 @@ final class MenuStateAcrossSessionsTests: XCTestCase {
         capture(app, tile: phase1, name: "4-phase1-after-two-phase2", openEpisodes: true)
     }
 
+    /// Companion probe for what the Revyl device run showed: with the touch
+    /// overlay NOT forced (the shipping state when a keyboard or gamepad is
+    /// reported), the only way into the in-game menu is SDL's own
+    /// touch-to-mouse path, and any mouse button on the title/demo screen
+    /// opens the menu. On the device run that worked in session 1 and did
+    /// nothing in session 2. This does the same two sessions in the
+    /// simulator and attaches what the tap produced each time.
+    @MainActor
+    func testSdlTouchOpensMenuOnSecondSession() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Waddle"].waitForExistence(timeout: 90),
+                      "launcher UI never appeared")
+        let ok = app.alerts.buttons["OK"]
+        if ok.waitForExistence(timeout: 3) { ok.tap() }
+
+        let phase2 = app.buttons.matching(NSPredicate(format:
+            "identifier BEGINSWITH 'game-' AND identifier CONTAINS 'Freedoom Phase 2'"))
+            .firstMatch
+        let exitLabel = app.staticTexts["engineExitLabel"]
+
+        for session in 1...2 {
+            let name = "sdl-touch-session\(session)"
+            XCTAssertTrue(phase2.waitForExistence(timeout: 30), "\(name): tile missing")
+            let start = Date()
+            phase2.tap()
+            XCTAssertTrue(exitLabel.waitForNonExistence(timeout: 15),
+                          "\(name): previous exit label never cleared")
+            Thread.sleep(forTimeInterval: 7)
+            attach(name: "\(name)-before-tap")
+            // Middle of the screen: inside the engine's viewport in portrait,
+            // away from every overlay control position.
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            Thread.sleep(forTimeInterval: 1.5)
+            attach(name: "\(name)-after-tap")
+            XCTAssertTrue(exitLabel.waitForExistence(timeout: 90),
+                          "\(name): engine never returned to the launcher")
+            XCTAssertEqual(exitLabel.label, "Engine exited: 0", "\(name): exit code")
+            let elapsed = Date().timeIntervalSince(start)
+            XCTAssertGreaterThanOrEqual(elapsed, autoquitSeconds - 1.0,
+                "\(name): session died before its autoquit window (\(elapsed)s)")
+        }
+    }
+
     /// Plays a tile for one autoquit window, opens the in-game menu via the
     /// overlay's menu button, and attaches what the engine drew.
     private func capture(_ app: XCUIApplication, tile: XCUIElement, name: String,
