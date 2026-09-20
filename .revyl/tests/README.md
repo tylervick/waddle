@@ -26,15 +26,22 @@ Revyl's PR review runs on pull requests, so this is the cheapest place to put a
 
 ### A failure here is a legitimate outcome
 
-Both tests deliberately duplicate XCTest cases that are **red at HEAD**
-(`docs/learnings/ui-tests-are-red-at-head.md`). If they fail on a real run,
-that is the anticipated result. Fix the app, or record the failure. Do not
-soften the assertions to make them pass.
+These two mirror XCTest cases that were long recorded as red at HEAD, so a
+failure was the anticipated result rather than a reason to soften the steps.
+That is no longer the state of the world, and the change is in the app's
+favour: `PlayTabTests/testBaseGameDetailControlsOverridePersists` passes on
+`main`, and the `PresetEditTests` case the other mirrored no longer exists at
+all. The tension this section used to flag -- issue #169's lazy-`Form` defect
+looking fixed while the learnings file still called both tests red -- resolved
+on 2026-09-20 in favour of "fixed": both predecessor learnings were retired for
+`docs/learnings/ui-test-failures-need-a-main-baseline.md`, which deliberately
+names no tests.
 
-Note one unresolved tension: the lazy-`Form` defect behind issue #169 appears
-fixed at HEAD (`PlayableDetailLayout.artHeight` caps the header art), yet the
-learnings file still records both tests as red. Those cannot both be current.
-Whoever runs these first should resolve it and correct whichever is stale.
+So a failure here is now a **signal, not an expectation**. Fix the app, or
+record the failure. Still do not soften the assertions to make them pass, and
+still get a `main` baseline before attributing one to your own diff --
+`WaddleUITests` runs on no pull request, so `main` can be red for weeks without
+a red check anywhere.
 
 ## The files
 
@@ -48,7 +55,10 @@ long-press → Details again → Layout still Modern.
 
 ### `shelf-preset-details-edit.yaml` — preset
 
-Mirrors `WaddleUITests/PresetEditTests/testEditFromDetailPageOpensEditor`.
+Mirrored `WaddleUITests/PresetEditTests/testEditFromDetailPageOpensEditor`,
+which no longer exists -- `App/UITests/` has no `PresetEditTests.swift` as of
+2026-09-20. That makes this definition the ONLY coverage of the preset path,
+rather than a duplicate of it.
 Create a preset from bundled Freedoom Phase 1 via Manage ▸ New Preset → long-press
 ▸ Details → sheet opened → tap **Edit** in the Contents section → the
 **Edit Preset** editor appears.
