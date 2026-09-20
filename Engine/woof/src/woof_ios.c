@@ -173,6 +173,12 @@ int WoofIOS_Run(int argc, char **argv)
     extern void I_ResetErrorMessages(void);
     I_ResetErrorMessages();
 
+    // Put mn_menu.c's menu tables back the way the compiler initialised them
+    // before D_DoomMain() edits them for this session's gamemode (issue #253;
+    // see MN_ResetMenuTables for why this cannot live in M_Init).
+    extern void MN_ResetMenuTables(void);
+    MN_ResetMenuTables();
+
     // Same fresh-session hygiene for the touch shim's event counter: it
     // backs WoofIOS_DebugTouchEventCount(), which the app reads *after* a
     // session ends, so the reset must happen here at session start -- not
@@ -534,6 +540,14 @@ const char *WoofIOS_LastErrorMessage(void)
     // i_system.c's WOOF_IOS-only patch block.
     extern const char *I_GetErrorMessage(void);
     return I_GetErrorMessage();
+}
+
+const char *WoofIOS_DebugMenuGeometry(void)
+{
+    // Lives in mn_menu.c's WOOF_IOS block; declared here rather than in a
+    // header, same as I_ResetErrorMessages above.
+    extern const char *MN_DebugMenuGeometry(void);
+    return MN_DebugMenuGeometry();
 }
 
 float WoofIOS_DebugTriggerValue(void)

@@ -2336,6 +2336,92 @@ static void AddLineBreaks(char *string)
 
 #undef MAX_STRLEN
 
+#ifdef WOOF_IOS
+// Issue #253. M_Init() below edits these file-scope tables in place according
+// to gamemode/gameversion -- MainMenu[readthis] = MainMenu[quitdoom],
+// MainDef.numitems--, MainDef.y += 8, EpiDef.numitems--, the ReadDef1/2
+// rebinding -- and upstream never needs to undo any of it, because upstream
+// runs D_DoomMain() once per process. Here WoofIOS_Run() runs it once per
+// session, so the edits accumulated: every commercial session took one entry
+// off the main menu and one episode off the next retail game, for the rest
+// of the process. Same hazard class as WOOF_UPSTREAM.md's Task 10 list.
+//
+// The first call snapshots the tables as the compiler initialised them; every
+// later call puts that snapshot back. It has to run BEFORE D_DoomMain(), not
+// inside M_Init(): G_ParseMapInfo() (d_main.c) fills EpisodeMenu/EpiDef/
+// EpiCustom from the current session's UMAPINFO before M_Init() runs, and a
+// reset inside M_Init() would wipe those. EpisodeMenu alttext strings from a
+// previous session's UMAPINFO are strdup'd (MN_AddEpisode), so they are freed
+// before the pristine pointers go back.
+static struct
+{
+    boolean taken;
+    menuitem_t main_menu[arrlen(MainMenu)];
+    menu_t main_def;
+    menuitem_t episode_menu[MAX_EPISODES];
+    menu_t epi_def;
+    short epi_menu_map[MAX_EPISODES];
+    short epi_menu_epi[MAX_EPISODES];
+    boolean epi_custom;
+    menu_t new_def;
+    menuitem_t read_menu1[arrlen(ReadMenu1)];
+    menu_t read_def1;
+    menu_t read_def2;
+} pristine;
+
+void MN_ResetMenuTables(void)
+{
+    if (!pristine.taken)
+    {
+        memcpy(pristine.main_menu, MainMenu, sizeof(MainMenu));
+        pristine.main_def = MainDef;
+        memcpy(pristine.episode_menu, EpisodeMenu, sizeof(EpisodeMenu));
+        pristine.epi_def = EpiDef;
+        memcpy(pristine.epi_menu_map, EpiMenuMap, sizeof(EpiMenuMap));
+        memcpy(pristine.epi_menu_epi, EpiMenuEpi, sizeof(EpiMenuEpi));
+        pristine.epi_custom = EpiCustom;
+        pristine.new_def = NewDef;
+        memcpy(pristine.read_menu1, ReadMenu1, sizeof(ReadMenu1));
+        pristine.read_def1 = ReadDef1;
+        pristine.read_def2 = ReadDef2;
+        pristine.taken = true;
+        return;
+    }
+
+    for (int i = 0; i < MAX_EPISODES; i++)
+    {
+        if (EpisodeMenu[i].alttext != pristine.episode_menu[i].alttext)
+        {
+            free((void *)EpisodeMenu[i].alttext);
+        }
+    }
+    memcpy(MainMenu, pristine.main_menu, sizeof(MainMenu));
+    MainDef = pristine.main_def;
+    memcpy(EpisodeMenu, pristine.episode_menu, sizeof(EpisodeMenu));
+    EpiDef = pristine.epi_def;
+    memcpy(EpiMenuMap, pristine.epi_menu_map, sizeof(EpiMenuMap));
+    memcpy(EpiMenuEpi, pristine.epi_menu_epi, sizeof(EpiMenuEpi));
+    EpiCustom = pristine.epi_custom;
+    NewDef = pristine.new_def;
+    memcpy(ReadMenu1, pristine.read_menu1, sizeof(ReadMenu1));
+    ReadDef1 = pristine.read_def1;
+    ReadDef2 = pristine.read_def2;
+}
+#endif
+
+#ifdef WOOF_IOS
+// Debug/test telemetry (WoofIOS_DebugMenuGeometry): the four table values
+// that M_Init() edits in place per gamemode, so a UITest can read what the
+// NEXT session in this process will inherit. Read-only; engine-internal.
+const char *MN_DebugMenuGeometry(void)
+{
+    static char buf[64];
+    M_snprintf(buf, sizeof(buf), "main=%d@%d epi=%d@%d", MainDef.numitems,
+               MainDef.y, EpiDef.numitems, EpiDef.y);
+    return buf;
+}
+#endif
+
 void M_Init(void)
 {
     MN_InitDefaults(); // killough 11/98

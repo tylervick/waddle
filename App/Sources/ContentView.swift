@@ -64,6 +64,16 @@ struct ContentView: View {
                     .accessibilityIdentifier("buttonPressCountLabel")
                     .padding(.bottom, 160)
             }
+            // Same seam family: the engine's menu tables as the next session
+            // will inherit them. They are process-lifetime statics, so reading
+            // them after the session ended is the point (issue #253).
+            if ProcessInfo.processInfo.environment["WADDLE_DEBUG_MENU_GEOMETRY"] != nil,
+               lastExitCode != nil {
+                Text(String(cString: WoofIOS_DebugMenuGeometry()))
+                    .font(.footnote.monospaced())
+                    .accessibilityIdentifier("menuGeometryLabel")
+                    .padding(.bottom, 190)
+            }
             #endif
         }
         // Always dark, and set once at the root so it reaches the sheets,

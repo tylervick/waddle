@@ -85,9 +85,10 @@ final class MenuStateAcrossSessionsTests: XCTestCase {
 
     /// Plays a tile for one autoquit window, opens the in-game menu via the
     /// overlay's menu button, and attaches what the engine drew.
+    @discardableResult
     private func capture(_ app: XCUIApplication, tile: XCUIElement, name: String,
                          openEpisodes: Bool,
-                         file: StaticString = #filePath, line: UInt = #line) {
+                         file: StaticString = #filePath, line: UInt = #line) -> String? {
         XCTAssertTrue(tile.waitForExistence(timeout: 30), "\(name): tile missing",
                       file: file, line: line)
         let exitLabel = app.staticTexts["engineExitLabel"]
@@ -120,6 +121,58 @@ final class MenuStateAcrossSessionsTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(elapsed, autoquitSeconds - 1.0,
             "\(name): session died before its autoquit window (\(elapsed)s)",
             file: file, line: line)
+
+        // Debug-only telemetry: the menu tables as the *next* session will
+        // inherit them (WADDLE_DEBUG_MENU_GEOMETRY, see ContentView).
+        let geometry = app.staticTexts["menuGeometryLabel"]
+        return geometry.waitForExistence(timeout: 5) ? geometry.label : nil
+    }
+
+    /// The regression test for issue #253: every session must start from the
+    /// pristine menu tables, whatever ran before it in the same process.
+    ///
+    /// Reads the tables through the debug label after each session; the
+    /// statics outlive the session, so what the label shows is exactly what
+    /// the next session inherits. Before the fix, each Phase 2 session takes
+    /// one entry off the main menu and one episode off Phase 1, so the label
+    /// after session 4 reads main=4 / epi=2 instead of main=6 / epi=4.
+    @MainActor
+    func testMenuTablesAreRestoredForEachSession() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_DEBUG_MENU_GEOMETRY"] = "1"
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Waddle"].waitForExistence(timeout: 90),
+                      "launcher UI never appeared")
+        let ok = app.alerts.buttons["OK"]
+        if ok.waitForExistence(timeout: 3) { ok.tap() }
+
+        let phase1 = app.buttons["playFreedoom1"]
+        let phase2 = app.buttons.matching(NSPredicate(format:
+            "identifier BEGINSWITH 'game-' AND identifier CONTAINS 'Freedoom Phase 2'"))
+            .firstMatch
+
+        let afterPhase1Fresh = capture(app, tile: phase1, name: "g1-phase1-fresh", openEpisodes: false)
+        let afterPhase2First = capture(app, tile: phase2, name: "g2-phase2-first", openEpisodes: false)
+        let afterPhase2Second = capture(app, tile: phase2, name: "g3-phase2-second", openEpisodes: false)
+        let afterPhase1Again = capture(app, tile: phase1, name: "g4-phase1-after-two-phase2", openEpisodes: false)
+
+        XCTAssertNotNil(afterPhase1Fresh, "menuGeometryLabel never appeared after session 1")
+
+        // Absolute values for a retail IWAD on a fresh process: six main-menu
+        // entries at y=64, four episodes (mn_menu.c MainDef / EpiDef).
+        XCTAssertEqual(afterPhase1Fresh, "main=6@64 epi=4@63",
+                       "fresh Phase 1 tables are not the pristine ones")
+        // A commercial session edits the tables for itself: five entries,
+        // eight pixels lower, one episode fewer. The second commercial session
+        // must see exactly the same edits, not the edits applied twice.
+        XCTAssertEqual(afterPhase2Second, afterPhase2First,
+                       "second Phase 2 session inherited the first one's menu edits")
+        // And a retail session after any number of commercial ones must get
+        // the pristine tables back.
+        XCTAssertEqual(afterPhase1Again, afterPhase1Fresh,
+                       "Phase 1 after two Phase 2 sessions inherited their menu edits")
     }
 
     private func attach(name: String) {

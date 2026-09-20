@@ -69,6 +69,12 @@ bool WoofIOS_IsMenuActive(void);
 // (i_input.c), not just the raw value the overlay wrote.
 float WoofIOS_DebugTriggerValue(void);
 
+// Debug/test telemetry only: the main-menu and episode-menu table values
+// ("main=<numitems>@<y> epi=<numitems>@<y>") as mn_menu.c holds them right
+// now. The tables are process-lifetime statics, so read after a session
+// ends this is what the next session inherits (issue #253).
+const char *WoofIOS_DebugMenuGeometry(void);
+
 // Engine-internal: called only from i_input.c's I_ReadMouse (WOOF_IOS
 // build), not part of the overlay-facing API above. Returns the turn
 // accumulated since the last call and resets it to 0.

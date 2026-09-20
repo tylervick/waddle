@@ -307,6 +307,30 @@ only ever runs once):
   with `fft.setup` already allocated there (FreeFFT runs only at process
   shutdown, after which nothing calls `InitFFT` again).
 
+- `src/mn_menu.c`, `src/woof_ios.c` -- seventh instance (issue #253), the
+  first one visible without a crash: `M_Init()` edits its file-scope menu
+  tables in place per gamemode -- `MainMenu[readthis] = MainMenu[quitdoom]`,
+  `MainDef.numitems--`, `MainDef.y += 8`, `EpiDef.numitems--` (for any
+  `gameversion < exe_ultimate`, which Freedoom Phase 2 is), the `ReadDef1`/
+  `ReadDef2` rebinding -- and never restores them. Measured on the simulator
+  and on a Revyl device: every commercial session took one entry off the main
+  menu and shifted it 8 px down, for itself and every later session; a retail
+  game played after two commercial sessions showed four main-menu entries (no
+  Read This!, no Quit Game) and two of its four episodes. `EngineSmokeTests`
+  never saw it because it replays Freedoom Phase 1, and the retail branch is
+  the one branch of `M_Init()` with no cumulative edit. Fixed with a
+  `WOOF_IOS`-only `MN_ResetMenuTables()` that snapshots `MainMenu`, `MainDef`,
+  `EpisodeMenu`, `EpiDef`, `EpiMenuMap`/`EpiMenuEpi`, `EpiCustom`, `NewDef`,
+  `ReadMenu1`, `ReadDef1` and `ReadDef2` on its first call and restores them on
+  every later one (freeing a previous UMAPINFO's `strdup`'d episode names
+  first), called from `WoofIOS_Run` before `D_DoomMain()`. Not inside
+  `M_Init()`: `G_ParseMapInfo()` populates the episode tables from the current
+  session's UMAPINFO before `M_Init()` runs. A `DEBUG`-gated
+  `WoofIOS_DebugMenuGeometry()` exposes the four table values so
+  `WaddleUITests/MenuStateAcrossSessionsTests` can assert on them after each
+  session. Not covered by the reset: `bigfont_priority` and the FON2 glyphs
+  `MN_LoadFon2` loads stay from the last IWAD that had a `DBIGFONT`.
+
 Related (not upstream files): `Scripts/build-engine.sh` passes
 `-DCMAKE_FIND_ROOT_PATH="$OUT/$platform"` in addition to
 `-DCMAKE_PREFIX_PATH`. When `CMAKE_SYSTEM_NAME=iOS`, CMake restricts
