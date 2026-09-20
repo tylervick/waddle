@@ -1,0 +1,48 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: a82389c1-e0e8-4e5c-8934-539eb1cf7a00
+    remote_version: 2
+    local_version: 2
+    last_synced_at: "2026-09-20T00:02:37-07:00"
+    checksum: 07e99188a630470285b451f2d5ad635bf1cec0a49def539871a2df8ee217284f
+test:
+    metadata:
+        name: menu-state-across-sessions
+        platform: ios
+        tags:
+            - engine
+            - relaunch
+    build:
+        name: development
+    blocks:
+        - type: validation
+          step_description: The shelf lists Freedoom Phase 1 and Freedoom Phase 2 without any import step.
+        - type: instructions
+          step_description: Start Freedoom Phase 2 from the shelf and wait for the engine's title screen to render.
+        - type: instructions
+          step_description: Open the in-game menu with the small translucent menu button in the top-right corner of the touch overlay.
+        - type: validation
+          step_description: 'The Doom-style main menu lists exactly five entries in this order: New Game, Options, Load Game, Save Game, Quit Game.'
+        - type: instructions
+          step_description: 'Quit to the shelf through the game itself: highlight Quit Game (the skull cursor moves with the on-screen stick, or tap the entry), press USE to select it, then press USE again to answer the quit prompt. Do not kill or relaunch the app: the defect under test only exists while the same app process keeps running.'
+        - type: validation
+          step_description: The shelf is visible again, still in the same app process, with no error alert.
+        - type: instructions
+          step_description: Start Freedoom Phase 2 from the shelf again and wait for the title screen.
+        - type: instructions
+          step_description: Open the in-game menu with the menu button in the top-right corner.
+        - type: validation
+          step_description: The main menu still lists exactly five entries ending with Quit Game, at the same vertical position as before. A menu with only four entries, or one missing Quit Game, is a failure.
+        - type: instructions
+          step_description: 'Quit to the shelf through the game menu again: highlight Quit Game, press USE, then press USE to confirm. Do not kill the app.'
+        - type: instructions
+          step_description: Start Freedoom Phase 1 from the shelf and wait for the title screen.
+        - type: instructions
+          step_description: Open the in-game menu with the menu button in the top-right corner.
+        - type: validation
+          step_description: 'The main menu lists exactly six entries: New Game, Options, Load Game, Save Game, Read This!, Quit Game. A menu that shows Quit Game twice, omits Read This!, or has only five entries is a failure.'
+        - type: instructions
+          step_description: With New Game highlighted, press USE to open the episode selection screen.
+        - type: validation
+          step_description: The episode screen offers four episodes to choose from. Fewer than four is a failure.
