@@ -26,6 +26,14 @@ env:
   # from GitHub releases, so an unpinned CLI changes under the job without a
   # commit. This is the version the recipe was proven against.
   REVYL_VERSION: "v0.1.119"
+  # SHA-256 of the revyl-darwin-arm64 release asset for REVYL_VERSION, from
+  # https://github.com/RevylAI/revyl-cli/releases/download/<version>/checksums.txt.
+  # The two Revyl jobs download that exact asset and verify it against this
+  # before it runs, instead of piping the vendor's installer into a shell:
+  # the installer is remote code that changes without notice, and it would
+  # run in a job that also holds REVYL_API_KEY. Bump the version and this
+  # digest together; a mismatch fails the job before anything credentialed.
+  REVYL_CLI_SHA256: "455e2a8a247dfa808e5598a84668c097f7f5ec4efb8a00d1c2e3c3bac39287cc"
   SIMULATOR_OS: "26.2"
   SIMULATOR_DEVICE: "iPhone 17 Pro"
   # The app ships universal (App/project.yml sets TARGETED_DEVICE_FAMILY
@@ -507,6 +515,19 @@ jobs:
       # builds x86_64 too and the engine xcframework has only an arm64
       # simulator slice. See
       # docs/learnings/generic-simulator-destination-adds-x86_64.md.
+      # Same pinned, verified download as the revyl-main job below, and for
+      # the same reason: the step that holds REVYL_API_KEY should not also be
+      # the one that runs whatever the vendor's installer says today.
+      - name: Install the Revyl CLI
+        run: |
+          curl -fsSL -o revyl-darwin-arm64 \
+            "https://github.com/RevylAI/revyl-cli/releases/download/${REVYL_VERSION}/revyl-darwin-arm64"
+          echo "${REVYL_CLI_SHA256}  revyl-darwin-arm64" | shasum -a 256 -c -
+          mkdir -p "$HOME/.revyl/bin"
+          install -m 0755 revyl-darwin-arm64 "$HOME/.revyl/bin/revyl"
+          rm -f revyl-darwin-arm64
+          echo "$HOME/.revyl/bin" >> "$GITHUB_PATH"
+          "$HOME/.revyl/bin/revyl" --version
       - name: Publish build to Revyl
         # Paired with pr_review.strict_ci_check.build: false in
         # .revyl/config.yaml. Neither this nor that is a permanent setting --
@@ -525,9 +546,6 @@ jobs:
             echo "::notice::REVYL_API_KEY is not set; skipping the Revyl upload"
             exit 0
           fi
-          curl -fsSL https://revyl.com/install.sh | sh
-          export PATH="$HOME/.revyl/bin:$PATH"
-          revyl --version
 
           # SWIFT_ACTIVE_COMPILATION_CONDITIONS carries WADDLE_PROOF_HARNESS,
           # which keeps OverlayPresenter from hiding the touch overlay when
@@ -582,4 +600,77 @@ jobs:
             --commit "${{ github.event.pull_request.head.sha }}" \
             --pr "${{ github.event.pull_request.number }}" \
             --no-set-current \
+            --yes --json
+
+  # The pull-request preview above deliberately stops short of promoting its
+  # upload (--no-set-current: nothing there knows whether the tests passed).
+  # The cost of that is that the app's CURRENT build on Revyl -- the one a
+  # plain `revyl test run <name>` installs -- never advances on its own. On
+  # 2026-09-19 it was a hand-uploaded build from before the WADDLE_PROOF_HARNESS
+  # flag existed, so a device run of menu-state-across-sessions had no touch
+  # overlay to drive and could not open the in-game menu. Once one green
+  # build of main has been promoted, it is by definition safe to promote:
+  # it is what everyone has already merged.
+  #
+  # `needs: build-and-test` is the gate the preview job cannot have: this
+  # runs only after the unit tests passed on this exact commit, so a red
+  # build never becomes current. Everything else mirrors the preview job --
+  # same runner, same setup action, same xcodebuild line with the
+  # WADDLE_PROOF_HARNESS flag (Scripts/check-proof-harness-flag.sh looks for
+  # that exact string), same upload -- except the version is named after
+  # main's sha, there is no --pr, and there is no --no-set-current.
+  revyl-main:
+    name: Revyl current build
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Nothing here pushes or reads a private remote, so the job has no
+          # use for a stored GitHub credential, and the installer step below
+          # runs vendor shell it should not be able to find one next to.
+          persist-credentials: false
+      - uses: ./.github/actions/setup-waddle-build
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+      # A step of its own, with no secret in its environment, and no installer
+      # script: the exact release asset, verified against REVYL_CLI_SHA256
+      # (workflow env) before it can run.
+      - name: Install the Revyl CLI
+        run: |
+          curl -fsSL -o revyl-darwin-arm64 \
+            "https://github.com/RevylAI/revyl-cli/releases/download/${REVYL_VERSION}/revyl-darwin-arm64"
+          echo "${REVYL_CLI_SHA256}  revyl-darwin-arm64" | shasum -a 256 -c -
+          mkdir -p "$HOME/.revyl/bin"
+          install -m 0755 revyl-darwin-arm64 "$HOME/.revyl/bin/revyl"
+          rm -f revyl-darwin-arm64
+          echo "$HOME/.revyl/bin" >> "$GITHUB_PATH"
+          "$HOME/.revyl/bin/revyl" --version
+      - name: Publish main to Revyl as the current build
+        env:
+          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+        run: |
+          if [ -z "${REVYL_API_KEY:-}" ]; then
+            echo "::notice::REVYL_API_KEY is not set; skipping the Revyl upload"
+            exit 0
+          fi
+          xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
+            -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            ENABLE_DEBUG_DYLIB=NO CODE_SIGNING_ALLOWED=NO ARCHS=arm64 \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) WADDLE_PROOF_HARNESS' \
+            build
+          ditto -c -k --keepParent \
+            build/Build/Products/Debug-iphonesimulator/Waddle.app \
+            build/Waddle.app.zip
+          revyl build upload \
+            --file build/Waddle.app.zip \
+            --platform ios \
+            --version "main-$(echo '${{ github.sha }}' | cut -c1-7)" \
+            --app "8d5b0635-f1df-4a9f-8978-366771843c12" \
+            --repo "${{ github.repository }}" \
+            --commit "${{ github.sha }}" \
             --yes --json
