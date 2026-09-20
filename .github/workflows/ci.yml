@@ -94,6 +94,7 @@ jobs:
           Scripts/test-loop-report.sh
           Scripts/test-loop-precheck.sh
           Scripts/test-check-masked-gh-status.sh
+          Scripts/test-check-proof-harness-flag.sh
           Scripts/test-check-eas-bank.sh
           Scripts/test-check-eas-realtime.sh
           # Both hermetic: test-asc-jwt.sh generates its own throwaway EC key
@@ -528,11 +529,26 @@ jobs:
           export PATH="$HOME/.revyl/bin:$PATH"
           revyl --version
 
+          # SWIFT_ACTIVE_COMPILATION_CONDITIONS carries WADDLE_PROOF_HARNESS,
+          # which keeps OverlayPresenter from hiding the touch overlay when
+          # GameController reports an attached keyboard or gamepad. THIS is the
+          # build that proof-of-changes installs -- .revyl/config.yaml sets
+          # pr_review.build.kind: ci_upload_to_revyl, so its own build_commands
+          # never run on the pull-request path and a flag set only there would
+          # do nothing. Both carry it; Scripts/check-proof-harness-flag.sh
+          # fails if either drops it. See
+          # docs/learnings/revyl-proof-cannot-set-launch-env.md.
+          #
+          # $(inherited) must stay single-quoted: bare, the shell would run it
+          # as command substitution, and without it the command-line override
+          # REPLACES the Debug value instead of extending it, dropping DEBUG
+          # and every `#if DEBUG` seam with it.
           xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
             -configuration Debug -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build \
             ENABLE_DEBUG_DYLIB=NO CODE_SIGNING_ALLOWED=NO ARCHS=arm64 \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) WADDLE_PROOF_HARNESS' \
             build
 
           ditto -c -k --keepParent \

@@ -138,6 +138,36 @@ final class OverlayPresenter {
         observerTokens.removeAll()
     }
 
+    /// True when a harness flag asks for the overlay to stay visible whatever
+    /// physical input is attached. Two hatches, because the two harnesses
+    /// inject differently:
+    ///
+    /// - `WADDLE_FORCE_TOUCH_OVERLAY` is a launch environment variable, set by
+    ///   XCUITest through `app.launchEnvironment` (see `applyPolicy()` below
+    ///   for why the simulator needs it at all).
+    /// - `WADDLE_PROOF_HARNESS` is a compilation condition, for Revyl's
+    ///   proof-of-changes runs. Those drive an already-installed app and have
+    ///   no launch environment to set, and `.revyl/config.yaml` accepts no
+    ///   launch-variable field at any level -- probed across every name and
+    ///   nesting the contract has, see
+    ///   docs/learnings/revyl-proof-cannot-set-launch-env.md. The build is
+    ///   therefore the only injection point we control, so
+    ///   `build_commands` there passes this via
+    ///   SWIFT_ACTIVE_COMPILATION_CONDITIONS. It is never defined for a
+    ///   developer Debug build and cannot be reached in Release.
+    ///
+    /// `Scripts/check-proof-harness-flag.sh` keeps this symbol and the
+    /// `.revyl/config.yaml` setter from drifting apart.
+    private var overlayForcedVisibleByHarness: Bool {
+        #if WADDLE_PROOF_HARNESS
+        return true
+        #elseif DEBUG
+        return ProcessInfo.processInfo.environment["WADDLE_FORCE_TOUCH_OVERLAY"] != nil
+        #else
+        return false
+        #endif
+    }
+
     private func applyPolicy() {
         // Test-only escape hatch (Plan 3 Task 6): under the iOS Simulator's
         // XCUITest automation session, GameController reports a phantom
@@ -151,12 +181,10 @@ final class OverlayPresenter {
         // XCUITest -- TouchControlsTests couldn't verify install, input, or
         // teardown at all. Only ever set by the UI test; never present in a
         // real session.
-        #if DEBUG
-        if ProcessInfo.processInfo.environment["WADDLE_FORCE_TOUCH_OVERLAY"] != nil {
+        if overlayForcedVisibleByHarness {
             overlay?.isHidden = false
             return
         }
-        #endif
 
         let policy = PhysicalInputPolicy(
             controllerConnected: !GCController.controllers().isEmpty,
