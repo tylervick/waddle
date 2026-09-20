@@ -138,7 +138,7 @@ does not substitute for it.
 Three things about how it is written:
 
 - **The engine ends each session by itself, and the test never navigates
-  Doom's menu.** The org launch variable `WADDLE_AUTOQUIT_SECONDS=60` is
+  Doom's menu.** The org launch variable `WADDLE_AUTOQUIT_SECONDS=120` is
   attached to this test (`revyl test launch-var list menu-state-across-sessions`),
   and the Debug build's `EngineSession` seam quits the engine that many
   seconds after it starts. The first two device runs (2026-09-20) tried the
