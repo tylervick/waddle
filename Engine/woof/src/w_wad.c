@@ -154,12 +154,13 @@ static void AddDirs(w_module_t *module, w_handle_t handle, const char *base)
     }
 }
 
+// Next lump-source priority; W_Close() restarts it on iOS (see there).
+static int next_priority;
+
 boolean W_AddPath(const char *path)
 {
-    static int priority;
-
     w_handle_t handle = {0};
-    handle.priority = priority++;
+    handle.priority = next_priority++;
 
     w_module_t *active_module = NULL;
 
@@ -663,6 +664,12 @@ void W_Close(void)
     array_free(wadfiles);
     array_free(lumpinfo);
     numlumps = 0;
+    // The priority counter otherwise keeps climbing across sessions, so the
+    // same lump gets a different handle.priority each time (measured: 0 in
+    // one session, 13 in the next). Consistent within a session, but anything
+    // that remembers a priority across sessions -- bigfont_priority in
+    // mn_menu.c did -- compares numbers from two different lists.
+    next_priority = 0;
 #endif
 }
 

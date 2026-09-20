@@ -2340,7 +2340,8 @@ static void AddLineBreaks(char *string)
 // Issue #253. M_Init() below edits these file-scope tables in place according
 // to gamemode/gameversion -- MainMenu[readthis] = MainMenu[quitdoom],
 // MainDef.numitems--, MainDef.y += 8, EpiDef.numitems--, the ReadDef1/2
-// rebinding -- and upstream never needs to undo any of it, because upstream
+// rebinding, M_InitExtendedHelp()'s ReadMenu2 rebinding, bigfont_priority
+// and the FON2 glyphs -- and upstream never needs to undo any of it, because upstream
 // runs D_DoomMain() once per process. Here WoofIOS_Run() runs it once per
 // session, so the edits accumulated: every commercial session took one entry
 // off the main menu and one episode off the next retail game, for the rest
@@ -2353,6 +2354,8 @@ static void AddLineBreaks(char *string)
 // reset inside M_Init() would wipe those. EpisodeMenu alttext strings from a
 // previous session's UMAPINFO are strdup'd (MN_AddEpisode), so they are freed
 // before the pristine pointers go back.
+void MN_ResetFon2(void); // mn_font.c, WOOF_IOS only
+
 static struct
 {
     boolean taken;
@@ -2365,8 +2368,10 @@ static struct
     boolean epi_custom;
     menu_t new_def;
     menuitem_t read_menu1[arrlen(ReadMenu1)];
+    menuitem_t read_menu2[arrlen(ReadMenu2)];
     menu_t read_def1;
     menu_t read_def2;
+    int bigfont_priority;
 } pristine;
 
 void MN_ResetMenuTables(void)
@@ -2382,8 +2387,10 @@ void MN_ResetMenuTables(void)
         pristine.epi_custom = EpiCustom;
         pristine.new_def = NewDef;
         memcpy(pristine.read_menu1, ReadMenu1, sizeof(ReadMenu1));
+        memcpy(pristine.read_menu2, ReadMenu2, sizeof(ReadMenu2));
         pristine.read_def1 = ReadDef1;
         pristine.read_def2 = ReadDef2;
+        pristine.bigfont_priority = bigfont_priority;
         pristine.taken = true;
         return;
     }
@@ -2404,20 +2411,28 @@ void MN_ResetMenuTables(void)
     EpiCustom = pristine.epi_custom;
     NewDef = pristine.new_def;
     memcpy(ReadMenu1, pristine.read_menu1, sizeof(ReadMenu1));
+    // M_InitExtendedHelp() rebinds ReadMenu2[0].routine to M_ExtHelp when a
+    // session has HELP01.., and a later session without them never unbinds.
+    memcpy(ReadMenu2, pristine.read_menu2, sizeof(ReadMenu2));
     ReadDef1 = pristine.read_def1;
     ReadDef2 = pristine.read_def2;
+    // M_Init() sets these only when the session has a DBIGFONT; without the
+    // reset a session that lacks one keeps the previous session's priority
+    // and glyphs (mn_font.c).
+    bigfont_priority = pristine.bigfont_priority;
+    MN_ResetFon2();
 }
 #endif
 
 #ifdef WOOF_IOS
 // Debug/test telemetry (WoofIOS_DebugMenuGeometry): the four table values
-// that M_Init() edits in place per gamemode, so a UITest can read what the
+// that M_Init() edits in place per gamemode, plus the DBIGFONT priority, so a UITest can read what the
 // NEXT session in this process will inherit. Read-only; engine-internal.
 const char *MN_DebugMenuGeometry(void)
 {
     static char buf[64];
-    M_snprintf(buf, sizeof(buf), "main=%d@%d epi=%d@%d", MainDef.numitems,
-               MainDef.y, EpiDef.numitems, EpiDef.y);
+    M_snprintf(buf, sizeof(buf), "main=%d@%d epi=%d@%d bigfont=%d", MainDef.numitems,
+               MainDef.y, EpiDef.numitems, EpiDef.y, bigfont_priority);
     return buf;
 }
 #endif

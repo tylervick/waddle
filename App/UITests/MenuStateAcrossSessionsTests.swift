@@ -158,15 +158,26 @@ final class MenuStateAcrossSessionsTests: XCTestCase {
         let afterPhase2Second = capture(app, tile: phase2, name: "g3-phase2-second", openEpisodes: false)
         let afterPhase1Again = capture(app, tile: phase1, name: "g4-phase1-after-two-phase2", openEpisodes: false)
 
+        // Every session must report, or an equality below could pass on
+        // nil == nil without testing anything.
         XCTAssertNotNil(afterPhase1Fresh, "menuGeometryLabel never appeared after session 1")
+        XCTAssertNotNil(afterPhase2First, "menuGeometryLabel never appeared after session 2")
+        XCTAssertNotNil(afterPhase2Second, "menuGeometryLabel never appeared after session 3")
+        XCTAssertNotNil(afterPhase1Again, "menuGeometryLabel never appeared after session 4")
 
         // Absolute values for a retail IWAD on a fresh process: six main-menu
-        // entries at y=64, four episodes (mn_menu.c MainDef / EpiDef).
-        XCTAssertEqual(afterPhase1Fresh, "main=6@64 epi=4@63",
-                       "fresh Phase 1 tables are not the pristine ones")
+        // entries at y=64, four episodes (mn_menu.c MainDef / EpiDef). The
+        // label ends with the big-font lump priority, whose value is whatever
+        // the WAD list gives it; the equalities below are what pin it.
+        XCTAssertTrue((afterPhase1Fresh ?? "").hasPrefix("main=6@64 epi=4@63"),
+                      "fresh Phase 1 tables are not the pristine ones: \(afterPhase1Fresh ?? "nil")")
         // A commercial session edits the tables for itself: five entries,
-        // eight pixels lower, one episode fewer. The second commercial session
-        // must see exactly the same edits, not the edits applied twice.
+        // eight pixels lower, one episode fewer.
+        XCTAssertTrue((afterPhase2First ?? "").hasPrefix("main=5@72 epi=3@63"),
+                      "first Phase 2 tables are not the commercial edit of pristine ones: \(afterPhase2First ?? "nil")")
+        // The second commercial session must see exactly the same edits, not
+        // the edits applied twice, and the same big-font priority: the lump
+        // priority counter in w_wad.c restarts with the WAD list.
         XCTAssertEqual(afterPhase2Second, afterPhase2First,
                        "second Phase 2 session inherited the first one's menu edits")
         // And a retail session after any number of commercial ones must get

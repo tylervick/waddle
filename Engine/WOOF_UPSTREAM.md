@@ -321,15 +321,22 @@ only ever runs once):
   the one branch of `M_Init()` with no cumulative edit. Fixed with a
   `WOOF_IOS`-only `MN_ResetMenuTables()` that snapshots `MainMenu`, `MainDef`,
   `EpisodeMenu`, `EpiDef`, `EpiMenuMap`/`EpiMenuEpi`, `EpiCustom`, `NewDef`,
-  `ReadMenu1`, `ReadDef1` and `ReadDef2` on its first call and restores them on
-  every later one (freeing a previous UMAPINFO's `strdup`'d episode names
-  first), called from `WoofIOS_Run` before `D_DoomMain()`. Not inside
+  `ReadMenu1`, `ReadMenu2` (rebound to `M_ExtHelp` by `M_InitExtendedHelp()`
+  when a session has `HELP01`), `ReadDef1`, `ReadDef2` and `bigfont_priority`
+  on its first call and restores them on every later one (freeing a previous
+  UMAPINFO's `strdup`'d episode names first, and the previous session's FON2
+  glyphs through `MN_ResetFon2()` in `mn_font.c`, which upstream loads once
+  per process and never frees), called from `WoofIOS_Run` before
+  `D_DoomMain()`. `w_wad.c`'s lump priority counter, a function-local static
+  that kept climbing across sessions, is now file-scope and restarts in
+  `W_Close()`, so a remembered priority compares against the list it came
+  from. Not inside
   `M_Init()`: `G_ParseMapInfo()` populates the episode tables from the current
   session's UMAPINFO before `M_Init()` runs. A `DEBUG`-gated
   `WoofIOS_DebugMenuGeometry()` exposes the four table values so
   `WaddleUITests/MenuStateAcrossSessionsTests` can assert on them after each
-  session. Not covered by the reset: `bigfont_priority` and the FON2 glyphs
-  `MN_LoadFon2` loads stay from the last IWAD that had a `DBIGFONT`.
+  session; the string ends with `bigfont=<priority>`, which the same test
+  requires to be equal across two sessions of one game.
 
 Related (not upstream files): `Scripts/build-engine.sh` passes
 `-DCMAKE_FIND_ROOT_PATH="$OUT/$platform"` in addition to
