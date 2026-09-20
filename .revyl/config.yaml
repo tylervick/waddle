@@ -70,7 +70,31 @@ build:
                     # required architecture 'x86_64'") and the link fails with
                     # exit 65. The warnings name the architecture but nothing
                     # names the destination that asked for it.
-                    - xcodebuild -project App/Waddle.xcodeproj -scheme Waddle -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build ENABLE_DEBUG_DYLIB=NO CODE_SIGNING_ALLOWED=NO ARCHS=arm64
+                    #
+                    # SWIFT_ACTIVE_COMPILATION_CONDITIONS carries
+                    # WADDLE_PROOF_HARNESS, which makes OverlayPresenter keep
+                    # the touch overlay visible even when GameController
+                    # reports an attached keyboard or gamepad. It is a
+                    # COMPILE-time flag rather than a launch variable because
+                    # this contract has no launch-variable field at any level
+                    # -- every candidate name was probed against
+                    # `revyl config validate` and rejected, and
+                    # proof_of_changes accepts only enabled / harness /
+                    # always_verify / system_prompt. The build is the one
+                    # injection point we own. See
+                    # docs/learnings/revyl-proof-cannot-set-launch-env.md.
+                    #
+                    # The single quotes are load-bearing twice over: they stop
+                    # the runner's shell expanding $(inherited) as command
+                    # substitution, and $(inherited) is itself required so
+                    # xcodebuild's command-line override ADDS to the Debug
+                    # value rather than replacing it. Without it the setting
+                    # resolves to WADDLE_PROOF_HARNESS alone, silently
+                    # dropping DEBUG and with it every `#if DEBUG` seam
+                    # (WADDLE_FORCE_TOUCH_OVERLAY, WADDLE_RESET_STORE,
+                    # WADDLE_TOUCH_SCHEME). Verified resolving to
+                    # "DEBUG WADDLE_PROOF_HARNESS" via -showBuildSettings.
+                    - xcodebuild -project App/Waddle.xcodeproj -scheme Waddle -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build ENABLE_DEBUG_DYLIB=NO CODE_SIGNING_ALLOWED=NO ARCHS=arm64 SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) WADDLE_PROOF_HARNESS'
                 output_path: build/Build/Products/Debug-iphonesimulator/Waddle.app
 # Pull-request automation. Written by hand rather than by `revyl github
 # setup`, which requires an interactive terminal and refuses to run
@@ -125,13 +149,16 @@ pr_review:
             # found woof.pk3 and its WADs, and rendered.
             - "Starting a game from the shelf reaches rendered gameplay rather than a stuck loading state or an engine error alert."
             # A game that renders but cannot be played is still broken, and the
-            # overlay is drawn by the app rather than the engine. Conditional
-            # on purpose: OverlayPresenter hides the overlay outright when a
-            # hardware keyboard or game controller is attached, which a test
-            # harness may well do, and absence is then correct rather than a
-            # defect. The first proof run failed this invariant as originally
-            # worded, for want of that clause.
-            - "Once in a game, the touch control overlay is visible over the rendered view -- unless a hardware keyboard or game controller is attached to the device, in which case its absence is correct and this check passes."
+            # overlay is drawn by the app rather than the engine. This was
+            # conditional until the build above started compiling in
+            # WADDLE_PROOF_HARNESS: the escape clause existed only because
+            # OverlayPresenter hides the overlay when a hardware keyboard or
+            # gamepad is attached, which this harness's devices evidently do
+            # (the first proof run failed this invariant for want of the
+            # clause). The flag removes the hiding, so the exemption is gone
+            # and absence is once again a real defect. Do not restore the
+            # clause without also removing the flag.
+            - "Once in a game, the touch control overlay is visible over the rendered view. Its absence is a defect: this build forces the overlay to remain visible even when a hardware keyboard or game controller is attached, so there is no circumstance in which it is correctly missing."
         system_prompt: |
             Waddle is an iOS port of the Woof! Doom engine. The SwiftUI shell is
             a WAD library: a shelf of playable games and presets, plus Manage,
@@ -157,9 +184,12 @@ pr_review:
             correct. It is drawn deliberately faint so it does not obscure the
             game -- roughly 12% white fill with a 35% white stroke -- so look
             for thin translucent circles and rounded rectangles rather than
-            solid buttons. It is hidden entirely whenever a hardware keyboard
-            or game controller is attached, so if this device has either, its
-            absence is the correct behaviour. And it is laid out for both
+            solid buttons. The shipping app hides it entirely whenever a
+            hardware keyboard or game controller is attached, but this build is
+            compiled with WADDLE_PROOF_HARNESS, which turns that hiding off --
+            so on THIS build the overlay must be present once a game is
+            running, and you should report it missing rather than excusing it
+            as an attached-keyboard case. And it is laid out for both
             portrait and landscape, so neither orientation is the wrong place
             to look for it.
 
