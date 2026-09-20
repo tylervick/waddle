@@ -100,6 +100,6 @@ the constants.
 
 Related: [hero-zone-must-leave-a-tappable-tile-row.md](hero-zone-must-leave-a-tappable-tile-row.md),
 which is the first half of this story, and
-[ui-tests-are-red-at-head.md](ui-tests-are-red-at-head.md) — `WaddleUITests`
-runs on no pull request, so `gh workflow run ui-tests.yml --ref <branch>` is the
-only pre-merge signal for changes like this.
+[ui-test-failures-need-a-main-baseline.md](ui-test-failures-need-a-main-baseline.md)
+— `WaddleUITests` runs on no pull request, so `gh workflow run ui-tests.yml
+--ref <branch>` is the only pre-merge signal for changes like this.
