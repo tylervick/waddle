@@ -137,17 +137,27 @@ does not substitute for it.
 
 Three things about how it is written:
 
-- **It quits through the game's own menu, never `kill_app`/`open_app`.** The
-  defect exists only while one process keeps running. A step that relaunches
-  the app resets every static and the test passes vacuously. If a run cannot
-  get out of the engine through Quit Game, that is a failed step, not a cue to
-  restart the app.
+- **The engine ends each session by itself, and the test never navigates
+  Doom's menu.** The org launch variable `WADDLE_AUTOQUIT_SECONDS=60` is
+  attached to this test (`revyl test launch-var list menu-state-across-sessions`),
+  and the Debug build's `EngineSession` seam quits the engine that many
+  seconds after it starts. The first two device runs (2026-09-20) tried the
+  real quit path instead and never left session 1: the agent could open the
+  menu with the overlay's menu button every time, but neither stick swipes
+  nor the USE button did anything on the farm's iPhone 17 Pro Max, and taps on
+  the menu entries themselves are swallowed by the overlay. The same USE tap
+  opens the episode screen in the simulator, so that is an open observation
+  about the device, not a known defect. Until it is understood, the only
+  overlay control this test relies on is the menu button. It never uses
+  `kill_app`/`open_app` either: the defect exists only while one process keeps
+  running, and a relaunch would reset every static and pass vacuously.
 - **It is judged from screenshots.** The engine surface has no accessibility
   tree, so the validations describe what the Doom menu must show (entry names,
-  count, episode count) rather than elements to query.
+  count, position) rather than elements to query.
 - **Its XCTest counterpart is the assertion.** `WaddleUITests/
-  MenuStateAcrossSessionsTests` runs the same four sessions in the simulator
-  with the autoquit seam and captures the menus as attachments; the issue that
+  MenuStateAcrossSessionsTests` runs four sessions in the simulator with the
+  same autoquit seam, also opens the episode screen (which needs USE, so the
+  device test leaves it out) and captures the menus as attachments; the issue that
   tracks the fix asks for a debug telemetry seam so that test can assert on the
   table values rather than pixels. This definition exists because Revyl runs on
   pull requests and the XCTest suite does not.
