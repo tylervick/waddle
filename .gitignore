@@ -27,3 +27,10 @@ Scripts/.appstore.env
 TestResults*.xcresult
 .testflight-feedback-seen
 .superpowers/
+
+# Icon exploration sweeps: 46 MB of generated candidates, superseded by
+# Design/source/duck/duck-66px.png. The tools and the chosen artwork's
+# reference ARE tracked -- see Design/explorations/README.md.
+Design/explorations/2026-*/
+Design/explorations/references/*
+!Design/explorations/references/ref-01-doom-duck-512.png

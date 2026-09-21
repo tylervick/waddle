@@ -1,10 +1,16 @@
 #!/bin/bash
-# Regenerates every derived icon asset from the committed glyph source.
+# Regenerates every derived icon asset from its committed source.
 #
-# Design/source/freedoom-glyphs/ is the only hand-supplied icon input: five
-# PNGs decoded once out of Freedoom's DBIGFONT. Everything else -- the tinted
-# mark, the flat vector, and the artwork inside the Icon Composer package -- is
-# produced from them by this script.
+# TWO sources, two marks, because they do different jobs:
+#
+#   Design/source/freedoom-glyphs/  five PNGs decoded once out of Freedoom's
+#                                   DBIGFONT -> the WADDLE wordmark, for
+#                                   README, docs and print.
+#   Design/source/duck/duck-66px.png  a 66x66 15-colour sprite -> the duck,
+#                                   which is what the app icon shows.
+#
+# Everything else in Design/ and the artwork inside the Icon Composer package
+# is produced from those two by this script. Nothing here is hand-edited.
 #
 # Offline on purpose. The WAD those glyphs came from is gitignored and fetched,
 # so reading it here would make icon verification depend on a network round
@@ -21,7 +27,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_DIR="${1:-$ROOT/Design}"
-ICON_ASSET="$ROOT/App/AppIcon.icon/Assets/mark.png"
+ICON_ASSET="$ROOT/App/AppIcon.icon/Assets/duck.png"
 
 # potrace is gone: nothing traces any more. The flat vector is emitted directly
 # as a rect grid from the pixel source, which is exact and symmetric by
@@ -35,6 +41,7 @@ for tool in uv; do
 done
 
 uv run --quiet "$ROOT/Scripts/build-mark.py" --out-dir "$OUT_DIR"
+uv run --quiet "$ROOT/Scripts/build-duck.py" --out-dir "$OUT_DIR"
 
 # The .icon package carries its own copy of the artwork rather than a symlink:
 # actool reads the package as a self-contained unit, and a dangling link would
@@ -42,6 +49,6 @@ uv run --quiet "$ROOT/Scripts/build-mark.py" --out-dir "$OUT_DIR"
 # keeps the copy honest.
 if [ "$OUT_DIR" = "$ROOT/Design" ]; then
   mkdir -p "$(dirname "$ICON_ASSET")"
-  cp "$OUT_DIR/waddle-mark.png" "$ICON_ASSET"
+  cp "$OUT_DIR/waddle-duck.png" "$ICON_ASSET"
   echo "  synced $(basename "$ICON_ASSET") into AppIcon.icon/Assets"
 fi
