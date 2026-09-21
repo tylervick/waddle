@@ -422,10 +422,16 @@ grep -c '<path' candidate.svg
 
 ### Ideogram 4.0
 
-Open-weight (Apache 2.0, 9.3B, released 2026-06-03), native transparency, 2K,
-best-in-class text rendering. Use it for concept F, where a model that garbles
-`WADDLE` burns the batch. Its structured JSON turns placement and palette into
-parameters.
+Open-weight (9.3B, released 2026-06-03), native transparency, 2K, best-in-class
+text rendering. Use it for concept F, where a model that garbles `WADDLE` burns
+the batch. Its structured JSON turns placement and palette into parameters.
+
+Licensing is split and worth knowing before reaching for it: the **inference
+code** is Apache 2.0, but the **weights** are under Ideogram's Non-Commercial
+Model Agreement, with self-hosted commercial use requiring a paid licence. That
+is irrelevant while generating through a hosted API, which is all this document
+does — it would matter the moment anyone self-hosted the weights to make art
+for a shipping app.
 
 ### Not recommended
 
