@@ -49,8 +49,16 @@ extension XCTestCase {
     }
 
     /// Closes Settings (from Files or its root) back to the shelf.
+    ///
+    /// The back button is addressed through its OWN navigation bar, not through
+    /// `app.navigationBars`. Settings is a sheet, so the shelf underneath stays
+    /// in the accessibility tree, and its gear is `Label("Settings", ...)` --
+    /// an unscoped query matches both that and the Files back button (which iOS
+    /// labels with its parent's title, also "Settings") and raises "Multiple
+    /// matching elements found". Same scoping HiddenGamesScreenTests uses.
+    /// See docs/learnings/sheet-leaves-presenter-navbar-in-the-tree.md.
     func closeSettings(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
-        let back = app.navigationBars.buttons["Settings"]
+        let back = app.navigationBars["Files"].buttons["Settings"]
         if back.waitForExistence(timeout: 2) { back.tap() }
         let done = app.buttons["Done"]
         XCTAssertTrue(done.waitForExistence(timeout: 5), "Settings Done missing", file: file, line: line)
