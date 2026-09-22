@@ -45,15 +45,26 @@ but carries enough contrast to survive a light one.
 
 | Role | Hex |
 | --- | --- |
-| Duck palette | 15 colours, fixed by `duck-66px.png` — greens, yellows, orange, near-black |
+| Duck palette | 13 colours, fixed by `duck-66px.png` — greens, teal, orange, near-black |
 | Wordmark tint | `#77FF6F` — Freedoom PLAYPAL nukage green |
-| Icon ground | `#0E0E10` — set by `icon.json`'s `fill`, not baked into the layer |
+| Icon ground | `#E8E6DE` — set by `icon.json`'s `fill`, not baked into the layer |
+
+**Why the ground is light.** The duck is fully enclosed by a `#000000`
+outline — 93% of its outer boundary. Against the original near-black `#0E0E10`
+ground that measured **1.09:1**, so the silhouette dissolved and the icon read
+as a dim blob at 40pt; the feet disappeared entirely. `#E8E6DE` takes the same
+boundary to **13.46:1**, measured on actool's own 120px rendition. Nudging the
+ground darker trades that back: `#33383A`, the best dark option tried, only
+reached 1.77:1.
+
+Interior colours were never the problem and are untouched — because the duck is
+enclosed, no interior colour ever meets the ground.
 
 **Known loose end:** the app's `AccentColor` is still `#77FF6F`, which matched
-the wordmark when the wordmark was the icon. The duck's greens are not that
-colour, so the icon and the in-app accent no longer agree. Deciding what the
-accent should be is a UX change, deliberately out of scope for the pipeline
-rework that introduced the duck.
+the wordmark when the wordmark was the icon. Neither the duck's greens nor the
+light ground are that colour, so the icon and the in-app accent no longer
+agree. Deciding what the accent should be is a UX change, deliberately out of
+scope for the icon work.
 
 ## Geometry
 

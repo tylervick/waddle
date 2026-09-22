@@ -8,8 +8,7 @@ the icon pipeline does not depend on this directory.
 ## Lineage
 
 ```text
-references/ref-01-doom-duck-512.png     the owner's chosen artwork
-  -> recolour-png.py --map teal:48:0.92 --lift 0.35 --target-l 0.60
+references/ref-01-doom-duck.png         the owner's chosen artwork
   -> pixelate.py --cells 66 --phase 0 --palette 16
   -> Design/source/duck/duck-66px.png
 ```
@@ -17,6 +16,15 @@ references/ref-01-doom-duck-512.png     the owner's chosen artwork
 `recolour-png.py` remaps colour classes by hue without moving a pixel — every
 generation, including image-to-image with a reference, redraws the subject, so
 once artwork is right and only its palette is wrong a model is the wrong tool.
+
+It is **not** in the lineage above. An earlier pass used it to recolour the
+duck's teal face to yellow, and that was reverted: teal is complementary to the
+helmet green and reads instantly as tinted glass with a face behind it, while
+yellow sits adjacent to green and merges into the helmet as one warm mass. The
+measurement preferred yellow — it has more luminance contrast against the
+helmet, 3.84:1 against 2.66:1 — and the measurement was answering the wrong
+question. The tool is kept because it is the right instrument when a palette is
+genuinely wrong; it just was not.
 
 `pixelate.py` snaps a pixel-art-*styled* image onto its true integer grid.
 Images from image models look like pixel art but carry baked-in anti-aliasing;
