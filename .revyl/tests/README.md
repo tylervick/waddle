@@ -175,3 +175,52 @@ the press never reached the engine (`btn=` unchanged), a foreign controller
 owns the axes (`pad=... foreign`), or the engine ignored the input. Run it
 against a build that has the strip (any build after the telemetry landed),
 and read the extracted variables in `revyl test report`.
+
+### `session-start-state.yaml` — every session starts like a fresh process
+
+The device counterpart of `WaddleUITests/SessionStartStateTests` (issue
+#266): Freedoom Phase 2, Phase 2 again, then Phase 1, each ended by the
+engine's autoquit seam, with the shelf's debug line read after each. The
+line is `WoofIOS_DebugSessionStartState()` -- the values the writable-globals
+diff found a session inheriting from the one before it, captured when the
+session reached its game loop -- and every validation requires the exact
+string a fresh process reports:
+
+    exit=0 wipe=3/-1 oldgs=-1 view=0 demoprev=0 autoload=3 states=1076 mobj=146 sfx=811 spr=245 colors=22 faces=42 music=1
+
+The same for both games, measured in the simulator on 2026-09-23. If a
+legitimate change moves a value (another autoload directory, a new DSDHacked
+table entry in `woof.pk3`), update the three validations to the new fresh
+value from `SessionStartStateTests`' attachments; do not loosen them to
+"looks similar".
+
+**It needs two launch variables, and carries none.** Run it as
+
+    revyl test run session-start-state --build-id <id> \
+      --launch-env WADDLE_AUTOQUIT_SECONDS=8 \
+      --launch-env WADDLE_DEBUG_SESSION_START=1
+
+Eight seconds is inside Phase 2's eleven-second title page, which is the
+point: a session that quits on its title page left its title track as
+`mus_playing`, and before the fix the next session of that game opened with
+no music (`music=0`). The org variable `WADDLE_AUTOQUIT_SECONDS` is already
+defined at 120 for `menu-state-across-sessions`, so this test passes its own
+value per run instead of attaching the org one. Get `--build-id` for a pull
+request from `revyl build list --app 8d5b0635-f1df-4a9f-8978-366771843c12`
+(`pr<N>-<sha>`, uploaded by CI).
+
+Measured on 2026-09-23, both runs on the farm with the command above: the
+pull request's CI build (`pr272-878c37c`) passed all seven steps; the same
+branch built with every reset turned into a no-op (`revyl build --local
+--no-set-current`, version `pr272-red-resets-off`) failed at the second
+session, where the agent read `exit=1 wipe=3/-1 oldgs=3 view=0 demoprev=0
+autoload=6 ... colors=44 faces=84 music=0`. Its two readings of that frame
+disagreed on `mobj` and `sfx` digits, so treat single-digit OCR as noisy and
+the many-field mismatch as the signal.
+
+Pushed 2026-09-23 as `17f388cb-fd23-44d6-bf3e-b951e5ce26f8`. It was created
+with `revyl test create session-start-state --platform ios --app <id>` and
+the blocks pushed into the resulting file, because on CLI v0.1.119
+`build.name: development` no longer binds a new test (see
+`docs/learnings/revyl-test-binds-through-build-name.md`); the remote wrote
+`build.name: Waddle`, the app's name.
