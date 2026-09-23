@@ -178,6 +178,15 @@ static void LoadFacePatches(void)
 {
     char lump[9] = {0};
 
+#ifdef WOOF_IOS
+    // Runs once per session here, and appends: a later session in the same
+    // process kept the previous game's faces at the indices the status bar
+    // draws, with its own appended after them (issue #266). The patches are
+    // zone memory, left alone as upstream leaves them.
+    array_free(facepatches);
+    array_free(facebackpatches);
+#endif
+
     int count;
 
     for (count = 0; count < ST_NUMPAINFACES; ++count)
@@ -233,6 +242,14 @@ static void LoadFacePatches(void)
         array_push(facebackpatches, V_CachePatchName(lump, PU_STATIC));
     }
 }
+
+#ifdef WOOF_IOS
+// Debug seam for WoofIOS_DebugSessionStartState (woof_ios.c).
+int ST_DebugFaceCount(void)
+{
+    return array_size(facepatches);
+}
+#endif
 
 static boolean CheckWidgetState(widgetstate_t state)
 {

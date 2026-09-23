@@ -26,6 +26,18 @@ static hashmap_t *translate;
 
 void DSDH_StatesInit(void)
 {
+#ifdef WOOF_IOS
+    // A later session in the same process must not inherit this session's
+    // DSDHacked numbering: the translate map would hand back the old
+    // indices without growing states, which starts over below, so they
+    // would point past its end (issue #266; the same leak as dsdh_sounds.c,
+    // where it was measured).
+    if (translate)
+    {
+        hashmap_free(translate);
+        translate = NULL;
+    }
+#endif
     num_states = NUMSTATES;
     max_frame_number = NUMSTATES - 1;
 

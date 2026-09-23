@@ -31,6 +31,18 @@ static hashmap_t *translate;
 
 void DSDH_MobjInfoInit(void)
 {
+#ifdef WOOF_IOS
+    // A later session in the same process must not inherit this session's
+    // DSDHacked numbering: the translate map would hand back the old
+    // indices without growing mobjinfo, which starts over below, so they
+    // would point past its end (issue #266: num_mobj_types went from 146 to
+    // 145 between two sessions of one game).
+    if (translate)
+    {
+        hashmap_free(translate);
+        translate = NULL;
+    }
+#endif
     num_mobj_types = NUMMOBJTYPES;
     max_thing_number = NUMMOBJTYPES - 1;
 

@@ -75,6 +75,19 @@ float WoofIOS_DebugTriggerValue(void);
 // ends this is what the next session inherits (issue #253).
 const char *WoofIOS_DebugMenuGeometry(void);
 
+// Debug/test telemetry only: the values issue #266 found a session
+// inheriting from the one before it, as they stood when the most recent
+// session reached its game loop (after init and the first tic, before the
+// first frame) --
+//   "exit=<fast_exit> wipe=<wipegamestate>/<screen_wipe_internal>
+//    oldgs=<D_Display's oldgamestate> view=<viewactivestate>
+//    demoprev=<demoloop_prev set> autoload=<autoload dirs> states=<n>
+//    mobj=<n> sfx=<n> spr=<n> colors=<colorized messages>
+//    faces=<status-bar face patches> music=<songs started this session>"
+// Two sessions of one game must report the same string. Empty before the
+// first session reaches its game loop.
+const char *WoofIOS_DebugSessionStartState(void);
+
 // Debug/test telemetry only: what the engine sees of the overlay's input,
 // for the in-game debug HUD --
 //   "pad=<name> <virtual|foreign|none> pads=<count> btn=<events> menu=<item|off>"

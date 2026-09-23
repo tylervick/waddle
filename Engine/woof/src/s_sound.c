@@ -970,6 +970,49 @@ static extra_music_t extra_music;
 
 int current_musicnum = -1;
 
+#ifdef WOOF_IOS
+// Songs this session got a handle for; read by the session-start seam.
+static int music_started;
+
+// Called from WoofIOS_Run before every D_DoomMain(). The previous session's
+// music outlives it here (issue #266): mus_playing still named the track
+// that was playing at the quit, so a session that opened on the same track
+// hit the `already playing` early returns in S_ChangeMusic and
+// S_ChangeMusInfoMusic and had no title music at all; and S_music kept each
+// track's lump number from the previous session's WAD directory
+// (S_ChangeMusic looks one up only while it is 0), plus any BEX [MUSIC]
+// rename. Both go back to what the compiler initialised.
+void S_ResetSessionMusic(void)
+{
+    static musicinfo_t pristine[mus_musinfo + 1];
+    static boolean saved;
+    if (!saved)
+    {
+        memcpy(pristine, S_music, sizeof(pristine));
+        saved = true;
+    }
+    else
+    {
+        memcpy(S_music, pristine, sizeof(pristine));
+    }
+    mus_playing = NULL;
+    mus_paused = false;
+    current_musicnum = -1;
+}
+
+// Debug seam, reset from WoofIOS_Run on its own so that the count stays
+// honest when S_ResetSessionMusic is the thing under test.
+void S_DebugResetMusicStarted(void)
+{
+    music_started = 0;
+}
+
+int S_DebugMusicStarted(void)
+{
+    return music_started;
+}
+#endif
+
 void S_ChangeMusic(int musicnum, int looping)
 {
     musicinfo_t *music;
@@ -1055,6 +1098,9 @@ void S_ChangeMusic(int musicnum, int looping)
     if (music->handle)
     {
         mus_playing = music;
+#ifdef WOOF_IOS
+        music_started++;
+#endif
     }
     else
     {
@@ -1134,6 +1180,9 @@ void S_ChangeMusInfoMusic(int lumpnum, int looping)
     if (music->handle)
     {
         mus_playing = music;
+#ifdef WOOF_IOS
+        music_started++;
+#endif
     }
     else
     {

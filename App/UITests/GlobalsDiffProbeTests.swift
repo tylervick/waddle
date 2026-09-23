@@ -21,9 +21,16 @@ import XCTest
 /// Names are shelf tile names; "Freedoom Phase 1" and "Freedoom Phase 2" are
 /// always present, imported IWADs (DOOM2, TNT, ...) use their catalog title.
 /// Default: Freedoom Phase 2 twice, the pair issue #253 was found with.
+///
+/// How long each session runs decides what the diff can see. Freedoom Phase
+/// 2's title page alone lasts about 11 s, so the default 12 s window ends
+/// session 1 at the title and a level's state never enters the list; a
+/// longer window (`TEST_RUNNER_WADDLE_GLOBALS_DIFF_AUTOQUIT=40`) lets the
+/// first demo load a level before the quit. Take both lists (issue #266).
 final class GlobalsDiffProbeTests: XCTestCase {
 
-    private let autoquitSeconds = 12.0
+    private let autoquitSeconds = Double(
+        ProcessInfo.processInfo.environment["WADDLE_GLOBALS_DIFF_AUTOQUIT"] ?? "") ?? 12.0
 
     @MainActor
     func testPlaysTheSequenceAndEverySessionExitsCleanly() throws {
@@ -53,7 +60,7 @@ final class GlobalsDiffProbeTests: XCTestCase {
             tile.tap()
             XCTAssertTrue(exitLabel.waitForNonExistence(timeout: 15),
                           "session \(index + 1) (\(name)): previous exit label never cleared")
-            XCTAssertTrue(exitLabel.waitForExistence(timeout: 90),
+            XCTAssertTrue(exitLabel.waitForExistence(timeout: autoquitSeconds + 78),
                           "session \(index + 1) (\(name)): engine never returned to the launcher")
             XCTAssertEqual(exitLabel.label, "Engine exited: 0",
                            "session \(index + 1) (\(name)): engine exit code was not 0")

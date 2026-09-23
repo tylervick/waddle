@@ -227,12 +227,24 @@ gamestate_t wipegamestate = GS_DEMOSCREEN;
 wipefx_t    screen_wipe_internal = wipe_Invalid;
 wipefx_t    screen_wipe = wipe_None;
 
+#ifdef WOOF_IOS
+// D_Display's memory of the previous frame, hoisted to file scope so
+// D_ResetSessionState() can give each session the first frame upstream's
+// one run per process gets (issue #266).
+static boolean viewactivestate = false;
+static boolean menuactivestate = false;
+static gamestate_t oldgamestate = GS_NONE;
+static boolean borderdrawcount;
+#endif
+
 void D_Display (void)
 {
+#ifndef WOOF_IOS
   static boolean viewactivestate = false;
   static boolean menuactivestate = false;
   static gamestate_t oldgamestate = GS_NONE;
   static boolean borderdrawcount;
+#endif
   int wipestart;
   boolean done, wipe;
 
@@ -1453,6 +1465,55 @@ static void D_ShowEndDoom(void)
 
 boolean fast_exit = false;
 
+#ifdef WOOF_IOS
+// Called from WoofIOS_Run before every D_DoomMain(). Each of these outlived
+// the previous session and was read by the next one before anything
+// rewrote it; measured with the writable-globals diff (issue #266,
+// docs/engine-session-globals.md has the table).
+void D_ResetSessionState(void)
+{
+  // Set by the previous session's SDL_EVENT_QUIT (i_video.c), so every
+  // later session would exit as if the window had been closed.
+  fast_exit = false;
+
+  // The previous session's last frame: without this the first title frame
+  // of a session that follows one quit mid-demo melts in from black.
+  wipegamestate = GS_DEMOSCREEN;
+  screen_wipe_internal = wipe_Invalid;
+  viewactivestate = false;
+  menuactivestate = false;
+  oldgamestate = GS_NONE;
+  borderdrawcount = false;
+
+  // demoloop_prev pointed into the previous session's demo loop, which
+  // D_SetupDemoLoop frees when it came from a DEMOLOOP lump; the first
+  // D_DoAdvanceDemo read its outro_wipe before anything reassigned it.
+  demosequence = 0;
+  pagetic = 0;
+  pagename = NULL;
+  demoloop_point = NULL;
+  demoloop_prev = NULL;
+
+  // PrepareAutoloadPaths appends; a second session scanned every autoload
+  // directory twice (next_priority 13 in session 1, 25 in session 2).
+  for (int i = 0; i < array_size(autoload_paths); ++i)
+  {
+    free(autoload_paths[i]);
+  }
+  array_free(autoload_paths);
+}
+
+// Debug seam for WoofIOS_DebugSessionStartState (woof_ios.c).
+const char *D_DebugSessionState(void)
+{
+  static char buf[128];
+  snprintf(buf, sizeof(buf), "exit=%d wipe=%d/%d oldgs=%d view=%d demoprev=%d autoload=%d",
+           fast_exit, wipegamestate, screen_wipe_internal, oldgamestate,
+           viewactivestate, demoloop_prev != NULL, (int)array_size(autoload_paths));
+  return buf;
+}
+#endif
+
 boolean D_AllowEndDoom(void)
 {
   if (fast_exit)
@@ -2461,6 +2522,10 @@ void D_DoomMain(void)
   {
       extern void WoofIOS_DebugGlobalsCheckpoint(void);
       WoofIOS_DebugGlobalsCheckpoint();
+      // Same point, always on: the few values issue #266 reset, as a string
+      // the app can show after the session (WoofIOS_DebugSessionStartState).
+      extern void WoofIOS_DebugSessionStartCheckpoint(void);
+      WoofIOS_DebugSessionStartCheckpoint();
   }
 #endif
 

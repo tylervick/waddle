@@ -215,3 +215,29 @@ void DEH_AddStringColorizedReplacement(const char *from_text, const char *color_
     array_push(color_strings, sub);
     color_count += 1;
 }
+
+#ifdef WOOF_IOS
+// Called from WoofIOS_Run before every D_DoomMain(). ST_InitWidgets appends
+// the colorized key messages every session and nothing cleared them, so a
+// later session in the same process carried a second copy of each (issue
+// #266: color_count went from 22 to 44 between two sessions of one game),
+// and DEH_StringColorized, which returns the first match, served the
+// previous game's. The substitution hash table above has the same lifetime;
+// it is left to the DEHACKED follow-up, since no Freedoom pair can show it.
+void DEH_ResetColorStrings(void)
+{
+    for (int i = 0; i < color_count; ++i)
+    {
+        free(color_strings[i].from_text);
+        free(color_strings[i].to_text);
+    }
+    array_free(color_strings);
+    color_count = 0;
+}
+
+// Debug seam for WoofIOS_DebugSessionStartState (woof_ios.c).
+int DEH_DebugColorCount(void)
+{
+    return color_count;
+}
+#endif

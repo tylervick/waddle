@@ -183,9 +183,21 @@ int WoofIOS_Run(int argc, char **argv)
     extern void MN_ResetMenuTables(void);
     MN_ResetMenuTables();
 
+    // The rest of what the writable-globals diff showed a session inheriting
+    // from the one before it (issue #266; docs/engine-session-globals.md).
+    // The DSDHacked translate maps reset in their own DSDH_*Init instead.
+    extern void D_ResetSessionState(void);
+    D_ResetSessionState();
+    extern void DEH_ResetColorStrings(void);
+    DEH_ResetColorStrings();
+    extern void S_ResetSessionMusic(void);
+    S_ResetSessionMusic();
+
     // Debug counter for the HUD's btn= field; per session, like the rest.
     extern void I_DebugResetGamepadCounters(void);
     I_DebugResetGamepadCounters();
+    extern void S_DebugResetMusicStarted(void);
+    S_DebugResetMusicStarted();
 
     // Same fresh-session hygiene for the touch shim's event counter: it
     // backs WoofIOS_DebugTouchEventCount(), which the app reads *after* a
@@ -754,6 +766,36 @@ const char *WoofIOS_DebugInputState(void)
                  I_DebugAxisButtonDowns(), MN_DebugMenuMoves(), cursor);
     }
     return buf;
+}
+
+// --- Session-start state (issue #266) ---
+//
+// The values the writable-globals diff found a session inheriting from the
+// one before it, read at the same point as that diff's checkpoint: after
+// D_DoomMain's init and the first tic, before the first frame. Captured
+// there rather than read on demand, because after the session they hold the
+// session's END state, which is what the next one would inherit, not what
+// this one started with. WaddleUITests/SessionStartStateTests compares the
+// string across sessions of the same game.
+static char session_start_state[256];
+
+void WoofIOS_DebugSessionStartCheckpoint(void)
+{
+    extern const char *D_DebugSessionState(void);
+    extern int DEH_DebugColorCount(void);
+    extern int ST_DebugFaceCount(void);
+    extern int S_DebugMusicStarted(void);
+    extern int num_states, num_mobj_types, num_sfx, num_sprites;
+    snprintf(session_start_state, sizeof(session_start_state),
+             "%s states=%d mobj=%d sfx=%d spr=%d colors=%d faces=%d music=%d",
+             D_DebugSessionState(), num_states, num_mobj_types, num_sfx,
+             num_sprites, DEH_DebugColorCount(),
+             ST_DebugFaceCount(), S_DebugMusicStarted());
+}
+
+const char *WoofIOS_DebugSessionStartState(void)
+{
+    return session_start_state;
 }
 
 const char *WoofIOS_DebugMenuGeometry(void)
