@@ -1,13 +1,13 @@
 {
   "fill" : {
-    "automatic-gradient" : "srgb:0.90980,0.90196,0.87059,1.00000"
+    "automatic-gradient" : "srgb:0.05490,0.05490,0.06275,1.00000"
   },
   "groups" : [
     {
       "layers" : [
         {
-          "image-name" : "duck.png",
-          "name" : "Duck"
+          "image-name" : "mark.png",
+          "name" : "Mark"
         }
       ],
       "shadow" : {
