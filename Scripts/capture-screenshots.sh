@@ -348,11 +348,13 @@ final class ScreenshotCaptureTests: XCTestCase {
                       + "and this shot would ship without the shelf's headline affordance")
 
         // The hero is capped against the viewport (#159, fixed in #168), so the
-        // grid shows beside it; the modded game's tile is asserted after the
-        // shot, below.
+        // grid shows beside it. Assert the modded game's tile is on screen
+        // before the shot: `exists` alone passes for a cell that is in the
+        // hierarchy but scrolled off or covered.
+        let shelfTile = app.buttons["game-\(moddedGame)"]
+        XCTAssertTrue(shelfTile.exists && shelfTile.isHittable,
+                      "\(moddedGame) tile not visible on the shelf -- the grid is hidden again")
         shoot("01-play-tab")
-        XCTAssertTrue(app.buttons["game-\(moddedGame)"].exists,
-                      "\(moddedGame) tile not on the shelf shot -- the grid is hidden again")
 
 
         // Control Feel, now two levels deep: the gear opens the Settings sheet

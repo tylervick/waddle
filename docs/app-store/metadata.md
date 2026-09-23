@@ -145,11 +145,11 @@ editable **without** a review, so it can be changed between releases.
 > any of thousands of community-made maps and megawads. Zip archives and
 > DeHackEd patches are supported.
 >
-> **Every mod is a game.** Import a megawad and it lands on your shelf as
-> its own game, already paired with the right base game. Each game has one
-> page: add and reorder mods and patches, set the compatibility level
-> (vanilla, Boom, MBF, MBF21 - or auto), and find its saves, which are kept
-> per game.
+> **Every map set is a game.** Import a megawad and it lands on your shelf
+> as its own game, already paired with the right base game. Add-ons and
+> DeHackEd patches attach to any game from its page, where you also set the
+> load order and compatibility level (vanilla, Boom, MBF, MBF21 - or auto)
+> and find its saves, which are kept per game.
 >
 > **Play your way.** Touch controls with two schemes (classic twin-stick
 > and modern drag-to-turn) and adjustable feel - plus full support for
@@ -166,11 +166,14 @@ editable **without** a review, so it can be changed between releases.
 
 **Revised 2026-09-23 for version 1.2.** The Games and Files rework
 (`docs/superpowers/specs/2026-09-16-games-and-files-design.md`) removed
-presets: a mod is now a game on the shelf, paired to a base at import and
-edited in place on its game page. The intro's "a preset system" is gone, and
-the **Presets** paragraph is replaced by **Every mod is a game**, which
-describes the same capability (load order, compatibility level, saves per
-game) under the model that now ships.
+presets: an imported map set is now a game on the shelf, paired to a base at
+import, and add-ons and patches are attached on a game's page. The intro's "a
+preset system" is gone, and the **Presets** paragraph is replaced by **Every
+map set is a game**, which describes the same capability (load order,
+compatibility level, saves per game) under the model that now ships. It says
+"map set", not "mod", on purpose: a PWAD without maps and a DeHackEd patch do
+not become games (`LibraryService` creates one only for a map set), so "every
+mod" would promise something import does not do.
 
 ## 5. Keywords (100 chars max)
 
@@ -695,8 +698,8 @@ kept below it for the record.
 
 ### 1.2
 
-> Games are simpler: every mod you import is now its own game on your shelf,
-> already paired with the right base game. No presets to build.
+> Games are simpler: every map set you import is now its own game on your
+> shelf, already paired with the right base game. No presets to build.
 >
 > - One page per game. Tap a game to rename it, change its base game, add and
 >   reorder mods and patches, set compatibility and touch layout, and manage
