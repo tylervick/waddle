@@ -40,3 +40,14 @@ the tests finish). Until a green `main` build is promoted, pass `--build-id`
 from `revyl build list --app <id>`, or the run lands on whatever was last
 promoted by hand -- which on 2026-09-20 was a build from before the touch
 overlay was forced visible, and the agent had nothing to tap.
+
+**Update 2026-09-23 (CLI v0.1.119): `build.name: development` no longer binds
+a *new* test.** Pushing `session-start-state` with the same `build:` block as
+`menu-state-across-sessions` failed with the same "provide an app_id" message,
+through both `revyl test create --from-file` (with or without `--app`) and
+`revyl test push`. What worked: `revyl test create <name> --platform ios --app
+<app id>` with no `--from-file`, which creates an empty remote test and writes
+a local file whose `build.name` is the Revyl *app's* name (`Waddle`) plus its
+`_meta.remote_id`; copy the blocks into that file and `revyl test push`.
+Existing tests that say `development` keep working, because they already have
+a remote.
