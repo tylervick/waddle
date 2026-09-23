@@ -114,7 +114,8 @@ if os.path.exists(rl):
     left, sub = open(rl).read().strip().split(" ", 1)
     if int(left) > 0 and sub in f"{method} {url}":
         open(rl, "w").write(f"{int(left) - 1} {sub}")
-        reply(429, {"errors": [{"status": "429"}]}, headers="Retry-After: 7\r\n")
+        ra = open(F + "/retry-after").read().strip() if os.path.exists(F + "/retry-after") else "7"
+        reply(429, {"errors": [{"status": "429"}]}, headers=f"Retry-After: {ra}\r\n")
 api = "https://api.appstoreconnect.apple.com"
 path = (url or "").replace(api, "").split("?")[0]
 m = re.fullmatch
@@ -278,7 +279,7 @@ pass "token failure stops the run"
 setup; echo "1 POST https://api.appstoreconnect.apple.com/v1/appScreenshots" > "$TMP/w/fix/rate429"; run --apply --device iphone
 [ "$RC" = 0 ] || fail "a single 429 failed the run: $OUT"
 echo "$OUT" | grep -q "rate limited on POST" || fail "did not report the retry: $OUT"
-echo "$OUT" | grep -q "retrying in 0s" || fail "Retry-After of 7 was not capped by API_RETRY_MAX_SLEEP=0: $OUT"
+echo "$OUT" | grep -q "retrying in 0s (server asked 7s)" || fail "Retry-After of 7 was not read, or not capped by API_RETRY_MAX_SLEEP=0: $OUT"
 [ "$(grep -c '^POST ' "$TMP/w/calls.log")" = 7 ] || fail "expected 6 reservations plus 1 retried"
 pass "a 429 is retried after Retry-After"
 
@@ -299,5 +300,36 @@ echo "$OUT" | grep -q "version 1.2 (V1'2)" || fail "did not resolve the quoted i
 grep -q "appStoreVersions/V11/appStoreVersionLocalizations" "$TMP/w/calls.log" \
     || fail "stopped protecting the other version"
 pass "API ids are data, not code"
+
+# 17. Retry-After may be an HTTP-date. It is converted to seconds from now,
+#     not treated as garbage and replaced by the 30s fallback -- which could
+#     spend every retry before the window reopens.
+setup; echo "1 POST https://api.appstoreconnect.apple.com/v1/appScreenshots" > "$TMP/w/fix/rate429"
+python3 -c 'import email.utils, time; print(email.utils.formatdate(time.time() + 20, usegmt=True))' > "$TMP/w/fix/retry-after"
+run --apply --device iphone
+[ "$RC" = 0 ] || fail "an HTTP-date Retry-After failed the run: $OUT"
+echo "$OUT" | grep -qE "server asked (1[5-9]|2[01])s" || fail "HTTP-date not converted to ~20s: $OUT"
+pass "HTTP-date Retry-After converted to seconds"
+
+# 17b. An unusable Retry-After falls back to 30s, still under the cap.
+setup; echo "1 POST https://api.appstoreconnect.apple.com/v1/appScreenshots" > "$TMP/w/fix/rate429"
+echo "soon, probably" > "$TMP/w/fix/retry-after"; run --apply --device iphone
+[ "$RC" = 0 ] || fail "an unparseable Retry-After failed the run: $OUT"
+echo "$OUT" | grep -q "server asked nothing" || fail "unparseable Retry-After not reported as such: $OUT"
+pass "unparseable Retry-After falls back"
+
+# 18. A non-integer knob is refused before any call: as a comparison operand
+#     it errors instead of answering, and the retry loop would never stop.
+for knob in API_RETRIES=many API_RETRY_MAX_SLEEP=-1 UPLOAD_POLL_DELAY=1.5 UPLOAD_POLL_ATTEMPTS=0; do
+    setup
+    set +e
+    OUT="$(env PATH="$TMP/w/bin:/usr/bin:/bin" ASC_JWT="$TMP/w/jwt" SCREENSHOTS_DIR="$TMP/w/shots" \
+        ASC_APP_ID=APP "$knob" "$SCRIPT" --version 1.2 2>&1)"; RC=$?
+    set -e
+    [ "$RC" != 0 ] || fail "accepted $knob"
+    [ ! -s "$TMP/w/calls.log" ] || fail "made network calls with $knob"
+    echo "$OUT" | grep -q "${knob%%=*}" || fail "did not name the bad knob $knob: $OUT"
+done
+pass "non-integer or out-of-range knobs refused"
 
 echo "All upload-screenshots tests passed."

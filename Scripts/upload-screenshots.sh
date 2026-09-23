@@ -48,6 +48,17 @@ RETRIES="${API_RETRIES:-4}"
 RETRY_MAX_SLEEP="${API_RETRY_MAX_SLEEP:-120}"
 export LOCALE="en-US"
 
+# Every numeric knob feeds a `[ -le ]`/`-lt` comparison or `sleep`. A
+# non-integer there makes the test error instead of answering, and an erroring
+# bound is a loop that never stops -- so refuse it before any network call.
+for knob in "UPLOAD_POLL_ATTEMPTS=$POLL_ATTEMPTS" "UPLOAD_POLL_DELAY=$POLL_DELAY" \
+            "API_RETRIES=$RETRIES" "API_RETRY_MAX_SLEEP=$RETRY_MAX_SLEEP"; do
+    case "${knob#*=}" in
+        ''|*[!0-9]*) echo "error: ${knob%%=*} must be a non-negative integer, got '${knob#*=}'" >&2; exit 2 ;;
+    esac
+done
+[ "$POLL_ATTEMPTS" -ge 1 ] || { echo "error: UPLOAD_POLL_ATTEMPTS must be at least 1" >&2; exit 2; }
+
 # Slot order, pinned in metadata.md §12. Filenames are upload identifiers that
 # describe the slot they first held, not the screen they show now.
 SLOTS="05-ingame 01-play-tab 02-library 03-preset-editor 06-automap 04-control-feel"
@@ -130,6 +141,28 @@ echo "ok - local files: $(echo $DEVICES | wc -w | tr -d ' ') device set(s) x 6, 
 TOKEN="$("$ASC_JWT")" || die "could not mint an App Store Connect API token"
 if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::add-mask::$TOKEN"; fi
 
+# Seconds to wait from a response-header file's Retry-After, as an integer;
+# prints nothing when there is no usable value.
+retry_after_seconds() { # headers-file
+    python3 - "$1" <<'PY'
+import email.utils, sys, time
+for line in open(sys.argv[1], errors="replace"):
+    name, _, value = line.partition(":")
+    if name.strip().lower() != "retry-after":
+        continue
+    value = value.strip()
+    if value.isdigit():
+        print(int(value))
+    else:
+        try:
+            when = email.utils.parsedate_to_datetime(value).timestamp()
+        except (TypeError, ValueError):
+            break
+        print(max(0, int(when - time.time() + 0.999)))
+    break
+PY
+}
+
 # api METHOD URL [BODY_JSON] -- response body on stdout. The HTTP status is
 # checked here and never masked: a non-2xx prints Apple's error document and
 # fails, so a failed call can never be read as an empty answer. A 429 is the
@@ -153,11 +186,13 @@ api() {
             echo "error: $method $url -> HTTP 429 after $RETRIES retries" >&2
             return 1
         fi
-        # Retry-After in seconds; anything else (absent, an HTTP date) waits 30.
-        wait="$(tr -d '\r' < "$hdrs" | awk -F': *' 'tolower($1) == "retry-after" && $2 ~ /^[0-9]+$/ { print $2; exit }')"
-        wait="${wait:-30}"
+        # Retry-After is delay-seconds or an HTTP-date (RFC 9110 10.2.3); a
+        # date becomes the seconds until it. Absent or unparseable waits 30.
+        # Either way RETRY_MAX_SLEEP caps it.
+        asked="$(retry_after_seconds "$hdrs")" || asked=""
+        wait="${asked:-30}"
         [ "$wait" -le "$RETRY_MAX_SLEEP" ] || wait="$RETRY_MAX_SLEEP"
-        echo "rate limited on $method $url; retrying in ${wait}s ($n/$RETRIES)" >&2
+        echo "rate limited on $method $url; retrying in ${wait}s (server asked ${asked:-nothing}${asked:+s}) ($n/$RETRIES)" >&2
         sleep "$wait"
     done
     case "$code" in
