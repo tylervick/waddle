@@ -43,7 +43,21 @@ ASC_JWT="${ASC_JWT:-$ROOT/Scripts/asc-jwt.sh}"
 SHOTS_DIR="${SCREENSHOTS_DIR:-$ROOT/docs/app-store/screenshots}"
 POLL_ATTEMPTS="${UPLOAD_POLL_ATTEMPTS:-60}"
 POLL_DELAY="${UPLOAD_POLL_DELAY:-5}"
-LOCALE="en-US"
+# App Store Connect rate-limits per key and answers 429 with Retry-After.
+RETRIES="${API_RETRIES:-4}"
+RETRY_MAX_SLEEP="${API_RETRY_MAX_SLEEP:-120}"
+export LOCALE="en-US"
+
+# Every numeric knob feeds a `[ -le ]`/`-lt` comparison or `sleep`. A
+# non-integer there makes the test error instead of answering, and an erroring
+# bound is a loop that never stops -- so refuse it before any network call.
+for knob in "UPLOAD_POLL_ATTEMPTS=$POLL_ATTEMPTS" "UPLOAD_POLL_DELAY=$POLL_DELAY" \
+            "API_RETRIES=$RETRIES" "API_RETRY_MAX_SLEEP=$RETRY_MAX_SLEEP"; do
+    case "${knob#*=}" in
+        ''|*[!0-9]*) echo "error: ${knob%%=*} must be a non-negative integer, got '${knob#*=}'" >&2; exit 2 ;;
+    esac
+done
+[ "$POLL_ATTEMPTS" -ge 1 ] || { echo "error: UPLOAD_POLL_ATTEMPTS must be at least 1" >&2; exit 2; }
 
 # Slot order, pinned in metadata.md §12. Filenames are upload identifiers that
 # describe the slot they first held, not the screen they show now.
@@ -74,6 +88,7 @@ fi
 # The version string is spliced into the JSON filters below, so hold it to the
 # shape App Store Connect uses before it goes anywhere near them.
 printf '%s' "$VERSION" | grep -Eq '^[0-9]+(\.[0-9]+){0,2}$' || die "not a version number: $VERSION"
+export VERSION
 
 # Per device: committed directory, required pixel size (landscape), and the
 # App Store Connect display type the slot is uploaded as.
@@ -126,33 +141,79 @@ echo "ok - local files: $(echo $DEVICES | wc -w | tr -d ' ') device set(s) x 6, 
 TOKEN="$("$ASC_JWT")" || die "could not mint an App Store Connect API token"
 if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::add-mask::$TOKEN"; fi
 
+# Seconds to wait from a response-header file's Retry-After, as an integer;
+# prints nothing when there is no usable value.
+retry_after_seconds() { # headers-file
+    python3 - "$1" <<'PY'
+import email.utils, sys, time
+for line in open(sys.argv[1], errors="replace"):
+    name, _, value = line.partition(":")
+    if name.strip().lower() != "retry-after":
+        continue
+    value = value.strip()
+    if value.isdigit():
+        print(int(value))
+    else:
+        try:
+            when = email.utils.parsedate_to_datetime(value).timestamp()
+        except (TypeError, ValueError):
+            break
+        print(max(0, int(when - time.time() + 0.999)))
+    break
+PY
+}
+
 # api METHOD URL [BODY_JSON] -- response body on stdout. The HTTP status is
 # checked here and never masked: a non-2xx prints Apple's error document and
-# fails, so a failed call can never be read as an empty answer.
+# fails, so a failed call can never be read as an empty answer. A 429 is the
+# one status retried: Apple is saying "later", and says when in Retry-After.
 api() {
-    local method="$1" url="$2" body="${3:-}" out="$WORK/resp" code
-    if [ -n "$body" ]; then
-        printf '%s' "$body" > "$WORK/req"
-        code="$(curl -sS --connect-timeout 10 --max-time 120 -X "$method" \
-            -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-            --data-binary "@$WORK/req" -o "$out" -w '%{http_code}' "$url")" || return 1
-    else
-        code="$(curl -sS --connect-timeout 10 --max-time 120 -X "$method" \
-            -H "Authorization: Bearer $TOKEN" -o "$out" -w '%{http_code}' "$url")" || return 1
-    fi
+    local method="$1" url="$2" body="${3:-}" out="$WORK/resp" hdrs="$WORK/resp-headers" code wait n=0
+    if [ -n "$body" ]; then printf '%s' "$body" > "$WORK/req"; fi
+    while :; do
+        rm -f "$out" "$hdrs"
+        if [ -n "$body" ]; then
+            code="$(curl -sS --connect-timeout 10 --max-time 120 -X "$method" \
+                -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+                --data-binary "@$WORK/req" -D "$hdrs" -o "$out" -w '%{http_code}' "$url")" || return 1
+        else
+            code="$(curl -sS --connect-timeout 10 --max-time 120 -X "$method" \
+                -H "Authorization: Bearer $TOKEN" -D "$hdrs" -o "$out" -w '%{http_code}' "$url")" || return 1
+        fi
+        [ "$code" = 429 ] || break
+        n=$((n + 1))
+        if [ "$n" -gt "$RETRIES" ]; then
+            echo "error: $method $url -> HTTP 429 after $RETRIES retries" >&2
+            return 1
+        fi
+        # Retry-After is delay-seconds or an HTTP-date (RFC 9110 10.2.3); a
+        # date becomes the seconds until it. Absent or unparseable waits 30.
+        # Either way RETRY_MAX_SLEEP caps it.
+        asked="$(retry_after_seconds "$hdrs")" || asked=""
+        wait="${asked:-30}"
+        [ "$wait" -le "$RETRY_MAX_SLEEP" ] || wait="$RETRY_MAX_SLEEP"
+        echo "rate limited on $method $url; retrying in ${wait}s (server asked ${asked:-nothing}${asked:+s}) ($n/$RETRIES)" >&2
+        sleep "$wait"
+    done
     case "$code" in
-        2??) [ -f "$out" ] && cat "$out"; return 0 ;;
-        *) echo "error: $method $url -> HTTP $code" >&2; [ -f "$out" ] && cat "$out" >&2; echo >&2; return 1 ;;
+        2??) if [ -f "$out" ]; then cat "$out"; fi; return 0 ;;
+        *) echo "error: $method $url -> HTTP $code" >&2
+           if [ -f "$out" ]; then cat "$out" >&2; fi
+           echo >&2
+           return 1 ;;
     esac
 }
 
 # jq-free JSON reads. Each exits non-zero on a parse failure or a missing
 # field, which aborts the caller: an unparseable answer is never "none".
-json() { # python-expression-over-d -- reads the document on stdin
+# The expression is always a literal written in this file. Any VALUE it needs
+# (a version, an id from an API response) is read from `env`, never spliced
+# into the expression text: an id containing a quote must stay data.
+json() { # python-expression-over-d-and-env -- reads the document on stdin
     python3 -c '
-import json, sys
+import json, os, sys
 d = json.load(sys.stdin)
-r = eval(sys.argv[1])
+r = eval(sys.argv[1], {"d": d, "env": os.environ})
 if isinstance(r, list):
     for x in r: print(x)
 elif r is not None:
@@ -164,12 +225,13 @@ elif r is not None:
 resp="$(api GET "$API/v1/apps/$APP_ID/appStoreVersions?filter%5Bplatform%5D=IOS&limit=50")" \
     || die "could not list the app's versions"
 printf '%s' "$resp" > "$WORK/versions.json"
-VERSION_ROW="$(json "[f'{v[\"id\"]} {v[\"attributes\"].get(\"appVersionState\") or v[\"attributes\"].get(\"appStoreState\")}' for v in d['data'] if v['attributes']['versionString'] == '$VERSION']" < "$WORK/versions.json")" \
+VERSION_ROW="$(json "[f'{v[\"id\"]} {v[\"attributes\"].get(\"appVersionState\") or v[\"attributes\"].get(\"appStoreState\")}' for v in d['data'] if v['attributes']['versionString'] == env['VERSION']]" < "$WORK/versions.json")" \
     || die "could not read the version list"
 [ -n "$VERSION_ROW" ] || die "no iOS version $VERSION on App Store Connect -- create it first"
 read -r VERSION_ID VERSION_STATE <<EOF
 $VERSION_ROW
 EOF
+export VERSION_ID
 case "$EDITABLE_STATES" in
     *" $VERSION_STATE "*) ;;
     *) die "version $VERSION is $VERSION_STATE; its screenshots cannot be edited" ;;
@@ -180,7 +242,7 @@ echo "ok - version $VERSION ($VERSION_ID) is $VERSION_STATE"
 sets_of() { # version-id
     local r loc
     r="$(api GET "$API/v1/appStoreVersions/$1/appStoreVersionLocalizations?limit=50")" || return 1
-    loc="$(printf '%s' "$r" | json "[l['id'] for l in d['data'] if l['attributes']['locale'] == '$LOCALE']")" || return 1
+    loc="$(printf '%s' "$r" | json "[l['id'] for l in d['data'] if l['attributes']['locale'] == env['LOCALE']]")" || return 1
     [ -n "$loc" ] || return 0
     r="$(api GET "$API/v1/appStoreVersionLocalizations/$loc/appScreenshotSets?limit=50")" || return 1
     printf '%s' "$r" | json "[f'{s[\"id\"]} {s[\"attributes\"][\"screenshotDisplayType\"]}' for s in d['data']]"
@@ -191,7 +253,7 @@ sets_of "$VERSION_ID" > "$WORK/target-sets" || die "could not list version $VERS
 # 2. Every set on a version that is NOT editable -- the live listing and
 # anything in review -- is off limits. Collect their ids once.
 : > "$WORK/protected-sets"
-json "[f'{v[\"id\"]} {v[\"attributes\"].get(\"appVersionState\") or v[\"attributes\"].get(\"appStoreState\")}' for v in d['data'] if v['id'] != '$VERSION_ID']" \
+json "[f'{v[\"id\"]} {v[\"attributes\"].get(\"appVersionState\") or v[\"attributes\"].get(\"appStoreState\")}' for v in d['data'] if v['id'] != env['VERSION_ID']]" \
     < "$WORK/versions.json" > "$WORK/other-versions" || die "could not read the version list"
 while read -r vid vstate; do
     [ -n "$vid" ] || continue

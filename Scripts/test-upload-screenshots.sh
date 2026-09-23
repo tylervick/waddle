@@ -70,13 +70,14 @@ JSON
 import json, os, re, shutil, sys
 F = "$F"
 args = sys.argv[1:]
-method, out, wfmt, data, url, fflag = "GET", None, None, None, None, False
+method, out, wfmt, data, url, fflag, hdr = "GET", None, None, None, None, False, None
 i = 0
 while i < len(args):
     a = args[i]
     if a == "-X": method = args[i + 1]; i += 1
     elif a == "-o": out = args[i + 1]; i += 1
     elif a == "-w": wfmt = args[i + 1]; i += 1
+    elif a == "-D": hdr = args[i + 1]; i += 1
     elif a == "--data-binary": data = args[i + 1]; i += 1
     elif a in ("-H", "--connect-timeout", "--max-time"): i += 1
     elif a == "-f": fflag = True
@@ -92,7 +93,9 @@ def fail_here():
     p = F + "/fail"
     return os.path.exists(p) and open(p).read().strip() in f"{method} {url}"
 
-def reply(code, doc=None, path=None):
+def reply(code, doc=None, path=None, headers=""):
+    if hdr:
+        open(hdr, "w").write(f"HTTP/2 {code}\r\n{headers}\r\n")
     if fflag:
         if code >= 400: sys.exit(22)
         if out and out != "/dev/null":
@@ -105,13 +108,21 @@ def reply(code, doc=None, path=None):
     sys.exit(0)
 
 if fail_here(): reply(500, {"errors": [{"status": "500", "detail": "injected"}]})
+# Rate limit: "N substring" in F/rate429 answers the next N matching calls 429.
+rl = F + "/rate429"
+if os.path.exists(rl):
+    left, sub = open(rl).read().strip().split(" ", 1)
+    if int(left) > 0 and sub in f"{method} {url}":
+        open(rl, "w").write(f"{int(left) - 1} {sub}")
+        ra = open(F + "/retry-after").read().strip() if os.path.exists(F + "/retry-after") else "7"
+        reply(429, {"errors": [{"status": "429"}]}, headers=f"Retry-After: {ra}\r\n")
 api = "https://api.appstoreconnect.apple.com"
 path = (url or "").replace(api, "").split("?")[0]
 m = re.fullmatch
-if method == "GET" and m(r"/v1/apps/\w+/appStoreVersions", path): reply(200, path=F + "/versions.json")
-if method == "GET" and (r := m(r"/v1/appStoreVersions/(\w+)/appStoreVersionLocalizations", path)): reply(200, path=f"{F}/loc-{r[1]}.json")
-if method == "GET" and (r := m(r"/v1/appStoreVersionLocalizations/(\w+)/appScreenshotSets", path)): reply(200, path=f"{F}/sets-{r[1]}.json")
-if method == "GET" and (r := m(r"/v1/appScreenshotSets/(\w+)/appScreenshots", path)): reply(200, path=f"{F}/shots-{r[1]}.json")
+if method == "GET" and m(r"/v1/apps/[^/]+/appStoreVersions", path): reply(200, path=F + "/versions.json")
+if method == "GET" and (r := m(r"/v1/appStoreVersions/([^/]+)/appStoreVersionLocalizations", path)): reply(200, path=f"{F}/loc-{r[1]}.json")
+if method == "GET" and (r := m(r"/v1/appStoreVersionLocalizations/([^/]+)/appScreenshotSets", path)): reply(200, path=f"{F}/sets-{r[1]}.json")
+if method == "GET" and (r := m(r"/v1/appScreenshotSets/([^/]+)/appScreenshots", path)): reply(200, path=f"{F}/shots-{r[1]}.json")
 if method == "DELETE" and m(r"/v1/appScreenshots/[\w-]+", path): reply(204)
 if method == "POST" and path == "/v1/appScreenshots":
     req = json.load(open(data[1:]))["data"]
@@ -132,7 +143,7 @@ if method == "GET" and (r := m(r"/v1/appScreenshots/([\w-]+)", path)):
         "imageAsset": {"width": int(w), "height": int(h),
                        "templateUrl": f"https://render.example.invalid/{r[1]}/{{w}}x{{h}}bb.{{f}}"}}}})
 if method == "GET" and (url or "").startswith("https://render.example.invalid/"): reply(200, path=F + "/render.png")
-if method == "PATCH" and m(r"/v1/appScreenshotSets/\w+/relationships/appScreenshots", path): reply(204)
+if method == "PATCH" and m(r"/v1/appScreenshotSets/[^/]+/relationships/appScreenshots", path): reply(204)
 sys.stderr.write(f"stub curl: unhandled {method} {url}\n"); sys.exit(64)
 STUB
     chmod +x "$TMP/w/bin/curl"
@@ -143,7 +154,7 @@ STUB
 run() { # args... -- exit status in RC, combined output in OUT
     set +e
     OUT="$(env PATH="$TMP/w/bin:/usr/bin:/bin" ASC_JWT="$TMP/w/jwt" SCREENSHOTS_DIR="$TMP/w/shots" \
-        ASC_APP_ID=APP UPLOAD_POLL_DELAY=0 UPLOAD_POLL_ATTEMPTS=3 GITHUB_ACTIONS= \
+        ASC_APP_ID=APP UPLOAD_POLL_DELAY=0 UPLOAD_POLL_ATTEMPTS=3 API_RETRY_MAX_SLEEP=0 GITHUB_ACTIONS= \
         "$SCRIPT" --version 1.2 "$@" 2>&1)"
     RC=$?
     set -e
@@ -261,5 +272,64 @@ setup; printf '#!/bin/bash\nexit 1\n' > "$TMP/w/jwt"; run
 [ "$RC" != 0 ] || fail "ran without a token"
 [ ! -s "$TMP/w/calls.log" ] || fail "made network calls without a token"
 pass "token failure stops the run"
+
+# 14. One 429 is Apple saying "later": honour Retry-After (capped -- here to 0
+#     so the suite does not sleep) and carry on, instead of failing a run that
+#     may already have deleted the old shots.
+setup; echo "1 POST https://api.appstoreconnect.apple.com/v1/appScreenshots" > "$TMP/w/fix/rate429"; run --apply --device iphone
+[ "$RC" = 0 ] || fail "a single 429 failed the run: $OUT"
+echo "$OUT" | grep -q "rate limited on POST" || fail "did not report the retry: $OUT"
+echo "$OUT" | grep -q "retrying in 0s (server asked 7s)" || fail "Retry-After of 7 was not read, or not capped by API_RETRY_MAX_SLEEP=0: $OUT"
+[ "$(grep -c '^POST ' "$TMP/w/calls.log")" = 7 ] || fail "expected 6 reservations plus 1 retried"
+pass "a 429 is retried after Retry-After"
+
+# 15. ...but not forever: a persistent 429 fails, with the status in view.
+setup; echo "99 GET https://api.appstoreconnect.apple.com/v1/apps/" > "$TMP/w/fix/rate429"; run
+[ "$RC" != 0 ] || fail "retried a persistent 429 forever, or ignored it"
+echo "$OUT" | grep -q "HTTP 429 after 4 retries" || fail "wrong failure: $OUT"
+pass "persistent 429 fails after the retry limit"
+
+# 16. Ids come from the API and must stay data. The target version's id is
+#     compared against every other version's inside a python expression; it
+#     used to be spliced into that expression's text, so a quote in it was a
+#     syntax error at best and code at worst.
+setup; sed -i.bak "s/\"V12\"/\"V1'2\"/" "$TMP/w/fix/versions.json"
+cp "$TMP/w/fix/loc-V12.json" "$TMP/w/fix/loc-V1'2.json"; run
+[ "$RC" = 0 ] || fail "an id with a quote broke the run: $OUT"
+echo "$OUT" | grep -q "version 1.2 (V1'2)" || fail "did not resolve the quoted id: $OUT"
+grep -q "appStoreVersions/V11/appStoreVersionLocalizations" "$TMP/w/calls.log" \
+    || fail "stopped protecting the other version"
+pass "API ids are data, not code"
+
+# 17. Retry-After may be an HTTP-date. It is converted to seconds from now,
+#     not treated as garbage and replaced by the 30s fallback -- which could
+#     spend every retry before the window reopens.
+setup; echo "1 POST https://api.appstoreconnect.apple.com/v1/appScreenshots" > "$TMP/w/fix/rate429"
+python3 -c 'import email.utils, time; print(email.utils.formatdate(time.time() + 20, usegmt=True))' > "$TMP/w/fix/retry-after"
+run --apply --device iphone
+[ "$RC" = 0 ] || fail "an HTTP-date Retry-After failed the run: $OUT"
+echo "$OUT" | grep -qE "server asked (1[5-9]|2[01])s" || fail "HTTP-date not converted to ~20s: $OUT"
+pass "HTTP-date Retry-After converted to seconds"
+
+# 17b. An unusable Retry-After falls back to 30s, still under the cap.
+setup; echo "1 POST https://api.appstoreconnect.apple.com/v1/appScreenshots" > "$TMP/w/fix/rate429"
+echo "soon, probably" > "$TMP/w/fix/retry-after"; run --apply --device iphone
+[ "$RC" = 0 ] || fail "an unparseable Retry-After failed the run: $OUT"
+echo "$OUT" | grep -q "server asked nothing" || fail "unparseable Retry-After not reported as such: $OUT"
+pass "unparseable Retry-After falls back"
+
+# 18. A non-integer knob is refused before any call: as a comparison operand
+#     it errors instead of answering, and the retry loop would never stop.
+for knob in API_RETRIES=many API_RETRY_MAX_SLEEP=-1 UPLOAD_POLL_DELAY=1.5 UPLOAD_POLL_ATTEMPTS=0; do
+    setup
+    set +e
+    OUT="$(env PATH="$TMP/w/bin:/usr/bin:/bin" ASC_JWT="$TMP/w/jwt" SCREENSHOTS_DIR="$TMP/w/shots" \
+        ASC_APP_ID=APP "$knob" "$SCRIPT" --version 1.2 2>&1)"; RC=$?
+    set -e
+    [ "$RC" != 0 ] || fail "accepted $knob"
+    [ ! -s "$TMP/w/calls.log" ] || fail "made network calls with $knob"
+    echo "$OUT" | grep -q "${knob%%=*}" || fail "did not name the bad knob $knob: $OUT"
+done
+pass "non-integer or out-of-range knobs refused"
 
 echo "All upload-screenshots tests passed."
