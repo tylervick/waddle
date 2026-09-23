@@ -131,8 +131,8 @@ editable **without** a review, so it can be changed between releases.
 
 > **Play the classic-Doom-engine games you own, anywhere.**
 >
-> Waddle is a WAD player for iPhone and iPad: a game library, a preset
-> system and touch controls built around Woof! - the modern continuation
+> Waddle is a WAD player for iPhone and iPad: a game library and touch
+> controls built around Woof! - the modern continuation
 > of the Boom and MBF ports that faithfully preserves original gameplay
 > while supporting today's mods, up through the MBF21 standard.
 >
@@ -145,9 +145,11 @@ editable **without** a review, so it can be changed between releases.
 > any of thousands of community-made maps and megawads. Zip archives and
 > DeHackEd patches are supported.
 >
-> **Presets.** Combine a base game with mods and patches, set the load
-> order and compatibility level (vanilla, Boom, MBF, MBF21 - or auto), and
-> save the combination as a one-tap preset. Saves are kept per preset.
+> **Every mod is a game.** Import a megawad and it lands on your shelf as
+> its own game, already paired with the right base game. Each game has one
+> page: add and reorder mods and patches, set the compatibility level
+> (vanilla, Boom, MBF, MBF21 - or auto), and find its saves, which are kept
+> per game.
 >
 > **Play your way.** Touch controls with two schemes (classic twin-stick
 > and modern drag-to-turn) and adjustable feel - plus full support for
@@ -161,6 +163,14 @@ editable **without** a review, so it can be changed between releases.
 > licensed Freedoom data is bundled; commercial WADs must be imported by
 > you, from copies you own. This app is not affiliated with or endorsed by
 > id Software or Bethesda.
+
+**Revised 2026-09-23 for version 1.2.** The Games and Files rework
+(`docs/superpowers/specs/2026-09-16-games-and-files-design.md`) removed
+presets: a mod is now a game on the shelf, paired to a base at import and
+edited in place on its game page. The intro's "a preset system" is gone, and
+the **Presets** paragraph is replaced by **Every mod is a game**, which
+describes the same capability (load order, compatibility level, saves per
+game) under the model that now ships.
 
 ## 5. Keywords (100 chars max)
 
@@ -382,8 +392,8 @@ and the repo's COPYING.)
 ## 11. App Review notes
 
 > Waddle is an original iOS app for playing WAD-format games. It embeds
-> the GPL-licensed Woof! Doom engine; the interface, WAD library, import
-> pipeline, preset system and touch controls are the app's own.
+> the GPL-licensed Woof! Doom engine; the interface, game library, import
+> pipeline and touch controls are the app's own.
 >
 > To demo: no account or setup needed - tap the "Freedoom Phase 1" tile on
 > the home shelf. Both bundled base games (Freedoom Phase 1 and Phase 2)
@@ -406,6 +416,10 @@ and the repo's COPYING.)
 > One non-obvious control: a four-finger tap during gameplay summons the
 > iOS keyboard for classic cheat codes and save-name entry. It is
 > intentionally undiscoverable in the UI, matching the original games.
+
+**Revised 2026-09-23 for version 1.2:** "WAD library, import pipeline,
+preset system" became "game library, import pipeline" — presets no longer
+exist in the app, and a reviewer should not go looking for one.
 
 **Rewritten 2026-08-28 after the Guideline 4.3(a) rejection.** The version
 entered on 2026-08-13 opened by calling the app "a GPL source port of the
@@ -441,6 +455,38 @@ APIs at all.
 
 Captured by `Scripts/capture-screenshots.sh` into
 `docs/app-store/screenshots/<device>/` (see the script header for how).
+
+**Re-captured 2026-09-23 for version 1.2 — four slots of six.** The Games and
+Files rework shipped after the 1.1 set was taken, and three of its shots
+photographed screens that no longer exist: slot 3 was the Manage screen, slot 4
+the New Preset editor, and slot 2 a shelf whose toolbar still had the Manage
+door instead of Add. Slots 2, 3, 4 and 6 are new in both device sets.
+
+**Slots 1 and 5 (in-game, automap) are still the 1.1 shots, on purpose.** On
+the iOS 27 simulators the re-capture drew the engine into only part of the
+screen, with the shelf showing through beside it, on both the iPhone and the
+iPad. The 1.1 shots of the same flow on iOS 26 fill the screen, and the
+in-game overlay has not changed since, so they still show the shipping UI.
+Whether the partial render is a real iOS 27 bug or an artefact of the capture
+forcing landscape under XCUITest is not yet known — check on a device before
+the next re-capture replaces them.
+
+Slot 4 no longer builds a modded game by duplicating a base and renaming it.
+Importing SCYTHE.WAD already puts a SCYTHE game on the shelf, paired with
+Freedoom Phase 2 (spec §2.1), and that is the story §4 tells, so the shot is
+that game's page. The duplicate-and-rename path also stalled on iOS 27: the
+tap on the copy's name never raised the Rename alert.
+
+Two capture fixes came out of this. The iPhone simulator had to be recreated,
+because an Xcode upgrade left only iOS 27 simulators and "iPhone 17 Pro Max"
+was not among them, although its device type still was;
+`capture-screenshots.sh` now creates it on demand, as
+`ensure-ipad-simulator.sh` already did for the iPad. And the game page is
+scrolled by dragging inside its own collection view: the shared `scrollTo`
+swipes the whole app, and in forced landscape those swipes left the page at the
+top. The WADs came from `/idgames` (`levels/doom2/megawads/scythe.zip`,
+`levels/doom2/Ports/megawads/{sunlust,eviternityii}.zip`), unpacked into the
+layout the script expects.
 
 **Re-captured 2026-09-16 for version 1.1 (#127).** The 1.0 set photographed
 the retired two-tab shell; every shot in both device sets was replaced with
@@ -486,16 +532,13 @@ scroll edge effect under the floating tab bar.
 | Slot | Shot | File |
 |------|------|------|
 | 1 | In-game (Freedoom Phase 1, touch overlay) | `05-ingame.png` |
-| 2 | Play tab — Recently Played / Base Games / Presets, TITLEPIC tile art | `01-play-tab.png` |
-| 3 | Library — grouped into Base Games / Mods / Patches | `02-library.png` |
-| 4 | Preset editor — base game, mod load order, compatibility level | `03-preset-editor.png` |
+| 2 | Shelf — Continue hero over the game grid, TITLEPIC tile art | `01-play-tab.png` |
+| 3 | Files (Settings → Files) — grouped into Base games / Map sets / Add-ons | `02-library.png` |
+| 4 | Game page — SCYTHE, a map set paired with Freedoom Phase 2 at import: base game, Maps & Add-ons, compatibility | `03-preset-editor.png` |
 | 5 | Automap | `06-automap.png` |
 | 6 | Control Feel sheet | `04-control-feel.png` |
 
-Slot 2 is shot at the top of the Play list — what a user sees on launch.
-All three sections fit on iPad; a landscape iPhone shows Recently Played
-and the head of Base Games, because a tile is ~207 pt tall in a 440 pt
-viewport and three sections cannot fit however the shot is framed.
+Slot 2 is shot at the top of the shelf — what a user sees on launch.
 
 **EXIF orientation (fixed 2026-07-30 — do not reintroduce).** `sips
 --rotate 270`, which the export step uses to right the portrait pixel
@@ -644,3 +687,29 @@ release](https://www.videolan.org/press/lgpl-libvlc.html) ·
 is both the strongest "copyleft and the App Store cannot be reconciled" voice
 and the person who filed the 2011 complaint, which is worth knowing when
 weighing it.
+
+## 15. What's New in This Version (4000 chars max)
+
+Required on every update. Paste the current version's text; older versions are
+kept below it for the record.
+
+### 1.2
+
+> Games are simpler: every mod you import is now its own game on your shelf,
+> already paired with the right base game. No presets to build.
+>
+> - One page per game. Tap a game to rename it, change its base game, add and
+>   reorder mods and patches, set compatibility and touch layout, and manage
+>   its saves - all in place.
+> - Add games straight from the shelf. Storage and hidden games now live in
+>   Settings.
+> - Importing tells you what each file became: a game, an add-on, or a map
+>   set that still needs a base game.
+> - Fixed the main menu losing entries and episodes after playing several
+>   games in one session.
+> - Quick taps on the on-screen buttons are no longer dropped.
+
+Deliberately not listed: the virtual-pad selection and controller hand-off
+fixes (`e13fd2a`, `0244905`). The first only bit under automation's phantom
+controller, and the second fixed a regression the first introduced within this
+same release, so neither was ever broken for a player on 1.1.

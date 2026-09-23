@@ -46,6 +46,11 @@ OUT_ROOT="docs/app-store/screenshots"
 RESULTS_ROOT="${TMPDIR:-/tmp}/waddle-screenshots"
 
 IPHONE_NAME="iPhone 17 Pro Max"
+# The device TYPE is what fixes the 6.9" size class (2868x1320). A new Xcode
+# ships simulators for its own generation only, so after an upgrade the named
+# device can be gone while its type is still installed -- create it on demand,
+# as ensure-ipad-simulator.sh does for the iPad.
+IPHONE_TYPE="com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro-Max"
 # The iPad name and its CoreSimulator device type both live in
 # Scripts/ensure-ipad-simulator.sh, which also creates the device on demand.
 # Asking it rather than repeating the pair here is what keeps the device these
@@ -64,6 +69,17 @@ udid_for() {
         | head -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/'
 }
 
+ensure_iphone() {
+    [ -n "$(udid_for "$IPHONE_NAME")" ] && return
+    echo "== creating simulator: $IPHONE_NAME ($IPHONE_TYPE)" >&2
+    xcrun simctl create "$IPHONE_NAME" "$IPHONE_TYPE" >/dev/null
+    # Everything downstream finds the device by name, so prove it can.
+    if [ -z "$(udid_for "$IPHONE_NAME")" ]; then
+        echo "error: created $IPHONE_NAME but simctl does not list it" >&2
+        exit 1
+    fi
+}
+
 write_test() {
     cat > "$TEST_FILE" <<'EOF'
 import XCTest
@@ -79,13 +95,13 @@ import XCTest
 /// Play-tab shot a populated "Recently Played" section.
 final class ScreenshotCaptureTests: XCTestCase {
 
-    /// The modded game built for the marketing shots. SCYTHE is a
-    /// Doom-2-format megawad, so it belongs on Freedoom Phase 2; this name is
-    /// what gets typed into the rename field after duplicating the base, and
-    /// in turn what the tile's "game-<name>" identifier is built from.
-    private let presetBase = "Freedoom Phase 2"
-    private let presetPWAD = "SCYTHE"
-    private var presetName: String { "\(presetBase) + \(presetPWAD)" }
+    /// The modded game in the marketing shots. SCYTHE is a Doom-2-format map
+    /// set, so import pairs it with Freedoom Phase 2 and puts it on the shelf
+    /// as a game named after the file (spec §2.1) -- nothing to build by hand.
+    private let moddedGame = "SCYTHE"
+    /// Its row id on the game page, which shows the name without an extension
+    /// (the Files screen's rows use the full filename).
+    private let moddedFile = "SCYTHE"
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -145,6 +161,29 @@ final class ScreenshotCaptureTests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.5)
         }
         return element.exists
+    }
+
+    /// Scrolls the game page until `element` can be tapped. Not the shared
+    /// `scrollTo`: that swipes the whole app, and with the device forced to
+    /// landscape (which only this test does) those swipes left the page at the
+    /// top on the iOS 27 simulator -- scroll bar at 0% after six of them. A
+    /// drag between two points inside the page's own collection view is
+    /// resolved in the page's coordinates, whatever the device orientation.
+    @MainActor
+    private func scrollGamePage(_ app: XCUIApplication, to element: XCUIElement) {
+        let page = app.collectionViews["gamePage"]
+        XCTAssertTrue(page.waitForExistence(timeout: 5), "game page never appeared")
+        for _ in 0..<8 {
+            if element.exists && element.isHittable { return }
+            // Short steps, so the page stops as soon as `element` is in reach
+            // instead of overshooting the sections above it under the bar.
+            page.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+                .press(forDuration: 0.05,
+                       thenDragTo: page.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)))
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        XCTAssertTrue(element.exists && element.isHittable,
+                      "\(element) never scrolled into view on the game page")
     }
 
     /// Opens the player-settings sheet from the shelf's gear. The identifier is
@@ -269,44 +308,22 @@ final class ScreenshotCaptureTests: XCTestCase {
         shoot("02-library")
         closeSettings(app)
 
-        // The re-run probe. A modded game is a tile on the shelf the moment
-        // it exists (spec §3.2) — there is no separate list of "presets" any
-        // more — but the seeded Continue hero pushes the shelf's LazyVGrid
-        // below the fold, so scroll to decide rather than trusting a bare
-        // `exists`, or a re-run would read "no game" and create a duplicate.
-        let tile = app.buttons["game-\(presetName)"]
-        let tileExists = scrollIntoView(app, tile)
-
-        if tileExists {
-            // Re-run against a container that already has the game: open its
-            // page instead of creating a second one.
-            openGamePage(app, tile: "game-\(presetName)")
-            shoot("03-preset-editor")
-        } else {
-            // A modded game is a duplicate of its base game with files added
-            // (spec §3.2): Duplicate the base, open the copy, rename, Add….
-            let baseTile = app.buttons["game-\(presetBase)"]
-            XCTAssertTrue(scrollIntoView(app, baseTile), "\(presetBase) base tile missing from the shelf")
-            openGamePage(app, tile: "game-\(presetBase)")
-            // Landscape here (forceLandscape() above) pushes the footer
-            // further below the fold than the portrait UI tests ever see it.
-            scrollTo(app.buttons["duplicateButton"], in: app)
-            app.buttons["duplicateButton"].tap()
-            openGamePage(app, tile: "game-\(presetBase) copy")
-            app.buttons["gameNameButton"].tap()
-            let field = renameField(in: app)
-            XCTAssertTrue(field.waitForExistence(timeout: 5), "rename field never appeared")
-            clearAndType(field, presetName)
-            app.buttons["Save"].tap()
-            // Add the mod before shooting: a freshly-renamed page has no
-            // load-order list, which is the part worth photographing.
-            scrollTo(app.buttons["addFileButton"], in: app)
-            app.buttons["addFileButton"].tap()
-            let addFile = app.buttons["addFile-\(presetPWAD)"]
-            XCTAssertTrue(addFile.waitForExistence(timeout: 5), "\(presetPWAD) missing from the Add picker")
-            addFile.tap()
-            shoot("03-preset-editor")
-        }
+        // A map set is a game the moment it is imported (spec §2.1): SCYTHE
+        // arrives already paired with Freedoom Phase 2, which is the story the
+        // listing tells. Photograph that game's page, scrolled so Base game and
+        // Maps & Add-ons share the frame on a landscape phone.
+        let tile = app.buttons["game-\(moddedGame)"]
+        XCTAssertTrue(scrollIntoView(app, tile), "\(moddedGame) tile missing from the shelf")
+        openGamePage(app, tile: "game-\(moddedGame)")
+        XCTAssertTrue(app.buttons["basePicker"].label.contains("Freedoom Phase 2"),
+                      "\(moddedGame) is not paired with Freedoom Phase 2")
+        // Scroll first: the file rows sit below the fold, and a lazy list's
+        // off-screen rows are absent from the hierarchy, not merely hidden.
+        scrollGamePage(app, to: app.buttons["addFileButton"])
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "fileRow-\(moddedFile)")
+            .firstMatch.waitForExistence(timeout: 5),
+                      "\(moddedGame)'s page does not list \(moddedFile)")
+        shoot("03-preset-editor")
 
         // Back to the shelf for the home shot: one grid of base games and
         // modded games, tiles carrying extracted TITLEPIC art. This is what a
@@ -330,15 +347,12 @@ final class ScreenshotCaptureTests: XCTestCase {
                       "no Continue hero on the shelf — WADDLE_SEED_CONTINUE_SAVE did not take, "
                       + "and this shot would ship without the shelf's headline affordance")
 
-        // The modded game's tile is deliberately NOT asserted from the shelf
-        // here. Issue #159: the hero has no height cap, so on a landscape
-        // phone it fills the viewport and the LazyVGrid below it holds no
-        // cells in the accessibility hierarchy at all — scrolling does not
-        // recover them reliably. Once #159 lands and the grid is visible
-        // beside the hero, add `XCTAssertTrue(app.buttons["game-\(presetName)"].waitFor...)`
-        // back here, after the shot. Until then this shot is known to show the
-        // hero and nothing else, which is why #159 blocks the re-capture.
+        // The hero is capped against the viewport (#159, fixed in #168), so the
+        // grid shows beside it; the modded game's tile is asserted after the
+        // shot, below.
         shoot("01-play-tab")
+        XCTAssertTrue(app.buttons["game-\(moddedGame)"].exists,
+                      "\(moddedGame) tile not on the shelf shot -- the grid is hidden again")
 
 
         // Control Feel, now two levels deep: the gear opens the Settings sheet
@@ -365,6 +379,7 @@ EOF
 
 prepare() {
     echo "== prepare: temp UITest + xcodegen + build-for-testing"
+    ensure_iphone  # the build below names it as its destination
     write_test
     (cd App && xcodegen generate)
     # Concrete destination, not "generic/platform=iOS Simulator": the
