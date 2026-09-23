@@ -1,0 +1,86 @@
+# Replaces the App Store screenshots of one version with the sets committed
+# under docs/app-store/screenshots/, via Scripts/upload-screenshots.sh.
+#
+# Manual only, and a DRY RUN unless `apply` is ticked: the dry run resolves the
+# version and its sets, checks every local file, and proves no target set is
+# shared with the live listing -- all without changing anything. Run it first.
+#
+# `apply` refuses any ref but main: the screenshots that reach the store must
+# be the reviewed, merged ones, not a branch's.
+name: App Store screenshots
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Replace the screenshots on App Store Connect (unticked = dry run)
+        type: boolean
+        required: false
+        default: false
+      version:
+        description: App Store version, e.g. 1.2 (default = MARKETING_VERSION in App/project.yml)
+        type: string
+        required: false
+        default: ''
+
+# Two runs against one set would interleave deletes and uploads.
+concurrency:
+  group: app-store-screenshots
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  screenshots:
+    name: Screenshots
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Refuse to apply from a branch
+        if: ${{ inputs.apply && github.ref != 'refs/heads/main' }}
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          echo "::error::apply runs from main only (this is $REF). Merge first, or untick apply for a dry run."
+          exit 1
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install the App Store Connect API key
+        env:
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          umask 077
+          printf '%s' "$ASC_PRIVATE_KEY" | /usr/bin/base64 --decode > "$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
+
+      - name: Upload (or dry run)
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_PATH: ${{ runner.temp }}/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
+          APPLY: ${{ inputs.apply }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          # The tee below must not swallow the script's exit status.
+          set -o pipefail
+          set -- --device all
+          if [ "$APPLY" = "true" ]; then set -- "$@" --apply; fi
+          if [ -n "$VERSION" ]; then set -- "$@" --version "$VERSION"; fi
+          Scripts/upload-screenshots.sh "$@" | tee "$RUNNER_TEMP/upload.log"
+          {
+            echo "## App Store screenshots"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/upload.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the API key
+        if: always()
+        run: rm -f "$RUNNER_TEMP"/AuthKey_*.p8

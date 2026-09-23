@@ -143,8 +143,21 @@ and pick a value above the highest already in App Store Connect.
    (verify this URL resolves (HTTP 200) after PR #4 merges to main, before entering it in App Store Connect)
 - [ ] **Category:** Games → Action (§7)
 - [ ] **Copyright:** `© 2026 Tyler Vick; engine GPL-2.0` (§10)
-- [ ] **Screenshots:** upload from `docs/app-store/screenshots/` in the
-      slot order of §12 (6.9" iPhone set + 13" iPad set, six shots each).
+- [ ] **Screenshots:** run the **App Store screenshots** workflow, which
+      replaces both sets (6.9" iPhone, 13" iPad, six each) with
+      `docs/app-store/screenshots/` in the slot order of §12. Dry run first —
+      it changes nothing and proves no target set is shared with the live
+      listing — then again with `apply`, from `main`:
+
+      ```sh
+      gh workflow run app-store-screenshots.yml --ref main
+      gh workflow run app-store-screenshots.yml --ref main -f apply=true
+      ```
+
+      It deletes each set's old shots before uploading (a set holds at most
+      10), verifies every upload landed landscape, and pins the slot order.
+      Locally, `Scripts/upload-screenshots.sh [--apply]` does the same with
+      `ASC_KEY_ID`/`ASC_ISSUER_ID`/`ASC_KEY_PATH` set.
 
 ## 4. App Privacy + age rating + content rights
 
