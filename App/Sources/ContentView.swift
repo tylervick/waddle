@@ -74,6 +74,15 @@ struct ContentView: View {
                     .accessibilityIdentifier("menuGeometryLabel")
                     .padding(.bottom, 190)
             }
+            // And what the session that just ended started with, captured by
+            // the engine at the start of its game loop (issue #266).
+            if ProcessInfo.processInfo.environment["WADDLE_DEBUG_SESSION_START"] != nil,
+               lastExitCode != nil {
+                Text(String(cString: WoofIOS_DebugSessionStartState()))
+                    .font(.footnote.monospaced())
+                    .accessibilityIdentifier("sessionStartStateLabel")
+                    .padding(.bottom, 220)
+            }
             #endif
         }
         // Always dark, and set once at the root so it reaches the sheets,

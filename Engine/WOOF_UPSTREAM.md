@@ -353,6 +353,31 @@ only ever runs once):
   what depends on the previous game -- the list is candidates to read, not a
   verdict: tic counters, RNG state and heap pointers differ legitimately.
 
+- `src/d_main.c`, `src/dsdh_*.c`, `src/deh_strings.c`, `src/st_stuff.c`,
+  `src/s_sound.c`, `src/woof_ios.c`/`.h` -- the eighth through fourteenth
+  instances (issue #266), found by classifying the list above rather than
+  from a crash; `docs/engine-session-globals.md` has every variable and why.
+  `D_ResetSessionState()` (d_main.c, called from `WoofIOS_Run`) clears
+  `fast_exit`, the wipe state (`wipegamestate`, `screen_wipe_internal`),
+  `D_Display`'s memory of the previous frame (its function-local statics are
+  hoisted to file scope under `WOOF_IOS` for this), the demo-loop cursor
+  including `demoloop_prev` (a pointer into the previous session's loop, read
+  by the first `D_DoAdvanceDemo`), and the `autoload_paths` array that
+  `PrepareAutoloadPaths` appended to every session. Each `DSDH_*Init` frees its
+  `translate` hashmap, which otherwise handed back the previous session's
+  indices without growing the freshly reset array (`num_sfx` 811 in session
+  1, 700 after: indices past the end of `S_sfx`). `DEH_ResetColorStrings()`
+  clears the colorized-message table `ST_InitWidgets` appends to;
+  `LoadFacePatches` frees its arrays before appending; `S_ResetSessionMusic()`
+  (s_sound.c) restores the pristine `S_music` table and clears `mus_playing`,
+  which otherwise made a session that opened on the previous session's last
+  track skip starting it. `WoofIOS_DebugSessionStartState()` reports all of it
+  as captured at the diff's checkpoint, and
+  `WaddleUITests/SessionStartStateTests` requires it to match across sessions.
+  What the Freedoom sequence cannot make fail is tracked, not fixed: #268
+  (automap, HUD and SDL-object state), #269 (per-session memory growth), #270
+  (DEHACKED tables, including `deh_strings.c`'s substitution hash table).
+
 - `src/i_input.c`, `src/mn_menu.c`, `src/woof_ios.c`/`.h` -- input telemetry
   for the in-game debug HUD, added to explain why a Revyl farm device could
   open the menu from the overlay's menu button but neither USE nor the
