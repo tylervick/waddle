@@ -1,0 +1,33 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: 17f388cb-fd23-44d6-bf3e-b951e5ce26f8
+    remote_version: 2
+    local_version: 2
+    last_synced_at: "2026-09-23T16:48:45-07:00"
+    checksum: 242934cc4effe1b58e96b0418a034edc7bd693a4ebea4321e197e0868105bfe5
+test:
+    metadata:
+        name: session-start-state
+        platform: ios
+        tags:
+            - engine
+            - relaunch
+    build:
+        name: Waddle
+        system_prompt: This app has a Swift UI native menu system with an SDL3 game engine that can be started and stopped multiple times. The in-game menus can be best controlled with the overlay, swiping on the bottom-left for d-pad controls and "use" for select.
+    blocks:
+        - type: validation
+          step_description: The shelf lists Freedoom Phase 1 and Freedoom Phase 2 without any import step.
+        - type: instructions
+          step_description: 'Start Freedoom Phase 2 from the shelf. Then do nothing and wait: this build quits the engine by itself a few seconds after the game starts and returns to the shelf. Do not tap, swipe, kill or relaunch the app; the defect under test exists only while the same app process keeps running.'
+        - type: validation
+          step_description: 'The shelf is visible again with an ''Engine exited: 0'' label near the bottom and no error alert, and above it a line of small monospaced text that reads exactly: exit=0 wipe=3/-1 oldgs=-1 view=0 demoprev=0 autoload=3 states=1076 mobj=146 sfx=811 spr=245 colors=22 faces=42 music=1'
+        - type: instructions
+          step_description: Start Freedoom Phase 2 from the shelf again, then do nothing and wait for the engine to quit by itself and return to the shelf. Do not tap, swipe, kill or relaunch the app.
+        - type: validation
+          step_description: 'The shelf is visible again with an ''Engine exited: 0'' label, and the monospaced line reads exactly: exit=0 wipe=3/-1 oldgs=-1 view=0 demoprev=0 autoload=3 states=1076 mobj=146 sfx=811 spr=245 colors=22 faces=42 music=1. In particular music=1, not music=0; any other value in any field is a failure.'
+        - type: instructions
+          step_description: Start Freedoom Phase 1 from the shelf, then do nothing and wait for the engine to quit by itself and return to the shelf. Do not tap, swipe, kill or relaunch the app.
+        - type: validation
+          step_description: 'The shelf is visible again with an ''Engine exited: 0'' label, and the monospaced line reads exactly: exit=0 wipe=3/-1 oldgs=-1 view=0 demoprev=0 autoload=3 states=1076 mobj=146 sfx=811 spr=245 colors=22 faces=42 music=1. Any other value in any field is a failure.'
