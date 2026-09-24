@@ -14,6 +14,13 @@
 # text, so what the repo says is what the store shows, and the dry run makes
 # any drift visible before it is overwritten.
 #
+# Up to three writes (localization, App Review notes, build) with no
+# transaction across them -- App Store Connect offers none, and a rollback would
+# be more writes that can fail the same way. A failure part-way leaves an
+# editable, not-yet-live version partly updated, and a re-run converges: every
+# run diffs first and writes only what still differs. The build is checked
+# before any write, so the one refusal that is foreseeable happens up front.
+#
 # Usage:
 #   Scripts/update-store-listing.sh [--apply] [--version X.Y] [--build N]
 #
