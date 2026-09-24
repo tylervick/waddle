@@ -186,7 +186,7 @@ diff found a session inheriting from the one before it, captured when the
 session reached its game loop -- and every validation requires the exact
 string a fresh process reports:
 
-    exit=0 wipe=3/-1 oldgs=-1 view=0 demoprev=0 autoload=3 states=1076 mobj=146 sfx=811 spr=245 colors=22 faces=42 music=1
+    exit=0 wipe=3/-1 oldgs=-1 view=0 demoprev=0 autoload=3 states=1076 mobj=146 sfx=811 spr=245 colors=22 faces=42 music=1 arenas=352 compdb=40
 
 The same for both games, measured in the simulator on 2026-09-23. If a
 legitimate change moves a value (another autoload directory, a new DSDHacked

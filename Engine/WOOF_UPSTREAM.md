@@ -378,6 +378,18 @@ only ever runs once):
   (automap, HUD and SDL-object state), #269 (per-session memory growth), #270
   (DEHACKED tables, including `deh_strings.c`'s substitution hash table).
 
+- `src/p_setup.c`, `src/g_compatibility.c`, `src/m_arena.c` -- memory that
+  grew with every session (issue #269). `P_Init` reserved five fresh playsim
+  arenas each session (352 MB of address space) and never released the last
+  five; under `WOOF_IOS` it now clears and reuses them, since nothing is loaded
+  at that point and releasing the regions would leave any stale pointer into
+  them aimed at unmapped memory. It also frees the previous `seenstate_tab`
+  before allocating the next. `G_ParseCompDatabase` frees the previous
+  session's records before appending this session's. `M_DebugArenaReservedMB()`
+  and `G_DebugCompDatabaseSize()` feed the `arenas=` and `compdb=` fields of
+  `WoofIOS_DebugSessionStartState()`. Not fixed: the zone's PU_STATIC blocks,
+  about 1.6 MB per session, which need every holder audited first (#269).
+
 - `src/i_input.c`, `src/mn_menu.c`, `src/woof_ios.c`/`.h` -- input telemetry
   for the in-game debug HUD, added to explain why a Revyl farm device could
   open the menu from the overlay's menu button but neither USE nor the

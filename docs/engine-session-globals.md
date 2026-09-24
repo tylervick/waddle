@@ -46,8 +46,8 @@ The union of the two same-game runs is 446 variables; the cross-game run adds
 |---|---|---|
 | harmless | 366 | Rewritten before any read in the next session; the evidence cites the rewrite, or the gate that keeps it from being read until then. Where the rewrite orphans the old allocation, the row says so (#269 tracks the growth). |
 | shared | 30 | Deliberately outlives the session: a config-bound value, a cache whose key is still valid, a one-time registration, or the probe's own bookkeeping. |
-| reset | 16 | Read before being rewritten; now reset per session under `WOOF_IOS`, with a red/green test (below). |
-| follow-up | 63 | Read before being rewritten, confirmed in the code, but the Freedoom-only test cannot make it fail, or it is a leak rather than a stale read. Tracked: #268 (automap, HUD, SDL objects), #269 (memory growth), #270 (DEHACKED). |
+| reset | 23 | Read before being rewritten; now reset per session under `WOOF_IOS`, with a red/green test (below). |
+| follow-up | 56 | Read before being rewritten, confirmed in the code, but the Freedoom-only test cannot make it fail, or it is a leak rather than a stale read. Tracked: #268 (automap, HUD, SDL objects), #269 (the zone's PU_STATIC growth, still open), #270 (DEHACKED). |
 
 ## The resets, and the test that proves each
 
@@ -70,6 +70,7 @@ the resets turned into no-ops and nothing else changed.
 | `colors` | `color_strings`/`color_count` (`deh_strings.c`): a second copy of every colorized key message per session; `DEH_StringColorized` returns the first, the previous game's | `DEH_ResetColorStrings` | `colors 22 -> 88` |
 | `faces` | `facepatches`, `facebackpatches` (`st_stuff.c`): `LoadFacePatches` appended, and the status bar draws from index 0, session 1's faces | `LoadFacePatches` | `faces 42 -> 168` |
 | `music` | `mus_playing` (`s_sound.c`, not in the diff: its value is the same pointer both times) and `S_music` (`sounds.c`): a session that quit on the title page left its title track as `mus_playing`, and the next session of that game asked for the same track, hit the "already playing" early return and opened in silence (`player_thread_running 1 -> 0` in the `12s` diff). `S_music` also kept each track's lump number from the previous WAD directory | `S_ResetSessionMusic` | `music 1 -> 0` in the second 8 s session (the first test stays green: its sessions end in a demo level, on a different track) |
+| `arenas`, `compdb` | the five playsim arenas (`p_setup.c`), reserved afresh by every `P_Init` and never released: 352 MB of address space per session; and `comp_database` (`g_compatibility.c`), which every session appended woof.pk3's 40 COMPDB records to again. `seenstate_tab` goes with them, unmeasured (a few KB) | `P_Init` (clears and reuses the arenas), `G_ParseCompDatabase` | `arenas 352 -> 1408`, `compdb 40 -> 160` (four sessions) |
 
 ## The shortlist from the issue
 
@@ -91,7 +92,8 @@ pointer that keeps pointing at the same place, does not show:
 - `mus_playing` (`s_sound.c:83`): reset, above.
 - `autoload_paths` (`d_main.c:593`): reset, above; the diff showed only its effect on `next_priority`.
 - `hash_table` (`deh_strings.c:34`) and the DEHACKED tables patched in place (`weaponinfo`, ammo, `deh_misc`, `deh_filenames`): #270. Both Freedoom IWADs replace the same strings, so no Freedoom pair can show it.
-- `levels` (`p_dirty.c:88`): appended per completed level, never cleared: #269.
+- `levels` (`p_dirty.c:88`): appended per completed level and never cleared, and matched by episode and map number alone, so a later game's map of the same number could get an earlier game's line and side changes: #268 (it needs a completed level to show).
+- The zone (`z_zone.c`): never torn down, so every init-time PU_STATIC allocation is orphaned by the next session's. Measured by walking `blockbytag[PU_STATIC]`: 1591 KB after a fresh Phase 1 session, then about 1.6 MB more per session. Still open in #269; freeing the tag wholesale would free buffers some modules keep on purpose (`drawsegs`).
 - `AM_Start`'s `lastlevel`/`lastepisode`, `AM_ApplyColors`'s `first_time`: #268.
 
 
@@ -187,7 +189,7 @@ Runs: `12s`, `40s` and `x` as above. The first changed range is the byte offset 
 | `ybuff2` | `f_wipe.c:100` | 40s x | `+0x0 0000000000->28eddb1401` | harmless | wipe_initMelt f_wipe.c:108 Z_Mallocs fresh before any read. It is freed at f_wipe.c:267, and the wipe always completes inside one D_Display loop (d_main.c:402-414) |
 | `curry` | `f_wipe.c:101` | 40s x | `+0x0 0000000000->28eddb1401` | harmless | wipe_initMelt f_wipe.c:110 reassigns it to ybuff1 before doMelt/renderMelt read it |
 | `prevy` | `f_wipe.c:101` | 40s x | `+0x0 0000000000->28f3db1401` | harmless | wipe_initMelt f_wipe.c:111 reassigns it to ybuff2 before any read (f_wipe.c:132) |
-| `comp_database` | `g_compatibility.c:83` | 12s 40s x | `+0x1 5e5910->545413` | follow-up #269 | GROWS: G_ParseCompDatabase array_pushes every COMPDB record again each session (g_compatibility.c:156, d_main.c:2223). A duplicate match re-saves the already-patched comp as old_comp (:231), so the options leak to later maps |
+| `comp_database` | `g_compatibility.c:83` | 12s 40s x | `+0x1 5e5910->545413` | reset | G_ParseCompDatabase appended every COMPDB record again (40 per session). It now frees the previous records first (issue #269); SessionStartStateTests compdb= |
 | `demobuffer` | `g_game.c:112` | 40s x | `+0x0 0000000000->28c03e2c01` | harmless | Read only while demoplayback/demorecording, and those are set only after G_DoPlayDemo g_game.c:2062 or G_RecordDemo g_game.c:4272 reassigns it |
 | `maxdemosize` | `g_game.c:113` | 40s x | `+0x0 0000->ae29` | harmless | Reassigned by G_RecordDemo g_game.c:4269-4271 or G_DoPlayDemo-path g_game.c:2283 before its readers (g_game.c:1593, 1535) |
 | `demo_p` | `g_game.c:114` | 40s x | `+0x0 0000000000->15cf3e2c01` | harmless | Read only while demoplayback/demorecording (G_ReadDemoTiccmd g_game.c:1558); D_StartTitle clears demoplayback (d_main.c:517) and G_DoPlayDemo reassigns demo_p (g_game.c:2053/2062) first |
@@ -259,7 +261,7 @@ Runs: `12s`, `40s` and `x` as above. The first changed range is the byte offset 
 | `menu_buffer` | `mn_setup.c:283` | 12s 40s x | `+0x4c 30e69512->1088772c` | harmless | Scratch, written before every use (mn_setup.c:464,618,856). Diff at +0x4c is past its 66 bytes: local strings[] (mn_setup.c:2885,3042,3057) re-strdup'd by MN_InitMenuStrings; old copies leak |
 | `selectstrings` | `mn_setup.c:5029` | 12s 40s x | `+0x49 8dbf08->92682b` | harmless | Dynamic slots rewritten by MN_InitMenuStrings mn_setup.c:5143-5155 (d_main.c:2474). Caveat: str_screensize content comes from ST_StatusbarList's static cache st_stuff.c:2352, never rebuilt |
 | `net_player_name` | `net_client.c:119` | 12s 40s x | `+0x0 001f8e->50d795` | harmless | Config-bound string (M_BindStr d_main.c:2562), rewritten by M_LoadDefaults each session before net_client.c:1050 reads it; leaks the previous strdup |
-| `activeceilings_arena` | `p_ceilng.c:36` | 12s 40s x | `+0x0 d0918912->80ae462b` | follow-up #269 | GROWS: P_Init p_setup.c:1389 M_ArenaInit every session; old arena (32 MB mmap reserve m_arena.c:147, 1 MB commit, calloc'd struct+hashmap) is never released (no M_ArenaFree/I_ReleaseRegion caller) |
+| `activeceilings_arena` | `p_ceilng.c:36` | 12s 40s x | `+0x0 d0918912->80ae462b` | reset | P_Init reserved a new arena every session and never released the old one (352 MB of address space per session for all five). P_Init now clears and reuses them (issue #269); SessionStartStateTests arenas= |
 | `dirty_lines` | `p_dirty.c:23` | 40s x | `+0x0 0000000000->081e960501` | shared | m_array buffer kept for reuse; contents emptied by P_ClearDirtyArrays p_dirty.c:77 from G_DoLoadLevel g_game.c:1009 before P_SetupLevel and before any kf_memory.c:288 / kf_file.c:1252 keyframe read |
 | `dirty_sides` | `p_dirty.c:24` | 40s x | `+0x0 0000000000->084ed21301` | shared | m_array buffer kept for reuse; contents emptied by P_ClearDirtyArrays p_dirty.c:78 from G_DoLoadLevel g_game.c:1009 before P_SetupLevel and before any kf_memory.c:301 / kf_file.c:1266 keyframe read |
 | `tmflags` | `p_map.c:54` | 40s x | `+0x0 000000->620450` | harmless | Set p_map.c:270 P_TeleportMove / p_map.c:773 P_CheckPosition before PIT_* reads (p_map.c:662, 801) |
@@ -271,7 +273,7 @@ Runs: `12s`, `40s` and `x` as above. The first changed range is the byte offset 
 | `tmdropoffz` | `p_map.c:76` | 40s x | `+0x2 00->18` | harmless | Set p_map.c:288 P_TeleportMove / p_map.c:796 P_CheckPosition before reads (p_map.c:454-929) |
 | `spechit` | `p_map.c:90` | 40s x | `+0x0 0000000000->686f920501` | shared | Grow-only PU_STATIC scratch buffer (Z_Realloc p_map.c:465), zone never frees PU_STATIC so pointer+spechit_max stay consistent; entries read only below numspechit, reset p_map.c:292/799 |
 | `spechit_max` | `p_map.c:91` | 40s x | `+0x0 00->08` | shared | Capacity of the reusable PU_STATIC spechit buffer (p_map.c:464); stays paired with spechit, which z_zone.c never frees across sessions |
-| `msecnodes_arena` | `p_map.c:98` | 12s 40s x | `+0x0 a0918912->b0ae462b` | follow-up #269 | GROWS: P_Init p_setup.c:1388 M_ArenaInit every session; old arena (32 MB mmap reserve m_arena.c:147, 1 MB commit, struct+hashmap) never released |
+| `msecnodes_arena` | `p_map.c:98` | 12s 40s x | `+0x0 a0918912->b0ae462b` | reset | P_Init reserved a new arena every session and never released the old one (352 MB of address space per session for all five). P_Init now clears and reuses them (issue #269); SessionStartStateTests arenas= |
 | `bestslidefrac` | `p_map.c:1129` | 40s x | `+0x0 00->01` | harmless | Set to FRACUNIT+1 at p_map.c:1346 P_SlideMove before its only traversal PTR_SlideTraverse p_map.c:1299 reads it; no other readers |
 | `bestslideline` | `p_map.c:1131` | 40s x | `+0x0 0000000000->c071491501` | harmless | Written p_map.c:1304 PTR_SlideTraverse; read p_map.c:1408 only when bestslidefrac != FRACUNIT+1 (reset p_map.c:1346 P_SlideMove), so always this call's value |
 | `secondslideline` | `p_map.c:1132` | 40s x | `+0x0 0000000000->c071491501` | harmless | Write-only: assigned p_map.c:1302 PTR_SlideTraverse, never read anywhere |
@@ -301,11 +303,11 @@ Runs: `12s`, `40s` and `x` as above. The first changed range is the byte offset 
 | `itemrespawntime` | `p_mobj.c:954` | 40s x | `+0x0 00->21` | harmless | Read only at p_mobj.c:1085 P_RespawnSpecials when iquehead != iquetail; both zeroed p_setup.c:1352 P_SetupLevel before the first P_Ticker |
 | `iquehead` | `p_mobj.c:955` | 40s x | `+0x0 00->11` | harmless | Zeroed p_setup.c:1352 P_SetupLevel (with iquetail) before any read in P_RespawnSpecials p_mobj.c:1084 or push p_mobj.c:966 |
 | `hash` | `p_mobj.c:1047` | 40s x | `+0x0 0000000000->2837452c01` | harmless | PU_CACHE block with user &hash (p_mobj.c:1052); P_SetupLevel's Z_FreeTag(PU_CACHE) p_setup.c:1237 NULLs it (z_zone.c:108) before P_LoadThings; only readers p_mobj.c:1102/1306 run in a level |
-| `activeplats_arena` | `p_plats.c:35` | 12s 40s x | `+0x0 00928912->80b4462b` | follow-up #269 | GROWS: P_Init p_setup.c:1390 M_ArenaInit every session; old arena (32 MB mmap reserve m_arena.c:147, 1 MB commit, struct+hashmap) never released |
+| `activeplats_arena` | `p_plats.c:35` | 12s 40s x | `+0x0 00928912->80b4462b` | reset | P_Init reserved a new arena every session and never released the old one (352 MB of address space per session for all five). P_Init now clears and reuses them (issue #269); SessionStartStateTests arenas= |
 | `bulletslope` | `p_pspr.c:906` | 40s x | `+0x0 000000000000->56f1ffff3305` | harmless | Set p_pspr.c:917-926 P_BulletSlope, called before every read (p_pspr.c:962, 982, 1003, 1044, 1314); overrun emulation p_maputl.c:767 only writes |
 | `psp_interp` | `p_pspr.c:1134` | 40s x | `+0x0 00->01` | harmless | Rewritten every tic p_pspr.c:1221 P_MovePsprites; read r_things.c:879 only in a level and gated on oldleveltime < leveltime (reset p_setup.c:1254-1255) |
 | `oldsprite` | `p_pspr.c:1208` | 40s x | `+0x0 ffffffffffffffff->0100000000000000` | harmless | Read p_pspr.c:1221 before rewrite p_pspr.c:1224 on the first P_MovePsprites; only effect is psp_interp for one tic (cosmetic weapon lerp); upstream carries it across levels identically |
-| `seenstate_tab` | `p_setup.c:65` | 12s 40s x | `+0x1 3c->14` | follow-up #269 | GROWS: calloc(num_states) at p_setup.c:1393 P_Init every session, previous table never freed (only use p_mobj.c:91); small leak per session |
+| `seenstate_tab` | `p_setup.c:65` | 12s 40s x | `+0x1 3c->14` | reset | calloc(num_states) in P_Init every session, previous table never freed. P_Init frees it first (issue #269); a few KB, too small for the seam to see, so no field of its own |
 | `map` | `p_setup.c:91` | 40s x | `+0x0 00->01` | harmless | CheckMapFormat p_setup.c:1070ff rewrites every field except reject_built, which LoadMap p_setup.c:1058 / p_udmf.c:1372 sets before its only read p_setup.c:1372 |
 | `numvertexes` | `p_setup.c:98` | 40s x | `+0x0 0000->c80b` | harmless | Set p_setup.c:180 P_LoadVertexes via LoadMap, p_udmf.c:1011, or p_bsp.c:1153 during P_SetupLevel; readers level-only |
 | `vertexes` | `p_setup.c:99` | 40s x | `+0x2 000000->401501` | harmless | Set p_setup.c:183 P_LoadVertexes via LoadMap, p_udmf.c:1012, or p_bsp.c:1152 during P_SetupLevel; readers level-only |
@@ -323,7 +325,7 @@ Runs: `12s`, `40s` and `x` as above. The first changed range is the byte offset 
 | `sides` | `p_setup.c:117` | 40s x | `+0x0 0000000000->7877421501` | harmless | Set p_setup.c:649 P_LoadSideDefs via LoadMap or p_udmf.c:1095 in P_SetupLevel; readers level-only |
 | `sslines_indexes` | `p_setup.c:119` | 40s x | `+0x1 00000000->50cd1401` | harmless | P_InitSubsectorLines (p_setup.c:1280) frees the old malloc block p_bsp.c:166-169 (still valid, never freed elsewhere) and reallocates p_bsp.c:179; readers level-only |
 | `sslines` | `p_setup.c:120` | 40s x | `+0x1 00000000->c0fb0501` | harmless | P_InitSubsectorLines (p_setup.c:1280) frees the old malloc block p_bsp.c:172-175 and reallocates p_bsp.c:217 before any sight check reads it |
-| `world_arena` | `p_setup.c:122` | 12s 40s x | `+0x0 70918912->e0ae462b` | follow-up #269 | GROWS: P_Init p_setup.c:1386 M_ArenaInit every session; old arena (128 MB mmap reserve m_arena.c:147, 4+ MB committed and touched level data, struct+hashmap) never released |
+| `world_arena` | `p_setup.c:122` | 12s 40s x | `+0x0 70918912->e0ae462b` | reset | P_Init reserved a new arena every session and never released the old one (352 MB of address space per session for all five). P_Init now clears and reuses them (issue #269); SessionStartStateTests arenas= |
 | `bmapheight` | `p_setup.c:133` | 40s x | `+0x0 00->28` | harmless | Set in P_LoadBlockMap paths p_blockmap.c:371/449/719/736 (via LoadMap p_setup.c:1032) during P_SetupLevel; readers level-only |
 | `blockmap` | `p_setup.c:136` | 40s x | `+0x0 0000000000->3880412c01` | harmless | Set p_blockmap.c:771 P_LoadBlockMap during P_SetupLevel map load; readers level-only |
 | `blockmaplump` | `p_setup.c:139` | 40s x | `+0x0 0000000000->2880412c01` | harmless | Set p_blockmap.c:364/579/697/729 (each P_LoadBlockMap path) during P_SetupLevel map load; readers level-only |
@@ -343,7 +345,7 @@ Runs: `12s`, `40s` and `x` as above. The first changed range is the byte offset 
 | `thinkercap` | `p_tick.c:45` | 40s x | `+0x0 0000000000->409f401d01` | harmless | Reset p_tick.c:66 P_InitThinkers from P_SetupLevel p_setup.c:1239 before any walker; P_UnArchiveThinkers p_saveg.c:1173 walks it only after G_InitNew has already reset it |
 | `thinkerclasscap` | `p_tick.c:50` | 40s x | `+0x18 0000000000->e0c4f90401` | harmless | Reset p_tick.c:63-64 P_InitThinkers from P_SetupLevel p_setup.c:1239; readers (p_enemy.c:805/945/1043, p_inter.c:933) only run in a level |
 | `init_thinkers_count` | `p_tick.c:52` | 40s x | `+0x0 00->01` | shared | Monotonic generation counter (p_tick.c:68); persisting keeps m_cheat.c:1036 guard valid (stale last_mobj from session 1 never matches); resetting it would be unsafe |
-| `thinkers_arena` | `p_tick.c:54` | 12s 40s x | `+0x0 40918912->80a2462b` | follow-up #269 | GROWS: P_Init p_setup.c:1387 M_ArenaInit every session; old arena (128 MB mmap reserve m_arena.c:147, 2+ MB committed with session-1 thinkers, struct+hashmap) never released |
+| `thinkers_arena` | `p_tick.c:54` | 12s 40s x | `+0x0 40918912->80a2462b` | reset | P_Init reserved a new arena every session and never released the old one (352 MB of address space per session for all five). P_Init now clears and reuses them (issue #269); SessionStartStateTests arenas= |
 | `currentthinker` | `p_tick.c:137` | 40s x | `+0x0 0000000000->b0c4f90401` | harmless | Set p_tick.c:321 P_RunThinkers at loop start; the other write p_tick.c:157 happens only inside that loop; no other reader |
 | `onground` | `p_user.c:59` | 40s x | `+0x0 00->01` | harmless | Set p_user.c:204 P_MovePlayer / p_user.c:282 P_DeathThink from P_PlayerThink p_tick.c:396, which runs before P_RunThinkers p_tick.c:399 reaches the only reader p_map.c:1178 |
 | `curline` | `r_bsp.c:40` | 40s x | `+0x0 0000000000->e0be581501` | harmless | Set by R_AddLine r_bsp.c:405 (and R_RenderMaskedSegRange r_segs.c:182) before every use; render scratch read only in R_RenderPlayerView (after P_SetupLevel) |
