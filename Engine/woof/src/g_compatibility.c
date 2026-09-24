@@ -96,6 +96,18 @@ static int GetComp(const char *name)
 
 void G_ParseCompDatabase(void)
 {
+#ifdef WOOF_IOS
+    // Runs once per session here and appended every record again: 40 more
+    // per session with woof.pk3's COMPDB (issue #269).
+    comp_record_t *old;
+    array_foreach(old, comp_database)
+    {
+        array_free(old->options);
+        free(old->complevel);
+    }
+    array_free(comp_database);
+#endif
+
     json_t *json = JS_Open("COMPDB", "compatibility", (version_t){1, 0, 0});
     if (json == NULL)
     {
@@ -158,6 +170,14 @@ void G_ParseCompDatabase(void)
 
     JS_Close("COMPDB");
 }
+
+#ifdef WOOF_IOS
+// Debug seam for WoofIOS_DebugSessionStartState (issue #269).
+int G_DebugCompDatabaseSize(void)
+{
+    return array_size(comp_database);
+}
+#endif
 
 static void MD5UpdateLump(int lump, struct MD5Context *md5)
 {

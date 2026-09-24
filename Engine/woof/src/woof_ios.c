@@ -785,12 +785,16 @@ void WoofIOS_DebugSessionStartCheckpoint(void)
     extern int DEH_DebugColorCount(void);
     extern int ST_DebugFaceCount(void);
     extern int S_DebugMusicStarted(void);
+    extern int M_DebugArenaReservedMB(void);
+    extern int G_DebugCompDatabaseSize(void);
     extern int num_states, num_mobj_types, num_sfx, num_sprites;
     snprintf(session_start_state, sizeof(session_start_state),
-             "%s states=%d mobj=%d sfx=%d spr=%d colors=%d faces=%d music=%d",
+             "%s states=%d mobj=%d sfx=%d spr=%d colors=%d faces=%d music=%d"
+             " arenas=%d compdb=%d",
              D_DebugSessionState(), num_states, num_mobj_types, num_sfx,
              num_sprites, DEH_DebugColorCount(),
-             ST_DebugFaceCount(), S_DebugMusicStarted());
+             ST_DebugFaceCount(), S_DebugMusicStarted(), M_DebugArenaReservedMB(),
+             G_DebugCompDatabaseSize());
 }
 
 const char *WoofIOS_DebugSessionStartState(void)

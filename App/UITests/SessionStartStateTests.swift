@@ -50,9 +50,11 @@ final class SessionStartStateTests: XCTestCase {
 
         // Game-independent: what upstream's one run per process starts with.
         // wipe=3/-1 is GS_DEMOSCREEN / wipe_Invalid, oldgs=-1 is GS_NONE.
-        // music=1: the title page started its track.
+        // music=1: the title page started its track. arenas=352 is the five
+        // playsim arenas' reservation in MB, and compdb=40 woof.pk3's COMPDB
+        // records: both grew by that much per session until issue #269.
         let pristine = ["exit": "0", "wipe": "3/-1", "oldgs": "-1", "view": "0", "demoprev": "0",
-                        "music": "1"]
+                        "music": "1", "arenas": "352", "compdb": "40"]
         for (name, state) in [("session 1", phase1Fresh), ("session 2", phase2First),
                               ("session 3", phase2Second), ("session 4", phase1Again)] {
             let fields = Self.fields(state)

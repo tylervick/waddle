@@ -83,7 +83,9 @@ const char *WoofIOS_DebugMenuGeometry(void);
 //    oldgs=<D_Display's oldgamestate> view=<viewactivestate>
 //    demoprev=<demoloop_prev set> autoload=<autoload dirs> states=<n>
 //    mobj=<n> sfx=<n> spr=<n> colors=<colorized messages>
-//    faces=<status-bar face patches> music=<songs started this session>"
+//    faces=<status-bar face patches> music=<songs started this session>
+//    arenas=<MB of address space reserved by live arenas>
+//    compdb=<compatibility database records>"
 // Two sessions of one game must report the same string. Empty before the
 // first session reaches its game loop.
 const char *WoofIOS_DebugSessionStartState(void);
