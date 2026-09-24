@@ -254,3 +254,27 @@ char *Z_StrDup(const char *orig, pu_tag tag)
 // ???
 //
 //-----------------------------------------------------------------------------
+
+#ifdef WOOF_IOS
+// KB of live blocks under one tag that have no owner pointer: everything a
+// module allocated for itself, as opposed to cached lumps, which name
+// &lumpcache[i] as owner. Debug seam for WoofIOS_DebugSessionStartZoneKB
+// (issue #269).
+int Z_DebugUnownedKB(pu_tag tag)
+{
+  size_t total = 0;
+  memblock_t *block = blockbytag[tag];
+  if (block)
+  {
+    do
+    {
+      if (!block->user)
+      {
+        total += block->size;
+      }
+      block = block->next;
+    } while (block != blockbytag[tag]);
+  }
+  return (int)(total / 1024);
+}
+#endif

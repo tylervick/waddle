@@ -90,6 +90,12 @@ const char *WoofIOS_DebugMenuGeometry(void);
 // first session reaches its game loop.
 const char *WoofIOS_DebugSessionStartState(void);
 
+// Debug/test telemetry only: KB of PU_STATIC zone memory with no owner
+// pointer (module-owned tables, not cached lumps) when the most recent
+// session reached its game loop. Two title-only sessions of one game should
+// report about the same; every session used to add ~1.4 MB (issue #269).
+int WoofIOS_DebugSessionStartZoneKB(void);
+
 // Debug/test telemetry only: what the engine sees of the overlay's input,
 // for the in-game debug HUD --
 //   "pad=<name> <virtual|foreign|none> pads=<count> btn=<events> menu=<item|off>"

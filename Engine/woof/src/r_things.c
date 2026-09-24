@@ -207,7 +207,25 @@ void R_InitSpriteDefs(char **namelist)
   if (!numentries || !*namelist)
     return;
 
+#ifdef WOOF_IOS
+  // Once per session here; the previous session's definitions were orphaned
+  // (issue #269). num_sprites is already this session's, so remember ours.
+  static int sprites_count;
+  if (sprites)
+  {
+    for (i = 0; i < sprites_count; i++)
+    {
+      Z_Free(sprites[i].spriteframes);
+    }
+    Z_Free(sprites);
+    sprites = NULL;
+  }
+#endif
+
   sprites = Z_Calloc(num_sprites, sizeof(*sprites), PU_STATIC, NULL);
+#ifdef WOOF_IOS
+  sprites_count = num_sprites; // counted only once the table exists
+#endif
 
   // Create hash table based on just the first four letters of each sprite
   // killough 1/31/98

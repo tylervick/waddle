@@ -390,6 +390,37 @@ only ever runs once):
   `WoofIOS_DebugSessionStartState()`. Not fixed: the zone's PU_STATIC blocks,
   about 1.6 MB per session, which need every holder audited first (#269).
 
+- `src/r_data.c`, `src/r_main.c`, `src/r_things.c`, `src/r_tranmap.c`,
+  `src/r_voxel.c`, `src/z_zone.c` -- the renderer half of that zone growth
+  (#269). Tracing every block's allocation site showed which session-1 zone
+  blocks were still alive at session 2's checkpoint: 3021 KB, most of it
+  tables the renderer re-allocates every session. Under `WOOF_IOS` each init
+  now frees its own previous block before allocating the next:
+  `R_InitTextures` (every per-texture table, composites first, since each
+  composite names `&texturecomposite[i]` as its zone owner), `R_InitFlats`,
+  `R_InitSpriteLumps`, `R_InitColormaps` (the array; the lumps stay cached),
+  `R_InitLightTables`, `R_InitTranMap` (the generated maps, never a TRANMAP
+  lump), `R_InitSpriteDefs` and `VX_Init` (both remember the sprite count they
+  allocated for, because `num_sprites` is already the next session's).  A session can end in `I_Error` part-way through any of these (a malformed
+  texture directory, say), so each free is bounded by what was actually
+  allocated and zeroed, and every freed global is NULLed before the next
+  allocation: `R_InitTextures` zeroes its pointer tables as soon as they
+  exist and counts them in `texture_slots`, and `VX_Init` does the same for
+  `all_voxels`. `WADDLE_DEBUG_FAIL_TEXTURES` (test-only, `r_data.c`) injects
+  that failure; without the bounds, the session after it crashed. What
+  survives is 1004 KB, mostly the lump cache. Freeing that in `W_Close` was
+  tried and reverted: stale lump pointers from the previous session (the
+  automap's `marknums` through the stale `stopped` flag, for one) are passed
+  back to `Z_ChangeTag` in session 2, and session 2 died with "an owner is
+  required for purgable blocks" and "freed a pointer without ZONEID". The
+  leaked blocks were what kept those pointers harmless, so the lump cache waits
+  for the holders to be audited (#268, #269). `Z_DebugUnownedKB()` feeds
+  `WoofIOS_DebugSessionStartZoneKB()`, which `SessionStartStateTests` bounds
+  across two title-only sessions. Checked under AddressSanitizer as well (engine
+  and app instrumented; ten sessions across the smoke, menu-table and
+  session-start tests, no report); `GlobalsDiffProbeTests` cannot run under it,
+  because the probe's whole-section `memcpy` crosses ASan's global redzones.
+
 - `src/i_input.c`, `src/mn_menu.c`, `src/woof_ios.c`/`.h` -- input telemetry
   for the in-game debug HUD, added to explain why a Revyl farm device could
   open the menu from the overlay's menu button but neither USE nor the

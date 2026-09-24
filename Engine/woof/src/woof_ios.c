@@ -35,6 +35,7 @@
 #include "doomtype.h" // `boolean` typedef backing the `menuactive` extern below
 #include "i_printf.h"
 #include "m_argv.h"
+#include "z_zone.h"  // pu_tag for the session-start seam
 
 void D_DoomMain(void);
 
@@ -778,6 +779,9 @@ const char *WoofIOS_DebugInputState(void)
 // this one started with. WaddleUITests/SessionStartStateTests compares the
 // string across sessions of the same game.
 static char session_start_state[256];
+// Kept apart from the string: it differs between games, and the string is
+// compared exactly (here and by .revyl/tests/session-start-state.yaml).
+static int session_start_zone_kb;
 
 void WoofIOS_DebugSessionStartCheckpoint(void)
 {
@@ -787,6 +791,7 @@ void WoofIOS_DebugSessionStartCheckpoint(void)
     extern int S_DebugMusicStarted(void);
     extern int M_DebugArenaReservedMB(void);
     extern int G_DebugCompDatabaseSize(void);
+    extern int Z_DebugUnownedKB(pu_tag tag);
     extern int num_states, num_mobj_types, num_sfx, num_sprites;
     snprintf(session_start_state, sizeof(session_start_state),
              "%s states=%d mobj=%d sfx=%d spr=%d colors=%d faces=%d music=%d"
@@ -795,11 +800,17 @@ void WoofIOS_DebugSessionStartCheckpoint(void)
              num_sprites, DEH_DebugColorCount(),
              ST_DebugFaceCount(), S_DebugMusicStarted(), M_DebugArenaReservedMB(),
              G_DebugCompDatabaseSize());
+    session_start_zone_kb = Z_DebugUnownedKB(PU_STATIC);
 }
 
 const char *WoofIOS_DebugSessionStartState(void)
 {
     return session_start_state;
+}
+
+int WoofIOS_DebugSessionStartZoneKB(void)
+{
+    return session_start_zone_kb;
 }
 
 const char *WoofIOS_DebugMenuGeometry(void)
