@@ -118,6 +118,13 @@ enum EngineSession {
         if ProcessInfo.processInfo.environment["WADDLE_TEST_WARP"] != nil {
             effectiveArguments += ["-warp", "1", "-skill", "1"]
         }
+        // Test-only: I_Error's own SDL message box (I_ErrorMsg) runs a modal
+        // loop an XCUITest tap does not dismiss, so a test that makes the
+        // engine fail on purpose turns it off; the launcher's own "Couldn't
+        // run this game" alert still carries the message.
+        if ProcessInfo.processInfo.environment["WADDLE_TEST_NOGUI"] != nil {
+            effectiveArguments += ["-nogui"]
+        }
         #endif
 
         var argv: [UnsafeMutablePointer<CChar>?] = effectiveArguments.map { strdup($0) }

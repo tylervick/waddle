@@ -114,6 +114,63 @@ final class SessionStartStateTests: XCTestCase {
             "module-owned zone memory grew by \(b - a) KB between two title-only sessions (\(a) -> \(b))")
     }
 
+    /// Review of #276: R_InitTextures now frees the previous session's texture
+    /// tables, so a session that died in I_Error part-way through them must
+    /// not leave the next one freeing uninitialised or already-freed slots.
+    /// WADDLE_DEBUG_FAIL_TEXTURES (r_data.c) makes session 1 fail at texture
+    /// 100, after the tables exist but before most slots are filled, and
+    /// session 3 fail before the tables are allocated at all. MallocScribble
+    /// fills fresh allocations with 0xAA, so an unfilled slot is garbage
+    /// rather than whatever zeros the allocator happened to hand back.
+    @MainActor
+    func testTextureInitFailureDoesNotBreakTheNextSession() throws {
+        autoquitSeconds = 8.0
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
+        app.launchEnvironment["WADDLE_DEBUG_FAIL_TEXTURES"] = "1:100,3:-1"
+        app.launchEnvironment["MallocScribble"] = "1"
+        app.launchEnvironment["WADDLE_TEST_NOGUI"] = "1"
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Waddle"].waitForExistence(timeout: 90),
+                      "launcher UI never appeared")
+        let ok = app.alerts.buttons["OK"]
+        if ok.waitForExistence(timeout: 3) { ok.tap() }
+
+        let phase2 = app.buttons.matching(NSPredicate(format:
+            "identifier BEGINSWITH 'game-' AND identifier CONTAINS 'Freedoom Phase 2'"))
+            .firstMatch
+
+        failInit(app, tile: phase2, name: "f1-fails-at-texture-100")
+        _ = play(app, tile: phase2, name: "f2-after-a-partial-init")
+        failInit(app, tile: phase2, name: "f3-fails-before-the-tables")
+        _ = play(app, tile: phase2, name: "f4-after-a-failure-before-the-tables")
+    }
+
+    /// Starts a session that WADDLE_DEBUG_FAIL_TEXTURES makes fail, dismisses
+    /// whatever error dialogs it raises, and checks it did fail.
+    private func failInit(_ app: XCUIApplication, tile: XCUIElement, name: String,
+                          file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(tile.waitForExistence(timeout: 30), "\(name): tile missing",
+                      file: file, line: line)
+        let exitLabel = app.staticTexts["engineExitLabel"]
+        tile.tap()
+        // The session fails during init, too fast for the previous exit label
+        // to be seen clearing; the launcher's alert is the signal that it has
+        // returned (WADDLE_TEST_NOGUI keeps SDL's own message box away).
+        let alert = app.alerts["Couldn't run this game"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 60),
+                      "\(name): no engine error alert; did the injected texture failure fire?",
+                      file: file, line: line)
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(
+            format: "label CONTAINS 'WADDLE_DEBUG_FAIL_TEXTURES'")).firstMatch.exists,
+            "\(name): the engine failed, but not where the test made it fail", file: file, line: line)
+        alert.buttons["OK"].tap()
+        XCTAssertTrue(exitLabel.waitForExistence(timeout: 10),
+                      "\(name): no exit label after the failure", file: file, line: line)
+        XCTAssertNotEqual(exitLabel.label, "Engine exited: 0",
+                          "\(name): the session did not fail", file: file, line: line)
+    }
+
     /// `zowned=<KB>` from the label shown next to the session-start string.
     private func zoneKB(_ app: XCUIApplication, name: String) -> Int? {
         let label = app.staticTexts["sessionStartZoneLabel"]

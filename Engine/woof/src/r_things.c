@@ -218,11 +218,14 @@ void R_InitSpriteDefs(char **namelist)
       Z_Free(sprites[i].spriteframes);
     }
     Z_Free(sprites);
+    sprites = NULL;
   }
-  sprites_count = num_sprites;
 #endif
 
   sprites = Z_Calloc(num_sprites, sizeof(*sprites), PU_STATIC, NULL);
+#ifdef WOOF_IOS
+  sprites_count = num_sprites; // counted only once the table exists
+#endif
 
   // Create hash table based on just the first four letters of each sprite
   // killough 1/31/98

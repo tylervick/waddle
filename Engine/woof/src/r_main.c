@@ -422,6 +422,7 @@ void R_InitLightTables (void)
   Z_Free(zlightindex);
   Z_Free(scalelightindex);
   Z_Free(scalelightoffset);
+  zlightoffset = zlightindex = scalelightindex = scalelightoffset = NULL;
 #endif
   zlightoffset = (int*)Z_Malloc(sizeof(int) * NumZLightEntries, PU_STATIC, NULL);
   zlightindex  = (int*)Z_Malloc(sizeof(int) * NumZLightEntries, PU_STATIC, NULL);

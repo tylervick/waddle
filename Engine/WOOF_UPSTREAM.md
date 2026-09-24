@@ -401,7 +401,13 @@ only ever runs once):
   `R_InitSpriteLumps`, `R_InitColormaps` (the array; the lumps stay cached),
   `R_InitLightTables`, `R_InitTranMap` (the generated maps, never a TRANMAP
   lump), `R_InitSpriteDefs` and `VX_Init` (both remember the sprite count they
-  allocated for, because `num_sprites` is already the next session's). What
+  allocated for, because `num_sprites` is already the next session's).  A session can end in `I_Error` part-way through any of these (a malformed
+  texture directory, say), so each free is bounded by what was actually
+  allocated and zeroed, and every freed global is NULLed before the next
+  allocation: `R_InitTextures` zeroes its pointer tables as soon as they
+  exist and counts them in `texture_slots`, and `VX_Init` does the same for
+  `all_voxels`. `WADDLE_DEBUG_FAIL_TEXTURES` (test-only, `r_data.c`) injects
+  that failure; without the bounds, the session after it crashed. What
   survives is 1004 KB, mostly the lump cache. Freeing that in `W_Close` was
   tried and reverted: stale lump pointers from the previous session (the
   automap's `marknums` through the stale `stopped` flag, for one) are passed

@@ -284,8 +284,14 @@ void VX_Init (void)
 #ifdef WOOF_IOS
 	// Once per session here; the previous session's tables were orphaned
 	// (issue #269). Each model belongs to one frame (VX_Load).
+	// Bounded by what the previous VX_Init allocated and zeroed, and each
+	// row checked, in case it ended in I_Error part-way through.
 	for (spr = 0 ; spr < all_voxels_count ; spr++)
 	{
+		if (!all_voxels[spr])
+		{
+			continue;
+		}
 		for (frame = 0 ; frame < MAX_FRAMES ; frame++)
 		{
 			struct Voxel * v = all_voxels[spr][frame];
@@ -299,10 +305,15 @@ void VX_Init (void)
 		Z_Free (all_voxels[spr]);
 	}
 	Z_Free (all_voxels);
-	all_voxels_count = num_sprites;
+	all_voxels = NULL;
+	all_voxels_count = 0;
 #endif
 
 	all_voxels = Z_Malloc(num_sprites * sizeof(*all_voxels), PU_STATIC, NULL);
+#ifdef WOOF_IOS
+	memset(all_voxels, 0, num_sprites * sizeof(*all_voxels));
+	all_voxels_count = num_sprites;
+#endif
 	for (spr = 0 ; spr < num_sprites ; spr++)
 	{
 		all_voxels[spr] = Z_Malloc (MAX_FRAMES * sizeof(**all_voxels),
