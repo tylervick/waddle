@@ -1,20 +1,21 @@
-# Replaces the App Store screenshots of one version with the sets committed
-# under docs/app-store/screenshots/, via Scripts/upload-screenshots.sh.
+# Writes the App Store listing text of one version -- description, What's New,
+# promotional text, keywords, App Review notes -- from docs/app-store/listing/,
+# and optionally selects its build, via Scripts/update-store-listing.sh.
 #
-# Manual only, and a DRY RUN unless `apply` is ticked: the dry run resolves the
-# version and its sets, checks every local file, and proves no target set is
-# shared with the live listing -- all without changing anything. Run it first.
+# Manual only, and a DRY RUN unless `apply` is ticked: the dry run prints a
+# diff of App Store Connect against the repo, field by field, and changes
+# nothing. Run it first.
 #
 # Runs from main only, dry runs included: the job's `app-store` environment
-# admits no other branch, and that environment is where the key lives. The
-# screenshots that reach the store are the reviewed, merged ones.
-name: App Store screenshots
+# admits no other branch, and that environment is where the key lives. The text
+# that reaches the store is the reviewed, merged text, not a branch's.
+name: App Store listing
 
 on:
   workflow_dispatch:
     inputs:
       apply:
-        description: Replace the screenshots on App Store Connect (unticked = dry run)
+        description: Write the listing to App Store Connect (unticked = dry run)
         type: boolean
         required: false
         default: false
@@ -23,8 +24,14 @@ on:
         type: string
         required: false
         default: ''
+      build:
+        description: Build number to select for the version, e.g. 264 (blank = leave as is)
+        type: string
+        required: false
+        default: ''
 
-# Two runs against one set would interleave deletes and uploads.
+# Shares the screenshots workflow's group: both write the same version, and a
+# listing write racing a screenshot swap is nothing anyone needs.
 concurrency:
   group: app-store-screenshots
   cancel-in-progress: false
@@ -33,8 +40,8 @@ permissions:
   contents: read
 
 jobs:
-  screenshots:
-    name: Screenshots
+  listing:
+    name: Listing
     runs-on: ubuntu-latest
     # The App Store Connect key and the signing material are secrets of the
     # `app-store` environment, which only `main` may deploy to. That is what
@@ -42,7 +49,7 @@ jobs:
     # copy of this file, so any in-file "main only" check is one a branch can
     # simply delete.
     environment: app-store
-    timeout-minutes: 30
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -58,25 +65,27 @@ jobs:
           umask 077
           printf '%s' "$ASC_PRIVATE_KEY" | /usr/bin/base64 --decode > "$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
 
-      - name: Upload (or dry run)
+      - name: Write the listing (or dry run)
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_PATH: ${{ runner.temp }}/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
           APPLY: ${{ inputs.apply }}
           VERSION: ${{ inputs.version }}
+          BUILD: ${{ inputs.build }}
         run: |
           # The tee below must not swallow the script's exit status.
           set -o pipefail
-          set -- --device all
+          set --
           if [ "$APPLY" = "true" ]; then set -- "$@" --apply; fi
           if [ -n "$VERSION" ]; then set -- "$@" --version "$VERSION"; fi
-          Scripts/upload-screenshots.sh "$@" | tee "$RUNNER_TEMP/upload.log"
+          if [ -n "$BUILD" ]; then set -- "$@" --build "$BUILD"; fi
+          Scripts/update-store-listing.sh "$@" | tee "$RUNNER_TEMP/listing.log"
           {
-            echo "## App Store screenshots"
+            echo "## App Store listing"
             echo
-            echo '```'
-            cat "$RUNNER_TEMP/upload.log"
+            echo '```diff'
+            cat "$RUNNER_TEMP/listing.log"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 

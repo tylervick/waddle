@@ -3,6 +3,12 @@
 **Status: APPROVED at the Plan 4 Task 7 user gate (2026-07-18).**
 Decisions recorded in the log at the bottom.
 
+**The listing text lives in [`listing/`](listing/)** (since 2026-09-23): one
+plain-text file per field, exactly as the store shows it. The **App Store
+listing** workflow (`Scripts/update-store-listing.sh`) writes them to App Store
+Connect and diffs first; the sections below keep the reasoning behind each
+field, not a second copy of it.
+
 ---
 
 ## 1. App name (30 chars max) — DECIDED
@@ -113,9 +119,7 @@ chars).
 
 ## 3. Promotional text (170 chars max)
 
-> Freedoom out of the box - or import the WADs you already own. Boom/MBF21
-> compatible, with touch controls, game controllers, hardware keyboards, and
-> music that plays. *(165 chars)*
+**Canonical text: [`listing/promotional-text.txt`](listing/promotional-text.txt)** (165 chars).
 
 **Entered for the first time 2026-09-16, with version 1.1.** The field was
 empty on the live record through all of 1.0 — this section drafted it and
@@ -129,40 +133,7 @@ editable **without** a review, so it can be changed between releases.
 
 ## 4. Description
 
-> **Play the classic-Doom-engine games you own, anywhere.**
->
-> Waddle is a WAD player for iPhone and iPad: a game library and touch
-> controls built around Woof! - the modern continuation
-> of the Boom and MBF ports that faithfully preserves original gameplay
-> while supporting today's mods, up through the MBF21 standard.
->
-> **Ready to play out of the box.** Waddle bundles Freedoom Phase 1 and
-> Phase 2: two complete, freely licensed games built by the Freedoom
-> project for this engine family. Tap and play - nothing to configure.
->
-> **Bring your own WADs.** Import WAD files you own from the Files app,
-> iCloud Drive, or the share sheet - commercial IWADs you've purchased, or
-> any of thousands of community-made maps and megawads. Zip archives and
-> DeHackEd patches are supported.
->
-> **Every map set is a game.** Import a megawad and it lands on your shelf
-> as its own game, already paired with the right base game. Add-ons and
-> DeHackEd patches attach to any game from its page, where you also set the
-> load order and compatibility level (vanilla, Boom, MBF, MBF21 - or auto)
-> and find its saves, which are kept per game.
->
-> **Play your way.** Touch controls with two schemes (classic twin-stick
-> and modern drag-to-turn) and adjustable feel - plus full support for
-> game controllers and hardware keyboards.
->
-> **Open source.** Waddle is free software under the GPL-3.0; the engine
-> it descends from is GPL-2.0-or-later. Source code for the entire app is
-> available on GitHub.
->
-> Waddle includes no copyrighted commercial game content. Only the freely
-> licensed Freedoom data is bundled; commercial WADs must be imported by
-> you, from copies you own. This app is not affiliated with or endorsed by
-> id Software or Bethesda.
+**Canonical text: [`listing/description.txt`](listing/description.txt).** Plain text, exactly as the store shows it: the lead-in phrases that were `**bold**` here are plain sentences there, because the App Store renders no markdown.
 
 **Revised 2026-09-23 for version 1.2.** The Games and Files rework
 (`docs/superpowers/specs/2026-09-16-games-and-files-design.md`) removed
@@ -177,8 +148,7 @@ mod" would promise something import does not do.
 
 ## 5. Keywords (100 chars max)
 
-> `doom,wad,fps,retro,source port,freedoom,boom,classic` *(52 chars — room
-> for more; candidates: `megawad`, `shooter`, `90s`)*
+**Canonical text: [`listing/keywords.txt`](listing/keywords.txt)** — `doom,wad,fps,retro,source port,freedoom,boom,classic` (52 chars; room for more — candidates: `megawad`, `shooter`, `90s`).
 
 ## 6. URLs
 
@@ -394,31 +364,7 @@ and the repo's COPYING.)
 
 ## 11. App Review notes
 
-> Waddle is an original iOS app for playing WAD-format games. It embeds
-> the GPL-licensed Woof! Doom engine; the interface, game library, import
-> pipeline and touch controls are the app's own.
->
-> To demo: no account or setup needed - tap the "Freedoom Phase 1" tile on
-> the home shelf. Both bundled base games (Freedoom Phase 1 and Phase 2)
-> play immediately with no setup.
->
-> Content licensing: only the freely licensed Freedoom game data is
-> bundled. No copyrighted commercial game content ships with the app.
-> Users may import WAD files they own via the Files app; these stay on
-> device. The app makes no network requests.
->
-> WAD files are game data, not executable code: they contain maps, sprites,
-> sounds and music. DeHackEd patches are data tables the engine interprets.
-> Nothing is compiled or executed, and no code is loaded at runtime.
->
-> Importing is optional for review. To exercise it, any .wad or .zip added
-> via the Files app works.
->
-> On iPad the app supports all orientations and windowed multitasking.
->
-> One non-obvious control: a four-finger tap during gameplay summons the
-> iOS keyboard for classic cheat codes and save-name entry. It is
-> intentionally undiscoverable in the UI, matching the original games.
+**Canonical text: [`listing/review-notes.txt`](listing/review-notes.txt).**
 
 **Revised 2026-09-23 for version 1.2:** "WAD library, import pipeline,
 preset system" became "game library, import pipeline" — presets no longer
@@ -693,24 +639,12 @@ weighing it.
 
 ## 15. What's New in This Version (4000 chars max)
 
-Required on every update. Paste the current version's text; older versions are
-kept below it for the record.
+Required on every update. The current version's text is `listing/whats-new.txt`;
+replace it for each release. Older versions are recorded below.
 
 ### 1.2
 
-> Games are simpler: every map set you import is now its own game on your
-> shelf, already paired with the right base game. No presets to build.
->
-> - One page per game. Tap a game to rename it, change its base game, add and
->   reorder mods and patches, set compatibility and touch layout, and manage
->   its saves - all in place.
-> - Add games straight from the shelf. Storage and hidden games now live in
->   Settings.
-> - Importing tells you what each file became: a game, an add-on, or a map
->   set that still needs a base game.
-> - Fixed the main menu losing entries and episodes after playing several
->   games in one session.
-> - Quick taps on the on-screen buttons are no longer dropped.
+**Canonical text: [`listing/whats-new.txt`](listing/whats-new.txt).** Written 2026-09-23; build 264 added the session-state engine fix (#272), so the main-menu bullet became "Starting another game in the same session now starts clean", which covers the menu fix and the silent-music and stray-wipe ones with it.
 
 Deliberately not listed: the virtual-pad selection and controller hand-off
 fixes (`e13fd2a`, `0244905`). The first only bit under automation's phantom

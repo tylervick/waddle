@@ -130,13 +130,24 @@ and pick a value above the highest already in App Store Connect.
 - [ ] Wait for the build to finish processing (email from App Store
       Connect), then select it on the version page.
 
-## 3. Version page — paste from metadata.md
+## 3. Version page
+
+The per-version text — description, What's New, promotional text, keywords,
+App Review notes — lives in `docs/app-store/listing/` and is written by the
+**App Store listing** workflow, which can also select the build. Dry run
+first: it prints a diff of App Store Connect against the repo and changes
+nothing. Then apply, from `main`:
+
+```sh
+gh workflow run app-store-listing.yml --ref main -f build=<N>
+gh workflow run app-store-listing.yml --ref main -f build=<N> -f apply=true
+```
+
+- [ ] **Listing text + build:** the two runs above. Update
+      `listing/whats-new.txt` for the release first.
 
 - [ ] **Name / Subtitle:** §1–2 ("Waddle: WAD Player" / "Play classic
       Doom WADs")
-- [ ] **Promotional text:** §3
-- [ ] **Description:** §4
-- [ ] **Keywords:** §5 (`doom,wad,fps,retro,source port,freedoom,boom,classic`)
 - [ ] **Support URL:** https://github.com/tylervick/waddle
 - [ ] **Privacy Policy URL:**
       https://github.com/tylervick/waddle/blob/main/PRIVACY.md
@@ -205,8 +216,9 @@ and pick a value above the highest already in App Store Connect.
 
 ## 5. Review notes + submit
 
-- [ ] Paste the App Review notes from §11 verbatim (GPL source port, only
-      Freedoom bundled, no network, demo path: tap "Freedoom Phase 1").
+- [ ] App Review notes: written with the listing in §3, from
+      `listing/review-notes.txt` (GPL source port, only Freedoom bundled, no
+      network, demo path: tap "Freedoom Phase 1"). Reasoning: metadata.md §11.
 - [ ] **GPL posture check (must all be true before tapping Submit):**
   - Repo is public and the complete corresponding source for the
     submitted build is on `main` (the About screen links to it).
