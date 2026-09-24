@@ -5,8 +5,9 @@
 # version and its sets, checks every local file, and proves no target set is
 # shared with the live listing -- all without changing anything. Run it first.
 #
-# `apply` refuses any ref but main: the screenshots that reach the store must
-# be the reviewed, merged ones, not a branch's.
+# Runs from main only, dry runs included: the job's `app-store` environment
+# admits no other branch, and that environment is where the key lives. The
+# screenshots that reach the store are the reviewed, merged ones.
 name: App Store screenshots
 
 on:
@@ -35,18 +36,16 @@ jobs:
   screenshots:
     name: Screenshots
     runs-on: ubuntu-latest
+    # The App Store Connect key and the signing material are secrets of the
+    # `app-store` environment, which only `main` may deploy to. That is what
+    # keeps them from a branch: a workflow_dispatch runs the DISPATCHED ref's
+    # copy of this file, so any in-file "main only" check is one a branch can
+    # simply delete.
+    environment: app-store
     timeout-minutes: 30
     permissions:
       contents: read
     steps:
-      - name: Refuse to apply from a branch
-        if: ${{ inputs.apply && github.ref != 'refs/heads/main' }}
-        env:
-          REF: ${{ github.ref }}
-        run: |
-          echo "::error::apply runs from main only (this is $REF). Merge first, or untick apply for a dry run."
-          exit 1
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false

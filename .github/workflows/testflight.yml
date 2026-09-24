@@ -128,6 +128,12 @@ jobs:
     if: ${{ needs.gate.outputs.ship == 'true' }}
     runs-on: macos-26
     timeout-minutes: 90
+    # The App Store Connect key and the signing material are secrets of the
+    # `app-store` environment, which only `main` may deploy to. That is what
+    # keeps them from a branch: a workflow_dispatch runs the DISPATCHED ref's
+    # copy of this file, so any in-file "main only" check is one a branch can
+    # simply delete.
+    environment: app-store
     # Declared on the JOB, not the workflow: written at workflow level it
     # would grant write access to every job added here later, which is not
     # what the comment claims or what this needs. contents: write exists for
