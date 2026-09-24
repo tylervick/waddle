@@ -256,6 +256,12 @@ void I_ShutdownRumble(void)
 
     free(rumble.channels);
     FreeFFT();
+#ifdef WOOF_IOS
+    // Everything else here outlived the session too, including the closed
+    // gamepad, which I_UpdateRumble could use before I_SetRumbleSupported
+    // ran again (issue #268). A fresh process starts from all zeros.
+    memset(&rumble, 0, sizeof(rumble));
+#endif
 }
 
 void I_InitRumble(void)
@@ -819,3 +825,11 @@ void I_BindRumbleVariables(void)
     BIND_NUM_GENERAL(joy_rumble, 5, 0, 10,
         "Rumble intensity (0 = Off; 10 = 100%)");
 }
+
+#ifdef WOOF_IOS
+// Debug seam for WoofIOS_DebugSessionEntryState (woof_ios.c).
+int I_DebugRumbleGamepadSet(void)
+{
+    return rumble.gamepad != NULL;
+}
+#endif

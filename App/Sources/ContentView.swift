@@ -87,6 +87,14 @@ struct ContentView: View {
                     .font(.footnote.monospaced())
                     .accessibilityIdentifier("sessionStartZoneLabel")
                     .padding(.bottom, 250)
+                Text(verbatim: String(cString: WoofIOS_DebugSessionEntryState()))
+                    .font(.footnote.monospaced())
+                    .accessibilityIdentifier("sessionEntryStateLabel")
+                    .padding(.bottom, 280)
+                Text(verbatim: String(cString: WoofIOS_DebugAutomapBounds()))
+                    .font(.footnote.monospaced())
+                    .accessibilityIdentifier("automapBoundsLabel")
+                    .padding(.bottom, 310)
             }
             #endif
         }

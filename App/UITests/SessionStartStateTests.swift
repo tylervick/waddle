@@ -37,9 +37,21 @@ final class SessionStartStateTests: XCTestCase {
             .firstMatch
 
         let phase1Fresh = play(app, tile: phase1, name: "s1-phase1-fresh")
+        let entry1 = label(app, "sessionEntryStateLabel", name: "s1")
         let phase2First = play(app, tile: phase2, name: "s2-phase2-first")
+        let entry2 = label(app, "sessionEntryStateLabel", name: "s2")
         let phase2Second = play(app, tile: phase2, name: "s3-phase2-second")
+        let entry3 = label(app, "sessionEntryStateLabel", name: "s3")
         let phase1Again = play(app, tile: phase1, name: "s4-phase1-again")
+        let entry4 = label(app, "sessionEntryStateLabel", name: "s4")
+
+        // Issue #268: what each session is handed before D_DoomMain must be
+        // what a fresh process hands the first one, whatever ran before.
+        for (name, entry) in [("session 1", entry1), ("session 2", entry2),
+                              ("session 3", entry3), ("session 4", entry4)] {
+            assertSameFields(entry ?? "", Self.freshEntry,
+                             "\(name) was handed state from an earlier session")
+        }
 
         // Every session must report, or a comparison below could pass on two
         // empty strings without testing anything.
@@ -182,10 +194,74 @@ final class SessionStartStateTests: XCTestCase {
         return Self.fields(label.label)["zowned"].flatMap(Int.init)
     }
 
+    /// What a fresh process hands its first session (WoofIOS_DebugSessionEntryState).
+    static let freshEntry = "amlvl=-1/-1 amstop=1 amdef=0 amcol=1 msg=0/0 sbar=0 rewind=0 "
+        + "pad=0 rumble=0 tex=0 cmap=0 skipbl=0"
+
+    /// Issue #268: AM_Start re-initialised the automap only when the map
+    /// number changed, so after Phase 2's MAP01 the automap of Phase 1's E1M1
+    /// (also episode 1, map 1) kept MAP01's bounds and zoom limits. Warps
+    /// straight into map 1 of each game and opens the automap in each.
+    @MainActor
+    func testAutomapBoundsAreEachMapsOwn() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
+        app.launchEnvironment["WADDLE_DEBUG_SESSION_START"] = "1"
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Waddle"].waitForExistence(timeout: 90),
+                      "launcher UI never appeared")
+        let ok = app.alerts.buttons["OK"]
+        if ok.waitForExistence(timeout: 3) { ok.tap() }
+
+        let phase1 = app.buttons["playFreedoom1"]
+        let phase2 = app.buttons.matching(NSPredicate(format:
+            "identifier BEGINSWITH 'game-' AND identifier CONTAINS 'Freedoom Phase 2'"))
+            .firstMatch
+
+        var bounds: [String?] = []
+        var entries: [String?] = []
+        for (tile, name) in [(phase1, "a1-phase1-e1m1"), (phase2, "a2-phase2-map01"),
+                             (phase1, "a3-phase1-e1m1-again")] {
+            _ = play(app, tile: tile, name: name) {
+                let map = app.buttons["automapButton"]
+                XCTAssertTrue(map.waitForExistence(timeout: 30), "\(name): no automap button")
+                Thread.sleep(forTimeInterval: 4)
+                map.tap()
+            }
+            bounds.append(label(app, "automapBoundsLabel", name: name))
+            entries.append(label(app, "sessionEntryStateLabel", name: name))
+        }
+
+        for (i, entry) in entries.enumerated() {
+            assertSameFields(entry ?? "", Self.freshEntry,
+                             "session \(i + 1) was handed state from an earlier session")
+        }
+        // The automap really opened on two different maps...
+        XCTAssertNotEqual(bounds[0], bounds[1],
+                          "E1M1 and MAP01 reported the same automap bounds; did the automap open? \(bounds)")
+        // ...and E1M1 after MAP01 got its own bounds back.
+        XCTAssertEqual(bounds[2], bounds[0],
+                       "E1M1's automap after Phase 2's MAP01 kept another map's bounds: \(bounds)")
+    }
+
+    /// A debug label's text, attached to the test report.
+    private func label(_ app: XCUIApplication, _ identifier: String, name: String) -> String? {
+        let element = app.staticTexts[identifier]
+        guard element.waitForExistence(timeout: 5) else { return nil }
+        let attachment = XCTAttachment(string: element.label)
+        attachment.name = "\(name)-\(identifier)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        return element.label
+    }
+
     /// Plays a tile for one autoquit window and returns what the session that
     /// just ended started with.
     private func play(_ app: XCUIApplication, tile: XCUIElement, name: String,
-                      file: StaticString = #filePath, line: UInt = #line) -> String {
+                      file: StaticString = #filePath, line: UInt = #line,
+                      during: (() -> Void)? = nil) -> String {
         XCTAssertTrue(tile.waitForExistence(timeout: 30), "\(name): tile missing",
                       file: file, line: line)
         let exitLabel = app.staticTexts["engineExitLabel"]
@@ -193,6 +269,7 @@ final class SessionStartStateTests: XCTestCase {
         tile.tap()
         XCTAssertTrue(exitLabel.waitForNonExistence(timeout: 15),
                       "\(name): previous exit label never cleared", file: file, line: line)
+        during?()
         XCTAssertTrue(exitLabel.waitForExistence(timeout: 90),
                       "\(name): engine never returned to the launcher", file: file, line: line)
         XCTAssertEqual(exitLabel.label, "Engine exited: 0",
