@@ -92,12 +92,37 @@ final class SessionStartStateTests: XCTestCase {
             "identifier BEGINSWITH 'game-' AND identifier CONTAINS 'Freedoom Phase 2'"))
             .firstMatch
         let first = play(app, tile: phase2, name: "t1-phase2-quit-at-title")
+        let firstZone = zoneKB(app, name: "t1")
         let second = play(app, tile: phase2, name: "t2-phase2-after-title-quit")
+        let secondZone = zoneKB(app, name: "t2")
 
         XCTAssertEqual(Self.fields(first)["music"], "1",
                        "first session's title page started no music: \(first)")
         XCTAssertEqual(Self.fields(second)["music"], "1",
                        "session after a quit at the title started no music: \(second)")
+
+        // Issue #269: module-owned PU_STATIC memory (no owner pointer, so not
+        // cached lumps) must not grow from one session to the next. Title-only
+        // sessions touch none of the grow-only render buffers, so what is left
+        // is the lump cache's own array (about 29 KB per session with
+        // Freedoom). Before the renderer freed its previous tables, each
+        // session added about 1.4 MB.
+        guard let a = firstZone, let b = secondZone else {
+            return XCTFail("no zowned=<KB> from sessionStartZoneLabel (missing or unparseable; see the attachments)")
+        }
+        XCTAssertLessThan(b - a, 256,
+            "module-owned zone memory grew by \(b - a) KB between two title-only sessions (\(a) -> \(b))")
+    }
+
+    /// `zowned=<KB>` from the label shown next to the session-start string.
+    private func zoneKB(_ app: XCUIApplication, name: String) -> Int? {
+        let label = app.staticTexts["sessionStartZoneLabel"]
+        guard label.waitForExistence(timeout: 5) else { return nil }
+        let attachment = XCTAttachment(string: label.label)
+        attachment.name = "\(name)-session-start-zone"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        return Self.fields(label.label)["zowned"].flatMap(Int.init)
     }
 
     /// Plays a tile for one autoquit window and returns what the session that

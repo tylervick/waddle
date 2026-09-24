@@ -82,6 +82,11 @@ struct ContentView: View {
                     .font(.footnote.monospaced())
                     .accessibilityIdentifier("sessionStartStateLabel")
                     .padding(.bottom, 220)
+                // verbatim: a localized interpolation would print 1,500.
+                Text(verbatim: "zowned=\(WoofIOS_DebugSessionStartZoneKB())")
+                    .font(.footnote.monospaced())
+                    .accessibilityIdentifier("sessionStartZoneLabel")
+                    .padding(.bottom, 250)
             }
             #endif
         }

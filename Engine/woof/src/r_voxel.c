@@ -271,9 +271,36 @@ static boolean VX_Load (int spr, int frame)
 }
 
 
+#ifdef WOOF_IOS
+// Sprites all_voxels was sized for; num_sprites has already been reset for
+// the next session by the time VX_Init runs again.
+static int all_voxels_count;
+#endif
+
 void VX_Init (void)
 {
 	int spr, frame;
+
+#ifdef WOOF_IOS
+	// Once per session here; the previous session's tables were orphaned
+	// (issue #269). Each model belongs to one frame (VX_Load).
+	for (spr = 0 ; spr < all_voxels_count ; spr++)
+	{
+		for (frame = 0 ; frame < MAX_FRAMES ; frame++)
+		{
+			struct Voxel * v = all_voxels[spr][frame];
+			if (v)
+			{
+				Z_Free (v->offsets);
+				Z_Free (v->data);
+				Z_Free (v);
+			}
+		}
+		Z_Free (all_voxels[spr]);
+	}
+	Z_Free (all_voxels);
+	all_voxels_count = num_sprites;
+#endif
 
 	all_voxels = Z_Malloc(num_sprites * sizeof(*all_voxels), PU_STATIC, NULL);
 	for (spr = 0 ; spr < num_sprites ; spr++)

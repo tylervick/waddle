@@ -243,6 +243,22 @@ void R_InitTranMap(void)
     const int force_rebuild = M_CheckParm("-tranmap");
     const int lump = W_CheckNumForName("TRANMAP");
 
+#ifdef WOOF_IOS
+    // Once per session here; the previous session's generated maps (128 KB
+    // with Freedoom) were orphaned by this session's (issue #269). A
+    // TRANMAP lump is not among them: lumps stay in the lump cache.
+    if (main_addimap && main_addimap != main_tranmap)
+    {
+        Z_Free((void *)main_addimap);
+    }
+    main_addimap = main_tranmap = NULL;
+    for (int i = 0; i < arrlen(normal_tranmap); ++i)
+    {
+        Z_Free(normal_tranmap[i]);
+        normal_tranmap[i] = NULL;
+    }
+#endif
+
     if (lump != -1 && !force_rebuild)
     {
         main_tranmap = W_CacheLumpNum(lump, PU_STATIC);

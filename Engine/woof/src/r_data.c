@@ -607,6 +607,35 @@ void R_InitTextures (void)
   int  *directory;
   int  errors = 0;
 
+#ifdef WOOF_IOS
+  // Once per session here, and every table below used to be orphaned by the
+  // next session's (issue #269: about 1.1 MB each time with Freedoom). The
+  // composites go first, because each names &texturecomposite[i] as its
+  // zone owner and freeing the array under a live block would leave the
+  // next Z_FreeTag(PU_LEVEL) writing into freed memory.
+  for (i = 0; i < numtextures; i++)
+  {
+    Z_Free(texturecomposite[i]);
+    Z_Free(texturecomposite2[i]);
+    Z_Free(texturecolumnlump[i]);
+    Z_Free(texturecolumnofs[i]);
+    Z_Free(texturecolumnofs2[i]);
+    Z_Free(textures[i]);
+  }
+  Z_Free(textures);
+  Z_Free(texturecolumnlump);
+  Z_Free(texturecolumnofs);
+  Z_Free(texturecolumnofs2);
+  Z_Free(texturecomposite);
+  Z_Free(texturecomposite2);
+  Z_Free(texturecompositesize);
+  Z_Free(texturewidthmask);
+  Z_Free(texturewidth);
+  Z_Free(textureheight);
+  Z_Free(texturebrightmap);
+  Z_Free(texturetranslation);
+#endif
+
   // Load the patch names from pnames.lmp.
   name[8] = 0;
   names = W_CacheLumpName("PNAMES", PU_STATIC);
@@ -863,6 +892,10 @@ void R_InitFlats(void)
   // killough 4/9/98: make column offsets 32-bit;
   // clean up malloc-ing to use sizeof
 
+#ifdef WOOF_IOS
+  Z_Free(flattranslation); // the previous session's (issue #269)
+  Z_Free(flatterrain);
+#endif
   flattranslation =
     Z_Malloc((numflats+1)*sizeof(*flattranslation), PU_STATIC, 0);
 
@@ -894,6 +927,11 @@ void R_InitSpriteLumps(void)
   // killough 4/9/98: make columnd offsets 32-bit;
   // clean up malloc-ing to use sizeof
 
+#ifdef WOOF_IOS
+  Z_Free(spritewidth); // the previous session's (issue #269)
+  Z_Free(spriteoffset);
+  Z_Free(spritetopoffset);
+#endif
   spritewidth = Z_Malloc(numspritelumps*sizeof*spritewidth, PU_STATIC, 0);
   spriteoffset = Z_Malloc(numspritelumps*sizeof*spriteoffset, PU_STATIC, 0);
   spritetopoffset =
@@ -954,6 +992,9 @@ void R_InitColormaps(void)
   firstcolormaplump = W_GetNumForName("C_START");
   lastcolormaplump  = W_GetNumForName("C_END");
   numcolormaps = lastcolormaplump - firstcolormaplump;
+#ifdef WOOF_IOS
+  Z_Free(colormaps); // the previous session's array (issue #269)
+#endif
   colormaps = Z_Malloc(sizeof(*colormaps) * numcolormaps, PU_STATIC, 0);
 
   colormaps[0] = W_CacheLumpNum(W_GetNumForName("COLORMAP"), PU_STATIC);

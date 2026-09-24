@@ -417,6 +417,12 @@ void R_InitLightTables (void)
   // killough 4/4/98: dynamic colormaps
   // ScaleLight calculated below
   int NumZLightEntries = LIGHTLEVELS * MAXLIGHTZ;
+#ifdef WOOF_IOS
+  Z_Free(zlightoffset); // the previous session's (issue #269)
+  Z_Free(zlightindex);
+  Z_Free(scalelightindex);
+  Z_Free(scalelightoffset);
+#endif
   zlightoffset = (int*)Z_Malloc(sizeof(int) * NumZLightEntries, PU_STATIC, NULL);
   zlightindex  = (int*)Z_Malloc(sizeof(int) * NumZLightEntries, PU_STATIC, NULL);
 
