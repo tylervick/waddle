@@ -1,0 +1,1 @@
+Freedoom out of the box - or import the WADs you already own. Boom/MBF21 compatible, with touch controls, game controllers, hardware keyboards, and music that plays.

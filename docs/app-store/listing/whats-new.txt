@@ -1,0 +1,7 @@
+Games are simpler: every map set you import is now its own game on your shelf, already paired with the right base game. No presets to build.
+
+- One page per game. Tap a game to rename it, change its base game, add and reorder mods and patches, set compatibility and touch layout, and manage its saves - all in place.
+- Add games straight from the shelf. Storage and hidden games now live in Settings.
+- Importing tells you what each file became: a game, an add-on, or a map set that still needs a base game.
+- Starting another game in the same session now starts clean: no missing menu entries or episodes, no silent title music, no stray screen wipe.
+- Quick taps on the on-screen buttons are no longer dropped.

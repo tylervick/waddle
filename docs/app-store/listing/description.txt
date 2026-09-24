@@ -1,0 +1,15 @@
+Play the classic-Doom-engine games you own, anywhere.
+
+Waddle is a WAD player for iPhone and iPad: a game library and touch controls built around Woof! - the modern continuation of the Boom and MBF ports that faithfully preserves original gameplay while supporting today's mods, up through the MBF21 standard.
+
+Ready to play out of the box. Waddle bundles Freedoom Phase 1 and Phase 2: two complete, freely licensed games built by the Freedoom project for this engine family. Tap and play - nothing to configure.
+
+Bring your own WADs. Import WAD files you own from the Files app, iCloud Drive, or the share sheet - commercial IWADs you've purchased, or any of thousands of community-made maps and megawads. Zip archives and DeHackEd patches are supported.
+
+Every map set is a game. Import a megawad and it lands on your shelf as its own game, already paired with the right base game. Add-ons and DeHackEd patches attach to any game from its page, where you also set the load order and compatibility level (vanilla, Boom, MBF, MBF21 - or auto) and find its saves, which are kept per game.
+
+Play your way. Touch controls with two schemes (classic twin-stick and modern drag-to-turn) and adjustable feel - plus full support for game controllers and hardware keyboards.
+
+Open source. Waddle is free software under the GPL-3.0; the engine it descends from is GPL-2.0-or-later. Source code for the entire app is available on GitHub.
+
+Waddle includes no copyrighted commercial game content. Only the freely licensed Freedoom data is bundled; commercial WADs must be imported by you, from copies you own. This app is not affiliated with or endorsed by id Software or Bethesda.
