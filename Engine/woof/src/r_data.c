@@ -1346,3 +1346,23 @@ void R_PrecacheLevel(void)
 // ???
 //
 //-----------------------------------------------------------------------------
+
+#ifdef WOOF_IOS
+// Called from WoofIOS_Run before every D_DoomMain() (issue #268).
+// G_ReloadDefaults -> R_InvulMode writes 256 bytes into colormaps[0] before
+// R_Init reassigns it, and colormaps still pointed at the previous session's
+// COLORMAP lump. With the array gone R_InvulMode returns early, as in a
+// fresh process; that write would be a use-after-free once the previous
+// session's lumps are freed (#269).
+void R_ResetSessionColormaps(void)
+{
+    Z_Free(colormaps);
+    colormaps = NULL;
+}
+
+// Debug seam for WoofIOS_DebugSessionEntryState (woof_ios.c).
+int R_DebugColormapsSet(void)
+{
+    return colormaps != NULL;
+}
+#endif

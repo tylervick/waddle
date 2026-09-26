@@ -254,3 +254,11 @@ void G_BindRewindVariables(void)
         "will stop (0 = No limit)");
     BIND_BOOL(rewind_auto, true, "Enable storing rewind key frames");
 }
+
+#ifdef WOOF_IOS
+// Debug seam for WoofIOS_DebugSessionEntryState (woof_ios.c; issue #268).
+int G_DebugRewindCount(void)
+{
+    return queue.count;
+}
+#endif
