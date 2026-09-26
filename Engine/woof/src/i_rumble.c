@@ -235,6 +235,13 @@ void I_ShutdownRumble(void)
 {
     if (!I_GamepadEnabled())
     {
+#ifdef WOOF_IOS
+        // joy_enable can be switched off after I_InitRumble allocated the
+        // channels and a gamepad was opened; the next session in this process
+        // must not inherit either (issue #268).
+        free(rumble.channels);
+        memset(&rumble, 0, sizeof(rumble));
+#endif
         return;
     }
 

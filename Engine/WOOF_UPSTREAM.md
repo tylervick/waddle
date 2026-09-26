@@ -436,7 +436,8 @@ only ever runs once):
   the array `R_InvulMode` wrote through before `R_Init`; `skipblstart` goes
   back to false. `I_ShutdownGamepad`, `I_ShutdownRumble` and
   `I_ShutdownGraphics` now clear the gamepad, rumble state and texture SDL has
-  just destroyed. `WoofIOS_DebugSessionEntryState()`, captured just before
+  just destroyed; `I_ShutdownRumble` does so on its early return too, when
+  gamepad support was switched off after its channels were allocated. `WoofIOS_DebugSessionEntryState()`, captured just before
   `D_DoomMain()`, reports all of it, and `SessionStartStateTests` requires the
   fresh-process string for every session; `WoofIOS_DebugAutomapBounds()`
   backs `testAutomapBoundsAreEachMapsOwn`. Still open in #268: `negonearray`,

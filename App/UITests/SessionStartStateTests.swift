@@ -238,11 +238,16 @@ final class SessionStartStateTests: XCTestCase {
             assertSameFields(entry ?? "", Self.freshEntry,
                              "session \(i + 1) was handed state from an earlier session")
         }
+        // Every session must report, or the comparisons below could pass on
+        // nil == nil without the automap having opened at all.
+        let e1m1 = try XCTUnwrap(bounds[0], "no automapBoundsLabel after the first E1M1 session")
+        let map01 = try XCTUnwrap(bounds[1], "no automapBoundsLabel after the MAP01 session")
+        let e1m1Again = try XCTUnwrap(bounds[2], "no automapBoundsLabel after the second E1M1 session")
         // The automap really opened on two different maps...
-        XCTAssertNotEqual(bounds[0], bounds[1],
+        XCTAssertNotEqual(e1m1, map01,
                           "E1M1 and MAP01 reported the same automap bounds; did the automap open? \(bounds)")
         // ...and E1M1 after MAP01 got its own bounds back.
-        XCTAssertEqual(bounds[2], bounds[0],
+        XCTAssertEqual(e1m1Again, e1m1,
                        "E1M1's automap after Phase 2's MAP01 kept another map's bounds: \(bounds)")
     }
 
