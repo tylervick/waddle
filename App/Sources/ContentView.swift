@@ -108,6 +108,8 @@ struct ContentView: View {
                     .accessibilityIdentifier("automapBoundsLabel")
                 Text(verbatim: String(cString: WoofIOS_DebugSessionEntryState()))
                     .accessibilityIdentifier("sessionEntryStateLabel")
+                Text(verbatim: String(cString: WoofIOS_DebugDehNow()))
+                    .accessibilityIdentifier("dehNowLabel")
                 // verbatim: a localized interpolation would print 1,500.
                 Text(verbatim: "zowned=\(WoofIOS_DebugSessionStartZoneKB())")
                     .accessibilityIdentifier("sessionStartZoneLabel")

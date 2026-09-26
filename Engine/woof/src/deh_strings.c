@@ -241,3 +241,32 @@ int DEH_DebugColorCount(void)
     return color_count;
 }
 #endif
+
+#ifdef WOOF_IOS
+// Called from DEH_ResetSession (deh_main.c) before every D_DoomMain() on iOS
+// (issue #270): DEHACKED [STRINGS]/Text replacements, and M_Init's own, went
+// into this table and stayed, so a later game showed an earlier game's text
+// for any string it does not replace itself.
+void DEH_ResetStringReplacements(void)
+{
+    for (int i = 0; i < hash_table_length; ++i)
+    {
+        if (hash_table[i] != NULL)
+        {
+            free(hash_table[i]->from_text);
+            free(hash_table[i]->to_text);
+            free(hash_table[i]);
+        }
+    }
+    free(hash_table);
+    hash_table = NULL;
+    hash_table_entries = 0;
+    hash_table_length = -1;
+}
+
+// Debug seam for WoofIOS_DebugSessionEntryState (woof_ios.c).
+int DEH_DebugStringCount(void)
+{
+    return hash_table_entries;
+}
+#endif

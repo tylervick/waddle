@@ -49,7 +49,7 @@ final class SessionStartStateTests: XCTestCase {
         // what a fresh process hands the first one, whatever ran before.
         for (name, entry) in [("session 1", entry1), ("session 2", entry2),
                               ("session 3", entry3), ("session 4", entry4)] {
-            assertSameFields(entry ?? "", Self.freshEntry,
+            assertSameFields(entry ?? "", Self.freshEntry(dehtab: Self.fields(entry1 ?? "")["dehtab"]),
                              "\(name) was handed state from an earlier session")
         }
 
@@ -195,8 +195,80 @@ final class SessionStartStateTests: XCTestCase {
     }
 
     /// What a fresh process hands its first session (WoofIOS_DebugSessionEntryState).
-    static let freshEntry = "amlvl=-1/-1 amstop=1 amdef=0 amcol=1 msg=0/0 sbar=0 rewind=0 "
-        + "pad=0 rumble=0 tex=0 cmap=0 skipbl=0"
+    /// dehtab is a hash of engine tables, so each test takes it from its own
+    /// first session instead (freshEntry(dehtab:)).
+    static let freshEntryBase = "amlvl=-1/-1 amstop=1 amdef=0 amcol=1 msg=0/0 sbar=0 rewind=0 "
+        + "pad=0 rumble=0 tex=0 cmap=0 skipbl=0 dehstr=0 dehfiles=0 cheats=0 pars=0 dloop=0"
+
+    static func freshEntry(dehtab: String?) -> String {
+        freshEntryBase + " dehtab=\(dehtab ?? "missing")"
+    }
+
+    /// A DEHACKED patch touching every table DEH_ResetSession restores.
+    static let modPatch = """
+        Patch File for DeHackEd v3.0
+        Doom version = 21
+        Patch format = 6
+
+        Weapon 1
+        Ammo per shot = 3
+
+        Ammo 0
+        Max ammo = 123
+
+        Misc 0
+        Initial Health = 150
+
+        Cheat 0
+        Chainsaw = zzchop
+
+        [STRINGS]
+        GOTARMOR = Waddle armor
+
+        [PARS]
+        par 1 1 999
+        par 1 999
+        """
+
+    /// Issue #270: a modded session (DEHACKED loaded with -deh) must not leave
+    /// its weapons, ammo, misc values, cheats, par times, strings or -deh file
+    /// list to the next session, which loads no patch at all.
+    @MainActor
+    func testModdedSessionDoesNotLeakIntoTheNext() throws {
+        autoquitSeconds = 8.0
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
+        app.launchEnvironment["WADDLE_DEBUG_SESSION_START"] = "1"
+        app.launchEnvironment["WADDLE_TEST_DEH_TEXT"] = Self.modPatch
+        app.launchEnvironment["WADDLE_TEST_DEH_SESSIONS"] = "1"
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Waddle"].waitForExistence(timeout: 90),
+                      "launcher UI never appeared")
+        let ok = app.alerts.buttons["OK"]
+        if ok.waitForExistence(timeout: 3) { ok.tap() }
+
+        let phase2 = app.buttons.matching(NSPredicate(format:
+            "identifier BEGINSWITH 'game-' AND identifier CONTAINS 'Freedoom Phase 2'"))
+            .firstMatch
+
+        _ = play(app, tile: phase2, name: "d1-modded")
+        let modEntry = try XCTUnwrap(label(app, "sessionEntryStateLabel", name: "d1"))
+        let modNow = try XCTUnwrap(label(app, "dehNowLabel", name: "d1"))
+        _ = play(app, tile: phase2, name: "d2-plain")
+        let plainEntry = try XCTUnwrap(label(app, "sessionEntryStateLabel", name: "d2"))
+
+        let fresh = Self.freshEntry(dehtab: Self.fields(modEntry)["dehtab"])
+        assertSameFields(modEntry, fresh, "the modded session was not handed fresh state")
+        // The patch really applied during session 1...
+        let now = Self.fields(modNow)
+        XCTAssertNotEqual(now["dehtab"], Self.fields(modEntry)["dehtab"],
+                          "the weapon/ammo/misc patch never applied: \(modNow)")
+        XCTAssertEqual(now["dehfiles"], "1", "the -deh file was not loaded: \(modNow)")
+        XCTAssertNotEqual(now["cheats"], "0", "the Cheat patch never applied: \(modNow)")
+        XCTAssertNotEqual(now["pars"], "0", "the [PARS] patch never applied: \(modNow)")
+        // ...and session 2, which loads no patch, starts from none of it.
+        assertSameFields(plainEntry, fresh, "the plain session inherited the modded one's patch")
+    }
 
     /// Issue #268: AM_Start re-initialised the automap only when the map
     /// number changed, so after Phase 2's MAP01 the automap of Phase 1's E1M1
@@ -235,7 +307,7 @@ final class SessionStartStateTests: XCTestCase {
         }
 
         for (i, entry) in entries.enumerated() {
-            assertSameFields(entry ?? "", Self.freshEntry,
+            assertSameFields(entry ?? "", Self.freshEntry(dehtab: Self.fields(entries[0] ?? "")["dehtab"]),
                              "session \(i + 1) was handed state from an earlier session")
         }
         // Every session must report, or the comparisons below could pass on

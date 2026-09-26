@@ -37,6 +37,11 @@ enum EngineSession {
     private(set) static var lastErrorMessage: String?
 
     #if DEBUG
+    /// Sessions started in this launch; WADDLE_TEST_DEH_SESSIONS counts them.
+    private static var testSessionCount = 0
+    #endif
+
+    #if DEBUG
     /// Test-only bookkeeping hook: bumps the generation counter the same way
     /// play() does, without booting a real engine.
     static func beginSessionForTesting() { sessionGeneration += 1 }
@@ -124,6 +129,23 @@ enum EngineSession {
         // run this game" alert still carries the message.
         if ProcessInfo.processInfo.environment["WADDLE_TEST_NOGUI"] != nil {
             effectiveArguments += ["-nogui"]
+        }
+        // Test-only (issue #270): WADDLE_TEST_DEH_TEXT is a DEHACKED patch,
+        // loaded with -deh into the sessions WADDLE_TEST_DEH_SESSIONS lists
+        // ("1,3": the first and third of this launch), so a test can play a
+        // modded session and then check that the next one starts unmodded
+        // without shipping a PWAD fixture.
+        testSessionCount += 1
+        let env = ProcessInfo.processInfo.environment
+        if let text = env["WADDLE_TEST_DEH_TEXT"],
+           (env["WADDLE_TEST_DEH_SESSIONS"] ?? "1").split(separator: ",")
+               .compactMap({ Int($0.trimmingCharacters(in: .whitespaces)) })
+               .contains(testSessionCount) {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("waddle-test.deh")
+            if (try? text.write(to: url, atomically: true, encoding: .utf8)) != nil {
+                effectiveArguments += ["-deh", url.path]
+            }
         }
         #endif
 

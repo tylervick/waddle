@@ -100,7 +100,7 @@ void WoofIOS_RequestQuit(void)
 // apart from the session-start string (captured later, at the game loop)
 // because these are rewritten during init, so only the entry point can see
 // whether the previous session's values were still there.
-static char session_entry_state[256];
+static char session_entry_state[384];
 
 static void WoofIOS_DebugSessionEntryCheckpoint(void)
 {
@@ -114,18 +114,40 @@ static void WoofIOS_DebugSessionEntryCheckpoint(void)
     extern boolean skipblstart;
     extern int ST_DebugMessageElemSet(void);
     extern int R_DebugColormapsSet(void);
+    extern unsigned DEH_DebugTablesHash(void);
+    extern int DEH_DebugStringCount(void);
+    extern int DEH_DebugFileCount(void);
+    extern int M_DebugCheatsChanged(void);
+    extern int DEH_DebugPartimesChanged(void);
+    extern int D_DebugDemoLoopsChanged(void);
     char am[96];
     AM_DebugSessionEntry(am, sizeof(am));
     snprintf(session_entry_state, sizeof(session_entry_state),
-             "%s msg=%d/%d sbar=%d rewind=%d pad=%d rumble=%d tex=%d cmap=%d skipbl=%d",
+             "%s msg=%d/%d sbar=%d rewind=%d pad=%d rumble=%d tex=%d cmap=%d skipbl=%d"
+             " dehtab=%08x dehstr=%d dehfiles=%d cheats=%d pars=%d dloop=%d",
              am, ST_DebugMessageLeft(), ST_DebugMessageElemSet(), ST_DebugStatusbarSet(),
              G_DebugRewindCount(), I_DebugStaleGamepad(), I_DebugRumbleGamepadSet(),
-             I_DebugVideoTextureSet(), R_DebugColormapsSet(), skipblstart);
+             I_DebugVideoTextureSet(), R_DebugColormapsSet(), skipblstart,
+             DEH_DebugTablesHash(), DEH_DebugStringCount(), DEH_DebugFileCount(),
+             M_DebugCheatsChanged(), DEH_DebugPartimesChanged(), D_DebugDemoLoopsChanged());
 }
 
 const char *WoofIOS_DebugSessionEntryState(void)
 {
     return session_entry_state;
+}
+
+const char *WoofIOS_DebugDehNow(void)
+{
+    extern unsigned DEH_DebugTablesHash(void);
+    extern int DEH_DebugFileCount(void);
+    extern int M_DebugCheatsChanged(void);
+    extern int DEH_DebugPartimesChanged(void);
+    static char buf[96];
+    snprintf(buf, sizeof(buf), "now dehtab=%08x dehfiles=%d cheats=%d pars=%d",
+             DEH_DebugTablesHash(), DEH_DebugFileCount(), M_DebugCheatsChanged(),
+             DEH_DebugPartimesChanged());
+    return buf;
 }
 
 const char *WoofIOS_DebugAutomapBounds(void)
@@ -234,6 +256,11 @@ int WoofIOS_Run(int argc, char **argv)
     D_ResetSessionState();
     extern void DEH_ResetColorStrings(void);
     DEH_ResetColorStrings();
+    // Everything DEHACKED patches in place that no DSDH_*Init rebuilds:
+    // weapons, ammo, misc values, cheats, par times, string replacements,
+    // the default demo loops and the -deh file list (issue #270).
+    extern void DEH_ResetSession(void);
+    DEH_ResetSession();
     extern void S_ResetSessionMusic(void);
     S_ResetSessionMusic();
 
