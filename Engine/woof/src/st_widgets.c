@@ -1215,3 +1215,27 @@ void ST_BindHUDVariables(void)
   BIND_CHAT(8);
   BIND_CHAT(9);
 }
+
+#ifdef WOOF_IOS
+// Called from WoofIOS_Run before every D_DoomMain() (issue #268): the
+// previous session's last message kept its remaining duration, so the next
+// session's first level showed it again, and st_msg_elem, set only while
+// NULL, kept pointing at the previous session's status-bar element.
+void ST_ResetSessionMessages(void)
+{
+    message_duration_left = 0;
+    message_string[0] = '\0';
+    st_msg_elem = NULL;
+}
+
+// Debug seam for WoofIOS_DebugSessionEntryState (woof_ios.c).
+int ST_DebugMessageLeft(void)
+{
+    return message_duration_left;
+}
+
+int ST_DebugMessageElemSet(void)
+{
+    return st_msg_elem != NULL;
+}
+#endif

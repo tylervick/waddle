@@ -2617,3 +2617,20 @@ void ST_BindSTSVariables(void)
 // Lee's Jan 19 sources
 //
 //----------------------------------------------------------------------------
+
+#ifdef WOOF_IOS
+// Called from WoofIOS_Run before every D_DoomMain() (issue #268):
+// ST_SetSTHeight reads statusbar from I_InitGraphics, before UpdateStatusBar
+// points it into this session's sbardef, so it read the previous session's.
+// NULL is what a fresh process has there, and ST_SetSTHeight handles it.
+void ST_ResetSessionStatusbar(void)
+{
+    statusbar = NULL;
+}
+
+// Debug seam for WoofIOS_DebugSessionEntryState (woof_ios.c).
+int ST_DebugStatusbarSet(void)
+{
+    return statusbar != NULL;
+}
+#endif

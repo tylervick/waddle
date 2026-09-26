@@ -420,6 +420,28 @@ only ever runs once):
   and app instrumented; ten sessions across the smoke, menu-table and
   session-start tests, no report); `GlobalsDiffProbeTests` cannot run under it,
   because the probe's whole-section `memcpy` crosses ASan's global redzones.
+- `src/am_map.c`, `src/st_widgets.c`, `src/st_stuff.c`, `src/r_data.c`,
+  `src/i_input.c`, `src/i_rumble.c`, `src/i_video.c`, `src/woof_ios.c`/`.h`
+  -- automap, HUD, rewind and SDL-object state the next session read before
+  rewriting it (issue #268). `AM_ResetSessionState()` resets `AM_Start`'s
+  `lastlevel`/`lastepisode` (hoisted to file scope under `WOOF_IOS`; while
+  they matched, a later game's map of the same number kept the previous map's
+  automap bounds and zoom), `stopped` (a session that quit with the automap
+  started made the next `AM_Start` run `AM_Stop` on the previous session's
+  `marknums`), `AM_ApplyColors`' `first_time` (hoisted likewise), and frees
+  `amdef`. `ST_ResetSessionMessages()` clears the previous session's last
+  message and `st_msg_elem`; `ST_ResetSessionStatusbar()` NULLs `statusbar`,
+  which `I_InitGraphics` read before it was rewritten; `G_ResetRewind(true)`
+  drops the previous session's keyframes; `R_ResetSessionColormaps()` frees
+  the array `R_InvulMode` wrote through before `R_Init`; `skipblstart` goes
+  back to false. `I_ShutdownGamepad`, `I_ShutdownRumble` and
+  `I_ShutdownGraphics` now clear the gamepad, rumble state and texture SDL has
+  just destroyed; `I_ShutdownRumble` does so on its early return too, when
+  gamepad support was switched off after its channels were allocated. `WoofIOS_DebugSessionEntryState()`, captured just before
+  `D_DoomMain()`, reports all of it, and `SessionStartStateTests` requires the
+  fresh-process string for every session; `WoofIOS_DebugAutomapBounds()`
+  backs `testAutomapBoundsAreEachMapsOwn`. Still open in #268: `negonearray`,
+  `p_dirty`'s `levels` and `G_ApplyLevelCompatibility`'s saved options.
 
 - `src/i_input.c`, `src/mn_menu.c`, `src/woof_ios.c`/`.h` -- input telemetry
   for the in-game debug HUD, added to explain why a Revyl farm device could

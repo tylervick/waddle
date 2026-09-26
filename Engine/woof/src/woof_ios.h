@@ -95,6 +95,23 @@ const char *WoofIOS_DebugSessionStartState(void);
 // session reached its game loop. Two title-only sessions of one game should
 // report about the same; every session used to add ~1.4 MB (issue #269).
 int WoofIOS_DebugSessionStartZoneKB(void);
+// Debug/test telemetry only: the state the most recent session was handed at
+// entry, before D_DoomMain (issue #268) --
+//   "amlvl=<AM_Start's last map>/<episode> amstop=<automap stopped>
+//    amdef=<AMAPDEF parsed> amcol=<AM_ApplyColors first call pending>
+//    msg=<message tics left>/<centred message element set>
+//    sbar=<statusbar set> rewind=<keyframes queued> pad=<stale gamepad>
+//    rumble=<stale rumble gamepad> tex=<stale video texture>
+//    cmap=<colormaps set> skipbl=<skipblstart>"
+// A fresh process reads "amlvl=-1/-1 amstop=1 amdef=0 amcol=1 msg=0/0
+// sbar=0 rewind=0 pad=0 rumble=0 tex=0 cmap=0 skipbl=0", and so must every
+// later session.
+const char *WoofIOS_DebugSessionEntryState(void);
+
+// Debug/test telemetry only: "ambox=<min x>,<min y>,<max x>,<max y>", the
+// map bounds the automap last computed (AM_LevelInit), in map units. Read
+// after a session that opened the automap, it is that session's map's.
+const char *WoofIOS_DebugAutomapBounds(void);
 
 // Debug/test telemetry only: what the engine sees of the overlay's input,
 // for the in-game debug HUD --

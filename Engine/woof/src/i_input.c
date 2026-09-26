@@ -517,7 +517,21 @@ static void I_ShutdownGamepad(void)
 {
     I_ShutdownRumble();
     SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+#ifdef WOOF_IOS
+    // SDL just closed it; the next session's I_OpenGamepad passed the dead
+    // pointer to SDL_CloseGamepad (issue #268).
+    gamepad = NULL;
+    gamepad_instance_id = 0;
+#endif
 }
+
+#ifdef WOOF_IOS
+// Debug seam for WoofIOS_DebugSessionEntryState (woof_ios.c).
+int I_DebugStaleGamepad(void)
+{
+    return gamepad != NULL || gamepad_instance_id != 0;
+}
+#endif
 
 static int GetGamepadIndexFromID(SDL_JoystickID instance_id)
 {

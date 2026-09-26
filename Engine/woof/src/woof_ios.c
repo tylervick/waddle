@@ -93,6 +93,49 @@ void WoofIOS_RequestQuit(void)
     SDL_PushEvent(&event);
 }
 
+// --- Session-entry state (issue #268) ---
+//
+// What WoofIOS_Run hands D_DoomMain: values a fresh process has before its
+// first session, captured after every per-session reset above has run. Kept
+// apart from the session-start string (captured later, at the game loop)
+// because these are rewritten during init, so only the entry point can see
+// whether the previous session's values were still there.
+static char session_entry_state[256];
+
+static void WoofIOS_DebugSessionEntryCheckpoint(void)
+{
+    extern void AM_DebugSessionEntry(char *buf, size_t len);
+    extern int ST_DebugMessageLeft(void);
+    extern int ST_DebugStatusbarSet(void);
+    extern int G_DebugRewindCount(void);
+    extern int I_DebugStaleGamepad(void);
+    extern int I_DebugRumbleGamepadSet(void);
+    extern int I_DebugVideoTextureSet(void);
+    extern boolean skipblstart;
+    extern int ST_DebugMessageElemSet(void);
+    extern int R_DebugColormapsSet(void);
+    char am[96];
+    AM_DebugSessionEntry(am, sizeof(am));
+    snprintf(session_entry_state, sizeof(session_entry_state),
+             "%s msg=%d/%d sbar=%d rewind=%d pad=%d rumble=%d tex=%d cmap=%d skipbl=%d",
+             am, ST_DebugMessageLeft(), ST_DebugMessageElemSet(), ST_DebugStatusbarSet(),
+             G_DebugRewindCount(), I_DebugStaleGamepad(), I_DebugRumbleGamepadSet(),
+             I_DebugVideoTextureSet(), R_DebugColormapsSet(), skipblstart);
+}
+
+const char *WoofIOS_DebugSessionEntryState(void)
+{
+    return session_entry_state;
+}
+
+const char *WoofIOS_DebugAutomapBounds(void)
+{
+    extern void AM_DebugBounds(char *buf, size_t len);
+    static char buf[64];
+    AM_DebugBounds(buf, sizeof(buf));
+    return buf;
+}
+
 int WoofIOS_Run(int argc, char **argv)
 {
     // Because the host app's main() is SwiftUI's synthesized entry point
@@ -194,6 +237,24 @@ int WoofIOS_Run(int argc, char **argv)
     extern void S_ResetSessionMusic(void);
     S_ResetSessionMusic();
 
+    // Automap, HUD, rewind and renderer state the next session read before
+    // rewriting it (issue #268). The SDL objects (gamepad, rumble, texture)
+    // are cleared where the previous session destroyed them instead.
+    extern void AM_ResetSessionState(void);
+    AM_ResetSessionState();
+    extern void ST_ResetSessionMessages(void);
+    ST_ResetSessionMessages();
+    extern void ST_ResetSessionStatusbar(void);
+    ST_ResetSessionStatusbar();
+    extern void G_ResetRewind(boolean force);
+    G_ResetRewind(true);
+    extern void R_ResetSessionColormaps(void);
+    R_ResetSessionColormaps();
+    // Set only by P_SetSkipBlockStart when a map's own blockmap is loaded; a
+    // map whose blockmap is built instead inherited the last session's.
+    extern boolean skipblstart;
+    skipblstart = false;
+
     // Debug counter for the HUD's btn= field; per session, like the rest.
     extern void I_DebugResetGamepadCounters(void);
     I_DebugResetGamepadCounters();
@@ -206,6 +267,8 @@ int WoofIOS_Run(int argc, char **argv)
     // in the unwind branch above, which runs before that post-session read
     // and would zero out the count the ended session just produced.
     touch_event_count = 0;
+
+    WoofIOS_DebugSessionEntryCheckpoint();
 
     myargc = argc;
     myargv = argv;

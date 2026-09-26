@@ -1678,6 +1678,11 @@ void I_ShutdownGraphics(void)
     SetShowCursor(true);
 
     SDL_DestroyTexture(texture);
+#ifdef WOOF_IOS
+    // CreateVideoBuffer destroys the old texture before making a new one, so
+    // the next session passed this dead pointer to SDL (issue #268).
+    texture = NULL;
+#endif
 
     if (!D_AllowEndDoom())
     {
@@ -1797,3 +1802,11 @@ void I_BindVideoVariables(void)
 // Lee's Jan 19 sources
 //
 //----------------------------------------------------------------------------
+
+#ifdef WOOF_IOS
+// Debug seam for WoofIOS_DebugSessionEntryState (woof_ios.c).
+int I_DebugVideoTextureSet(void)
+{
+    return texture != NULL;
+}
+#endif
