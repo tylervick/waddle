@@ -342,3 +342,53 @@ void D_SetupDemoLoop(void)
         D_TitlePicFix();
     }
 }
+
+#ifdef WOOF_IOS
+#include <string.h>
+
+// Called from DEH_ResetSession (deh_main.c) before every D_DoomMain() on iOS
+// (issue #270): D_GetDefaultDemoLoop edits these static defaults in place
+// (DEH_MUSIC_LUMP, HELP2 for a PWAD that has it, D_TitlePicFix's DMENUPIC),
+// and every later game in the process inherited the edits -- a game without
+// DMENUPIC after a BFG Edition IWAD would lose its title page.
+static demoloop_entry_t pristine_registered[arrlen(demoloop_registered)];
+static demoloop_entry_t pristine_retail[arrlen(demoloop_retail)];
+static demoloop_entry_t pristine_commercial[arrlen(demoloop_commercial)];
+static boolean demoloops_saved;
+
+void D_ResetDefaultDemoLoops(void)
+{
+    if (!demoloops_saved)
+    {
+        memcpy(pristine_registered, demoloop_registered, sizeof(pristine_registered));
+        memcpy(pristine_retail, demoloop_retail, sizeof(pristine_retail));
+        memcpy(pristine_commercial, demoloop_commercial, sizeof(pristine_commercial));
+        demoloops_saved = true;
+    }
+    else
+    {
+        memcpy(demoloop_registered, pristine_registered, sizeof(pristine_registered));
+        memcpy(demoloop_retail, pristine_retail, sizeof(pristine_retail));
+        memcpy(demoloop_commercial, pristine_commercial, sizeof(pristine_commercial));
+    }
+}
+
+// Debug seam: how many default demo-loop entries differ from the pristine ones.
+int D_DebugDemoLoopsChanged(void)
+{
+    int n = 0;
+    for (int i = 0; demoloops_saved && i < arrlen(pristine_registered); ++i)
+    {
+        n += memcmp(&demoloop_registered[i], &pristine_registered[i], sizeof(demoloop_entry_t)) != 0;
+    }
+    for (int i = 0; demoloops_saved && i < arrlen(pristine_retail); ++i)
+    {
+        n += memcmp(&demoloop_retail[i], &pristine_retail[i], sizeof(demoloop_entry_t)) != 0;
+    }
+    for (int i = 0; demoloops_saved && i < arrlen(pristine_commercial); ++i)
+    {
+        n += memcmp(&demoloop_commercial[i], &pristine_commercial[i], sizeof(demoloop_entry_t)) != 0;
+    }
+    return n;
+}
+#endif

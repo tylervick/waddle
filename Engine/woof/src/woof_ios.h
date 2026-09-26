@@ -102,11 +102,22 @@ int WoofIOS_DebugSessionStartZoneKB(void);
 //    msg=<message tics left>/<centred message element set>
 //    sbar=<statusbar set> rewind=<keyframes queued> pad=<stale gamepad>
 //    rumble=<stale rumble gamepad> tex=<stale video texture>
-//    cmap=<colormaps set> skipbl=<skipblstart>"
+//    cmap=<colormaps set> skipbl=<skipblstart>
+//    dehtab=<hash of the weapon/ammo/misc tables DEHACKED patches>
+//    dehstr=<string replacements> dehfiles=<-deh files listed>
+//    cheats=<cheat codes replaced> pars=<par times changed>
+//    dloop=<default demo-loop entries edited>"
 // A fresh process reads "amlvl=-1/-1 amstop=1 amdef=0 amcol=1 msg=0/0
-// sbar=0 rewind=0 pad=0 rumble=0 tex=0 cmap=0 skipbl=0", and so must every
-// later session.
+// sbar=0 rewind=0 pad=0 rumble=0 tex=0 cmap=0 skipbl=0 dehtab=<its own>
+// dehstr=0 dehfiles=0 cheats=0 pars=0 dloop=0", and so must every later
+// session; dehtab must equal the first session's.
 const char *WoofIOS_DebugSessionEntryState(void);
+
+// Debug/test telemetry only: the DEHACKED-patched state as it stands right
+// now -- "now dehtab=<hash> dehfiles=<n> cheats=<n> pars=<n>" (fields as in
+// WoofIOS_DebugSessionEntryState). Read after a session that loaded a patch,
+// it shows the patch took (issue #270).
+const char *WoofIOS_DebugDehNow(void);
 
 // Debug/test telemetry only: "ambox=<min x>,<min y>,<max x>,<max y>", the
 // map bounds the automap last computed (AM_LevelInit), in map units. Read

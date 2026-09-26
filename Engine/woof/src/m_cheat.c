@@ -1412,3 +1412,55 @@ boolean M_CheatResponder(event_t *ev)
 // Lee's Jan 19 sources
 //
 //----------------------------------------------------------------------------
+
+#ifdef WOOF_IOS
+// Called from DEH_ResetSession (deh_main.c) before every D_DoomMain() on iOS
+// (issue #270): a DEHACKED Cheat section replaces a sequence with a heap copy
+// and nothing put the original back, so the next game got the previous
+// game's cheat codes.
+typedef struct
+{
+    char *sequence;
+    int sequence_len;
+    boolean deh_modified;
+} pristine_cheat_t;
+
+static pristine_cheat_t pristine_cheats[arrlen(cheats_table)];
+static boolean cheats_saved;
+
+void M_ResetCheatSequences(void)
+{
+    for (int i = 0; cheats_table[i].sequence; ++i)
+    {
+        cheat_sequence_t *cht = &cheats_table[i];
+        if (!cheats_saved)
+        {
+            pristine_cheats[i].sequence = cht->sequence;
+            pristine_cheats[i].sequence_len = cht->sequence_len;
+            pristine_cheats[i].deh_modified = cht->deh_modified;
+            continue;
+        }
+        if (cht->sequence != pristine_cheats[i].sequence)
+        {
+            free(cht->sequence); // M_StringDuplicate in DEH_CheatParseLine
+        }
+        cht->sequence = pristine_cheats[i].sequence;
+        cht->sequence_len = pristine_cheats[i].sequence_len;
+        cht->deh_modified = pristine_cheats[i].deh_modified;
+        cht->chars_read = 0;
+        cht->param_chars_read = 0;
+    }
+    cheats_saved = true;
+}
+
+// Debug seam: how many cheat sequences differ from the pristine ones.
+int M_DebugCheatsChanged(void)
+{
+    int n = 0;
+    for (int i = 0; cheats_saved && cheats_table[i].sequence; ++i)
+    {
+        n += cheats_table[i].sequence != pristine_cheats[i].sequence;
+    }
+    return n;
+}
+#endif

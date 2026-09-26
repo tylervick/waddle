@@ -443,6 +443,26 @@ only ever runs once):
   backs `testAutomapBoundsAreEachMapsOwn`. Still open in #268: `negonearray`,
   `p_dirty`'s `levels` and `G_ApplyLevelCompatibility`'s saved options.
 
+- `src/deh_main.c`, `src/deh_strings.c`, `src/deh_bex_partimes.c`,
+  `src/m_cheat.c`, `src/d_demoloop.c`, `src/woof_ios.c`/`.h` -- DEHACKED
+  patches that outlived the session that applied them (issue #270). DEHACKED
+  (a PWAD's lump, `-deh`, or the IWAD's own: Freedoom's patches weapons, cheats
+  and par times) runs once per session and patches tables in place.
+  `DSDH_*Init` already rebuilds states, mobjinfo, sounds and sprites, and
+  `S_ResetSessionMusic` restores `S_music`. `DEH_ResetSession()`, called
+  from `WoofIOS_Run`, restores the rest from snapshots taken before the
+  first session: `weaponinfo`, `clipammo`/`maxammo`, the `deh_*` misc values
+  and flags, the cheat sequences (freeing the heap copies a Cheat section
+  made), the BEX par times, the default demo loops (`DEH_MUSIC_LUMP`, `HELP2`,
+  `DMENUPIC`), the string-replacement table, and the `-deh` file list, whose
+  counter `AddDEHFileName` kept in a function-local static. It also clears
+  `deh_initialized`, so each session's `DEH_Init` re-reads `-nocheats`.
+  `WoofIOS_DebugSessionEntryState()` gains `dehtab dehstr dehfiles cheats pars
+  dloop`, and `WoofIOS_DebugDehNow()` reads them live. The app's
+  `WADDLE_TEST_DEH_TEXT`/`WADDLE_TEST_DEH_SESSIONS` (debug builds) load a patch
+  with `-deh` into chosen sessions, so `SessionStartStateTests` checks a modded
+  session followed by a plain one without a PWAD fixture.
+
 - `src/i_input.c`, `src/mn_menu.c`, `src/woof_ios.c`/`.h` -- input telemetry
   for the in-game debug HUD, added to explain why a Revyl farm device could
   open the menu from the overlay's menu button but neither USE nor the
