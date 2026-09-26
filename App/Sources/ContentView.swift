@@ -31,12 +31,17 @@ struct ContentView: View {
                     .padding(.bottom, 100)
             }
             if let code = lastExitCode {
-                Text("Engine exited: \(code)")
-                    .font(.footnote.monospaced())
-                    .padding(6)
-                    .background(.thinMaterial, in: Capsule())
-                    .accessibilityIdentifier("engineExitLabel")
-                    .padding(.bottom, 60)
+                VStack(spacing: 8) {
+                    #if DEBUG
+                    sessionStartDebugStack
+                    #endif
+                    Text("Engine exited: \(code)")
+                        .font(.footnote.monospaced())
+                        .padding(6)
+                        .background(.thinMaterial, in: Capsule())
+                        .accessibilityIdentifier("engineExitLabel")
+                }
+                .padding(.bottom, 60)
             }
             #if DEBUG
             if ProcessInfo.processInfo.environment["WADDLE_DEBUG_INPUT_COUNTS"] != nil,
@@ -76,26 +81,6 @@ struct ContentView: View {
             }
             // And what the session that just ended started with, captured by
             // the engine at the start of its game loop (issue #266).
-            if ProcessInfo.processInfo.environment["WADDLE_DEBUG_SESSION_START"] != nil,
-               lastExitCode != nil {
-                Text(String(cString: WoofIOS_DebugSessionStartState()))
-                    .font(.footnote.monospaced())
-                    .accessibilityIdentifier("sessionStartStateLabel")
-                    .padding(.bottom, 220)
-                // verbatim: a localized interpolation would print 1,500.
-                Text(verbatim: "zowned=\(WoofIOS_DebugSessionStartZoneKB())")
-                    .font(.footnote.monospaced())
-                    .accessibilityIdentifier("sessionStartZoneLabel")
-                    .padding(.bottom, 250)
-                Text(verbatim: String(cString: WoofIOS_DebugSessionEntryState()))
-                    .font(.footnote.monospaced())
-                    .accessibilityIdentifier("sessionEntryStateLabel")
-                    .padding(.bottom, 280)
-                Text(verbatim: String(cString: WoofIOS_DebugAutomapBounds()))
-                    .font(.footnote.monospaced())
-                    .accessibilityIdentifier("automapBoundsLabel")
-                    .padding(.bottom, 310)
-            }
             #endif
         }
         // Always dark, and set once at the root so it reaches the sheets,
@@ -106,4 +91,34 @@ struct ContentView: View {
         // what settles the system-drawn chrome around them.
         .preferredColorScheme(.dark)
     }
+
+    #if DEBUG
+    /// The engine's session-state readouts (issues #266, #268, #269), shown
+    /// just above the exit label after a session when WADDLE_DEBUG_SESSION_START
+    /// is set. Stacked with the label rather than given their own bottom
+    /// paddings: the session-start line wraps to three lines on a phone, and
+    /// separately padded labels overlapped each other and the exit label.
+    /// XCUITest reads them by identifier and never noticed; the Revyl agent
+    /// reads the screen and could not (#277). Opaque, because it lands on tile
+    /// art.
+    @ViewBuilder private var sessionStartDebugStack: some View {
+        if ProcessInfo.processInfo.environment["WADDLE_DEBUG_SESSION_START"] != nil {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(verbatim: String(cString: WoofIOS_DebugAutomapBounds()))
+                    .accessibilityIdentifier("automapBoundsLabel")
+                Text(verbatim: String(cString: WoofIOS_DebugSessionEntryState()))
+                    .accessibilityIdentifier("sessionEntryStateLabel")
+                // verbatim: a localized interpolation would print 1,500.
+                Text(verbatim: "zowned=\(WoofIOS_DebugSessionStartZoneKB())")
+                    .accessibilityIdentifier("sessionStartZoneLabel")
+                Text(verbatim: String(cString: WoofIOS_DebugSessionStartState()))
+                    .accessibilityIdentifier("sessionStartStateLabel")
+            }
+            .font(.footnote.monospaced())
+            .padding(8)
+            .background(.black, in: RoundedRectangle(cornerRadius: 8))
+            .padding(.horizontal, 16)
+        }
+    }
+    #endif
 }

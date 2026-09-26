@@ -286,6 +286,12 @@ final class SessionStartStateTests: XCTestCase {
 
         let state = app.staticTexts["sessionStartStateLabel"]
         guard state.waitForExistence(timeout: 5) else { return "" }
+        // What a reader of the screen sees (the Revyl test reads pixels, not
+        // identifiers), kept with the run.
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "\(name)-shelf-after-session"
+        shot.lifetime = .keepAlways
+        add(shot)
         let attachment = XCTAttachment(string: state.label)
         attachment.name = "\(name)-session-start-state"
         attachment.lifetime = .keepAlways
