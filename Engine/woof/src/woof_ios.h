@@ -112,10 +112,12 @@ int WoofIOS_DebugSessionStartLumpsKB(void);
 //    dehtab=<hash of the weapon/ammo/misc tables DEHACKED patches>
 //    dehstr=<string replacements> dehfiles=<-deh files listed>
 //    cheats=<cheat codes replaced> pars=<par times changed>
-//    dloop=<default demo-loop entries edited>"
+//    dloop=<default demo-loop entries edited>
+//    dirtylv=<levels in p_dirty's archive> compres=<COMPDB restore pending>"
 // A fresh process reads "amlvl=-1/-1 amstop=1 amdef=0 amcol=1 msg=0/0
 // sbar=0 rewind=0 pad=0 rumble=0 tex=0 cmap=0 skipbl=0 dehtab=<its own>
-// dehstr=0 dehfiles=0 cheats=0 pars=0 dloop=0", and so must every later
+// dehstr=0 dehfiles=0 cheats=0 pars=0 dloop=0 dirtylv=0 compres=0", and so
+// must every later
 // session; dehtab must equal the first session's.
 const char *WoofIOS_DebugSessionEntryState(void);
 
@@ -124,6 +126,12 @@ const char *WoofIOS_DebugSessionEntryState(void);
 // WoofIOS_DebugSessionEntryState). Read after a session that loaded a patch,
 // it shows the patch took (issue #270).
 const char *WoofIOS_DebugDehNow(void);
+
+// Debug/test telemetry only: "now dirtylv=<n> compres=<0|1>", p_dirty's
+// archived levels and the COMPDB restore flag as they stand right now. Read
+// after a session run with WADDLE_DEBUG_ARCHIVE_LEVEL/_COMPDB_MATCH, it shows
+// the hooks fired (issue #268).
+const char *WoofIOS_DebugLevelStateNow(void);
 
 // Debug/test telemetry only: "ambox=<min x>,<min y>,<max x>,<max y>", the
 // map bounds the automap last computed (AM_LevelInit), in map units. Read

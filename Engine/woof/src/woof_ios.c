@@ -120,21 +120,35 @@ static void WoofIOS_DebugSessionEntryCheckpoint(void)
     extern int M_DebugCheatsChanged(void);
     extern int DEH_DebugPartimesChanged(void);
     extern int D_DebugDemoLoopsChanged(void);
+    extern int P_DebugDirtyLevelCount(void);
+    extern int G_DebugRestoreCompPending(void);
     char am[96];
     AM_DebugSessionEntry(am, sizeof(am));
     snprintf(session_entry_state, sizeof(session_entry_state),
              "%s msg=%d/%d sbar=%d rewind=%d pad=%d rumble=%d tex=%d cmap=%d skipbl=%d"
-             " dehtab=%08x dehstr=%d dehfiles=%d cheats=%d pars=%d dloop=%d",
+             " dehtab=%08x dehstr=%d dehfiles=%d cheats=%d pars=%d dloop=%d"
+             " dirtylv=%d compres=%d",
              am, ST_DebugMessageLeft(), ST_DebugMessageElemSet(), ST_DebugStatusbarSet(),
              G_DebugRewindCount(), I_DebugStaleGamepad(), I_DebugRumbleGamepadSet(),
              I_DebugVideoTextureSet(), R_DebugColormapsSet(), skipblstart,
              DEH_DebugTablesHash(), DEH_DebugStringCount(), DEH_DebugFileCount(),
-             M_DebugCheatsChanged(), DEH_DebugPartimesChanged(), D_DebugDemoLoopsChanged());
+             M_DebugCheatsChanged(), DEH_DebugPartimesChanged(), D_DebugDemoLoopsChanged(),
+             P_DebugDirtyLevelCount(), G_DebugRestoreCompPending());
 }
 
 const char *WoofIOS_DebugSessionEntryState(void)
 {
     return session_entry_state;
+}
+
+const char *WoofIOS_DebugLevelStateNow(void)
+{
+    extern int P_DebugDirtyLevelCount(void);
+    extern int G_DebugRestoreCompPending(void);
+    static char buf[48];
+    snprintf(buf, sizeof(buf), "now dirtylv=%d compres=%d", P_DebugDirtyLevelCount(),
+             G_DebugRestoreCompPending());
+    return buf;
 }
 
 const char *WoofIOS_DebugDehNow(void)
@@ -277,6 +291,10 @@ int WoofIOS_Run(int argc, char **argv)
     ST_ResetSbarDefFonts();
     extern void HU_ResetSessionCrosshair(void);
     HU_ResetSessionCrosshair();
+    extern void P_ResetSessionDirtyLevels(void);
+    P_ResetSessionDirtyLevels();
+    extern void G_ResetSessionCompatibility(void);
+    G_ResetSessionCompatibility();
     extern void G_ResetRewind(boolean force);
     G_ResetRewind(true);
     extern void R_ResetSessionColormaps(void);

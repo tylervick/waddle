@@ -130,3 +130,28 @@ boolean P_UnArchiveDirtyArrays(int episode, int map)
 
     return false;
 }
+
+#ifdef WOOF_IOS
+// Called from WoofIOS_Run before every D_DoomMain() (issue #268). Each
+// completed level is archived here and nothing cleared the list, so it grew
+// per session; and P_UnArchiveDirtyArrays, which takes the first entry for an
+// episode and map, applied an earlier session's entry -- line and side
+// pointers into a world arena since reused -- when a later session rewound
+// on a map of the same number.
+void P_ResetSessionDirtyLevels(void)
+{
+    dirty_t *level;
+    array_foreach(level, levels)
+    {
+        array_free(level->dirty_lines);
+        array_free(level->dirty_sides);
+    }
+    array_free(levels);
+}
+
+// Debug seam for WoofIOS_DebugSessionEntryState (woof_ios.c).
+int P_DebugDirtyLevelCount(void)
+{
+    return array_size(levels);
+}
+#endif

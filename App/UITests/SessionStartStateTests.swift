@@ -209,10 +209,50 @@ final class SessionStartStateTests: XCTestCase {
     /// dehtab is a hash of engine tables, so each test takes it from its own
     /// first session instead (freshEntry(dehtab:)).
     static let freshEntryBase = "amlvl=-1/-1 amstop=1 amdef=0 amcol=1 msg=0/0 sbar=0 rewind=0 "
-        + "pad=0 rumble=0 tex=0 cmap=0 skipbl=0 dehstr=0 dehfiles=0 cheats=0 pars=0 dloop=0"
+        + "pad=0 rumble=0 tex=0 cmap=0 skipbl=0 dehstr=0 dehfiles=0 cheats=0 pars=0 dloop=0 "
+        + "dirtylv=0 compres=0"
 
     static func freshEntry(dehtab: String?) -> String {
         freshEntryBase + " dehtab=\(dehtab ?? "missing")"
+    }
+
+    /// Issue #268: p_dirty's archive of completed levels and
+    /// G_ApplyLevelCompatibility's saved options both outlived a session.
+    /// Neither is reachable from a Freedoom session on its own (it takes a
+    /// completed level, and a map COMPDB knows), so two test-only hooks force
+    /// them: WADDLE_DEBUG_ARCHIVE_LEVEL archives the level on load, and
+    /// WADDLE_DEBUG_COMPDB_MATCH makes COMPDB's first record match it.
+    @MainActor
+    func testArchivedLevelsAndCompatibilityRestoreDoNotLeak() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
+        app.launchEnvironment["WADDLE_DEBUG_SESSION_START"] = "1"
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        app.launchEnvironment["WADDLE_DEBUG_ARCHIVE_LEVEL"] = "1"
+        app.launchEnvironment["WADDLE_DEBUG_COMPDB_MATCH"] = "1"
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Waddle"].waitForExistence(timeout: 90),
+                      "launcher UI never appeared")
+        let ok = app.alerts.buttons["OK"]
+        if ok.waitForExistence(timeout: 3) { ok.tap() }
+
+        let phase2 = app.buttons.matching(NSPredicate(format:
+            "identifier BEGINSWITH 'game-' AND identifier CONTAINS 'Freedoom Phase 2'"))
+            .firstMatch
+
+        _ = play(app, tile: phase2, name: "h1-map01")
+        let entry1 = try XCTUnwrap(label(app, "sessionEntryStateLabel", name: "h1"))
+        let now1 = try XCTUnwrap(label(app, "levelStateNowLabel", name: "h1"))
+        _ = play(app, tile: phase2, name: "h2-map01-again")
+        let entry2 = try XCTUnwrap(label(app, "sessionEntryStateLabel", name: "h2"))
+
+        let fresh = Self.freshEntry(dehtab: Self.fields(entry1)["dehtab"])
+        assertSameFields(entry1, fresh, "session 1 was not handed fresh state")
+        // The hooks really fired during session 1...
+        XCTAssertNotEqual(Self.fields(now1)["dirtylv"], "0", "no level was archived: \(now1)")
+        XCTAssertEqual(Self.fields(now1)["compres"], "1", "no COMPDB restore was pending: \(now1)")
+        // ...and session 2 starts from neither.
+        assertSameFields(entry2, fresh, "session 2 inherited session 1's level archive or COMPDB state")
     }
 
     /// A DEHACKED patch touching every table DEH_ResetSession restores.
