@@ -463,6 +463,24 @@ only ever runs once):
   with `-deh` into chosen sessions, so `SessionStartStateTests` checks a modded
   session followed by a plain one without a PWAD fixture.
 
+- `src/w_wad.c`, `src/st_sbardef.c`, `src/st_widgets.c`, `src/st_stuff.c`,
+  `src/hu_crosshair.c`, `src/i_pcsound.c`, `src/z_zone.c` -- the lump cache
+  (issue #269). `W_Close` now `Z_Free`s every cached lump and patch, then the
+  `lumpcache` array; each session used to orphan the previous session's
+  (measured: 14 MB per title-only session with Freedoom). That needed every
+  lump-pointer holder that outlives a session reset first. #277 had done the
+  automap, `colormaps` and `statusbar`. Under ASan the next one crashed every
+  multi-session test: `st_sbardef.c`'s `numberfonts`/`hudfonts` grow per
+  session and are searched first-match by name, so `ST_Init` gave session 2
+  the first session's fonts and `MN_SetHUFontKerning` read their freed
+  glyphs. `ST_ResetSbarDefFonts()` empties both. A static audit added three
+  holders no test reaches: `st_time_elem`/`st_cmd_elem` with `UpdateStatusBar`'s
+  `oldbarindex` (hoisted under `WOOF_IOS`), the crosshair patch
+  (`HU_ResetSessionCrosshair`), and the PC-speaker's current sound (cleared in
+  `I_PCS_ShutdownModule`). `Z_DebugOwnedKB()` feeds
+  `WoofIOS_DebugSessionStartLumpsKB()`, which `SessionStartStateTests` bounds
+  across two title-only sessions.
+
 - `src/i_input.c`, `src/mn_menu.c`, `src/woof_ios.c`/`.h` -- input telemetry
   for the in-game debug HUD, added to explain why a Revyl farm device could
   open the menu from the overlay's menu button but neither USE nor the

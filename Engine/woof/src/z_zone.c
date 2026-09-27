@@ -277,4 +277,25 @@ int Z_DebugUnownedKB(pu_tag tag)
   }
   return (int)(total / 1024);
 }
+
+// KB of live blocks under one tag that do have an owner pointer: the cached
+// lumps and patches (&lumpcache[i]) and composites. Debug seam for
+// WoofIOS_DebugSessionStartOwnedKB (issue #269).
+int Z_DebugOwnedKB(pu_tag tag)
+{
+  size_t total = 0;
+  memblock_t *block = blockbytag[tag];
+  if (block)
+  {
+    do
+    {
+      if (block->user)
+      {
+        total += block->size;
+      }
+      block = block->next;
+    } while (block != blockbytag[tag]);
+  }
+  return (int)(total / 1024);
+}
 #endif

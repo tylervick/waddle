@@ -650,6 +650,23 @@ void W_Close(void)
     }
 
 #ifdef WOOF_IOS
+    // Every lump this session cached (PU_STATIC, PU_CACHE or PU_LEVEL) names
+    // &lumpcache[i] as its zone owner, and was orphaned when the next session
+    // allocated its own lumpcache: measured 14 MB per title-only session with
+    // Freedoom (issue #269). Free them before the array, so no block is left whose
+    // owner pointer aims into freed memory. This waited on the holders that
+    // kept lump pointers across sessions being reset first (#268, #277): the
+    // automap's marknums and stopped flag, colormaps, statusbar.
+    if (lumpcache)
+    {
+        for (int i = 0; i < numlumps; ++i)
+        {
+            Z_Free(lumpcache[i]);
+        }
+        Z_Free(lumpcache);
+        lumpcache = NULL;
+    }
+
     // A second engine session in the same process calls
     // W_InitMultipleFiles() again from scratch. `lumpinfo`/`wadfiles` are
     // realloc-backed arrays (m_array.h) that would otherwise still hold

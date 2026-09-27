@@ -105,8 +105,10 @@ final class SessionStartStateTests: XCTestCase {
             .firstMatch
         let first = play(app, tile: phase2, name: "t1-phase2-quit-at-title")
         let firstZone = zoneKB(app, name: "t1")
+        let firstLumps = zoneKB(app, name: "t1", field: "zlumps")
         let second = play(app, tile: phase2, name: "t2-phase2-after-title-quit")
         let secondZone = zoneKB(app, name: "t2")
+        let secondLumps = zoneKB(app, name: "t2", field: "zlumps")
 
         XCTAssertEqual(Self.fields(first)["music"], "1",
                        "first session's title page started no music: \(first)")
@@ -124,6 +126,15 @@ final class SessionStartStateTests: XCTestCase {
         }
         XCTAssertLessThan(b - a, 256,
             "module-owned zone memory grew by \(b - a) KB between two title-only sessions (\(a) -> \(b))")
+
+        // And the lump cache (#269): the previous session's cached lumps and
+        // patches used to stay behind: 14 MB per title-only session with Freedoom
+        // (14042 -> 28151 KB with W_Close's free removed).
+        guard let la = firstLumps, let lb = secondLumps else {
+            return XCTFail("no zlumps=<KB> from sessionStartZoneLabel (missing or unparseable; see the attachments)")
+        }
+        XCTAssertLessThan(lb - la, 256,
+            "cached-lump zone memory grew by \(lb - la) KB between two title-only sessions (\(la) -> \(lb))")
     }
 
     /// Review of #276: R_InitTextures now frees the previous session's texture
@@ -184,14 +195,14 @@ final class SessionStartStateTests: XCTestCase {
     }
 
     /// `zowned=<KB>` from the label shown next to the session-start string.
-    private func zoneKB(_ app: XCUIApplication, name: String) -> Int? {
+    private func zoneKB(_ app: XCUIApplication, name: String, field: String = "zowned") -> Int? {
         let label = app.staticTexts["sessionStartZoneLabel"]
         guard label.waitForExistence(timeout: 5) else { return nil }
         let attachment = XCTAttachment(string: label.label)
         attachment.name = "\(name)-session-start-zone"
         attachment.lifetime = .keepAlways
         add(attachment)
-        return Self.fields(label.label)["zowned"].flatMap(Int.init)
+        return Self.fields(label.label)[field].flatMap(Int.init)
     }
 
     /// What a fresh process hands its first session (WoofIOS_DebugSessionEntryState).

@@ -737,3 +737,29 @@ sbardef_t *ST_ParseSbarDef(void)
 
     return out;
 }
+
+#ifdef WOOF_IOS
+// Called from WoofIOS_Run before every D_DoomMain() (issue #269).
+// ST_ParseSbarDef appends to both arrays every session and font lookups take
+// the first match by name, so a later session used the first session's
+// fonts, whose glyphs are lumps W_Close has freed; MN_SetHUFontKerning read
+// them during the next session's own init. The patches themselves belong to
+// the lump cache.
+void ST_ResetSbarDefFonts(void)
+{
+    numberfont_t *nf;
+    array_foreach(nf, numberfonts)
+    {
+        free((char *)nf->name);
+    }
+    array_free(numberfonts);
+
+    hudfont_t *hf;
+    array_foreach(hf, hudfonts)
+    {
+        free((char *)hf->name);
+        free((char *)hf->stem);
+    }
+    array_free(hudfonts);
+}
+#endif
