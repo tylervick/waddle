@@ -95,6 +95,12 @@ const char *WoofIOS_DebugSessionStartState(void);
 // session reached its game loop. Two title-only sessions of one game should
 // report about the same; every session used to add ~1.4 MB (issue #269).
 int WoofIOS_DebugSessionStartZoneKB(void);
+
+// Debug/test telemetry only: KB of PU_STATIC and PU_CACHE zone memory that
+// does have an owner pointer (cached lumps and patches) at the same point.
+// Two title-only sessions of one game should report about the same; the
+// previous session's lump cache used to stay behind (issue #269).
+int WoofIOS_DebugSessionStartLumpsKB(void);
 // Debug/test telemetry only: the state the most recent session was handed at
 // entry, before D_DoomMain (issue #268) --
 //   "amlvl=<AM_Start's last map>/<episode> amstop=<automap stopped>

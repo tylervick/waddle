@@ -1226,6 +1226,11 @@ void ST_ResetSessionMessages(void)
     message_duration_left = 0;
     message_string[0] = '\0';
     st_msg_elem = NULL;
+    // Set only when UpdateStatusBar sees a new bar index (see
+    // ST_ResetSessionStatusbar); otherwise they kept pointing at the previous
+    // session's sbardef, whose fonts are gone (#269).
+    st_time_elem = NULL;
+    st_cmd_elem = NULL;
 }
 
 // Debug seam for WoofIOS_DebugSessionEntryState (woof_ios.c).

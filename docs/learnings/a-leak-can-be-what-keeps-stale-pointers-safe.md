@@ -43,3 +43,12 @@ diagnostics (`StandardOutputAndStandardError-com.tylervick.waddle.txt`), not
 the session log. `GlobalsDiffProbeTests` cannot run under ASan, because the
 probe's whole-section `memcpy` crosses the sanitizer's global redzones and
 reports a global-buffer-overflow in `WoofIOS_DebugGlobalsCheckpoint` itself.
+
+**Update 2026-09-26: the lump cache is now freed** (#269). The recipe that worked:
+- Reset the known holders first (#277's automap, `colormaps` and `statusbar`).
+- Re-apply the free and run the multi-session suites under ASan. Every multi-session test crashed with one trace: `MN_SetHUFontKerning` → `MN_StringWidth` reading a freed glyph.
+- Have a static audit list every lump-pointer holder that outlives a session. It found that trace's cause, `st_sbardef.c`'s `numberfonts`/`hudfonts`, which are appended to per session and looked up first-match by name. It also found three conditional holders no test reaches: the status-bar time and command elements, the crosshair patch, and the PC-speaker sound.
+- Reset all four. The same suites then ran clean under ASan, about 40 sessions.
+
+ASan plus the audit is the combination: ASan pinpoints what the tests reach, and the audit covers what they don't.
+

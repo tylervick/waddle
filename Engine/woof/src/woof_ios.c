@@ -273,6 +273,10 @@ int WoofIOS_Run(int argc, char **argv)
     ST_ResetSessionMessages();
     extern void ST_ResetSessionStatusbar(void);
     ST_ResetSessionStatusbar();
+    extern void ST_ResetSbarDefFonts(void);
+    ST_ResetSbarDefFonts();
+    extern void HU_ResetSessionCrosshair(void);
+    HU_ResetSessionCrosshair();
     extern void G_ResetRewind(boolean force);
     G_ResetRewind(true);
     extern void R_ResetSessionColormaps(void);
@@ -872,6 +876,7 @@ static char session_start_state[256];
 // Kept apart from the string: it differs between games, and the string is
 // compared exactly (here and by .revyl/tests/session-start-state.yaml).
 static int session_start_zone_kb;
+static int session_start_lumps_kb;
 
 void WoofIOS_DebugSessionStartCheckpoint(void)
 {
@@ -882,6 +887,7 @@ void WoofIOS_DebugSessionStartCheckpoint(void)
     extern int M_DebugArenaReservedMB(void);
     extern int G_DebugCompDatabaseSize(void);
     extern int Z_DebugUnownedKB(pu_tag tag);
+    extern int Z_DebugOwnedKB(pu_tag tag);
     extern int num_states, num_mobj_types, num_sfx, num_sprites;
     snprintf(session_start_state, sizeof(session_start_state),
              "%s states=%d mobj=%d sfx=%d spr=%d colors=%d faces=%d music=%d"
@@ -891,6 +897,7 @@ void WoofIOS_DebugSessionStartCheckpoint(void)
              ST_DebugFaceCount(), S_DebugMusicStarted(), M_DebugArenaReservedMB(),
              G_DebugCompDatabaseSize());
     session_start_zone_kb = Z_DebugUnownedKB(PU_STATIC);
+    session_start_lumps_kb = Z_DebugOwnedKB(PU_STATIC) + Z_DebugOwnedKB(PU_CACHE);
 }
 
 const char *WoofIOS_DebugSessionStartState(void)
@@ -901,6 +908,11 @@ const char *WoofIOS_DebugSessionStartState(void)
 int WoofIOS_DebugSessionStartZoneKB(void)
 {
     return session_start_zone_kb;
+}
+
+int WoofIOS_DebugSessionStartLumpsKB(void)
+{
+    return session_start_lumps_kb;
 }
 
 const char *WoofIOS_DebugMenuGeometry(void)

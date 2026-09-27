@@ -1343,9 +1343,17 @@ static void UpdateElem(sbarelem_t *elem, player_t *player)
     }
 }
 
+#ifdef WOOF_IOS
+// UpdateStatusBar's memory of the bar it last showed, hoisted so
+// ST_ResetSessionStatusbar can restart it (issue #269).
+static int oldbarindex = -1;
+#endif
+
 static void UpdateStatusBar(player_t *player)
 {
+#ifndef WOOF_IOS
     static int oldbarindex = -1;
+#endif
 
     int barindex = MAX(screenblocks - 10, 0);
 
@@ -2626,6 +2634,7 @@ void ST_BindSTSVariables(void)
 void ST_ResetSessionStatusbar(void)
 {
     statusbar = NULL;
+    oldbarindex = -1; // so the first bar of the session re-picks its elements
 }
 
 // Debug seam for WoofIOS_DebugSessionEntryState (woof_ios.c).
