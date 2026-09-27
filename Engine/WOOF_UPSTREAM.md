@@ -481,6 +481,23 @@ only ever runs once):
   `WoofIOS_DebugSessionStartLumpsKB()`, which `SessionStartStateTests` bounds
   across two title-only sessions.
 
+- `src/p_dirty.c`, `src/g_compatibility.c`, `src/p_setup.c` -- the last of
+  issue #268. `P_ResetSessionDirtyLevels()` empties `p_dirty`'s archive of
+  completed levels, which grew per session and which
+  `P_UnArchiveDirtyArrays` searches first-match by episode and map: a later
+  session's rewind on a map of the same number applied an earlier session's
+  line and side changes through pointers into a reused world arena.
+  `G_ResetSessionCompatibility()` clears `G_ApplyLevelCompatibility`'s
+  `restore_comp` (its statics hoisted under `WOOF_IOS`), which otherwise put an
+  earlier session's `comp[]` and `demo_version` back on the next session's
+  first level. Neither is reachable from a Freedoom session, so two test-only
+  hooks reach them: `WADDLE_DEBUG_ARCHIVE_LEVEL` archives the level at the end
+  of `P_SetupLevel`, and `WADDLE_DEBUG_COMPDB_MATCH` makes COMPDB's first
+  record match. The entry readout gains `dirtylv=` and `compres=`, and
+  `WoofIOS_DebugLevelStateNow()` reads them live. `negonearray` needed nothing:
+  `R_InitSprites`' stale write lands in its own still-allocated block, at the
+  width that block was sized for.
+
 - `src/i_input.c`, `src/mn_menu.c`, `src/woof_ios.c`/`.h` -- input telemetry
   for the in-game debug HUD, added to explain why a Revyl farm device could
   open the menu from the overlay's menu button but neither USE nor the

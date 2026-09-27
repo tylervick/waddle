@@ -15,6 +15,7 @@
 //  DSDA Compatibility
 //
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "doomdata.h"
@@ -217,11 +218,31 @@ static void GetLevelCheckSum(map_t* map, md5_checksum_t *cksum)
 // function will apply comp options to automatically fix some issues that
 // appear when playing wads in mbf21 (since this is the default).
 
+#ifdef WOOF_IOS
+// G_ApplyLevelCompatibility's memory of the options it replaced, hoisted so
+// G_ResetSessionCompatibility can clear it (issue #268): a session that
+// ended on a COMPDB-matched map left restore_comp set, and the next session's
+// first level load put that session's saved comp[] and demo_version back
+// over its own.
+static demo_version_t old_demo_version;
+static boolean restore_comp;
+static int old_comp[COMP_TOTAL];
+
+// Test-only: with WADDLE_DEBUG_COMPDB_MATCH set, the first COMPDB record
+// matches whatever map loads, so a Freedoom test can reach the restore path.
+static boolean DebugForceCompMatch(const comp_record_t *record)
+{
+    return record == comp_database && getenv("WADDLE_DEBUG_COMPDB_MATCH") != NULL;
+}
+#endif
+
 void G_ApplyLevelCompatibility(map_t* map)
 {
+#ifndef WOOF_IOS
     static demo_version_t old_demo_version;
     static boolean restore_comp;
     static int old_comp[COMP_TOTAL];
+#endif
 
     if (restore_comp)
     {
@@ -247,7 +268,11 @@ void G_ApplyLevelCompatibility(map_t* map)
     comp_record_t *record;
     array_foreach(record, comp_database)
     {
-        if (!memcmp(record->checksum, cksum.digest, sizeof(md5_digest_t)))
+        if (!memcmp(record->checksum, cksum.digest, sizeof(md5_digest_t))
+#ifdef WOOF_IOS
+            || DebugForceCompMatch(record)
+#endif
+           )
         {
             memcpy(old_comp, comp, sizeof(*comp));
             old_demo_version = demo_version;
@@ -282,3 +307,17 @@ void G_ApplyLevelCompatibility(map_t* map)
         }
     }
 }
+
+#ifdef WOOF_IOS
+// Called from WoofIOS_Run before every D_DoomMain() (issue #268).
+void G_ResetSessionCompatibility(void)
+{
+    restore_comp = false;
+}
+
+// Debug seam for WoofIOS_DebugSessionEntryState (woof_ios.c).
+int G_DebugRestoreCompPending(void)
+{
+    return restore_comp;
+}
+#endif

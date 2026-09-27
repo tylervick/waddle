@@ -46,6 +46,7 @@
 #include "p_maputl.h"
 #include "p_mobj.h"
 #include "p_setup.h"
+#include "p_dirty.h"  // P_ArchiveDirtyArraysCurrentLevel, test hook below
 #include "p_spec.h"
 #include "p_tick.h"
 #include "p_udmf.h"
@@ -1371,6 +1372,16 @@ void P_SetupLevel(int episode, int map_num, skill_t skill)
     bmap_format_names[map.bmap_format],
     map.reject_built ? "+Reject" : "",
     G_GetCurrentComplevelName());
+
+#ifdef WOOF_IOS
+  // Test-only: with WADDLE_DEBUG_ARCHIVE_LEVEL set, archive this level's
+  // dirty arrays as a completed level would (G_DoWorldDone), so a test can
+  // reach p_dirty's level list without finishing a map (issue #268).
+  if (getenv("WADDLE_DEBUG_ARCHIVE_LEVEL"))
+  {
+    P_ArchiveDirtyArraysCurrentLevel();
+  }
+#endif
 }
 
 //
