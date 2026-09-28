@@ -110,13 +110,13 @@ The same three runs on `main` after #280, simulator, iPhone 17 Pro (iOS 27.0):
 The 12 s count rose because session 1 now reaches the first demo level within 12 s, where it quit on the title page before. So the list gains per-frame and per-level render state that session 2 rewrites before use. Matched by name and source file (declaration lines moved with these edits), the same-game union went from 446 variables to 439:
 
 - **35 are gone.** They're the ones reset here: `fast_exit`, `wipegamestate`, `screen_wipe_internal`, `viewactivestate`, `oldgamestate`, `demoloop_prev`, `num_sfx`, `num_mobj_types`, `color_count`, `next_priority`, `S_music`, `current_musicnum`, the five playsim arenas, `statusbar`, `st_msg_elem`, `st_time_elem`, `st_cmd_elem`, `st_height`, `f_h`, `amdef`, `marknums`, `max_scale_mtof`, the rewind `queue`, `skipblstart`, and the rest.
-- **26 are new**, and none is a stale read:
+- **28 are new** (446 − 35 + 28 = 439), and none is a stale read. Two of them, `pixlowstep` and `viewx_trans`, had appeared before, but only in the cross-game run:
 
 | Variables | Why they differ now | Class |
 |---|---|---|
 | `autoload_paths`, `hash_table`, `numberfonts`, `hudfonts`, `facebackpatches`, `translate` (dsdh_sounds.c, dsdh_mobjinfo.c) | Freed and reallocated every session by the resets above, so their address changes | reset |
 | `hu_font`, `stcfnt` | Point at glyphs recached every session now that the lump cache is freed (#269); rewritten by `ST_Init` before use | harmless |
-| `rw_distance`, `rw_offset`, `rw_toptexturemid`, `topstep`, `worldlow`, `planeheight`, `viewx`, `viewy`, `viewz`, `viewy_trans` | Per-seg, per-plane and per-frame render state (`R_SetupFrame`, `R_StoreWallRange`, `R_MapPlane`), listed now that the 12 s run's session 1 renders a level | harmless |
+| `rw_distance`, `rw_offset`, `rw_toptexturemid`, `topstep`, `worldlow`, `pixlowstep`, `planeheight`, `viewx`, `viewy`, `viewz`, `viewx_trans`, `viewy_trans` | Per-seg, per-plane and per-frame render state (`R_SetupFrame`, `R_StoreWallRange`, `R_MapPlane`), listed now that the 12 s run's session 1 renders a level | harmless |
 | `full_min_scale_mtof` | Set by `ResetSwapScale` in the `AM_LevelInit` branch, which since #277 always runs before the automap first reads it in a session | harmless |
 | `weapon_carousel+0x4` | Not `weapon_carousel`: the byte belongs to `UpdateFace`'s function-local `priority` (st_stuff.c:845), which has no DWARF location. It keeps the last face priority into the next session's first face update, as upstream does across new games in one run, and clears when the face's count expires (st_stuff.c:1007) | shared |
 | `buf` (d_main.c), `session_start_state`, `session_start_zone_kb`, `session_start_lumps_kb`, `init_textures_calls` | The debug seams' own state (the globals snapshot is taken just before the session-start readout fills them) | shared |
