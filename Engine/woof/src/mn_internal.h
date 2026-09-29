@@ -266,6 +266,10 @@ typedef struct default_s
     int modified;                    // Whether it's been modified
     config_t orig_default;           // Original default, if modified
     struct setup_menu_s *setup_menu; // Xref to setup menu item, if any
+#ifdef WOOF_IOS
+    char *loaded_string;             // Block M_LoadDefaults/M_ParseOption last
+                                     // strdup'd into *location.s (issue #39)
+#endif
 } default_t;
 
 extern default_t *defaults;

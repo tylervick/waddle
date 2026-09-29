@@ -523,6 +523,23 @@ only ever runs once):
   the overlay is the intended input. See
   `docs/learnings/engine-reads-axes-from-the-first-gamepad.md`.
 
+- `src/m_config.c`, `src/mn_internal.h` -- `M_LoadDefaults` strdup'd a fresh
+  block for every string default and never freed the last session's, so all
+  12 leaked each session (issue #39). Upstream runs it once per process; the
+  guarded `M_InitConfig` above is why it runs every session here. The block
+  `M_LoadDefaults`/`M_ParseOption` last allocated is recorded in a `WOOF_IOS`
+  field, `default_t.loaded_string`, and freed before the next `strdup`. It is
+  NOT `*location.s` that gets freed: `I_SetMidiPlayer` leaves
+  `midi_player_string` on a music module's device-list entry and the #116
+  migration in `I_InitMusic` sets it to a string literal, so freeing the
+  variable would free memory the config code never owned. The field is NULL
+  on the first call, which is the first-session guard. A WAD-modified
+  default's `orig_default.string` stays allocated because `M_SaveDefaults`
+  may still write it out. `M_DebugStringDefaultsLive()` counts at the
+  allocation and free sites and feeds `cfgstr=` in
+  `WoofIOS_DebugSessionStartState()`, which `SessionStartStateTests` pins
+  at 12.
+
 Related (not upstream files): `Scripts/build-engine.sh` passes
 `-DCMAKE_FIND_ROOT_PATH="$OUT/$platform"` in addition to
 `-DCMAKE_PREFIX_PATH`. When `CMAKE_SYSTEM_NAME=iOS`, CMake restricts

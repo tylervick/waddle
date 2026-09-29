@@ -906,14 +906,15 @@ void WoofIOS_DebugSessionStartCheckpoint(void)
     extern int G_DebugCompDatabaseSize(void);
     extern int Z_DebugUnownedKB(pu_tag tag);
     extern int Z_DebugOwnedKB(pu_tag tag);
+    extern int M_DebugStringDefaultsLive(void);
     extern int num_states, num_mobj_types, num_sfx, num_sprites;
     snprintf(session_start_state, sizeof(session_start_state),
              "%s states=%d mobj=%d sfx=%d spr=%d colors=%d faces=%d music=%d"
-             " arenas=%d compdb=%d",
+             " arenas=%d compdb=%d cfgstr=%d",
              D_DebugSessionState(), num_states, num_mobj_types, num_sfx,
              num_sprites, DEH_DebugColorCount(),
              ST_DebugFaceCount(), S_DebugMusicStarted(), M_DebugArenaReservedMB(),
-             G_DebugCompDatabaseSize());
+             G_DebugCompDatabaseSize(), M_DebugStringDefaultsLive());
     session_start_zone_kb = Z_DebugUnownedKB(PU_STATIC);
     session_start_lumps_kb = Z_DebugOwnedKB(PU_STATIC) + Z_DebugOwnedKB(PU_CACHE);
 }
