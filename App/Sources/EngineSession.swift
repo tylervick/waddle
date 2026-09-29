@@ -147,6 +147,17 @@ enum EngineSession {
                 effectiveArguments += ["-deh", url.path]
             }
         }
+        // Test-only (issue #38): WADDLE_TEST_ZIP_<n> is a base64 zip loaded
+        // with -file into the n-th session of this launch, so a test can hand
+        // w_zip.c a WAD inside a zip, valid or broken, without a fixture file.
+        if let base64 = env["WADDLE_TEST_ZIP_\(testSessionCount)"],
+           let data = Data(base64Encoded: base64) {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("waddle-test-\(testSessionCount).zip")
+            if (try? data.write(to: url)) != nil {
+                effectiveArguments += ["-file", url.path]
+            }
+        }
         #endif
 
         var argv: [UnsafeMutablePointer<CChar>?] = effectiveArguments.map { strdup($0) }

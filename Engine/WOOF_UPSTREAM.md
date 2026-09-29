@@ -541,6 +541,24 @@ only ever runs once):
   `WoofIOS_DebugSessionStartState()`, which `SessionStartStateTests` pins
   at 12.
 
+- `src/w_zip.c` -- a `.wad` at the root of a zip or pk3 is decompressed by
+  `AddWadInMem` into a `malloc`'d buffer that its lumps point into
+  (`lumpinfo_t.data`). Upstream never frees it, and three of the function's
+  `I_Error`s (extract failure, short header, bad IWAD/PWAD id) abandon it before
+  any lump does. Both leaked once per session here, where `I_Error` ends the
+  session rather than the process (issue #38). The three error paths now free
+  the buffer first. Once the header checks pass, the buffer goes on a
+  `WOOF_IOS` list that `W_ZIP_Close` frees. That also covers the lump-range
+  `I_Error` inside the loop, because `W_Close` runs on error and `D_DoomMain`
+  registers it before loading any file. Only `W_ReadLump` reads
+  `lumpinfo_t.data` (a `memcpy`), so no pointer into the buffer outlives
+  `W_Close`. `W_ZIP_DebugWadBuffers()` counts at the malloc and free sites and
+  feeds `WoofIOS_DebugZipWadBuffers()` (`zipwads=<live>/<total>`), which
+  `SessionStartStateTests.testWadsInsideZipsAreFreedAfterEverySession` reads
+  after a valid zip, each of the four error paths and a valid zip again. It
+  read 1/1 to 6/6 before the fix. See
+  `docs/learnings/i-error-ends-the-session-not-the-process.md`.
+
 Related (not upstream files): `Scripts/build-engine.sh` passes
 `-DCMAKE_FIND_ROOT_PATH="$OUT/$platform"` in addition to
 `-DCMAKE_PREFIX_PATH`. When `CMAKE_SYSTEM_NAME=iOS`, CMake restricts

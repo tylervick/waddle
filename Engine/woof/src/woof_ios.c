@@ -934,6 +934,16 @@ int WoofIOS_DebugSessionStartLumpsKB(void)
     return session_start_lumps_kb;
 }
 
+const char *WoofIOS_DebugZipWadBuffers(void)
+{
+    extern void W_ZIP_DebugWadBuffers(int *live, int *total);
+    static char buf[48];
+    int live, total;
+    W_ZIP_DebugWadBuffers(&live, &total);
+    snprintf(buf, sizeof(buf), "zipwads=%d/%d", live, total);
+    return buf;
+}
+
 const char *WoofIOS_DebugMenuGeometry(void)
 {
     // Lives in mn_menu.c's WOOF_IOS block; declared here rather than in a
