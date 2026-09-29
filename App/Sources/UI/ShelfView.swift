@@ -437,7 +437,27 @@ struct ShelfView: View {
         return "game-\(game.name)"
     }
 
+    /// Starts the session on the main run loop's next pass instead of inside
+    /// the tap that asked for it (issue #95). The engine runs synchronously
+    /// until the session ends, so starting it from a button action nested the
+    /// whole session inside UIKit's dispatch of that tap, and UIKit does not
+    /// deliver another gesture's action until the first one returns. Touch
+    /// input still arrived, but SDL's error box (`I_ErrorMsg`) highlighted OK
+    /// and never ran its action, so the app needed a force quit.
+    ///
+    /// A run-loop block, not `DispatchQueue.main.async` or a `@MainActor`
+    /// task: those would run the session inside a main-queue block, and the
+    /// serial main queue would then hold every other block queued to it (the
+    /// UI tests' autoquit, SwiftUI's own async work) until the session ended.
     private func play(_ game: Game, mode: LaunchMode = .newGame) {
+        let main = CFRunLoopGetMain()
+        CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) {
+            MainActor.assumeIsolated { startSession(game, mode: mode) }
+        }
+        CFRunLoopWakeUp(main)
+    }
+
+    private func startSession(_ game: Game, mode: LaunchMode) {
         lastExitCode = nil
         // Recorded before prepare() can throw: the user did try to start this
         // one, and a "session begin" with an immediate argument-failure end is
