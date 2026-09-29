@@ -553,9 +553,16 @@ boolean M_ParseOption(const char *p, boolean wad)
         }
         else
         {
-            free(*dp->location.s); // Free old value
 #ifdef WOOF_IOS
-            live_string_defaults--;
+            // Same rule as M_LoadDefaults: free only the block this file
+            // recorded, never whatever *location.s points at now.
+            if (dp->loaded_string)
+            {
+                free(dp->loaded_string);
+                live_string_defaults--;
+            }
+#else
+            free(*dp->location.s); // Free old value
 #endif
         }
 

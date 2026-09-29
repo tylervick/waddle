@@ -2,10 +2,10 @@
 
 _meta:
     remote_id: 17f388cb-fd23-44d6-bf3e-b951e5ce26f8
-    remote_version: 3
-    local_version: 3
-    last_synced_at: "2026-09-23T17:44:36-07:00"
-    checksum: f9233b71973a586b673958ca15129efbf073299839eec3cd56d53b944f6807f6
+    remote_version: 4
+    local_version: 4
+    last_synced_at: "2026-09-28T23:06:18-07:00"
+    checksum: 6e742dc3d8f3f64ef2c9783b7f6ef46c0b164941e0ecec79ec69a2e0f6bcc884
 test:
     metadata:
         name: session-start-state

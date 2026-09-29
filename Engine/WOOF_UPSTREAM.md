@@ -528,8 +528,9 @@ only ever runs once):
   12 leaked each session (issue #39). Upstream runs it once per process; the
   guarded `M_InitConfig` above is why it runs every session here. The block
   `M_LoadDefaults`/`M_ParseOption` last allocated is recorded in a `WOOF_IOS`
-  field, `default_t.loaded_string`, and freed before the next `strdup`. It is
-  NOT `*location.s` that gets freed: `I_SetMidiPlayer` leaves
+  field, `default_t.loaded_string`, and freed before the next `strdup`, in
+  both functions (`M_ParseOption`'s upstream `free(*dp->location.s)` is
+  replaced too). It is NOT `*location.s` that gets freed: `I_SetMidiPlayer` leaves
   `midi_player_string` on a music module's device-list entry and the #116
   migration in `I_InitMusic` sets it to a string literal, so freeing the
   variable would free memory the config code never owned. The field is NULL
