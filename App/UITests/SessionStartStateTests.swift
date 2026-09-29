@@ -65,8 +65,12 @@ final class SessionStartStateTests: XCTestCase {
         // music=1: the title page started its track. arenas=352 is the five
         // playsim arenas' reservation in MB, and compdb=40 woof.pk3's COMPDB
         // records: both grew by that much per session until issue #269.
+        // cfgstr=12 is one live block per string default (net_player_name,
+        // midi_player_string and ten chat macros; soundfont_dirs needs
+        // FluidSynth, which this build lacks). M_LoadDefaults orphaned all 12
+        // each session until issue #39.
         let pristine = ["exit": "0", "wipe": "3/-1", "oldgs": "-1", "view": "0", "demoprev": "0",
-                        "music": "1", "arenas": "352", "compdb": "40"]
+                        "music": "1", "arenas": "352", "compdb": "40", "cfgstr": "12"]
         for (name, state) in [("session 1", phase1Fresh), ("session 2", phase2First),
                               ("session 3", phase2Second), ("session 4", phase1Again)] {
             let fields = Self.fields(state)

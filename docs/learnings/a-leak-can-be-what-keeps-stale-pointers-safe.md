@@ -52,3 +52,5 @@ reports a global-buffer-overflow in `WoofIOS_DebugGlobalsCheckpoint` itself.
 
 ASan plus the audit is the combination: ASan pinpoints what the tests reach, and the audit covers what they don't.
 
+**Update 2026-09-28: the variable may no longer hold what the init allocated** (#39).
+"The allocation the init re-assigns" means the block the init allocated, not whatever the variable holds when the next session starts. `M_LoadDefaults` strdup's every string default. Freeing `*dp->location.s` before the next strdup, as the issue first prescribed, would have freed a pointer the config code never owned: by then `I_SetMidiPlayer` has pointed `midi_player_string` at a music module's device-list entry, and the #116 migration can point it at a string literal. Record the pointer when you allocate it (`default_t.loaded_string`) and free that. Before freeing through an engine variable, grep for every assignment to it, not just the allocation sites.
