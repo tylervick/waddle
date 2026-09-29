@@ -101,6 +101,13 @@ int WoofIOS_DebugSessionStartZoneKB(void);
 // Two title-only sessions of one game should report about the same; the
 // previous session's lump cache used to stay behind (issue #269).
 int WoofIOS_DebugSessionStartLumpsKB(void);
+
+// Debug/test telemetry only: "zipwads=<live>/<total>", the decompressed WADs
+// that w_zip.c's AddWadInMem (a .wad at the root of a zip or pk3) holds right
+// now, and how many it has allocated in this process. Read after a session;
+// every session used to leave its buffers behind, and a load that failed
+// part-way its one buffer (issue #38).
+const char *WoofIOS_DebugZipWadBuffers(void);
 // Debug/test telemetry only: the state the most recent session was handed at
 // entry, before D_DoomMain (issue #268) --
 //   "amlvl=<AM_Start's last map>/<episode> amstop=<automap stopped>

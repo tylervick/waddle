@@ -117,6 +117,8 @@ struct ContentView: View {
                     .accessibilityIdentifier("sessionStartZoneLabel")
                 Text(verbatim: String(cString: WoofIOS_DebugSessionStartState()))
                     .accessibilityIdentifier("sessionStartStateLabel")
+                Text(verbatim: String(cString: WoofIOS_DebugZipWadBuffers()))
+                    .accessibilityIdentifier("zipWadBuffersLabel")
             }
             .font(.footnote.monospaced())
             .padding(8)

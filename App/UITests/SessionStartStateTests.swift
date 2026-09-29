@@ -173,9 +173,118 @@ final class SessionStartStateTests: XCTestCase {
         _ = play(app, tile: phase2, name: "f4-after-a-failure-before-the-tables")
     }
 
-    /// Starts a session that WADDLE_DEBUG_FAIL_TEXTURES makes fail, dismisses
-    /// whatever error dialogs it raises, and checks it did fail.
+    /// Issue #38: a WAD at the root of a zip is decompressed into a buffer
+    /// (w_zip.c's AddWadInMem) that its lumps point into. No session ever freed
+    /// it, and three of the load's error paths abandoned it before any lump
+    /// did. Each session here loads its own zip (WADDLE_TEST_ZIP_<n>): a valid
+    /// one, then one that fails at each of the four error paths, then a valid
+    /// one again. After every session, including the failed ones, no buffer
+    /// may be left; the total proves each session did allocate one, so a
+    /// fixture that never reached AddWadInMem cannot pass.
+    @MainActor
+    func testWadsInsideZipsAreFreedAfterEverySession() throws {
+        autoquitSeconds = 8.0
+        let wad = Self.pwad(lumpData: Data("WADDLE".utf8))
+        var badLump = wad
+        badLump[24] = 0xFF // directory entry size (bytes 22-25): 16 MB past the end
+        let sessions: [(name: String, zip: Data, error: String?)] = [
+            ("z1-valid", Self.storedZip(name: "waddle-test.wad", data: wad), nil),
+            ("z2-bad-crc", Self.storedZip(name: "waddle-test.wad", data: wad, crc: 0),
+             "mz_zip_reader_extract_to_mem failed"),
+            ("z3-short-header", Self.storedZip(name: "waddle-test.wad", data: Data("PWAD".utf8)),
+             "Error reading header from waddle-test.wad"),
+            ("z4-bad-id", Self.storedZip(name: "waddle-test.wad", data: Data("X".utf8) + wad.dropFirst()),
+             "doesn't have IWAD or PWAD id"),
+            ("z5-lump-past-end", Self.storedZip(name: "waddle-test.wad", data: badLump),
+             "Error reading lump 0 from waddle-test.wad"),
+            ("z6-valid-again", Self.storedZip(name: "waddle-test.wad", data: wad), nil),
+        ]
+
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
+        app.launchEnvironment["WADDLE_DEBUG_SESSION_START"] = "1"
+        app.launchEnvironment["WADDLE_TEST_NOGUI"] = "1"
+        for (index, session) in sessions.enumerated() {
+            app.launchEnvironment["WADDLE_TEST_ZIP_\(index + 1)"] = session.zip.base64EncodedString()
+        }
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Waddle"].waitForExistence(timeout: 90),
+                      "launcher UI never appeared")
+        let ok = app.alerts.buttons["OK"]
+        if ok.waitForExistence(timeout: 3) { ok.tap() }
+        let phase1 = app.buttons["playFreedoom1"]
+
+        for (index, session) in sessions.enumerated() {
+            if let error = session.error {
+                failInit(app, tile: phase1, name: session.name, expecting: error)
+            } else {
+                _ = play(app, tile: phase1, name: session.name)
+            }
+            XCTAssertEqual(label(app, "zipWadBuffersLabel", name: session.name),
+                           "zipwads=0/\(index + 1)",
+                           "\(session.name): a decompressed WAD outlived its session, "
+                               + "or the zip never reached AddWadInMem")
+        }
+    }
+
+    /// A PWAD with one lump, WADDLTST.
+    static func pwad(lumpData: Data) -> Data {
+        var wad = Data("PWAD".utf8)
+        wad.appendLE32(1)                                // numlumps
+        wad.appendLE32(UInt32(12 + lumpData.count))      // infotableofs
+        wad += lumpData
+        wad.appendLE32(12)                               // filepos
+        wad.appendLE32(UInt32(lumpData.count))           // size
+        wad += Data("WADDLTST".utf8)
+        return wad
+    }
+
+    /// A one-entry zip with the entry stored, not deflated. `crc` overrides the
+    /// real CRC-32, which makes miniz's extract fail its check.
+    static func storedZip(name: String, data: Data, crc: UInt32? = nil) -> Data {
+        let crc = crc ?? Self.crc32(data)
+        let fileName = Data(name.utf8)
+        var zip = Data()
+        func entryFields(_ out: inout Data) {
+            out.appendLE16(20); out.appendLE16(0); out.appendLE16(0)   // version, flags, stored
+            out.appendLE16(0); out.appendLE16(0x21)                    // time, date (1980-01-01)
+            out.appendLE32(crc)
+            out.appendLE32(UInt32(data.count)); out.appendLE32(UInt32(data.count))
+            out.appendLE16(UInt16(fileName.count)); out.appendLE16(0)  // name, extra lengths
+        }
+        zip.appendLE32(0x0403_4b50)
+        entryFields(&zip)
+        zip += fileName
+        zip += data
+        let directoryOffset = zip.count
+        zip.appendLE32(0x0201_4b50)
+        zip.appendLE16(20)                                             // made by
+        entryFields(&zip)
+        zip.appendLE16(0); zip.appendLE16(0); zip.appendLE16(0)        // comment, disk, internal
+        zip.appendLE32(0); zip.appendLE32(0)                           // external, local offset
+        zip += fileName
+        let directorySize = zip.count - directoryOffset
+        zip.appendLE32(0x0605_4b50)
+        zip.appendLE16(0); zip.appendLE16(0); zip.appendLE16(1); zip.appendLE16(1)
+        zip.appendLE32(UInt32(directorySize)); zip.appendLE32(UInt32(directoryOffset))
+        zip.appendLE16(0)
+        return zip
+    }
+
+    static func crc32(_ data: Data) -> UInt32 {
+        var crc: UInt32 = 0xFFFF_FFFF
+        for byte in data {
+            crc ^= UInt32(byte)
+            for _ in 0..<8 { crc = crc & 1 != 0 ? (crc >> 1) ^ 0xEDB8_8320 : crc >> 1 }
+        }
+        return ~crc
+    }
+
+    /// Starts a session that is set up to fail during init, dismisses whatever
+    /// error dialogs it raises, and checks it failed with `expecting` in the
+    /// launcher's message.
     private func failInit(_ app: XCUIApplication, tile: XCUIElement, name: String,
+                          expecting: String = "WADDLE_DEBUG_FAIL_TEXTURES",
                           file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertTrue(tile.waitForExistence(timeout: 30), "\(name): tile missing",
                       file: file, line: line)
@@ -186,11 +295,12 @@ final class SessionStartStateTests: XCTestCase {
         // returned (WADDLE_TEST_NOGUI keeps SDL's own message box away).
         let alert = app.alerts["Couldn't run this game"]
         XCTAssertTrue(alert.waitForExistence(timeout: 60),
-                      "\(name): no engine error alert; did the injected texture failure fire?",
+                      "\(name): no engine error alert; did the injected failure fire?",
                       file: file, line: line)
         XCTAssertTrue(alert.staticTexts.matching(NSPredicate(
-            format: "label CONTAINS 'WADDLE_DEBUG_FAIL_TEXTURES'")).firstMatch.exists,
-            "\(name): the engine failed, but not where the test made it fail", file: file, line: line)
+            format: "label CONTAINS %@", expecting)).firstMatch.exists,
+            "\(name): the engine failed, but not where the test made it fail (expected \"\(expecting)\")",
+            file: file, line: line)
         alert.buttons["OK"].tap()
         XCTAssertTrue(exitLabel.waitForExistence(timeout: 10),
                       "\(name): no exit label after the failure", file: file, line: line)
@@ -446,4 +556,9 @@ final class SessionStartStateTests: XCTestCase {
         }
         return result
     }
+}
+
+private extension Data {
+    mutating func appendLE16(_ value: UInt16) { Swift.withUnsafeBytes(of: value.littleEndian) { append(contentsOf: $0) } }
+    mutating func appendLE32(_ value: UInt32) { Swift.withUnsafeBytes(of: value.littleEndian) { append(contentsOf: $0) } }
 }
