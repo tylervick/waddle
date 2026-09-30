@@ -17,3 +17,17 @@ full-height capsule even on a tall row; `Label("Delete", systemImage: "trash")`
 renders the same as `.onDelete`.
 
 **Decision:** keep the stock look. Do not re-investigate.
+
+**Re-measured 2026-09-30 on iOS 27.0 (issue #244), because the iOS 27 SDK
+added `swipeActionsContainer()`, a lever the 2026-07-31 bisect could not have
+tried.** It changes nothing here. `FilesScreenTests.testSwipingATallImportedRowRevealsDelete`
+swipes the imported SCYTHE row (bundled rows are `deleteDisabled`, so they
+have no action to reveal) and attaches a screenshot; the same run with
+`.swipeActionsContainer()` behind `if #available(iOS 27.0, *)` on the `List`,
+and again on the row, produced images that differ from the stock one only in
+the status-bar clock (1884 and 541 pixels of 3.16 million). All three are in
+`images/ios27-swipe-tall-row-*.png`: the fixed-size red icon button with the
+"Delete" caption below and outside the red, on every variant. So iOS 27
+renders the tall-row swipe exactly as iOS 26 did, the modifier does not touch
+it at either site, and the decision above stands with that date on it. No
+source change was kept.

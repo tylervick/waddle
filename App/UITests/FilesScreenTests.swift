@@ -22,4 +22,42 @@ final class FilesScreenTests: XCTestCase {
         XCTAssertFalse(filesScreen.buttons["importButton"].exists, "Files must not carry its own import button")
         XCTAssertFalse(app.navigationBars["Files"].buttons["importButton"].exists, "…nor in its toolbar")
     }
+
+    /// Swipe-to-delete on a tall Files row. The assertion is that the swipe
+    /// reveals a Delete action at all; the screenshot is for a human, because
+    /// the *shape* of that action is what
+    /// `docs/learnings/ios26-list-swipe-actions-row-height.md` is about and
+    /// no assertion can see it (issue #244 re-measured it on iOS 27).
+    ///
+    /// Bundled rows are `deleteDisabled`, so the only rows with a swipe
+    /// action are imported ones: this needs a real WAD provisioned by
+    /// `Scripts/provision-test-wads.sh`, and skips without it, exactly as
+    /// the DOOM2 gate in `DemoLoopReplayTests` does. Swipes the list CELL:
+    /// the row's combined accessibility element does not carry the gesture.
+    @MainActor
+    func testSwipingATallImportedRowRevealsDelete() throws {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 10), "Add missing from the shelf")
+        openFiles(app)
+
+        let rowID = "fileRow-SCYTHE.WAD"
+        let row = app.descendants(matching: .any).matching(identifier: rowID).firstMatch
+        guard row.waitForExistence(timeout: 10) else {
+            throw XCTSkip("SCYTHE.WAD not provisioned into the simulator — see " +
+                          "Scripts/provision-test-wads.sh. Skipping.")
+        }
+        scrollTo(row, in: app)
+        let cell = app.cells.containing(.staticText, identifier: rowID).firstMatch
+        XCTAssertTrue(cell.waitForExistence(timeout: 5), "no list cell contains the SCYTHE.WAD row")
+        cell.swipeLeft()
+        let delete = app.buttons["Delete"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5), "swiping an imported row revealed no Delete action")
+        Thread.sleep(forTimeInterval: 1) // let the reveal animation settle before the shot
+
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "files-row-swipe-ios\(UIDevice.current.systemVersion)"
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
 }
