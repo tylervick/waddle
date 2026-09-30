@@ -128,12 +128,14 @@ if master="$(git ls-remote https://github.com/fabiangreffrath/woof.git refs/head
     master_sha="${master%%	*}"
     if [ "$master_sha" = "$woof_pin" ]; then
         report "WOOF_COMMIT ${woof_pin:0:8}: current"
-    elif [ "$have_gh" = 1 ] \
-         && ahead="$(gh api "repos/fabiangreffrath/woof/compare/$woof_pin...master" --jq .ahead_by 2>/dev/null)" \
+    elif [ "$have_gh" = 0 ]; then
+        report "WOOF_COMMIT ${woof_pin:0:8}: behind master (master ${master_sha:0:8}; count needs gh)"
+    elif ahead="$(gh api "repos/fabiangreffrath/woof/compare/$woof_pin...master" --jq .ahead_by 2>/dev/null)" \
          && [ -n "$ahead" ]; then
         report "WOOF_COMMIT ${woof_pin:0:8}: behind master by $ahead commits (master ${master_sha:0:8})"
     else
-        report "WOOF_COMMIT ${woof_pin:0:8}: behind master (master ${master_sha:0:8}; count needs gh)"
+        # gh was there and was asked; an unanswered count is not a distance.
+        report "WOOF_COMMIT ${woof_pin:0:8}: could not determine -- gh compare failed or gave no distance (master ${master_sha:0:8})"
     fi
 else
     report "WOOF_COMMIT ${woof_pin:0:8}: could not determine -- git ls-remote failed for fabiangreffrath/woof"
@@ -149,7 +151,9 @@ check_tag_pin SONIVOX_TAG "$(read_pin SONIVOX_TAG Scripts/build-deps.sh)" pedrol
 check_tag_pin LIBOGG_TAG "$(read_pin LIBOGG_TAG Scripts/build-deps.sh)" xiph/ogg "$V_NUMERIC"
 check_tag_pin LIBVORBIS_TAG "$(read_pin LIBVORBIS_TAG Scripts/build-deps.sh)" xiph/vorbis "$V_NUMERIC"
 check_tag_pin LIBFLAC_TAG "$(read_pin LIBFLAC_TAG Scripts/build-deps.sh)" xiph/flac "$NUMERIC"
-check_tag_pin LIBOPUS_TAG "$(read_pin LIBOPUS_TAG Scripts/build-deps.sh)" xiph/opus "$V_NUMERIC"
+# Opus tags releases with two components too (v1.6 is a release, v1.6.1 its
+# patch), so the patch component is optional here.
+check_tag_pin LIBOPUS_TAG "$(read_pin LIBOPUS_TAG Scripts/build-deps.sh)" xiph/opus '^v[0-9]+\.[0-9]+(\.[0-9]+)?$'
 check_tag_pin LIBSNDFILE_TAG "$(read_pin LIBSNDFILE_TAG Scripts/build-deps.sh)" libsndfile/libsndfile "$ANY_NUMERIC"
 # fetch-freedoom.sh downloads from releases/download/v${FREEDOOM_VERSION}, so
 # the tag is the pin with a v in front.

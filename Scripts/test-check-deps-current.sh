@@ -60,6 +60,7 @@ cat > "$TMP/bin/gh" <<'STUB'
 case "$1 $2" in
     "auth status") exit 0 ;;
     "api repos/fabiangreffrath/woof/compare/"*)
+        if [ "${STUB_GH_COMPARE:-}" = fail ]; then echo "gh: HTTP 403 rate limit" >&2; exit 1; fi
         [ -f "$STUB_FIX/woof.ahead" ] || { echo "stub gh: no ahead fixture" >&2; exit 64; }
         cat "$STUB_FIX/woof.ahead"; exit 0 ;;
 esac
@@ -167,6 +168,9 @@ printf 'release-3.4.13\nrelease-3.4.14\nrelease-3.4.16\n' >> "$B/remotes/SDL.tag
 echo "1.25.3" >> "$B/remotes/openal-soft.tags"
 echo "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b" > "$B/remotes/woof.master"
 echo 37 > "$B/woof.ahead"
+# Opus publishes v1.6 with two components and it is a release, not a tag
+# shape to skip (CodeRabbit on PR #289).
+echo "v1.7" >> "$B/remotes/opus.tags"
 echo "3.1.2" >> "$B/remotes/miniz.tags"
 printf '#define MZ_VERSION "11.3.2"\n' > "$B/headers/richgel999_miniz_3.1.2_miniz.h"
 run_check "$B" || { cat "$TMP/out" >&2; fail "behind run exited non-zero (staleness must report, not gate)"; }
@@ -180,7 +184,9 @@ echo "$(line_for third-party/miniz)" | grep -q "behind (newest tag 3.1.2 declare
     || fail "miniz not compared through its header: $(line_for third-party/miniz)"
 echo "$(line_for FREEDOOM_VERSION)" | grep -q ": current" \
     || fail "a prerelease tag counted as a release: $(line_for FREEDOOM_VERSION)"
-grep -q "4 behind, 0 undetermined" "$TMP/out" || fail "summary wrong: $(tail -1 "$TMP/out")"
+echo "$(line_for LIBOPUS_TAG)" | grep -q "behind 1 release (newest v1.7)" \
+    || fail "a two-component opus release was not counted: $(line_for LIBOPUS_TAG)"
+grep -q "5 behind, 0 undetermined" "$TMP/out" || fail "summary wrong: $(tail -1 "$TMP/out")"
 pass "reports how far behind, skipping snapshots and prereleases"
 
 # --- 3. the case this check exists to get right: a failed query --------
@@ -193,7 +199,7 @@ if run_check "$C" "STUB_FAIL_REPO=openal-soft"; then
 fi
 echo "$(line_for OPENAL_TAG)" | grep -q "could not determine" \
     || fail "failed query not reported as undetermined: $(line_for OPENAL_TAG)"
-echo "$(line_for OPENAL_TAG)" | grep -qv "current\|behind" \
+! echo "$(line_for OPENAL_TAG)" | grep -q "current\|behind" \
     || fail "failed query reported a distance: $(line_for OPENAL_TAG)"
 echo "$(line_for SDL_TAG)" | grep -q ": current" || fail "one failed query hid the other pins: $(line_for SDL_TAG)"
 grep -q "1 undetermined" "$TMP/out" || fail "summary did not count the undetermined pin: $(tail -1 "$TMP/out")"
@@ -206,7 +212,7 @@ if ! env PATH="$TMP/nogh:/usr/bin:/bin" STUB_FIX="$D" STUB_NET=down "$D/Scripts/
     cat "$TMP/out" >&2; fail "offline run exited non-zero instead of skipping"
 fi
 grep -q "^skip - " "$TMP/out" || fail "offline run did not print a skip line: $(cat "$TMP/out")"
-grep -qv "could not determine" "$TMP/out" || fail "offline run reported pins as undetermined instead of skipping"
+! grep -q "could not determine" "$TMP/out" || fail "offline run reported pins as undetermined instead of skipping"
 pass "skips cleanly with no network and no gh"
 
 # --- 5. a pin the check is told to watch but cannot find -----------------
@@ -226,9 +232,22 @@ echo "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b" > "$F/remotes/woof.master"
 env PATH="$TMP/nogh:/usr/bin:/bin" STUB_FIX="$F" "$F/Scripts/check-deps-current.sh" > "$TMP/out" 2>&1 \
     || { cat "$TMP/out" >&2; fail "no-gh run exited non-zero"; }
 echo "$(line_for WOOF_COMMIT)" | grep -q "behind master" || fail "woof not reported behind without gh: $(line_for WOOF_COMMIT)"
-echo "$(line_for WOOF_COMMIT)" | grep -qv "by [0-9]* commits" || fail "a commit count was invented without gh: $(line_for WOOF_COMMIT)"
+! echo "$(line_for WOOF_COMMIT)" | grep -q "by [0-9]* commits" || fail "a commit count was invented without gh: $(line_for WOOF_COMMIT)"
 echo "$(line_for SDL_TAG)" | grep -q ": current" || fail "tags were not checked without gh: $(line_for SDL_TAG)"
 pass "checks tags without gh and reports woof behind master without a count"
+
+# --- 6b. gh present, but the compare query fails --------------------------
+# Different from "no gh": here the count was asked for and not answered, so
+# the honest line is "could not determine", not a distance without a count
+# that exits 0 (CodeRabbit on PR #289).
+F2="$TMP/f2"; make_fixture "$F2"
+echo "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b" > "$F2/remotes/woof.master"
+if run_check "$F2" "STUB_GH_COMPARE=fail"; then
+    fail "a failed gh compare exited zero"
+fi
+echo "$(line_for WOOF_COMMIT)" | grep -q "could not determine" \
+    || fail "a failed gh compare was not reported as undetermined: $(line_for WOOF_COMMIT)"
+pass "reports a failed gh compare as undetermined rather than a distance without a count"
 
 # --- 7. a third-party header that cannot be fetched --------------------
 G="$TMP/g"; make_fixture "$G"
