@@ -97,6 +97,7 @@ jobs:
           Scripts/test-check-substrate.sh
           Scripts/test-check-name-consistency.sh
           Scripts/test-build-deps.sh
+          Scripts/test-ensure-native-cmake-cache.sh
           Scripts/test-check-icons-fresh.sh
           Scripts/test-check-icon-json.sh
           Scripts/test-loop-report.sh
