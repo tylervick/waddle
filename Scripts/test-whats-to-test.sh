@@ -777,4 +777,91 @@ echo "$out" | grep -qF -- "- Update dependency swiftformat to v0.5" \
     || fail "did not fall back to the commit subject; got: $out"
 pass "treats a [bot] login suffix as a bot even with no type field"
 
+# --- issue #133: the fallback stays a subject, its count reaches --print,
+# --- and a preamble that already shipped is called out ------------------
+
+# 39. Two commit shapes whose bodies are several sentences, with the pull
+# request fetch UNAVAILABLE so nothing but git decides the text: a merge
+# commit whose body carries lines beyond the title, and a squash-style
+# direct commit with a multi-paragraph body. Each bullet is one line -- the
+# merge body's first line, the direct commit's subject -- and no body prose
+# reaches the notes. Pinned because issue #133 quoted reviewer-facing prose
+# in real notes and blamed the fallback; neither path emits a body, and this
+# keeps it that way.
+J="$(make_repo j '
+git checkout -q -b pr-40
+git commit -q --allow-empty -m "wip"
+git checkout -q -
+git merge -q --no-ff pr-40 -m "Merge pull request #40 from tylervick/pr-40
+
+fix(ui): stop the stick from sticking
+
+Task.detached deliberately does not inherit the caller cancellation. The
+stick then kept its last value across a session boundary. This is the
+second paragraph a reviewer needed and a tester never should."
+git commit -q --allow-empty -m "fix(touch): keep USE inside its own column (#41)
+
+WeaponPrevButton is placed inside the movement stick capture column. This
+is the rationale paragraph, written for a reviewer, not a tester."
+git remote add origin https://github.com/tylervick/waddle.git
+')"
+stub_curl "$J"
+out="$(print_stubbed "$J")"
+printf '%s\n' "$out" | grep -q "^- Stop the stick from sticking$" \
+    || fail "merge fallback bullet is not the body's first line alone:\n$out"
+printf '%s\n' "$out" | grep -q "^- Keep USE inside its own column$" \
+    || fail "direct-commit fallback bullet is not the bare subject:\n$out"
+! printf '%s\n' "$out" | grep -q "Task.detached\|second paragraph\|WeaponPrevButton\|rationale paragraph" \
+    || fail "commit body prose reached the notes:\n$out"
+pass "a fallback bullet is the one-line subject, never the commit body"
+
+# 40. The fallback count reaches --print's own OUTPUT (stdout), where the
+# person reviewing the notes reads it -- not only stderr, which in CI is the
+# workflow log nobody reading the notes sees (issue #133). It is a labelled
+# diagnostic after the notes, not part of them.
+out_stdout="$(cd "$J" && env PATH="$J/bin:$PATH" STUBDIR="$J" GH_TOKEN= GITHUB_TOKEN= ./Scripts/whats-to-test.sh --print 2>/dev/null)"
+printf '%s\n' "$out_stdout" | grep -q "summaries unavailable for 2 of 2" \
+    || fail "the fallback count did not reach --print's stdout:\n$out_stdout"
+printf '%s\n' "$out_stdout" | grep -q "not part of the notes" \
+    || fail "the diagnostic is not labelled as outside the notes:\n$out_stdout"
+pass "the fallback count is printed with the notes, labelled as not part of them"
+
+# 41. A preamble that already shipped: unchanged since the previous build
+# tag, so build 206 carried exactly this text. Assembling the next build's
+# notes must say so -- build 213's iPad preamble would have shipped verbatim
+# on 214 had a hand revert been forgotten (issue #133).
+K="$(make_repo k 'git commit -q --allow-empty -m "fix(ui): a change after the tag"' 'Please try the new iPad control layout.')"
+out="$(notes "$K")"
+printf '%s\n' "$out" | grep -q "preamble.*unchanged since build 206" \
+    || fail "an already-shipped preamble was not reported:\n$out"
+printf '%s\n' "$out" | grep -q "^Please try the new iPad control layout.$" \
+    || fail "the preamble itself went missing from the notes:\n$out"
+pass "reports a preamble that is unchanged since the previous shipped build"
+
+# 42. A preamble edited since the previous build tag is this build's own,
+# and must NOT be reported.
+L="$(make_repo l '
+printf "Please try the new automap gestures." > docs/app-store/whats-to-test.md
+git add -A; git commit -qm "docs(app-store): preamble for the next build"
+' 'Please try the new iPad control layout.')"
+out="$(notes "$L")"
+! printf '%s\n' "$out" | grep -q "unchanged since build" \
+    || fail "a freshly edited preamble was reported as stale:\n$out"
+printf '%s\n' "$out" | grep -q "^Please try the new automap gestures.$" \
+    || fail "the edited preamble is not in the notes:\n$out"
+pass "does not report a preamble edited since the previous shipped build"
+
+# 43. The staleness diagnostic is for the reviewer, not the tester: on the
+# ATTACH path the notes sent to App Store Connect carry the preamble and the
+# changelog only.
+M="$(make_repo m 'git commit -q --allow-empty -m "fix(ui): a change after the tag"' 'Please try the new iPad control layout.')"
+stub_curl "$M"
+attach "$M" 207
+sent="$(whats_new "$M/body.json")"
+! printf '%s\n' "$sent" | grep -q "unchanged since build\|not part of the notes" \
+    || fail "a diagnostic line was sent to App Store Connect:\n$sent"
+printf '%s\n' "$sent" | grep -q "Please try the new iPad control layout." \
+    || fail "the preamble did not reach the attached notes:\n$sent"
+pass "keeps both diagnostics out of the notes that are attached"
+
 echo "All whats-to-test tests passed."
