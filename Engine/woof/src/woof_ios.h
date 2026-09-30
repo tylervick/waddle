@@ -108,6 +108,21 @@ int WoofIOS_DebugSessionStartLumpsKB(void);
 // every session used to leave its buffers behind, and a load that failed
 // part-way its one buffer (issue #38).
 const char *WoofIOS_DebugZipWadBuffers(void);
+
+// Debug/test telemetry only: "bgsave=<n> bgpause=<n> bglt=<leveltime>", how
+// many times the app's lifecycle has made the engine write the suspend save
+// (background entry in a live level) and open the menu (resign-active in a
+// live level) in this process, and the leveltime the last such save captured
+// (issue #111). Counted where the acts happen, never reset.
+const char *WoofIOS_DebugBackgroundState(void);
+
+// Debug/test telemetry only: "gs=<level|demo|inter|finale|title|none>
+// load=<-loadgame argument, -1 without> lt=<leveltime, 0 outside a level>",
+// as they stand right now; demo is a level under demo playback. In the
+// in-game debug HUD, so a test can tell a resumed save (load=254, gs=level)
+// from the title a failed command-line load falls back to (whose demo loop
+// reaches a level within seconds), and from a -warp (load=-1).
+const char *WoofIOS_DebugGameState(void);
 // Debug/test telemetry only: the state the most recent session was handed at
 // entry, before D_DoomMain (issue #268) --
 //   "amlvl=<AM_Start's last map>/<episode> amstop=<automap stopped>

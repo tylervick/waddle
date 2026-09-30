@@ -2482,6 +2482,18 @@ void D_DoomMain(void)
     G_LoadAutoSave(file, true);
     free(file);
   }
+#ifdef WOOF_IOS
+  // 254 is this port's suspend save (G_BackgroundSave, issue #111): the level
+  // the player was in when the app was backgrounded. Same loader as the
+  // autosave, since neither is a numbered slot.
+  else if (startloadgame == 254 && !demorecording && gameaction != ga_playdemo
+           && !netgame)
+  {
+    char *file = G_SuspendSaveName();
+    G_LoadAutoSave(file, true);
+    free(file);
+  }
+#endif
   else if (startloadgame >= 0 && startloadgame <= 77) // Page 0-7, slot 0-7.
   {
     char *file;

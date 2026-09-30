@@ -934,6 +934,42 @@ int WoofIOS_DebugSessionStartLumpsKB(void)
     return session_start_lumps_kb;
 }
 
+extern gamestate_t gamestate; // doomstat.h
+extern boolean demoplayback;  // doomstat.h
+
+const char *WoofIOS_DebugGameState(void)
+{
+    extern int startloadgame; // d_main.c: -loadgame's argument, -1 without
+    extern int leveltime;     // doomstat.h
+    static char buf[48];
+    const char *state;
+    switch (gamestate)
+    {
+        // A demo's level is not the player's: the title's demo loop reaches
+        // GS_LEVEL within seconds, and a failed -loadgame falls back to it.
+        case GS_LEVEL:        state = demoplayback ? "demo" : "level"; break;
+        case GS_INTERMISSION: state = "inter";  break;
+        case GS_FINALE:       state = "finale"; break;
+        case GS_DEMOSCREEN:   state = "title";  break;
+        default:              state = "none";   break;
+    }
+    snprintf(buf, sizeof(buf), "gs=%s load=%d lt=%d", state, startloadgame,
+             gamestate == GS_LEVEL ? leveltime : 0);
+    return buf;
+}
+
+const char *WoofIOS_DebugBackgroundState(void)
+{
+    extern void G_DebugBackgroundCounts(int *saves, int *pauses,
+                                        int *saved_leveltime);
+    static char buf[64];
+    int saves, pauses, saved_leveltime;
+    G_DebugBackgroundCounts(&saves, &pauses, &saved_leveltime);
+    snprintf(buf, sizeof(buf), "bgsave=%d bgpause=%d bglt=%d", saves, pauses,
+             saved_leveltime);
+    return buf;
+}
+
 const char *WoofIOS_DebugZipWadBuffers(void)
 {
     extern void W_ZIP_DebugWadBuffers(int *live, int *total);

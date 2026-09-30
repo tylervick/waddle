@@ -128,6 +128,10 @@ including the failures.
       neither restarts from the top nor ends up playing over a second copy
       of itself (record which of "keeps playing" or "stops and resumes
       cleanly" you observe)
+- [ ] Backgrounding mid-level (home gesture / app switcher) leaves the ≡
+      menu open when you return, and the level is where you left it; force
+      quitting the app from the switcher instead and relaunching shows a
+      Continue hero for that game, and Continue lands in that level
 - [ ] Backgrounding mid-session (home gesture / app switcher) stops audio,
       and returning to the foreground resumes both music and sound effects
       with no stuck, looping, or dead channel; locking and unlocking the

@@ -93,7 +93,7 @@ struct ContentView: View {
     }
 
     #if DEBUG
-    /// The engine's session-state readouts (issues #266, #268, #269), shown
+    /// The engine's session-state readouts (issues #266, #268, #269, #111), shown
     /// just above the exit label after a session when WADDLE_DEBUG_SESSION_START
     /// is set. Stacked with the label rather than given their own bottom
     /// paddings: the session-start line wraps to three lines on a phone, and
@@ -119,6 +119,8 @@ struct ContentView: View {
                     .accessibilityIdentifier("sessionStartStateLabel")
                 Text(verbatim: String(cString: WoofIOS_DebugZipWadBuffers()))
                     .accessibilityIdentifier("zipWadBuffersLabel")
+                Text(verbatim: String(cString: WoofIOS_DebugBackgroundState()))
+                    .accessibilityIdentifier("backgroundStateLabel")
             }
             .font(.footnote.monospaced())
             .padding(8)
