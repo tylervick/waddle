@@ -74,6 +74,10 @@ build() { # srcdir platform extra-cmake-args...
     local src="$1" platform="$2"
     shift 2
     local bdir="$ROOT/Vendor/build/$(basename "$src")-$platform"
+    # A cache seeded from another checkout makes cmake refuse to configure
+    # (issue #72); clear it here, at the point of use, so ordering cannot
+    # defeat the check the way a setup-time delete was defeated.
+    "$ROOT/Scripts/ensure-native-cmake-cache.sh" "$bdir"
     cmake -S "$src" -B "$bdir" -G Ninja \
         -DCMAKE_SYSTEM_NAME=iOS \
         -DCMAKE_OSX_SYSROOT="$platform" \

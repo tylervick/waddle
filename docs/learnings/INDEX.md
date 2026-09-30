@@ -13,7 +13,7 @@ One file per hard-won fact. Add an entry here in the same PR that adds the file 
 - [iOS 26 List swipe actions change shape with row height](ios26-list-swipe-actions-row-height.md) — the stock idiom, already bisected; do not re-investigate
 - [SwiftUI `Menu` cannot render `Slider` rows](swiftui-menu-cannot-host-sliders.md) — why tuning lives in the Control Feel sheet
 - [Gesture recognizers do not fire inside SDL's own UIWindow](sdl-window-gesture-recognizers.md) — use responder-chain touches instead
-- [Setting up a second worktree has two traps](worktree-setup-traps.md) — the Vendor symlink and the stale CMakeCache
+- [Setting up a second worktree has two traps](worktree-setup-traps.md) — the Vendor symlink, and the stale CMakeCache that `Scripts/ensure-native-cmake-cache.sh` now clears at build time
 - [Simulator hazards that produce misleading test results](simulator-test-hazards.md) — rotation, screenshot orientation, and RealWADTests fixtures
 - [A test that builds a git fixture inherits the developer's signing config](git-fixtures-inherit-signing-config.md) — `tag.gpgSign` surfaces as `fatal: no tag message?`
 - [Masking a query's exit status makes a guard fail open](masked-exit-status-fails-open.md) — five times now, once as a grep pattern that missed the real transcript (`Scripts/test-upload.sh`); test the status, then rule on empty output separately; `Scripts/check-masked-gh-status.sh` is the check

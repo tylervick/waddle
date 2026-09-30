@@ -53,6 +53,9 @@ make_fixture() { # dest
         -e "s|https://github.com/libsndfile/libsndfile.git|file://$TMP/upstream-libsndfile|" \
         "$SCRIPT" > "$1/Scripts/build-deps.sh"
     chmod +x "$1/Scripts/build-deps.sh"
+    # build() runs the foreign-cache guard from its own Scripts/ (#72); the
+    # fixture is that root, so it needs the real guard beside the copy.
+    cp "$ROOT/Scripts/ensure-native-cmake-cache.sh" "$1/Scripts/"
     grep -q "file://$TMP/upstream-sdl" "$1/Scripts/build-deps.sh" \
         || fail "fixture did not repoint the SDL clone URL -- this test would hit the network"
     grep -q "file://$TMP/upstream-openal" "$1/Scripts/build-deps.sh" \

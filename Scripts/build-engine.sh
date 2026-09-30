@@ -45,6 +45,9 @@ export PKG_CONFIG_PATH=""
 # range belongs to. See docs/learnings/release-objects-lose-static-symbols.md.
 for platform in iphoneos iphonesimulator; do
     bdir="$ROOT/Vendor/build/woof-$platform"
+    # Same guard as build-deps.sh's build(): a cache from another checkout is
+    # cleared before cmake can refuse it (issue #72).
+    "$ROOT/Scripts/ensure-native-cmake-cache.sh" "$bdir"
     cmake -S "$ROOT/Engine/woof" -B "$bdir" -G Ninja \
         -DCMAKE_SYSTEM_NAME=iOS \
         -DCMAKE_OSX_SYSROOT="$platform" \
