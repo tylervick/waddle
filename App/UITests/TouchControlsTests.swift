@@ -358,6 +358,50 @@ final class TouchControlsTests: XCTestCase {
                       "a stick drag should write no button: \(writes.label)")
     }
 
+    /// Issue #113: with the automap open, a one-finger drag on the free area
+    /// pans it and a two-finger pinch zooms it. The engine's automap inputs
+    /// are held keys (arrows; '=' and '-'), so the gesture layer injects
+    /// keydown/keyup pairs, and `touchWritesLabel` counts them per key code
+    /// (`k<code>:<n>`). Dragging right moves the map content right, which is
+    /// the view window moving left: KEY_LEFTARROW (0xac = 172). Spreading a
+    /// pinch zooms in: '=' (61). Each held key is at least a down and an up.
+    @MainActor
+    func testAutomapDragPansAndPinchZooms() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "16"
+        app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        play.tap()
+        let automap = app.buttons["automapButton"]
+        XCTAssertTrue(automap.waitForExistence(timeout: 30), "overlay never installed")
+        Thread.sleep(forTimeInterval: 2)
+        automap.tap()
+        Thread.sleep(forTimeInterval: 1) // the map is up before the gestures
+
+        // One finger, free area (screen centre is no button), rightward.
+        let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5))
+        let to = app.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.5))
+        from.press(forDuration: 0.1, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.1)
+        Thread.sleep(forTimeInterval: 0.5)
+        // Two fingers spreading, centred on the app: zoom in.
+        app.pinch(withScale: 2.0, velocity: 1.0)
+
+        let writes = app.staticTexts["touchWritesLabel"]
+        XCTAssertTrue(writes.waitForExistence(timeout: 60), "no per-control write readout after the session")
+        let fields = Self.writeFields(writes.label)
+        XCTAssertGreaterThanOrEqual(fields["k172"] ?? 0, 2,
+                                    "a rightward drag should hold KEY_LEFTARROW (down and up): \(writes.label)")
+        XCTAssertGreaterThanOrEqual(fields["k61"] ?? 0, 2,
+                                    "a spreading pinch should hold '=' (zoom in): \(writes.label)")
+        XCTAssertTrue(fields.keys.filter { $0.hasPrefix("a") }.isEmpty,
+                      "automap gestures must not reach the movement stick: \(writes.label)")
+    }
+
     /// Parses "touchWrites: b0:2 a1:14 turn:0" into ["b0": 2, "a1": 14, "turn": 0].
     private static func writeFields(_ label: String) -> [String: Int] {
         var out: [String: Int] = [:]

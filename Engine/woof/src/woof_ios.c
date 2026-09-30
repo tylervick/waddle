@@ -66,6 +66,10 @@ static float touch_turn_accum;
 static int touch_button_writes[TOUCH_BUTTON_SLOTS];
 static int touch_axis_writes[TOUCH_AXIS_SLOTS];
 static int touch_turn_writes;
+// Keys injected by WoofIOS_InjectKey (issue #113: the automap's pan and
+// zoom are held keys), counted per Doom key code the same way.
+#define TOUCH_KEY_SLOTS 256
+static int touch_key_writes[TOUCH_KEY_SLOTS];
 
 // Lazily-opened gamepad-layer view of touch_joystick, used only by
 // WoofIOS_DebugTriggerValue (test telemetry) to read back the value Woof's
@@ -328,6 +332,7 @@ int WoofIOS_Run(int argc, char **argv)
     touch_event_count = 0;
     memset(touch_button_writes, 0, sizeof(touch_button_writes));
     memset(touch_axis_writes, 0, sizeof(touch_axis_writes));
+    memset(touch_key_writes, 0, sizeof(touch_key_writes));
     touch_turn_writes = 0;
 
     WoofIOS_DebugSessionEntryCheckpoint();
@@ -562,6 +567,38 @@ int WoofIOS_DebugTouchTurnWrites(void)
     return touch_turn_writes;
 }
 
+int WoofIOS_DebugTouchKeyWrites(int key)
+{
+    if (key < 0 || key >= TOUCH_KEY_SLOTS)
+    {
+        return 0;
+    }
+    return touch_key_writes[key];
+}
+
+// A held key from the overlay's automap gestures (issue #113): the automap
+// pans and zooms while its bound keys are down (AM_Responder reads
+// M_InputActivated/Deactivated for the arrows, '=' and '-'), so unlike
+// WoofIOS_InjectChar this posts one edge at a time and the caller owns the
+// pairing. No text-context gate: these are not typed characters.
+void WoofIOS_InjectKey(int key, bool down)
+{
+    event_t ev = {0};
+    ev.type = down ? ev_keydown : ev_keyup;
+    ev.data1.i = key;
+    D_PostEvent(&ev);
+    if (key >= 0 && key < TOUCH_KEY_SLOTS)
+    {
+        touch_key_writes[key]++;
+    }
+}
+
+bool WoofIOS_IsAutomapActive(void)
+{
+    extern boolean automapactive; // am_map.h
+    return automapactive;
+}
+
 const char *WoofIOS_DebugTouchWrites(void)
 {
     static char buf[256];
@@ -578,6 +615,13 @@ const char *WoofIOS_DebugTouchWrites(void)
         if (touch_axis_writes[a])
         {
             n += snprintf(buf + n, sizeof(buf) - n, " a%d:%d", a, touch_axis_writes[a]);
+        }
+    }
+    for (int k = 0; k < TOUCH_KEY_SLOTS && n < (int)sizeof(buf); k++)
+    {
+        if (touch_key_writes[k])
+        {
+            n += snprintf(buf + n, sizeof(buf) - n, " k%d:%d", k, touch_key_writes[k]);
         }
     }
     if (n < (int)sizeof(buf))

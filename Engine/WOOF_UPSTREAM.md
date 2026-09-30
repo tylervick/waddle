@@ -570,6 +570,15 @@ only ever runs once):
   USE tap wrote SOUTH twice and nothing else, and that a stick drag wrote
   axes and no button -- which the aggregate could never say.
 
+- `src/woof_ios.c` / `src/woof_ios.h` (issue #113) -- `WoofIOS_InjectKey(key,
+  down)` posts one edge of a held key by Doom key code, and
+  `WoofIOS_IsAutomapActive()` exposes `automapactive`. The overlay uses them
+  to pan and zoom the automap by touch: the engine's pan and zoom are held
+  keys (`AM_Responder` on the arrows, '=' and '-'), so a drag or pinch holds
+  the matching keys while the fingers move and releases them when they stop.
+  Injected keys are counted per code in `touchWrites` (`k<code>:<n>`), which
+  `TouchControlsTests.testAutomapDragPansAndPinchZooms` reads.
+
 - `src/i_video.c`, `src/g_game.c`, `src/g_game.h`, `src/d_main.c` -- the app's
   lifecycle reaches the engine (issue #111). SDL's iOS layer observes UIKit's
   resign-active and did-enter-background notifications itself and turns them

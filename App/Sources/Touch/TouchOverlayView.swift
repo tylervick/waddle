@@ -34,6 +34,18 @@ final class TouchOverlayView: UIView {
     private var summonArmed = true
     private let stickEngagedMarker = UIView()
 
+    // Automap gestures (issue #113). While the engine's automap is up, free-
+    // area touches pan (one finger) and zoom (two) it instead of starting
+    // stick or turn tracks. The translator is pure; this owns the touches,
+    // their previous points, the keys currently held, and the idle timer
+    // that releases them when the fingers stop moving (the engine keeps
+    // panning while a key is down, so "stopped" must release).
+    private var automapTouches: [UITouch] = []
+    private var automapLastPoints: [CGPoint] = []
+    private var automapHeldKeys: AutomapKeys = []
+    private var automapIdleTimer: Timer?
+    private let automapTranslator = AutomapGestureTranslator()
+
     init(gamepad: TouchGamepad, scheme: TouchControlScheme,
          tuning: TouchTuning, debugHUDEnabled: Bool) {
         self.gamepad = gamepad
@@ -205,6 +217,8 @@ final class TouchOverlayView: UIView {
     // this view the instant a session ends (on the main actor), so that's
     // the reliable, correctly-isolated place to invalidate both timers.
     override func removeFromSuperview() {
+        automapIdleTimer?.invalidate()
+        automapIdleTimer = nil
         debugHUDTimer?.invalidate()
         debugHUDTimer = nil
         menuPolicyTimer?.invalidate()
@@ -224,10 +238,21 @@ final class TouchOverlayView: UIView {
         let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
             self?.updateAutomapAvailability()
             self?.updateKeyboardForContext()
+            self?.dropAutomapGestureIfMapClosed()
         }
         RunLoop.main.add(timer, forMode: .common)
         menuPolicyTimer = timer
         updateAutomapAvailability()
+    }
+
+    /// The map can close under a finger (MAP tapped with the other hand, or
+    /// the level ending); nothing must stay held for a map that is gone.
+    private func dropAutomapGestureIfMapClosed() {
+        if !automapTouches.isEmpty, !WoofIOS_IsAutomapActive() {
+            automapTouches.removeAll()
+            automapLastPoints.removeAll()
+            holdAutomapKeys([])
+        }
     }
 
     private func updateAutomapAvailability() {
@@ -464,8 +489,17 @@ final class TouchOverlayView: UIView {
         // change mid-loop, and which tracks are already owned is passed per
         // touch instead.
         let router = trackRouter
+        let automapUp = WoofIOS_IsAutomapActive()
         for touch in touches {
             let point = touch.location(in: self)
+            if automapUp {
+                // Buttons keep their near-miss cushion; everything else is
+                // the map's. Up to two fingers: a third is ignored.
+                if router.isNearButton(point) || automapTouches.count >= 2 { continue }
+                automapTouches.append(touch)
+                automapLastPoints.append(point)
+                continue
+            }
             switch router.route(point,
                                 stickTracking: stickTouch != nil,
                                 turnTracking: turnTouch != nil) {
@@ -490,6 +524,10 @@ final class TouchOverlayView: UIView {
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         if keyboardActive { return }
+        if !automapTouches.isEmpty, touches.contains(where: { automapTouches.contains($0) }) {
+            moveAutomap()
+            return
+        }
         for touch in touches {
             let point = touch.location(in: self)
             if touch == stickTouch {
@@ -515,6 +553,15 @@ final class TouchOverlayView: UIView {
     private func endTouches(_ touches: Set<UITouch>) {
         summonTouches.subtract(touches)
         if summonTouches.isEmpty { summonArmed = true }
+        if !automapTouches.isEmpty {
+            for touch in touches {
+                if let i = automapTouches.firstIndex(of: touch) {
+                    automapTouches.remove(at: i)
+                    automapLastPoints.remove(at: i)
+                }
+            }
+            if automapTouches.count < 2 { holdAutomapKeys([]) } // a lifted finger ends the gesture
+        }
         for touch in touches {
             if touch == stickTouch {
                 stickTouch = nil
@@ -526,6 +573,52 @@ final class TouchOverlayView: UIView {
                 turnBase.isHidden = true
                 turnKnob.isHidden = true
             }
+        }
+    }
+
+    // MARK: Automap gestures (issue #113)
+
+    /// One event's worth of drag or pinch, from the tracked touches' current
+    /// positions against their previous ones. O(1): two points, one byte of
+    /// keys, no allocation that follows the map.
+    private func moveAutomap() {
+        let points = automapTouches.map { $0.location(in: self) }
+        var keys: AutomapKeys = []
+        if points.count == 1 {
+            let delta = CGPoint(x: points[0].x - automapLastPoints[0].x,
+                                y: points[0].y - automapLastPoints[0].y)
+            keys = automapTranslator.keys(forDrag: delta)
+        } else if points.count == 2 {
+            let before = hypot(automapLastPoints[0].x - automapLastPoints[1].x,
+                               automapLastPoints[0].y - automapLastPoints[1].y)
+            let now = hypot(points[0].x - points[1].x, points[0].y - points[1].y)
+            if before > 0 { keys = automapTranslator.keys(forPinchRatio: now / before) }
+        }
+        automapLastPoints = points
+        holdAutomapKeys(keys)
+        // The engine pans for as long as the key is down; a finger that stops
+        // moving sends no more events, so release shortly after the last one.
+        automapIdleTimer?.invalidate()
+        let timer = Timer(timeInterval: 0.12, repeats: false) { [weak self] _ in
+            self?.holdAutomapKeys([])
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        automapIdleTimer = timer
+    }
+
+    /// Diffs `keys` against what is held and injects only the edges, so
+    /// every keydown gets exactly one keyup (a latched key would pan forever;
+    /// see docs/learnings/soft-keyboard-keydown-keyup-pairing.md).
+    private func holdAutomapKeys(_ keys: AutomapKeys) {
+        if keys == automapHeldKeys { return }
+        let released = automapHeldKeys.subtracting(keys)
+        let pressed = keys.subtracting(automapHeldKeys)
+        for code in released.engineKeyCodes { WoofIOS_InjectKey(code, false) }
+        for code in pressed.engineKeyCodes { WoofIOS_InjectKey(code, true) }
+        automapHeldKeys = keys
+        if keys.isEmpty {
+            automapIdleTimer?.invalidate()
+            automapIdleTimer = nil
         }
     }
 
