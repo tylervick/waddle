@@ -149,6 +149,12 @@ xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 ```
 
+`Scripts/build-deps.sh` also applies any patches under `Scripts/patches/<dep>/`
+on top of a dependency's pinned checkout: fixes taken from upstream commits
+that no pinnable release contains yet, each file carrying its provenance
+above the diff. A patch that no longer applies stops the build rather than
+being dropped, so a pin bump has to re-base or delete it deliberately.
+
 `test` (not `build`) also runs the engine boot/quit/relaunch smoke check on
 the simulator — the fastest way to confirm a from-scratch build actually
 works end to end, not just compiles.
@@ -277,7 +283,9 @@ Freedoom Phase 1+2 are bundled as base games.
 ## Controls
 
 - **Touch:** left side of the screen is a floating movement stick. On-screen
-  buttons: FIRE, USE, weapon prev/next, automap (MAP), and menu (≡). Two
+  buttons: FIRE, USE, weapon prev/next, automap (MAP), and menu (≡). While
+  the automap is up, a one-finger drag pans it and a two-finger pinch zooms
+  it (the map follows the finger; buttons keep working). Two
   touch control schemes are available from the gear on the shelf, which
   opens a Settings sheet ("Touch Controls: Classic / Modern", persisted
   across launches):

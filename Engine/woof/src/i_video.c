@@ -1667,6 +1667,18 @@ void I_ResetScreen(void)
 }
 
 #ifdef WOOF_IOS
+// Debug/test telemetry (issue #291): the SDL window's size in points, so a
+// UI test can compare the engine's window with the screen it should fill.
+void I_DebugWindowSize(int *w, int *h)
+{
+    *w = 0;
+    *h = 0;
+    if (screen)
+    {
+        SDL_GetWindowSize(screen, w, h);
+    }
+}
+
 // The app is leaving the screen (issue #111). SDL raises these from UIKit's
 // resign-active and did-enter-background notifications, but it never queues
 // them: SDL_SendAppEvent hands SDL_EVENT_WILL_ENTER_BACKGROUND and

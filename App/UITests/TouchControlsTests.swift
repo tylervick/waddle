@@ -292,6 +292,193 @@ final class TouchControlsTests: XCTestCase {
     /// with exit code 0 only if the engine is still running normally after
     /// both rotations (a mid-session crash would kill the app and fail the
     /// waits below instead).
+    /// Issue #48: the aggregate `touchEventCount` cannot say WHICH control
+    /// drove the engine. `touchWritesLabel` (WoofIOS_DebugTouchWrites, under
+    /// WADDLE_DEBUG_INPUT_COUNTS) lists the shim's writes per SDL button and
+    /// axis -- `b<button>:<n> a<axis>:<n> turn:<n>`, non-zero entries only --
+    /// so one USE tap must read as exactly two writes (down, up) to
+    /// SDL_GAMEPAD_BUTTON_SOUTH (0) and nothing else.
+    @MainActor
+    func testUseTapDrivesOnlyTheSouthButton() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "12"
+        app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        play.tap()
+        let use = app.buttons["useButton"]
+        XCTAssertTrue(use.waitForExistence(timeout: 30), "overlay never installed")
+        Thread.sleep(forTimeInterval: 2) // let the level settle before the one input
+        use.tap()
+
+        let writes = app.staticTexts["touchWritesLabel"]
+        XCTAssertTrue(writes.waitForExistence(timeout: 60), "no per-control write readout after the session")
+        let fields = Self.writeFields(writes.label)
+        XCTAssertEqual(fields["b0"], 2, "USE should write SOUTH twice (down, up): \(writes.label)")
+        XCTAssertEqual(fields.keys.filter { $0.hasPrefix("b") }, ["b0"],
+                       "USE should write no other button: \(writes.label)")
+        XCTAssertTrue(fields.keys.filter { $0.hasPrefix("a") }.isEmpty,
+                      "USE should write no axis: \(writes.label)")
+        XCTAssertEqual(fields["turn"], 0, "USE should inject no turn: \(writes.label)")
+    }
+
+    /// The other half of issue #48's example: a movement-stick drag writes
+    /// the stick axes and no button. The classic scheme writes LEFTX, LEFTY
+    /// and RIGHTX together on every stick update (TouchGamepad.setStick), so
+    /// the assertion is on the split between axes and buttons, which is what
+    /// the aggregate counter could never show.
+    @MainActor
+    func testStickDragDrivesOnlyAxes() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "12"
+        app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        play.tap()
+        XCTAssertTrue(app.buttons["fireButton"].waitForExistence(timeout: 30), "overlay never installed")
+        Thread.sleep(forTimeInterval: 2)
+        let stickStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.22, dy: 0.72))
+        let stickEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.22, dy: 0.90))
+        stickStart.press(forDuration: 0.2, thenDragTo: stickEnd, withVelocity: .fast, thenHoldForDuration: 0.5)
+
+        let writes = app.staticTexts["touchWritesLabel"]
+        XCTAssertTrue(writes.waitForExistence(timeout: 60), "no per-control write readout after the session")
+        let fields = Self.writeFields(writes.label)
+        XCTAssertGreaterThan(fields["a1"] ?? 0, 0, "a stick drag should write LEFTY: \(writes.label)")
+        XCTAssertGreaterThan(fields["a0"] ?? 0, 0, "a stick drag should write LEFTX: \(writes.label)")
+        XCTAssertTrue(fields.keys.filter { $0.hasPrefix("b") }.isEmpty,
+                      "a stick drag should write no button: \(writes.label)")
+    }
+
+    /// Issue #113: with the automap open, a one-finger drag on the free area
+    /// pans it and a two-finger pinch zooms it. The engine's automap inputs
+    /// are held keys (arrows; '=' and '-'), so the gesture layer injects
+    /// keydown/keyup pairs, and `touchWritesLabel` counts them per key code
+    /// (`k<code>:<n>`). Dragging right moves the map content right, which is
+    /// the view window moving left: KEY_LEFTARROW (0xac = 172). Spreading a
+    /// pinch zooms in: '=' (61). Each held key is at least a down and an up.
+    @MainActor
+    func testAutomapDragPansAndPinchZooms() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "16"
+        app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        play.tap()
+        let automap = app.buttons["automapButton"]
+        XCTAssertTrue(automap.waitForExistence(timeout: 30), "overlay never installed")
+        Thread.sleep(forTimeInterval: 2)
+        automap.tap()
+        Thread.sleep(forTimeInterval: 1) // the map is up before the gestures
+
+        // One finger, free area (screen centre is no button), rightward.
+        let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5))
+        let to = app.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.5))
+        from.press(forDuration: 0.1, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.1)
+        Thread.sleep(forTimeInterval: 0.5)
+        // Two fingers spreading, centred on the app: zoom in.
+        app.pinch(withScale: 2.0, velocity: 1.0)
+
+        let writes = app.staticTexts["touchWritesLabel"]
+        XCTAssertTrue(writes.waitForExistence(timeout: 60), "no per-control write readout after the session")
+        let fields = Self.writeFields(writes.label)
+        XCTAssertGreaterThanOrEqual(fields["k172"] ?? 0, 2,
+                                    "a rightward drag should hold KEY_LEFTARROW (down and up): \(writes.label)")
+        XCTAssertGreaterThanOrEqual(fields["k61"] ?? 0, 2,
+                                    "a spreading pinch should hold '=' (zoom in): \(writes.label)")
+        XCTAssertTrue(fields.keys.filter { $0.hasPrefix("a") }.isEmpty,
+                      "automap gestures must not reach the movement stick: \(writes.label)")
+    }
+
+    /// Parses "touchWrites: b0:2 a1:14 turn:0" into ["b0": 2, "a1": 14, "turn": 0].
+    private static func writeFields(_ label: String) -> [String: Int] {
+        var out: [String: Int] = [:]
+        for token in label.replacingOccurrences(of: "touchWrites:", with: "").split(separator: " ") {
+            let kv = token.split(separator: ":")
+            if kv.count == 2, let n = Int(kv[1]) { out[String(kv[0])] = n }
+        }
+        return out
+    }
+
+    /// Issue #291: a session started with the device already in landscape
+    /// opened an engine window of the PORTRAIT size (46% of the landscape
+    /// width on an iPhone 17 Pro: 1206/2622), with the shelf visible beside
+    /// it. `testSessionSurvivesRotation` below never saw it: it starts in
+    /// portrait and asserts `app.frame`, which is the app's, not the engine
+    /// window's. This reads the engine's own window size off the debug HUD
+    /// (`win=WxH`, points) and holds it to the screen's landscape size.
+    @MainActor
+    func testSessionStartedInLandscapeFillsTheScreen() throws {
+        XCUIDevice.shared.orientation = .portrait
+        // The simulator keeps whatever orientation a test leaves; a later
+        // suite's shelf taps (BackgroundSuspendTests' Continue hero) missed
+        // when this one left it in landscape. Put it back whatever happens.
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "20"
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchArguments += ["-debugHUD", "YES"]
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+
+        // Rotate at the shelf, before the session, and only proceed on a
+        // simulator that performs the rotation (same guard as below).
+        XCUIDevice.shared.orientation = .landscapeLeft
+        Thread.sleep(forTimeInterval: 2)
+        try XCTSkipUnless(app.frame.width > app.frame.height,
+            "this simulator does not perform interface rotation; run on one that does")
+        let screen = app.frame.size
+
+        play.tap()
+        let hud = app.staticTexts["sessionDebugHUD"]
+        XCTAssertTrue(hud.waitForExistence(timeout: 30), "debug HUD never appeared")
+        XCTAssertTrue(app.buttons["fireButton"].waitForExistence(timeout: 30), "overlay never installed")
+
+        // The window is created before the first frame; give the strip a
+        // couple of refreshes after the overlay is up.
+        var size = windowSize(from: hud)
+        let deadline = Date().addingTimeInterval(10)
+        while (size == nil || size! == (0, 0)) && Date() < deadline && hud.exists {
+            Thread.sleep(forTimeInterval: 0.5)
+            size = windowSize(from: hud)
+        }
+        let (w, h) = try XCTUnwrap(size, "HUD never reported win=WxH: \(hud.exists ? hud.label : "(gone)")")
+        XCTAssertEqual(Double(w), Double(screen.width), accuracy: 1,
+                       "engine window width \(w) should fill the landscape screen \(Int(screen.width))x\(Int(screen.height))")
+        XCTAssertEqual(Double(h), Double(screen.height), accuracy: 1,
+                       "engine window height \(h) should fill the landscape screen \(Int(screen.width))x\(Int(screen.height))")
+
+        XCTAssertTrue(app.staticTexts["engineExitLabel"].waitForExistence(timeout: 60),
+                      "engine never returned to the launcher")
+    }
+
+    /// The `win=WxH` segment of the debug strip, in points.
+    private func windowSize(from hud: XCUIElement) -> (Int, Int)? {
+        guard hud.exists else { return nil }
+        for segment in hud.label.components(separatedBy: "\n").flatMap({ $0.components(separatedBy: " · ") }) {
+            guard segment.hasPrefix("win=") else { continue }
+            let parts = segment.dropFirst("win=".count).split(separator: "x")
+            guard parts.count == 2, let w = Int(parts[0]), let h = Int(parts[1]) else { return nil }
+            return (w, h)
+        }
+        return nil
+    }
+
     @MainActor
     func testSessionSurvivesRotation() throws {
         // Explicit start orientation: the suite shares a simulator, so don't

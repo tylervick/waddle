@@ -1,0 +1,150 @@
+Backport of libsdl-org/SDL commit 114aca172 ("Fix for iOS 27 no op on
+statusBarOrientation", merged 2026-09-20, PR #16355) onto release-3.4.12.
+
+iOS 27 made -[UIApplication statusBarOrientation] a no-op, and SDL's iOS
+backend read it to decide whether the screen is landscape when sizing a
+fullscreen window and its display modes. A session started with the
+device already in landscape therefore opened a portrait-sized window
+(Waddle issue #291). Upstream's fix reads the active window scene's
+effectiveGeometry.interfaceOrientation instead, through a new
+UIKit_GetInterfaceOrientation() helper, and this is that change with its
+context adapted: the release branch has no #pragma deprecation wrappers
+around the old calls, which is the only reason upstream's commit does not
+apply as-is. The camera-backend hunk is omitted (SDL_CAMERA=OFF here).
+
+Two deliberate differences from upstream's text, both in the helper: the
+SDK guard is `__IPHONE_OS_VERSION_MAX_ALLOWED >= 270000` (upstream wrote
+27000, which reads as iOS 2.7 and is always true), and the pre-iOS-27
+fallback keeps the deprecated statusBarOrientation read -- that is the
+only source on those systems, and the first cut of this backport replaced
+it with a call to the helper itself, a recursion an iOS 26 device would
+have hit at window creation (caught in review of PR #292).
+
+Applied by Scripts/build-deps.sh after the SDL checkout. Drop this file
+when SDL_TAG moves to a release that contains the upstream commit; the
+build stops with an error if it no longer applies either way.
+
+diff -ruN /Users/builder/orca/workspaces/waddle/improvement-loop/Vendor/src/SDL/src/video/uikit/SDL_uikitappdelegate.m sdl-pinned/src/video/uikit/SDL_uikitappdelegate.m
+--- a/src/video/uikit/SDL_uikitappdelegate.m	2026-09-29 21:03:13
++++ b/src/video/uikit/SDL_uikitappdelegate.m	2026-09-30 00:58:05
+@@ -67,7 +67,7 @@
+ // Load a launch image using the old UILaunchImageFile-era naming rules.
+ static UIImage *SDL_LoadLaunchImageNamed(NSString *name, int screenh)
+ {
+-    UIInterfaceOrientation curorient = [UIApplication sharedApplication].statusBarOrientation;
++    UIInterfaceOrientation curorient = UIKit_GetInterfaceOrientation();
+     UIUserInterfaceIdiom idiom = [UIDevice currentDevice].userInterfaceIdiom;
+     UIImage *image = nil;
+ 
+@@ -207,7 +207,7 @@
+ 
+ 
+ #if !defined(SDL_PLATFORM_TVOS) && !defined(SDL_PLATFORM_VISIONOS)
+-        UIInterfaceOrientation curorient = [UIApplication sharedApplication].statusBarOrientation;
++        UIInterfaceOrientation curorient = UIKit_GetInterfaceOrientation();
+ 
+         // We always want portrait-oriented size, to match UILaunchImageSize.
+         if (screenw > screenh) {
+@@ -418,6 +418,19 @@
+     SDL_SetMainReady();
+     [self performSelector:@selector(postFinishLaunch) withObject:nil afterDelay:0.0];
+ }
++
++#if !defined(SDL_PLATFORM_TVOS) && !defined(SDL_PLATFORM_VISIONOS) && __IPHONE_OS_VERSION_MAX_ALLOWED >= 270000
++- (void)windowScene:(UIWindowScene *)windowScene didUpdateEffectiveGeometry:(UIWindowSceneGeometry *)previousEffectiveGeometry API_AVAILABLE(ios(26.0))
++{
++    if (@available(iOS 27.0, *)) {
++        const bool orientationchanged = (windowScene.effectiveGeometry.interfaceOrientation != previousEffectiveGeometry.interfaceOrientation);
++        if (orientationchanged) {
++            SDL_OnApplicationDidChangeStatusBarOrientation();
++        }
++    }
++}
++
++#endif
+ 
+ - (void)scene:(UIScene *)scene openURLContexts:(NSSet<UIOpenURLContext *> *)URLContexts
+ {
+diff -ruN /Users/builder/orca/workspaces/waddle/improvement-loop/Vendor/src/SDL/src/video/uikit/SDL_uikitmodes.m sdl-pinned/src/video/uikit/SDL_uikitmodes.m
+--- a/src/video/uikit/SDL_uikitmodes.m	2026-09-29 21:03:13
++++ b/src/video/uikit/SDL_uikitmodes.m	2026-09-30 00:58:05
+@@ -330,7 +330,7 @@
+ {
+ #ifndef SDL_PLATFORM_TVOS
+     if (uiscreen == [UIScreen mainScreen]) {
+-        return UIInterfaceOrientationIsLandscape([UIApplication sharedApplication].statusBarOrientation);
++        return UIInterfaceOrientationIsLandscape(UIKit_GetInterfaceOrientation());
+     } else
+ #endif // !SDL_PLATFORM_TVOS
+     {
+@@ -484,7 +484,7 @@
+ #if !defined(SDL_PLATFORM_TVOS) && !defined(SDL_PLATFORM_VISIONOS)
+ void SDL_OnApplicationDidChangeStatusBarOrientation(void)
+ {
+-    BOOL isLandscape = UIInterfaceOrientationIsLandscape([UIApplication sharedApplication].statusBarOrientation);
++    BOOL isLandscape = UIInterfaceOrientationIsLandscape(UIKit_GetInterfaceOrientation());
+     SDL_VideoDisplay *display = SDL_GetVideoDisplay(SDL_GetPrimaryDisplay());
+ 
+     if (display) {
+@@ -518,7 +518,7 @@
+             }
+         }
+ 
+-        switch ([UIApplication sharedApplication].statusBarOrientation) {
++        switch (UIKit_GetInterfaceOrientation()) {
+         case UIInterfaceOrientationPortrait:
+             orientation = SDL_ORIENTATION_PORTRAIT;
+             break;
+diff -ruN /Users/builder/orca/workspaces/waddle/improvement-loop/Vendor/src/SDL/src/video/uikit/SDL_uikitvideo.h sdl-pinned/src/video/uikit/SDL_uikitvideo.h
+--- a/src/video/uikit/SDL_uikitvideo.h	2026-09-29 21:03:13
++++ b/src/video/uikit/SDL_uikitvideo.h	2026-09-30 00:57:38
+@@ -46,6 +46,10 @@
+ extern void UIKit_SetGameControllerInteraction(bool enabled);
+ extern void UIKit_SetViewGameControllerInteraction(UIView *view, bool enabled);
+ 
++#if !defined(SDL_PLATFORM_TVOS) && !defined(SDL_PLATFORM_VISIONOS)
++extern UIInterfaceOrientation UIKit_GetInterfaceOrientation(void);
++#endif
++
+ #endif // __OBJC__
+ 
+ extern bool UIKit_SuspendScreenSaver(SDL_VideoDevice *_this);
+diff -ruN /Users/builder/orca/workspaces/waddle/improvement-loop/Vendor/src/SDL/src/video/uikit/SDL_uikitvideo.m sdl-pinned/src/video/uikit/SDL_uikitvideo.m
+--- a/src/video/uikit/SDL_uikitvideo.m	2026-09-29 21:03:13
++++ b/src/video/uikit/SDL_uikitvideo.m	2026-09-30 00:58:05
+@@ -237,7 +237,7 @@
+      * https://bugzilla.libsdl.org/show_bug.cgi?id=3505
+      * https://bugzilla.libsdl.org/show_bug.cgi?id=3465
+      * https://forums.developer.apple.com/thread/65337 */
+-    UIInterfaceOrientation orient = [UIApplication sharedApplication].statusBarOrientation;
++    UIInterfaceOrientation orient = UIKit_GetInterfaceOrientation();
+     BOOL landscape = UIInterfaceOrientationIsLandscape(orient) ||
+                     !(UIKit_GetSupportedOrientations(window) & (UIInterfaceOrientationMaskPortrait | UIInterfaceOrientationMaskPortraitUpsideDown));
+     BOOL fullscreen = CGRectEqualToRect(screen.bounds, frame);
+@@ -254,6 +254,26 @@
+     return frame;
+ }
+ #endif // SDL_PLATFORM_VISIONOS
++
++#if !defined(SDL_PLATFORM_TVOS) && !defined(SDL_PLATFORM_VISIONOS)
++UIInterfaceOrientation UIKit_GetInterfaceOrientation(void)
++{
++#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 270000
++    if (@available(iOS 27.0, *)) {
++        UIWindowScene *windowScene = UIKit_GetActiveWindowScene();
++        if (windowScene != nil) {
++            return windowScene.effectiveGeometry.interfaceOrientation;
++        }
++        return UIInterfaceOrientationUnknown;
++    }
++#endif
++
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wdeprecated-declarations"
++    return [UIApplication sharedApplication].statusBarOrientation;
++#pragma clang diagnostic pop
++}
++#endif // !SDL_PLATFORM_TVOS && !SDL_PLATFORM_VISIONOS
+ 
+ UIWindowScene *UIKit_GetActiveWindowScene(void)
+ {

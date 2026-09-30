@@ -69,6 +69,21 @@ make_fixture "$TMP/e"; echo 'x' >> "$TMP/e/Scripts/build-engine.sh"
 [ "$(fp "$TMP/e")" != "$BASE" ] || fail "ignored an edit to build-engine.sh"
 pass "detects edits to build-engine.sh"
 
+# 6b. Sensitive to a dependency patch. build-deps.sh applies every
+# Scripts/patches/<dep>/*.patch on top of the pinned checkouts (issue #291),
+# and the patched library is linked into the framework this hash vouches
+# for, so a patch added or edited must change the value -- CI's engine cache
+# is keyed on it, and a stale hit would hand back a framework without the
+# fix. A fixture with no patches directory at all must still hash (the
+# common state until #291).
+make_fixture "$TMP/d2"; mkdir -p "$TMP/d2/Scripts/patches/SDL"
+echo '--- a/f' > "$TMP/d2/Scripts/patches/SDL/0001-x.patch"
+[ "$(fp "$TMP/d2")" != "$BASE" ] || fail "ignored a new dependency patch"
+P1="$(fp "$TMP/d2")"
+echo '+++ b/f' >> "$TMP/d2/Scripts/patches/SDL/0001-x.patch"
+[ "$(fp "$TMP/d2")" != "$P1" ] || fail "ignored an edit to a dependency patch"
+pass "detects dependency patches added or edited"
+
 # 7. Sensitive to a NEW file (not just edits to known ones).
 make_fixture "$TMP/f"; echo 'new' > "$TMP/f/Engine/woof/src/new_file.c"
 [ "$(fp "$TMP/f")" != "$BASE" ] || fail "ignored a newly added engine source"

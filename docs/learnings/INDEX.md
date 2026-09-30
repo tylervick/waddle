@@ -10,7 +10,7 @@ One file per hard-won fact. Add an entry here in the same PR that adds the file 
 - [Engine console output does not reach `log stream`](engine-console-output-is-invisible.md) — use xcresult stdout or --console-pty
 - [Every injected keydown must be paired with a keyup](soft-keyboard-keydown-keyup-pairing.md) — or cheat letters latch and the player walks forever
 - [iOS 26 TabView tab-bar buttons ignore accessibility identifiers](ios26-tabview-accessibility.md) — address tabs by label, panes by identifier
-- [iOS 26 List swipe actions change shape with row height](ios26-list-swipe-actions-row-height.md) — the stock idiom, already bisected; do not re-investigate
+- [iOS 26 List swipe actions change shape with row height](ios26-list-swipe-actions-row-height.md) — the stock idiom, already bisected; do not re-investigate (re-measured on iOS 27 on 2026-09-30: `swipeActionsContainer()` changes nothing)
 - [SwiftUI `Menu` cannot render `Slider` rows](swiftui-menu-cannot-host-sliders.md) — why tuning lives in the Control Feel sheet
 - [Gesture recognizers do not fire inside SDL's own UIWindow](sdl-window-gesture-recognizers.md) — use responder-chain touches instead
 - [Setting up a second worktree has two traps](worktree-setup-traps.md) — the Vendor symlink, and the stale CMakeCache that `Scripts/ensure-native-cmake-cache.sh` now clears at build time
@@ -77,3 +77,4 @@ One file per hard-won fact. Add an entry here in the same PR that adds the file 
 - [The engine session must not run inside the tap that started it](engine-session-runs-inside-the-tap.md) — nested in a button action, no gesture-driven UIKit action (SDL's error-box OK) fires until the session ends; start it with `CFRunLoopPerformBlock`, not the main queue; `WADDLE_TEST_NOGUI` hid it; `EngineErrorAlertDismissalTests` is the check
 - [SDL never queues the app lifecycle events, so a `ProcessEvent` case cannot see them](sdl-app-lifecycle-events-are-never-queued.md) — `WILL_ENTER_BACKGROUND` and friends reach only an `SDL_AddEventWatch` callback, in the notification's own call stack; `BackgroundSuspendTests` is the check
 - [A Revyl agent spends 15–30 s per step, so a short autoquit ends the session before it looks](revyl-agent-latency-outruns-a-short-autoquit.md) — budget `WADDLE_AUTOQUIT_SECONDS` from the steps that need the session alive, not from what the engine needs
+- [iOS 27 made SDL size a landscape window as portrait, and the fix lives in a patch, not the pin](ios27-made-sdl-size-landscape-windows-as-portrait.md) — `statusBarOrientation` is a no-op there and SDL sized fullscreen windows from it; `Scripts/patches/SDL/` carries upstream's fix until a release does, and `build-deps.sh` refuses a patch that no longer applies

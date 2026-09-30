@@ -48,6 +48,20 @@ void WoofIOS_InjectRelativeTurn(float dx_points);
 void *WoofIOS_GetUIWindowPointer(void);
 int WoofIOS_DebugTouchEventCount(void);
 
+// Debug/test telemetry only (issue #48): the writes behind that count, per
+// control. How many times the overlay wrote a given SDL gamepad button
+// (SDL_GAMEPAD_BUTTON_*), a given axis (SDL_GAMEPAD_AXIS_*; triggers are
+// axes), or injected a turn, this session. Out-of-range indices read 0.
+int WoofIOS_DebugTouchButtonWrites(int sdl_button);
+int WoofIOS_DebugTouchAxisWrites(int sdl_axis);
+int WoofIOS_DebugTouchTurnWrites(void);
+int WoofIOS_DebugTouchKeyWrites(int key); // keys from WoofIOS_InjectKey
+// The same as one line, non-zero entries only:
+//   "touchWrites: b<button>:<n> ... a<axis>:<n> ... k<key>:<n> ... turn:<n>"
+// so one USE tap reads "touchWrites: b0:2 turn:0" and a stick drag lists
+// axes and no button. Shown after a session under WADDLE_DEBUG_INPUT_COUNTS.
+const char *WoofIOS_DebugTouchWrites(void);
+
 // Last engine error text (Woof!'s i_system.c errmsg buffer). Empty string
 // when the previous session exited cleanly. Reset at each session start.
 const char *WoofIOS_LastErrorMessage(void);
@@ -115,6 +129,12 @@ const char *WoofIOS_DebugZipWadBuffers(void);
 // live level) in this process, and the leveltime the last such save captured
 // (issue #111). Counted where the acts happen, never reset.
 const char *WoofIOS_DebugBackgroundState(void);
+
+// Debug/test telemetry only: "win=<w>x<h>", the engine's SDL window size in
+// points right now (0x0 before it exists). In the in-game debug HUD so a UI
+// test can compare it with the screen: a session started with the device in
+// landscape kept the portrait size (issue #291).
+const char *WoofIOS_DebugWindowState(void);
 
 // Debug/test telemetry only: "gs=<level|demo|inter|finale|title|none>
 // load=<-loadgame argument, -1 without> lt=<leveltime, 0 outside a level>",
@@ -224,6 +244,17 @@ WoofIOS_TextInputContext WoofIOS_GetTextInputContext(void);
 // one call serves cheats and save-name typing wherever the responder chain
 // currently is.
 void WoofIOS_InjectChar(char c);
+
+// One edge of a held key, by Doom key code (doomkeys.h): ev_keydown when
+// `down`, ev_keyup otherwise. The overlay's automap gestures use it (issue
+// #113), since the automap pans and zooms while the arrows, '=' and '-' are
+// held; the caller pairs every down with an up. Not gated on the text
+// context, unlike WoofIOS_InjectChar. Main-thread-only.
+void WoofIOS_InjectKey(int key, bool down);
+
+// True while the engine's automap is up (doomstat's `automapactive`), so the
+// overlay can route free-area touches to the map instead of the sticks.
+bool WoofIOS_IsAutomapActive(void);
 
 // Inject a Backspace keypress (ev_keydown, KEY_BACKSPACE) -- edits the
 // save-name field.

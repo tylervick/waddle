@@ -1,7 +1,9 @@
 #!/bin/bash
 # Prints one content hash covering everything that determines the contents
-# of Vendor/out/WoofEngine.xcframework: the vendored engine tree and the two
-# scripts that build it.
+# of Vendor/out/WoofEngine.xcframework: the vendored engine tree, the two
+# scripts that build it, and the dependency patches build-deps.sh applies
+# (Scripts/patches/<dep>/*.patch, issue #291) -- the patched libraries are
+# linked into the framework, so a patch is as much an input as the sources.
 #
 # Three consumers share this single definition:
 #   1. Scripts/build-engine.sh -- stamps the value beside the built framework
@@ -44,4 +46,9 @@ fi
 {
     find Engine/woof -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256
     shasum -a 256 Scripts/build-engine.sh Scripts/build-deps.sh
+    # No patches directory is the ordinary state and hashes as "no files";
+    # `find` on a missing directory would abort the pipeline instead.
+    if [ -d Scripts/patches ]; then
+        find Scripts/patches -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256
+    fi
 } | shasum -a 256 | awk '{print $1}'

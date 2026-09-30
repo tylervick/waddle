@@ -60,6 +60,33 @@ fetch() { # dir url tag
     if [ ! -d "$dir" ]; then
         git clone --depth 1 --branch "$3" "$2" "$dir"
     fi
+    apply_patches "$1" "$3"
+}
+
+# Fixes taken from upstream commits that no release we can pin yet contains,
+# as files under Scripts/patches/<dep>/, each carrying its provenance above
+# the diff (issue #291: SDL's iOS 27 orientation fix). Applied with git apply
+# on top of the pinned checkout, which stays at the pinned commit, so at_pin
+# above still recognises it. A patch that is already in (a re-run over the
+# same checkout) is detected in reverse and skipped. One that applies
+# neither way -- the usual reason is a pin bump that moved the context, or a
+# release that now contains the fix -- stops the build and names the file:
+# dropping it silently would ship the bug it fixes.
+apply_patches() { # dep tag
+    local dir="$SRC/$1" p
+    for p in "$ROOT/Scripts/patches/$1"/*.patch; do
+        [ -e "$p" ] || continue
+        if git -C "$dir" apply --check "$p" 2>/dev/null; then
+            echo "$1: applying $(basename "$p")"
+            git -C "$dir" apply "$p"
+        elif git -C "$dir" apply --reverse --check "$p" 2>/dev/null; then
+            : # already applied
+        else
+            echo "error: $1: $(basename "$p") applies neither forward nor in reverse to the checkout at $2." >&2
+            echo "       Re-base the patch on the new pin, or delete it if that release contains the fix." >&2
+            exit 1
+        fi
+    done
 }
 fetch SDL https://github.com/libsdl-org/SDL.git "$SDL_TAG"
 fetch openal-soft https://github.com/kcat/openal-soft.git "$OPENAL_TAG"

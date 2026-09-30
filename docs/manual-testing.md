@@ -18,6 +18,10 @@ overlay to remain visible even when input devices are connected.
       Turning on the debug HUD (below) and watching `trigger` drop to `0.00`
       right after release is the fastest way to confirm this on a device.
 - [ ] USE opens doors — verify it does something, not just that FIRE does
+- [ ] With the automap up, a one-finger drag on the map pans it in the
+      direction of the finger and stops when the finger stops; a two-finger
+      spread zooms in and a pinch zooms out; lifting a finger mid-drag does
+      not leave the map drifting
 - [ ] Weapon prev/next cycles; MAP toggles automap (previously silently did
       nothing — was wired to an unbound button); ≡ opens the menu and
       the stick + FIRE/USE navigate it
