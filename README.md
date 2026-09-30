@@ -162,6 +162,16 @@ locally as a fallback and is unchanged, but it needs signing credentials for
 the configured team and does not manage the build number. Full procedure:
 [`docs/app-store/submission-checklist.md`](docs/app-store/submission-checklist.md).
 
+**App Store screenshots** are produced by `Scripts/capture-screenshots.sh`,
+which builds the app, provisions the marketing WADs into a 6.9" iPhone and a
+13" iPad simulator, and runs `App/UITests/ScreenshotCaptureTests` on each,
+exporting its attachments into `docs/app-store/screenshots/<device>/`. That
+test is a committed, compiled member of the UI suite, so a change that breaks
+what it navigates breaks the build; it skips under an ordinary `mise run test`
+and runs only when the script sets `WADDLE_SCREENSHOT_CAPTURE`. Re-captured
+images move together with the slot names in
+[`docs/app-store/metadata.md`](docs/app-store/metadata.md) §12.
+
 ### Deviations worth knowing about
 
 - **The Woof! source is committed (vendored) — do not run
