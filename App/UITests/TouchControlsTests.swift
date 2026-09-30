@@ -292,6 +292,73 @@ final class TouchControlsTests: XCTestCase {
     /// with exit code 0 only if the engine is still running normally after
     /// both rotations (a mid-session crash would kill the app and fail the
     /// waits below instead).
+    /// Issue #291: a session started with the device already in landscape
+    /// opened an engine window of the PORTRAIT size (46% of the landscape
+    /// width on an iPhone 17 Pro: 1206/2622), with the shelf visible beside
+    /// it. `testSessionSurvivesRotation` below never saw it: it starts in
+    /// portrait and asserts `app.frame`, which is the app's, not the engine
+    /// window's. This reads the engine's own window size off the debug HUD
+    /// (`win=WxH`, points) and holds it to the screen's landscape size.
+    @MainActor
+    func testSessionStartedInLandscapeFillsTheScreen() throws {
+        XCUIDevice.shared.orientation = .portrait
+        // The simulator keeps whatever orientation a test leaves; a later
+        // suite's shelf taps (BackgroundSuspendTests' Continue hero) missed
+        // when this one left it in landscape. Put it back whatever happens.
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "20"
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchArguments += ["-debugHUD", "YES"]
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+
+        // Rotate at the shelf, before the session, and only proceed on a
+        // simulator that performs the rotation (same guard as below).
+        XCUIDevice.shared.orientation = .landscapeLeft
+        Thread.sleep(forTimeInterval: 2)
+        try XCTSkipUnless(app.frame.width > app.frame.height,
+            "this simulator does not perform interface rotation; run on one that does")
+        let screen = app.frame.size
+
+        play.tap()
+        let hud = app.staticTexts["sessionDebugHUD"]
+        XCTAssertTrue(hud.waitForExistence(timeout: 30), "debug HUD never appeared")
+        XCTAssertTrue(app.buttons["fireButton"].waitForExistence(timeout: 30), "overlay never installed")
+
+        // The window is created before the first frame; give the strip a
+        // couple of refreshes after the overlay is up.
+        var size = windowSize(from: hud)
+        let deadline = Date().addingTimeInterval(10)
+        while (size == nil || size! == (0, 0)) && Date() < deadline && hud.exists {
+            Thread.sleep(forTimeInterval: 0.5)
+            size = windowSize(from: hud)
+        }
+        let (w, h) = try XCTUnwrap(size, "HUD never reported win=WxH: \(hud.exists ? hud.label : "(gone)")")
+        XCTAssertEqual(Double(w), Double(screen.width), accuracy: 1,
+                       "engine window width \(w) should fill the landscape screen \(Int(screen.width))x\(Int(screen.height))")
+        XCTAssertEqual(Double(h), Double(screen.height), accuracy: 1,
+                       "engine window height \(h) should fill the landscape screen \(Int(screen.width))x\(Int(screen.height))")
+
+        XCTAssertTrue(app.staticTexts["engineExitLabel"].waitForExistence(timeout: 60),
+                      "engine never returned to the launcher")
+    }
+
+    /// The `win=WxH` segment of the debug strip, in points.
+    private func windowSize(from hud: XCUIElement) -> (Int, Int)? {
+        guard hud.exists else { return nil }
+        for segment in hud.label.components(separatedBy: "\n").flatMap({ $0.components(separatedBy: " · ") }) {
+            guard segment.hasPrefix("win=") else { continue }
+            let parts = segment.dropFirst("win=".count).split(separator: "x")
+            guard parts.count == 2, let w = Int(parts[0]), let h = Int(parts[1]) else { return nil }
+            return (w, h)
+        }
+        return nil
+    }
+
     @MainActor
     func testSessionSurvivesRotation() throws {
         // Explicit start orientation: the suite shares a simulator, so don't

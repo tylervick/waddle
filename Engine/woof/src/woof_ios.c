@@ -958,6 +958,16 @@ const char *WoofIOS_DebugGameState(void)
     return buf;
 }
 
+const char *WoofIOS_DebugWindowState(void)
+{
+    extern void I_DebugWindowSize(int *w, int *h); // i_video.c
+    static char buf[32];
+    int w, h;
+    I_DebugWindowSize(&w, &h);
+    snprintf(buf, sizeof(buf), "win=%dx%d", w, h);
+    return buf;
+}
+
 const char *WoofIOS_DebugBackgroundState(void)
 {
     extern void G_DebugBackgroundCounts(int *saves, int *pauses,

@@ -149,6 +149,12 @@ xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 ```
 
+`Scripts/build-deps.sh` also applies any patches under `Scripts/patches/<dep>/`
+on top of a dependency's pinned checkout: fixes taken from upstream commits
+that no pinnable release contains yet, each file carrying its provenance
+above the diff. A patch that no longer applies stops the build rather than
+being dropped, so a pin bump has to re-base or delete it deliberately.
+
 `test` (not `build`) also runs the engine boot/quit/relaunch smoke check on
 the simulator — the fastest way to confirm a from-scratch build actually
 works end to end, not just compiles.

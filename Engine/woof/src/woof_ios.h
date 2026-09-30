@@ -116,6 +116,12 @@ const char *WoofIOS_DebugZipWadBuffers(void);
 // (issue #111). Counted where the acts happen, never reset.
 const char *WoofIOS_DebugBackgroundState(void);
 
+// Debug/test telemetry only: "win=<w>x<h>", the engine's SDL window size in
+// points right now (0x0 before it exists). In the in-game debug HUD so a UI
+// test can compare it with the screen: a session started with the device in
+// landscape kept the portrait size (issue #291).
+const char *WoofIOS_DebugWindowState(void);
+
 // Debug/test telemetry only: "gs=<level|demo|inter|finale|title|none>
 // load=<-loadgame argument, -1 without> lt=<leveltime, 0 outside a level>",
 // as they stand right now; demo is a level under demo playback. In the
