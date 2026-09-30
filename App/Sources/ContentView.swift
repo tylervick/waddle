@@ -50,6 +50,12 @@ struct ContentView: View {
                     .font(.footnote.monospaced())
                     .accessibilityIdentifier("touchEventCountLabel")
                     .padding(.bottom, 100)
+                // The same writes, per control (issue #48), so a test can say
+                // WHICH button or axis an input reached. verbatim: the
+                // string is the engine's own.
+                Text(verbatim: String(cString: WoofIOS_DebugTouchWrites()))
+                    .font(.footnote.monospaced())
+                    .accessibilityIdentifier("touchWritesLabel")
                 // Cached mid-session (TouchGamepad.lastFireReleaseTriggerResidue) --
                 // WoofIOS_DebugTriggerValue() itself would just return -1 by
                 // now, since the session that attached the touch gamepad

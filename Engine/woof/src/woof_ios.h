@@ -48,6 +48,19 @@ void WoofIOS_InjectRelativeTurn(float dx_points);
 void *WoofIOS_GetUIWindowPointer(void);
 int WoofIOS_DebugTouchEventCount(void);
 
+// Debug/test telemetry only (issue #48): the writes behind that count, per
+// control. How many times the overlay wrote a given SDL gamepad button
+// (SDL_GAMEPAD_BUTTON_*), a given axis (SDL_GAMEPAD_AXIS_*; triggers are
+// axes), or injected a turn, this session. Out-of-range indices read 0.
+int WoofIOS_DebugTouchButtonWrites(int sdl_button);
+int WoofIOS_DebugTouchAxisWrites(int sdl_axis);
+int WoofIOS_DebugTouchTurnWrites(void);
+// The same as one line, non-zero entries only:
+//   "touchWrites: b<button>:<n> ... a<axis>:<n> ... turn:<n>"
+// so one USE tap reads "touchWrites: b0:2 turn:0" and a stick drag lists
+// axes and no button. Shown after a session under WADDLE_DEBUG_INPUT_COUNTS.
+const char *WoofIOS_DebugTouchWrites(void);
+
 // Last engine error text (Woof!'s i_system.c errmsg buffer). Empty string
 // when the previous session exited cleanly. Reset at each session start.
 const char *WoofIOS_LastErrorMessage(void);

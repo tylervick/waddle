@@ -292,6 +292,82 @@ final class TouchControlsTests: XCTestCase {
     /// with exit code 0 only if the engine is still running normally after
     /// both rotations (a mid-session crash would kill the app and fail the
     /// waits below instead).
+    /// Issue #48: the aggregate `touchEventCount` cannot say WHICH control
+    /// drove the engine. `touchWritesLabel` (WoofIOS_DebugTouchWrites, under
+    /// WADDLE_DEBUG_INPUT_COUNTS) lists the shim's writes per SDL button and
+    /// axis -- `b<button>:<n> a<axis>:<n> turn:<n>`, non-zero entries only --
+    /// so one USE tap must read as exactly two writes (down, up) to
+    /// SDL_GAMEPAD_BUTTON_SOUTH (0) and nothing else.
+    @MainActor
+    func testUseTapDrivesOnlyTheSouthButton() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "12"
+        app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        play.tap()
+        let use = app.buttons["useButton"]
+        XCTAssertTrue(use.waitForExistence(timeout: 30), "overlay never installed")
+        Thread.sleep(forTimeInterval: 2) // let the level settle before the one input
+        use.tap()
+
+        let writes = app.staticTexts["touchWritesLabel"]
+        XCTAssertTrue(writes.waitForExistence(timeout: 60), "no per-control write readout after the session")
+        let fields = Self.writeFields(writes.label)
+        XCTAssertEqual(fields["b0"], 2, "USE should write SOUTH twice (down, up): \(writes.label)")
+        XCTAssertEqual(fields.keys.filter { $0.hasPrefix("b") }, ["b0"],
+                       "USE should write no other button: \(writes.label)")
+        XCTAssertTrue(fields.keys.filter { $0.hasPrefix("a") }.isEmpty,
+                      "USE should write no axis: \(writes.label)")
+        XCTAssertEqual(fields["turn"], 0, "USE should inject no turn: \(writes.label)")
+    }
+
+    /// The other half of issue #48's example: a movement-stick drag writes
+    /// the stick axes and no button. The classic scheme writes LEFTX, LEFTY
+    /// and RIGHTX together on every stick update (TouchGamepad.setStick), so
+    /// the assertion is on the split between axes and buttons, which is what
+    /// the aggregate counter could never show.
+    @MainActor
+    func testStickDragDrivesOnlyAxes() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "12"
+        app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        play.tap()
+        XCTAssertTrue(app.buttons["fireButton"].waitForExistence(timeout: 30), "overlay never installed")
+        Thread.sleep(forTimeInterval: 2)
+        let stickStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.22, dy: 0.72))
+        let stickEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.22, dy: 0.90))
+        stickStart.press(forDuration: 0.2, thenDragTo: stickEnd, withVelocity: .fast, thenHoldForDuration: 0.5)
+
+        let writes = app.staticTexts["touchWritesLabel"]
+        XCTAssertTrue(writes.waitForExistence(timeout: 60), "no per-control write readout after the session")
+        let fields = Self.writeFields(writes.label)
+        XCTAssertGreaterThan(fields["a1"] ?? 0, 0, "a stick drag should write LEFTY: \(writes.label)")
+        XCTAssertGreaterThan(fields["a0"] ?? 0, 0, "a stick drag should write LEFTX: \(writes.label)")
+        XCTAssertTrue(fields.keys.filter { $0.hasPrefix("b") }.isEmpty,
+                      "a stick drag should write no button: \(writes.label)")
+    }
+
+    /// Parses "touchWrites: b0:2 a1:14 turn:0" into ["b0": 2, "a1": 14, "turn": 0].
+    private static func writeFields(_ label: String) -> [String: Int] {
+        var out: [String: Int] = [:]
+        for token in label.replacingOccurrences(of: "touchWrites:", with: "").split(separator: " ") {
+            let kv = token.split(separator: ":")
+            if kv.count == 2, let n = Int(kv[1]) { out[String(kv[0])] = n }
+        }
+        return out
+    }
+
     /// Issue #291: a session started with the device already in landscape
     /// opened an engine window of the PORTRAIT size (46% of the landscape
     /// width on an iPhone 17 Pro: 1206/2622), with the shelf visible beside

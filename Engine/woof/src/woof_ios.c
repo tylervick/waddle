@@ -57,6 +57,16 @@ static SDL_Joystick *touch_joystick;
 static int touch_event_count;
 static float touch_turn_accum;
 
+// Per-control write counts behind touch_event_count (issue #48): which SDL
+// button or axis each write went to, so a test can attribute an input to
+// the control that drove it rather than to "some input". Counted at the
+// write sites below and reset with touch_event_count at session start.
+#define TOUCH_BUTTON_SLOTS 32
+#define TOUCH_AXIS_SLOTS 8
+static int touch_button_writes[TOUCH_BUTTON_SLOTS];
+static int touch_axis_writes[TOUCH_AXIS_SLOTS];
+static int touch_turn_writes;
+
 // Lazily-opened gamepad-layer view of touch_joystick, used only by
 // WoofIOS_DebugTriggerValue (test telemetry) to read back the value Woof's
 // gamepad API reports, as opposed to the raw joystick axis the overlay
@@ -316,6 +326,9 @@ int WoofIOS_Run(int argc, char **argv)
     // in the unwind branch above, which runs before that post-session read
     // and would zero out the count the ended session just produced.
     touch_event_count = 0;
+    memset(touch_button_writes, 0, sizeof(touch_button_writes));
+    memset(touch_axis_writes, 0, sizeof(touch_axis_writes));
+    touch_turn_writes = 0;
 
     WoofIOS_DebugSessionEntryCheckpoint();
 
@@ -463,6 +476,10 @@ void WoofIOS_SetTouchAxis(int sdl_axis, float value)
     SDL_SetJoystickVirtualAxis(touch_joystick, sdl_axis,
                                (Sint16)(value * 32767.0f));
     touch_event_count++;
+    if (sdl_axis >= 0 && sdl_axis < TOUCH_AXIS_SLOTS)
+    {
+        touch_axis_writes[sdl_axis]++;
+    }
 }
 
 void WoofIOS_SetTouchButton(int sdl_button, bool down)
@@ -473,6 +490,10 @@ void WoofIOS_SetTouchButton(int sdl_button, bool down)
     }
     SDL_SetJoystickVirtualButton(touch_joystick, sdl_button, down);
     touch_event_count++;
+    if (sdl_button >= 0 && sdl_button < TOUCH_BUTTON_SLOTS)
+    {
+        touch_button_writes[sdl_button]++;
+    }
 }
 
 // Fix round (user device-testing): FIRE autofired forever after a single
@@ -505,12 +526,65 @@ void WoofIOS_SetTouchTrigger(int sdl_axis, bool down)
     SDL_SetJoystickVirtualAxis(touch_joystick, sdl_axis,
                                down ? SDL_JOYSTICK_AXIS_MAX : SDL_JOYSTICK_AXIS_MIN);
     touch_event_count++;
+    if (sdl_axis >= 0 && sdl_axis < TOUCH_AXIS_SLOTS)
+    {
+        touch_axis_writes[sdl_axis]++;
+    }
 }
 
 void WoofIOS_InjectRelativeTurn(float dx_points)
 {
     touch_turn_accum += dx_points;
     touch_event_count++;
+    touch_turn_writes++;
+}
+
+int WoofIOS_DebugTouchButtonWrites(int sdl_button)
+{
+    if (sdl_button < 0 || sdl_button >= TOUCH_BUTTON_SLOTS)
+    {
+        return 0;
+    }
+    return touch_button_writes[sdl_button];
+}
+
+int WoofIOS_DebugTouchAxisWrites(int sdl_axis)
+{
+    if (sdl_axis < 0 || sdl_axis >= TOUCH_AXIS_SLOTS)
+    {
+        return 0;
+    }
+    return touch_axis_writes[sdl_axis];
+}
+
+int WoofIOS_DebugTouchTurnWrites(void)
+{
+    return touch_turn_writes;
+}
+
+const char *WoofIOS_DebugTouchWrites(void)
+{
+    static char buf[256];
+    int n = snprintf(buf, sizeof(buf), "touchWrites:");
+    for (int b = 0; b < TOUCH_BUTTON_SLOTS && n < (int)sizeof(buf); b++)
+    {
+        if (touch_button_writes[b])
+        {
+            n += snprintf(buf + n, sizeof(buf) - n, " b%d:%d", b, touch_button_writes[b]);
+        }
+    }
+    for (int a = 0; a < TOUCH_AXIS_SLOTS && n < (int)sizeof(buf); a++)
+    {
+        if (touch_axis_writes[a])
+        {
+            n += snprintf(buf + n, sizeof(buf) - n, " a%d:%d", a, touch_axis_writes[a]);
+        }
+    }
+    if (n < (int)sizeof(buf))
+    {
+        snprintf(buf + n, sizeof(buf) - n, " turn:%d", touch_turn_writes);
+    }
+    return buf;
 }
 
 float WoofIOS_ConsumeTouchTurn(void)

@@ -559,6 +559,17 @@ only ever runs once):
   read 1/1 to 6/6 before the fix. See
   `docs/learnings/i-error-ends-the-session-not-the-process.md`.
 
+- `src/woof_ios.c` / `src/woof_ios.h` (issue #48) -- the touch shim counts
+  its writes per control beside the aggregate `touch_event_count`: one slot
+  per SDL gamepad button and axis plus the turn injections, incremented at
+  the same write sites, reset with the aggregate at session start.
+  `WoofIOS_DebugTouchButtonWrites`/`AxisWrites`/`TurnWrites` read them, and
+  `WoofIOS_DebugTouchWrites()` renders the non-zero ones as one line
+  (`touchWrites: b0:2 turn:0`), shown after a session under
+  `WADDLE_DEBUG_INPUT_COUNTS`. `TouchControlsTests` uses it to assert that a
+  USE tap wrote SOUTH twice and nothing else, and that a stick drag wrote
+  axes and no button -- which the aggregate could never say.
+
 - `src/i_video.c`, `src/g_game.c`, `src/g_game.h`, `src/d_main.c` -- the app's
   lifecycle reaches the engine (issue #111). SDL's iOS layer observes UIKit's
   resign-active and did-enter-background notifications itself and turns them
