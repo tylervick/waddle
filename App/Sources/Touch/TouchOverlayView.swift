@@ -180,7 +180,7 @@ final class TouchOverlayView: UIView {
         if debugHUDEnabled {
             let label = UILabel()
             label.accessibilityIdentifier = "sessionDebugHUD"
-            label.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+            label.font = Self.debugHUDFont
             label.textColor = UIColor.white.withAlphaComponent(0.6)
             label.backgroundColor = UIColor.black.withAlphaComponent(0.3)
             label.textAlignment = .left
@@ -347,6 +347,11 @@ final class TouchOverlayView: UIView {
             tuning.turnSpeed, tuning.stickDeadZone, tuning.moveSensitivity,
             String(cString: WoofIOS_DebugGameState()),
             String(cString: WoofIOS_DebugInputState()))
+        // The line count can change with the text (a longer pad name, a
+        // menu item), and the frame and the buttons below it follow it.
+        if let debugHUDLabel, debugHUDLabel.frame.height != debugHUDStripHeight {
+            setNeedsLayout()
+        }
     }
 
     // MARK: Buttons
@@ -363,10 +368,37 @@ final class TouchOverlayView: UIView {
         addSubview(button)
     }
 
-    /// Height of the strip the debug HUD claims along the top edge (only
-    /// when the "Show Debug Info" toggle is on): four lines of the 11 pt
-    /// monospaced font, which is what the wrapped strip needs at phone width.
-    private static let debugHUDStripHeight: CGFloat = 60
+    static let debugHUDFont: UIFont = .monospacedSystemFont(ofSize: 11, weight: .regular)
+
+    /// The least the strip claims along the top edge (only when the "Show
+    /// Debug Info" toggle is on): four lines of the font, what the wrapped
+    /// strip needed at phone width before the second line grew.
+    static let debugHUDMinimumStripHeight: CGFloat = 60
+
+    /// The height the strip needs for `text` at `width`: what the wrapped
+    /// label measures, never less than the minimum. Measured, not fixed: a
+    /// fixed frame clipped the strip's tail (`… ab= mv= menu=`) on an iPhone
+    /// 17 Pro Max in portrait once the `gs=` segment joined the second line
+    /// (issue #111), and the tail is the part a Revyl device run reads off
+    /// a screenshot. `DebugHUDStripHeightTests` pins it.
+    static func debugHUDStripHeight(for text: String, width: CGFloat) -> CGFloat {
+        let label = UILabel()
+        label.font = debugHUDFont
+        label.numberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        label.text = text
+        let fitted = label.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        return max(debugHUDMinimumStripHeight, ceil(fitted))
+    }
+
+    /// The strip's current height, from its current text and the width the
+    /// safe area leaves it.
+    private var debugHUDStripHeight: CGFloat {
+        guard let debugHUDLabel else { return 0 }
+        let inset = safeAreaInsets
+        return Self.debugHUDStripHeight(for: debugHUDLabel.text ?? "",
+                                        width: bounds.width - inset.left - inset.right)
+    }
 
     /// Live geometry for the current bounds. Recomputed rather than cached:
     /// it is a handful of arithmetic ops, and iPadOS windowed multitasking
@@ -374,7 +406,7 @@ final class TouchOverlayView: UIView {
     /// be stale exactly when it matters.
     private var layout: TouchOverlayLayout {
         TouchOverlayLayout(bounds: bounds, safeAreaInsets: safeAreaInsets,
-                           hudReserve: debugHUDEnabled ? Self.debugHUDStripHeight : 0)
+                           hudReserve: debugHUDEnabled ? debugHUDStripHeight : 0)
     }
 
     override func layoutSubviews() {
@@ -384,7 +416,7 @@ final class TouchOverlayView: UIView {
         if let debugHUDLabel {
             debugHUDLabel.frame = CGRect(x: b.minX + inset.left, y: b.minY + inset.top,
                                          width: b.width - inset.left - inset.right,
-                                         height: Self.debugHUDStripHeight)
+                                         height: debugHUDStripHeight)
         }
         // Position *and* size come from TouchOverlayLayout -- see its doc
         // comment for the arrangement and why the offsets scale. Buttons the
