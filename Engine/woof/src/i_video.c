@@ -1666,8 +1666,48 @@ void I_ResetScreen(void)
                                                     : SDL_SCALEMODE_NEAREST);
 }
 
+#ifdef WOOF_IOS
+// The app is leaving the screen (issue #111). SDL raises these from UIKit's
+// resign-active and did-enter-background notifications, but it never queues
+// them: SDL_SendAppEvent hands SDL_EVENT_WILL_ENTER_BACKGROUND and
+// SDL_EVENT_DID_ENTER_BACKGROUND only to event watchers, in the
+// notification's own call stack, because iOS may freeze the process before a
+// queue is drained ("must be handled in a callback set with
+// SDL_AddEventWatch()", SDL_events.h). A case in ProcessEvent never fires;
+// measured: bgsave=0 bgpause=0 after a real background transition.
+//
+// UIKit posts those notifications on the main thread while the engine pumps
+// the run loop (UIKit_PumpEvents, from I_StartTic and I_StartDisplay), so
+// this runs between tics, the boundary G_Ticker saves at. The MINIMIZED SDL
+// sends the window first is an ordinary queued event (HandleWindowEvent:
+// screenvisible = false), so nothing draws in the background; these two stop
+// the world and keep the level.
+static bool SDLCALL AppLifecycleWatch(void *userdata, SDL_Event *ev)
+{
+    switch (ev->type)
+    {
+        case SDL_EVENT_WILL_ENTER_BACKGROUND:
+            G_BackgroundPause();
+            break;
+
+        case SDL_EVENT_DID_ENTER_BACKGROUND:
+            G_BackgroundSave();
+            break;
+
+        default:
+            break;
+    }
+    return true;
+}
+#endif
+
 void I_ShutdownGraphics(void)
 {
+#ifdef WOOF_IOS
+    // Explicit, not left to SDL_Quit: the next session adds it again, and a
+    // second registration would pause and save twice per transition.
+    SDL_RemoveEventWatch(AppLifecycleWatch, NULL);
+#endif
     if (scalefactor == 0)
     {
         default_window_width = window_width;
@@ -1700,6 +1740,9 @@ void I_InitGraphics(void)
     }
 
     I_AtExit(I_ShutdownGraphics, true);
+#ifdef WOOF_IOS
+    SDL_AddEventWatch(AppLifecycleWatch, NULL);
+#endif
 
     I_InitVideoParms();
     I_InitGraphicsMode(); // killough 10/98

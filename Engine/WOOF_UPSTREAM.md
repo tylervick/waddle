@@ -559,6 +559,31 @@ only ever runs once):
   read 1/1 to 6/6 before the fix. See
   `docs/learnings/i-error-ends-the-session-not-the-process.md`.
 
+- `src/i_video.c`, `src/g_game.c`, `src/g_game.h`, `src/d_main.c` -- the app's
+  lifecycle reaches the engine (issue #111). SDL's iOS layer observes UIKit's
+  resign-active and did-enter-background notifications itself and turns them
+  into `SDL_EVENT_WILL_ENTER_BACKGROUND` (preceded by a `WINDOW_MINIMIZED`,
+  which upstream already answers with `screenvisible = false`) and
+  `SDL_EVENT_DID_ENTER_BACKGROUND`. Upstream ignores both, so the world kept
+  running until iOS froze the process and nothing was written. SDL never
+  queues these two (they reach only an event watch, in the notification's
+  own call stack -- see
+  `docs/learnings/sdl-app-lifecycle-events-are-never-queued.md`), so
+  `I_InitGraphics` adds `AppLifecycleWatch` and `I_ShutdownGraphics` removes
+  it; the watch hands them to `G_BackgroundPause` (opens the menu in a live level, the
+  pause a single-player world actually obeys and the touch overlay can undo)
+  and `G_BackgroundSave` (writes `suspend.dsg`, its own file, so neither a
+  manual slot nor the level-start autosave is overwritten; skipped at the
+  title, in demos, in netgames, with a game action pending or the player
+  dead). UIKit posts the notifications while the engine pumps the run loop
+  (`I_StartTic`, `I_StartDisplay`), so both run between tics, the same
+  boundary `ga_savegame` saves at. `-loadgame 254` loads that file beside upstream's
+  255 for `autosave.dsg`; `App/Sources/Library/EngineSaveSlot.swift` maps the
+  name. `G_DebugBackgroundCounts` counts at the two sites, never reset, and
+  feeds `WoofIOS_DebugBackgroundState()` (`bgsave=<n> bgpause=<n>`), which
+  `BackgroundSuspendTests` reads after backgrounding a warped session (1/1)
+  and a title-screen one (0/0).
+
 Related (not upstream files): `Scripts/build-engine.sh` passes
 `-DCMAKE_FIND_ROOT_PATH="$OUT/$platform"` in addition to
 `-DCMAKE_PREFIX_PATH`. When `CMAKE_SYSTEM_NAME=iOS`, CMake restricts

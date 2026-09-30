@@ -20,6 +20,13 @@ parseable number will either crash, skip the newest file, or resume the wrong
 one. Test the autosave-is-newest case explicitly; it is the default path, not a
 corner.
 
+**This port adds a second sentinel, 254, for `suspend.dsg`** — the save the
+engine writes when the app is backgrounded in a live level (issue #111). It
+is deliberately not `autosave.dsg`: Woof reloads that one when the player
+presses USE while dead, so a background save there would restart a dead
+player mid-fight instead of at the level start. A saves directory can now
+hold three kinds of loadable name, and "newest wins" is still the rule.
+
 `App/Sources/Library/EngineSaveSlot.swift` holds the mapping, with the four Woof
 source sites each rule is read out of cited inline; `App/Tests/EngineSaveSlotTests.swift`
 pins the behaviour. Change the mapping there, not at a call site.

@@ -26,11 +26,21 @@ final class EngineSaveSlotTests: XCTestCase {
         XCTAssertEqual(EngineSaveSlot.autoSaveArgument, 255)
     }
 
+    func testSuspendSaveFilenameMapsToItsSentinel() {
+        // The save written when the app is backgrounded mid-level (issue
+        // #111): its own file and its own `-loadgame` number, so it never
+        // overwrites a manual slot or Woof's level-start autosave.
+        XCTAssertEqual(EngineSaveSlot.loadGameArgument(forFilename: "suspend.dsg"), 254)
+        XCTAssertEqual(EngineSaveSlot.suspendSaveArgument, 254)
+        XCTAssertEqual(EngineSaveSlot.suspendSaveFilename, "suspend.dsg")
+    }
+
     func testFilenameMatchingIsCaseInsensitive() {
         // The engine lowercases what it writes but matches a pre-existing file
         // case-insensitively, so either casing can be on disk.
         XCTAssertEqual(EngineSaveSlot.loadGameArgument(forFilename: "WOOFSAV3.DSG"), 3)
         XCTAssertEqual(EngineSaveSlot.loadGameArgument(forFilename: "AutoSave.dsg"), 255)
+        XCTAssertEqual(EngineSaveSlot.loadGameArgument(forFilename: "Suspend.DSG"), 254)
     }
 
     func testNamesTheEngineCannotLoadBySlotMapToNil() {
@@ -65,6 +75,18 @@ final class EngineSaveSlotTests: XCTestCase {
 
     func testAutosaveWinsWhenItIsTheNewest() {
         let slots = [slot("woofsav3.dsg", 100), slot("autosave.dsg", 200)]
+        XCTAssertEqual(EngineSaveSlot.newestLoadGameArgument(in: slots), 255)
+    }
+
+    func testSuspendSaveWinsWhenItIsTheNewest() {
+        // The common case after a jetsam: the player backgrounded mid-level
+        // after Woof's level-start autosave, so the suspend save is newest.
+        let slots = [slot("woofsav3.dsg", 100), slot("autosave.dsg", 200), slot("suspend.dsg", 300)]
+        XCTAssertEqual(EngineSaveSlot.newestLoadGameArgument(in: slots), 254)
+    }
+
+    func testSuspendSaveLosesWhenAnotherSaveIsNewer() {
+        let slots = [slot("suspend.dsg", 100), slot("autosave.dsg", 200)]
         XCTAssertEqual(EngineSaveSlot.newestLoadGameArgument(in: slots), 255)
     }
 

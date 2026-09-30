@@ -2632,6 +2632,83 @@ static void G_DoSaveAutoSave(void)
   free(name);
 }
 
+#ifdef WOOF_IOS
+// --- Backgrounding (issue #111) ---
+//
+// iOS gives a backgrounded app no time: the process is frozen a few seconds
+// after it leaves the screen and may be discarded without another callback.
+// SDL turns the app's lifecycle into events (SDL_OnApplicationWillEnterBackground
+// on resign-active, SDL_OnApplicationDidEnterBackground on background entry)
+// that only an event watch receives; i_video.c's AppLifecycleWatch hands them
+// here from inside the engine's own run-loop pump (I_StartTic,
+// I_StartDisplay), between tics, so the world is at the same boundary
+// G_Ticker runs ga_savegame at.
+//
+// Counted at the sites that act and never reset, so
+// WoofIOS_DebugBackgroundState reports what happened across the process.
+static int background_pauses;
+static int background_saves;
+static int background_leveltime; // leveltime the last save captured
+
+char *G_SuspendSaveName(void)
+{
+  return SaveGameName("suspend.dsg");
+}
+
+// Resign-active: the player is about to lose the screen (app switcher,
+// Control Center, a call). Opening Woof's own menu is what freezes a
+// single-player world (G_Ticker skips ticcmds while menuactive && !netgame),
+// and it is the pause the touch overlay can undo: it has a menu button, not a
+// pause key. Nothing to freeze at the title, in a demo, or outside a level.
+void G_BackgroundPause(void)
+{
+  if (gamestate != GS_LEVEL || !usergame || demoplayback || netgame
+      || menuactive)
+  {
+    return;
+  }
+  MN_StartControlPanel();
+  background_pauses++;
+}
+
+// Background entry: write the player's live level to its own file, so a
+// process iOS discards while backgrounded loses nothing. Its own file (see
+// G_SuspendSaveName; -loadgame 254 in d_main.c) so it never overwrites a
+// manual slot or the level-start autosave the death-use reload depends on.
+// Not at the title, in a demo (playback or recording), a netgame, with a game
+// action pending (the world is about to change), or with the player dead: a
+// save of a corpse resumes a corpse, and the previous save is the better one.
+void G_BackgroundSave(void)
+{
+  if (gamestate != GS_LEVEL || !usergame || demoplayback || demorecording
+      || netgame || gameaction != ga_nothing
+      || players[consoleplayer].playerstate != PST_LIVE)
+  {
+    return;
+  }
+
+  // savedescription may hold a name the player has just committed in the
+  // save menu (G_SaveGame sets it a tic before ga_savegame writes it), and
+  // DoSaveGame clears it, so keep theirs around ours.
+  char pending[sizeof(savedescription)];
+  memcpy(pending, savedescription, sizeof(pending));
+  strcpy(savedescription, "Backgrounded");
+  char *name = G_SuspendSaveName();
+  DoSaveGame(name);
+  free(name);
+  memcpy(savedescription, pending, sizeof(pending));
+  background_saves++;
+  background_leveltime = leveltime;
+}
+
+void G_DebugBackgroundCounts(int *saves, int *pauses, int *saved_leveltime)
+{
+  *saves = background_saves;
+  *pauses = background_pauses;
+  *saved_leveltime = background_leveltime;
+}
+#endif
+
 static byte *LoadCustomSkillOptions(byte *opt_p)
 {
     if (saveg_compat > saveg_woof1500)

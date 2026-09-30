@@ -17,9 +17,19 @@ import Foundation
 /// file in a saves directory -- resuming it is what makes Continue land on the
 /// level the player actually walked away from rather than their last manual
 /// save.
+///
+/// This port adds one more: `suspend.dsg`, written by the engine when the app
+/// is backgrounded in the middle of a level (issue #111; `G_BackgroundSave`
+/// in `g_game.c`), loaded by the sentinel 254 (`d_main.c`, beside 255). Its
+/// own file, so it never overwrites a manual slot or the level-start
+/// autosave that Woof's press-USE-when-dead reload depends on.
 enum EngineSaveSlot {
     /// The `-loadgame` value that loads the autosave instead of a numbered slot.
     static let autoSaveArgument = 255
+
+    /// The `-loadgame` value that loads the save written on backgrounding.
+    static let suspendSaveArgument = 254
+    static let suspendSaveFilename = "suspend.dsg"
 
     /// Not private: `LibraryService.seedContinueSaveForCapture()` writes a file
     /// under this exact name, and a second copy of the literal would be free to
@@ -37,6 +47,7 @@ enum EngineSaveSlot {
     static func loadGameArgument(forFilename filename: String) -> Int? {
         let name = filename.lowercased()
         if name == autoSaveFilename { return autoSaveArgument }
+        if name == suspendSaveFilename { return suspendSaveArgument }
         guard name.hasPrefix(manualPrefix), name.hasSuffix(filenameSuffix) else { return nil }
         let digits = name.dropFirst(manualPrefix.count).dropLast(filenameSuffix.count)
         // Round-trip instead of a bare `Int(digits)`: the engine forms these
