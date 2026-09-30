@@ -12,6 +12,14 @@ context adapted: the release branch has no #pragma deprecation wrappers
 around the old calls, which is the only reason upstream's commit does not
 apply as-is. The camera-backend hunk is omitted (SDL_CAMERA=OFF here).
 
+Two deliberate differences from upstream's text, both in the helper: the
+SDK guard is `__IPHONE_OS_VERSION_MAX_ALLOWED >= 270000` (upstream wrote
+27000, which reads as iOS 2.7 and is always true), and the pre-iOS-27
+fallback keeps the deprecated statusBarOrientation read -- that is the
+only source on those systems, and the first cut of this backport replaced
+it with a call to the helper itself, a recursion an iOS 26 device would
+have hit at window creation (caught in review of PR #292).
+
 Applied by Scripts/build-deps.sh after the SDL checkout. Drop this file
 when SDL_TAG moves to a release that contains the upstream commit; the
 build stops with an error if it no longer applies either way.
@@ -121,7 +129,7 @@ diff -ruN /Users/builder/orca/workspaces/waddle/improvement-loop/Vendor/src/SDL/
 +#if !defined(SDL_PLATFORM_TVOS) && !defined(SDL_PLATFORM_VISIONOS)
 +UIInterfaceOrientation UIKit_GetInterfaceOrientation(void)
 +{
-+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 27000
++#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 270000
 +    if (@available(iOS 27.0, *)) {
 +        UIWindowScene *windowScene = UIKit_GetActiveWindowScene();
 +        if (windowScene != nil) {
@@ -133,7 +141,7 @@ diff -ruN /Users/builder/orca/workspaces/waddle/improvement-loop/Vendor/src/SDL/
 +
 +#pragma clang diagnostic push
 +#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-+    return UIKit_GetInterfaceOrientation();
++    return [UIApplication sharedApplication].statusBarOrientation;
 +#pragma clang diagnostic pop
 +}
 +#endif // !SDL_PLATFORM_TVOS && !SDL_PLATFORM_VISIONOS
