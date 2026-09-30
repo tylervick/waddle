@@ -10,7 +10,7 @@ One file per hard-won fact. Add an entry here in the same PR that adds the file 
 - [Engine console output does not reach `log stream`](engine-console-output-is-invisible.md) — use xcresult stdout or --console-pty
 - [Every injected keydown must be paired with a keyup](soft-keyboard-keydown-keyup-pairing.md) — or cheat letters latch and the player walks forever
 - [iOS 26 TabView tab-bar buttons ignore accessibility identifiers](ios26-tabview-accessibility.md) — address tabs by label, panes by identifier
-- [iOS 26 List swipe actions change shape with row height](ios26-list-swipe-actions-row-height.md) — the stock idiom, already bisected; do not re-investigate
+- [iOS 26 List swipe actions change shape with row height](ios26-list-swipe-actions-row-height.md) — the stock idiom, already bisected; do not re-investigate (re-measured on iOS 27 on 2026-09-30: `swipeActionsContainer()` changes nothing)
 - [SwiftUI `Menu` cannot render `Slider` rows](swiftui-menu-cannot-host-sliders.md) — why tuning lives in the Control Feel sheet
 - [Gesture recognizers do not fire inside SDL's own UIWindow](sdl-window-gesture-recognizers.md) — use responder-chain touches instead
 - [Setting up a second worktree has two traps](worktree-setup-traps.md) — the Vendor symlink, and the stale CMakeCache that `Scripts/ensure-native-cmake-cache.sh` now clears at build time
