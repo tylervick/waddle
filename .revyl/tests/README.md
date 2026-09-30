@@ -224,3 +224,36 @@ the blocks pushed into the resulting file, because on CLI v0.1.119
 `build.name: development` no longer binds a new test (see
 `docs/learnings/revyl-test-binds-through-build-name.md`); the remote wrote
 `build.name: Waddle`, the app's name.
+
+### `background-suspend.yaml` — pause and save when the app is backgrounded
+
+The device counterpart of `WaddleUITests/BackgroundSuspendTests` (issue
+#111). Start Freedoom Phase 1 straight into a level, read the debug strip
+(`gs=level`, `menu=off`, a rising `lt=`), press Home, reopen, read it twice
+more: the engine menu must be up (`menu=` a number), `lt=` must not move
+between the two readings, and the game view must be rendered rather than
+black. Then the autoquit ends the session and the shelf's readout must say
+`bgsave=1 bgpause=1 bglt=<n>`.
+
+It exists because Revyl's proof run on PR #285 reported a black engine view
+after the return on a real iPhone; this run showed the paused level with the
+menu drawn (`lt=1602` in both readings) and the readout `bgsave=1 bgpause=1
+bglt=1602`, so the hooks fire on a device and the view does redraw. What it
+caught instead was the strip clipping its own tail on a phone, which is why
+the strip's height now follows its text.
+
+**It needs four launch variables and two launch arguments.** Run it as
+
+    revyl test run background-suspend --build-id <id> \
+      --launch-env WADDLE_TEST_WARP=1 \
+      --launch-env WADDLE_FORCE_TOUCH_OVERLAY=1 \
+      --launch-env WADDLE_DEBUG_SESSION_START=1 \
+      --launch-env WADDLE_AUTOQUIT_SECONDS=300 \
+      --launch-arg -debugHUD --launch-arg YES
+
+Three hundred seconds, not the eight or twenty the other tests use: this
+script has eleven steps and the agent spends fifteen to thirty seconds on
+each, so a 90-second autoquit ended the session before the post-return
+readings and the agent reported "the engine had already terminated". See
+`docs/learnings/revyl-agent-latency-outruns-a-short-autoquit.md`.
+

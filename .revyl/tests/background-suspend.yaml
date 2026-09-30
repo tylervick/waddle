@@ -1,0 +1,41 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: 354738f9-168f-48e5-8cb5-c93ef9ccf3ba
+    remote_version: 2
+    local_version: 2
+    last_synced_at: "2026-09-29T22:21:20-07:00"
+    checksum: 2f9809b4fd08be8ba0af8755ea6604ea6afc0195577e1a974f9949a5e875496e
+test:
+    metadata:
+        name: background-suspend
+        platform: ios
+        tags:
+            - engine
+            - lifecycle
+    build:
+        name: Waddle
+        system_prompt: This build starts straight into a Freedoom level when a game is tapped, ends the engine session by itself after about five minutes, and draws a small monospaced debug strip over the game. The strip is native UI and stays readable even when the game view under it is black. Read the strip carefully and report its fields verbatim.
+    blocks:
+        - type: validation
+          step_description: The shelf lists Freedoom Phase 1 and Freedoom Phase 2 without any import step.
+        - type: instructions
+          step_description: Tap Freedoom Phase 1. The game starts directly in a level with translucent touch controls and a small monospaced debug strip. Wait about five seconds without touching anything.
+        - type: extraction
+          step_description: From the debug strip, report the text that starts with "gs=" up to and including the "lt=" value, and the "menu=" value at the end of the strip (for example "gs=level load=-1 lt=140" and "menu=off").
+        - type: validation
+          step_description: The debug strip shows gs=level and menu=off, and the game view is rendered (a first-person view with a status bar), not black.
+        - type: instructions
+          step_description: Press the Home button (or swipe up to go home) to send the app to the background. Wait about five seconds. Then reopen Waddle from the home screen or app switcher. Do not tap anything inside the app after it comes back; do not tap the ≡ button.
+        - type: extraction
+          step_description: About two seconds after the app is back, report from the debug strip the text that starts with "gs=" up to and including the "lt=" value, and the "menu=" value; also report whether the game view under the strip shows the rendered level, the level with a menu drawn over it, or is black.
+        - type: instructions
+          step_description: Wait ten more seconds without touching anything, then read the debug strip again.
+        - type: extraction
+          step_description: Report the "lt=" value and the "menu=" value now, and whether the game view is rendered or black.
+        - type: validation
+          step_description: After the return from the background the strip shows menu= followed by a number (the engine menu is open), not menu=off; the lt= value did not change between the two readings after the return (the level is paused); and the game view is not black.
+        - type: instructions
+          step_description: 'Do nothing and wait: the engine quits by itself and the shelf comes back. Do not tap, swipe, kill or relaunch the app.'
+        - type: validation
+          step_description: 'The shelf is visible again with an ''Engine exited: 0'' label near the bottom, and among the small monospaced lines above it one reads bgsave=1 bgpause=1 followed by bglt= and a number greater than zero.'

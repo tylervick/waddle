@@ -61,6 +61,14 @@ final class BackgroundSuspendTests: XCTestCase {
         XCTAssertNotNil(afterReturn["menu"], "HUD lost its menu field: \(lastSeenStrip)")
         XCTAssertNotEqual(afterReturn["menu"], "off",
                           "backgrounding mid-level should leave the menu up on return: \(lastSeenStrip)")
+        // For a human: the engine must be drawing again after the return (the
+        // menu over the level), not showing its last frame or black. A device
+        // run reads this off a screenshot; the assertions above cannot.
+        Thread.sleep(forTimeInterval: 1.5)
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "after-return-from-background"
+        shot.lifetime = .keepAlways
+        add(shot)
 
         let exitLabel = app.staticTexts["engineExitLabel"]
         XCTAssertTrue(exitLabel.waitForExistence(timeout: 90), "engine never returned to the launcher")
