@@ -120,6 +120,11 @@ jobs:
           # the real fetcher behind a curl stub. Guards testflight-feedback.yml,
           # whose failure modes are a replayed backlog or a silently lost report.
           Scripts/test-testflight-feedback-digest.sh
+          # Hermetic: curl and the token minter are stubs. Guards
+          # promote-build.yml, which changes who receives a TestFlight build;
+          # its refusals (missing build, not VALID, missing group, failed
+          # read-back) are each a separate case.
+          Scripts/test-promote-build.sh
           # Hermetic: a strict curl stub plays App Store Connect. It guards
           # app-store-screenshots.yml, whose delete-then-upload would empty a
           # live listing if the set-ownership check ever stopped biting.

@@ -59,6 +59,37 @@ wait a night for. A manual dispatch is never gated: it ships whether or not
 attach or to ship an engine rebuild that changes the binary with no new commits
 behind it.
 
+**Promoting a shipped build to external testers** is a tag, not a build
+(issue #165): `CFBundleShortVersionString` cannot carry "rc", and rebuilding
+would ship bits nobody tested. Pick the internal build that passed its smoke
+test and tag its commit:
+
+```
+git tag rc-1.1.0 build-231 && git push origin rc-1.1.0
+```
+
+`promote-build.yml` resolves the `build-<N>` tag on that commit (exactly one,
+or it fails loudly: an `rc-*` tag on a commit that never shipped is the
+mistake it exists to catch) and runs `Scripts/promote-build.sh <N> <group>`,
+which assigns the existing build to the group named by the repository
+variable `TESTFLIGHT_EXTERNAL_GROUP` (set it once, to the group's exact name
+in App Store Connect). The script consumes no build number, refuses a build
+that does not exist (exit 3), is not `VALID` yet (exit 4) or a group that does
+not exist (exit 5), reads the assignment back rather than trusting the 2xx
+(exit 6), and treats "already in the group" as success so a tag pushed twice
+is harmless. The first time, run it by hand against an internal group, where
+a wrong result costs nothing:
+
+```
+ASC_KEY_ID=… ASC_ISSUER_ID=… ASC_KEY_PATH=… Scripts/promote-build.sh 231 "Internal"
+```
+
+or dispatch the workflow with a build number and group. The version's Beta
+App Review is already passed, so a build promoted under the current
+`MARKETING_VERSION` reaches external testers without re-review; the first
+build of a *new* version string re-enters review, which is the cost of a
+version cut, not a defect.
+
 Build numbers therefore have gaps — a night the gate declines still consumes a
 `run_number`. A missing number is not a lost release; check the Actions run
 list before assuming one went wrong.
