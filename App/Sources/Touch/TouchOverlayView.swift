@@ -10,6 +10,9 @@ final class TouchOverlayView: UIView {
     private let scheme: TouchControlScheme
     private let tuning: TouchTuning
     private let debugHUDEnabled: Bool
+    /// The player's button positions (issue #115), read once at install
+    /// like `tuning`; applied by `layout`.
+    private let layoutOverrides: TouchOverlayLayoutOverrides
 
     private var stickTouch: UITouch?
     // Placeholders only: both are rebuilt at the touch point, with the
@@ -47,11 +50,13 @@ final class TouchOverlayView: UIView {
     private let automapTranslator = AutomapGestureTranslator()
 
     init(gamepad: TouchGamepad, scheme: TouchControlScheme,
-         tuning: TouchTuning, debugHUDEnabled: Bool) {
+         tuning: TouchTuning, debugHUDEnabled: Bool,
+         layoutOverrides: TouchOverlayLayoutOverrides = .none) {
         self.gamepad = gamepad
         self.scheme = scheme
         self.tuning = tuning
         self.debugHUDEnabled = debugHUDEnabled
+        self.layoutOverrides = layoutOverrides
         self.keyboard = TouchKeyboard(injector: gamepad)
         super.init(frame: .zero)
         backgroundColor = .clear
@@ -434,7 +439,8 @@ final class TouchOverlayView: UIView {
     /// be stale exactly when it matters.
     private var layout: TouchOverlayLayout {
         TouchOverlayLayout(bounds: bounds, safeAreaInsets: safeAreaInsets,
-                           hudReserve: debugHUDEnabled ? debugHUDStripHeight : 0)
+                           hudReserve: debugHUDEnabled ? debugHUDStripHeight : 0,
+                           overrides: layoutOverrides)
     }
 
     override func layoutSubviews() {

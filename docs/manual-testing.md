@@ -44,6 +44,14 @@ overlay to remain visible even when input devices are connected.
       sliders (accessibilityIdentifiers `turnSpeedSlider`,
       `stickDeadZoneSlider`, `moveSensitivitySlider`) persist across app
       relaunch, and Reset to Defaults restores 1.00 / 0.00 / 1.00
+- [ ] "Control Feel…" → "Edit Layout…" opens the full-screen layout editor
+      (`editLayoutButton`): dragging a button (`layoutEditor.fireButton` and
+      friends) moves it and keeps the grab point under the finger; a drag
+      past an edge parks the button at the edge; Done saves and the next
+      session's overlay has the button there, after an app relaunch too;
+      Cancel discards the drag; Reset shows the stock arrangement live. Save
+      a layout in landscape, then start a session in portrait: every button
+      is on screen (clamped), none resized
 
 ### Control-feel tuning procedure (on-device)
 
