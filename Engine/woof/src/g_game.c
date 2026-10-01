@@ -625,6 +625,32 @@ static boolean FilterDeathUseAction(void)
 // If recording a demo, write it out
 //
 
+#ifdef WOOF_IOS
+// Auto-use state (issue #114); see the block in G_BuildTiccmd. The switch
+// is process-lifetime (the host app sets it per session), the memory of the
+// last line and the press count reset with each level's players.
+boolean autouse_enabled;
+static line_t *autouse_last_line;
+static int autouse_presses;
+
+void G_SetAutoUse(boolean enabled)
+{
+  autouse_enabled = enabled;
+}
+
+void G_DebugAutoUseCounts(int *enabled, int *presses)
+{
+  *enabled = autouse_enabled;
+  *presses = autouse_presses;
+}
+
+void G_ResetAutoUseSession(void)
+{
+  autouse_last_line = NULL;
+  autouse_presses = 0;
+}
+#endif
+
 void G_BuildTiccmd(ticcmd_t* cmd)
 {
   const boolean strafe = M_InputGameActive(input_strafe);
@@ -758,6 +784,31 @@ void G_BuildTiccmd(ticcmd_t* cmd)
 
   cmd->forwardmove = forward;
   cmd->sidemove = side;
+
+#ifdef WOOF_IOS
+  // Auto-use (issue #114): a usable line ahead of a forward-moving player
+  // presses USE without a tap, as the predecessor apps did. Once per line:
+  // P_PlayerThink already uses only on the down edge of BT_USE, but a door
+  // used again while it moves reverses, so the same line is not pressed
+  // twice until nothing has been ahead in between. Off unless the host
+  // app turned it on for touch input (WoofIOS_SetAutoUse).
+  if (autouse_enabled && gamestate == GS_LEVEL && !demoplayback
+      && !(cmd->buttons & BT_USE) && forward > 0
+      && players[consoleplayer].playerstate == PST_LIVE)
+  {
+    line_t *ahead = P_AutoUseLineAhead(&players[consoleplayer]);
+    if (!ahead)
+    {
+      autouse_last_line = NULL;
+    }
+    else if (ahead != autouse_last_line)
+    {
+      autouse_last_line = ahead;
+      cmd->buttons |= BT_USE;
+      autouse_presses++;
+    }
+  }
+#endif
 
   ClearQuickstartTic();
   I_ResetGamepadAxes();

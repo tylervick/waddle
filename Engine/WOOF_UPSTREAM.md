@@ -570,6 +570,21 @@ only ever runs once):
   USE tap wrote SOUTH twice and nothing else, and that a stick drag wrote
   axes and no button -- which the aggregate could never say.
 
+- `src/p_map.c`, `src/p_map.h`, `src/g_game.c`, `src/woof_ios.c` /
+  `src/woof_ios.h` (issue #114) -- auto-use. `P_AutoUseLineAhead(player)`
+  in p_map.c is `P_UseLines`' traverse without its side effects: it returns
+  the first special line within USERANGE that is not behind a blocked
+  opening, or NULL, and activates nothing. `G_BuildTiccmd` (WOOF_IOS) pulses
+  BT_USE when auto-use is enabled, the player is alive in a level, the
+  command moves forward, and that line differs from the last one auto-used;
+  the memory clears when nothing is ahead, so a door is used once per
+  approach rather than toggled every tic, and a switch is flipped once. The
+  probe does not classify specials -- P_UseSpecialLine's 151 cases stay the
+  one authority -- so a walk-over special ahead costs one silent no-op press.
+  `WoofIOS_SetAutoUse(bool)` is the switch (default off; OverlayPresenter
+  turns it on with the overlay and off when physical input hides it), and
+  `WoofIOS_DebugAutoUseState()` reads `autoUse: enabled=<0|1> presses=<n>`.
+
 - `src/woof_ios.c` / `src/woof_ios.h` (issue #113) -- `WoofIOS_InjectKey(key,
   down)` posts one edge of a held key by Doom key code, and
   `WoofIOS_IsAutomapActive()` exposes `automapactive`. The overlay uses them

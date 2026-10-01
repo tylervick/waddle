@@ -18,6 +18,11 @@ overlay to remain visible even when input devices are connected.
       Turning on the debug HUD (below) and watching `trigger` drop to `0.00`
       right after release is the fastest way to confirm this on a device.
 - [ ] USE opens doors — verify it does something, not just that FIRE does
+- [ ] Walking straight at a door opens it without tapping USE; walking at a
+      switch flips it once, not repeatedly while you stand there; a door that
+      closed again does not reopen until you step away and back (or tap USE)
+- [ ] With a game controller connected (overlay hidden), walking at a door
+      does nothing until you press the controller's USE
 - [ ] With the automap up, a one-finger drag on the map pans it in the
       direction of the finger and stops when the finger stops; a two-finger
       spread zooms in and a pinch zooms out; lifting a finger mid-drag does

@@ -252,6 +252,17 @@ void WoofIOS_InjectChar(char c);
 // context, unlike WoofIOS_InjectChar. Main-thread-only.
 void WoofIOS_InjectKey(int key, bool down);
 
+// Auto-use (issue #114): when on, a usable line within use range ahead of a
+// forward-moving player presses USE for them, once per line. Off by default;
+// the host app turns it on for touch input and off while a physical
+// controller or hardware keyboard drives the session. Main-thread-only.
+void WoofIOS_SetAutoUse(bool enabled);
+
+// Debug/test telemetry only: "autoUse: enabled=<0|1> presses=<n>", the
+// switch as it stands and how many times auto-use pressed USE this session
+// (counted at the press, reset at session start).
+const char *WoofIOS_DebugAutoUseState(void);
+
 // True while the engine's automap is up (doomstat's `automapactive`), so the
 // overlay can route free-area touches to the map instead of the sticks.
 bool WoofIOS_IsAutomapActive(void);
