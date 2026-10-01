@@ -37,3 +37,9 @@ build cannot outlive a patch change.
 `TouchControlsTests.testSessionStartedInLandscapeFillsTheScreen` is the
 check: it reads the engine's own window size off the debug HUD (`win=WxH`)
 and holds it to the screen's landscape size.
+
+**Bumped to `release-3.4.16` on 2026-10-01** (the SDL half of issue #79). The
+patch applied unchanged (`git apply --check` against a pristine
+`release-3.4.16` clone, then `build-deps.sh`'s own apply), so upstream's fix
+is still main-only and the patch stays. Nothing in 3.4.13 to 3.4.16 touches
+`SDL_uikitwindow.m`'s orientation path.
