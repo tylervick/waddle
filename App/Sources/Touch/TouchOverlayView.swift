@@ -681,7 +681,22 @@ final class OverlayButton: UIView {
         super.init(frame: CGRect(x: 0, y: 0, width: size, height: size))
         isMultipleTouchEnabled = false
         isAccessibilityElement = true
-        accessibilityTraits = .button
+        // Direct interaction, not .button (issue #215): a .button element is
+        // activated by VoiceOver with focus-then-double-tap, one control at a
+        // time, and Doom needs simultaneous, sustained input -- strafe while
+        // firing, hold forward while turning. .allowsDirectInteraction is the
+        // trait Apple gives a control that must receive the user's touches
+        // as touches (an on-screen piano, a drawing canvas), so VoiceOver
+        // passes a touch on this circle straight to touchesBegan/Ended and
+        // the press-and-hold machinery below works as it does without
+        // VoiceOver. The label still lets a VoiceOver user find each control
+        // by exploring. .button stays alongside it: it is what makes the
+        // control announce as a button, and it is how XCUITest and Revyl
+        // find the overlay (`app.buttons["fireButton"]`): measured with it
+        // removed, every in-game UI test lost the overlay. Direct interaction
+        // governs what a held finger does; .button only says what it is.
+        // OverlayButtonAccessibilityTraitTests pins both.
+        accessibilityTraits = [.button, .allowsDirectInteraction]
         accessibilityLabel = title
 
         backgroundColor = UIColor.white.withAlphaComponent(0.12)
