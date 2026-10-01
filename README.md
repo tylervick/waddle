@@ -168,6 +168,12 @@ locally as a fallback and is unchanged, but it needs signing credentials for
 the configured team and does not manage the build number. Full procedure:
 [`docs/app-store/submission-checklist.md`](docs/app-store/submission-checklist.md).
 
+Tester feedback comes back on its own: the **TestFlight Feedback** workflow
+posts new screenshot and crash submissions once a day to the pinned digest
+issue [#299](https://github.com/tylervick/waddle/issues/299), once each.
+`Scripts/fetch-testflight-feedback.sh --download DIR` pulls the screenshots
+and crash logs for a submission listed there.
+
 **App Store screenshots** are produced by `Scripts/capture-screenshots.sh`,
 which builds the app, provisions the marketing WADs into a 6.9" iPhone and a
 13" iPad simulator, and runs `App/UITests/ScreenshotCaptureTests` on each,

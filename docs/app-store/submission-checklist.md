@@ -129,6 +129,11 @@ and pick a value above the highest already in App Store Connect.
       connections, no non-exempt crypto — SHA-1 dedupe hashing is exempt.)
 - [ ] Wait for the build to finish processing (email from App Store
       Connect), then select it on the version page.
+- [ ] Tester feedback needs no pulling: `testflight-feedback.yml` posts new
+      TestFlight screenshot and crash submissions to the pinned digest issue
+      #299 daily, once each (`Scripts/testflight-feedback-digest.sh`). Run
+      `Scripts/fetch-testflight-feedback.sh --download DIR` for a listed
+      submission's screenshots and crash log.
 
 ## 3. Version page
 

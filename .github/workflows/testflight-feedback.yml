@@ -1,0 +1,58 @@
+name: TestFlight Feedback
+
+# Posts new TestFlight screenshot and crash submissions to the pinned digest
+# issue (#299) once a day, so a tester's report reaches a human without
+# anyone remembering to run Scripts/fetch-testflight-feedback.sh (issue
+# #192). The digest issue is also the seen-state: each posted comment carries
+# a hidden marker per submission and the script reads them back before
+# fetching, so a fresh runner never re-reports the backlog and a failed run
+# marks nothing seen. Scripts/testflight-feedback-digest.sh has the full
+# contract; Scripts/test-testflight-feedback-digest.sh pins it.
+on:
+  schedule:
+    # Daily, off the hour and away from testflight.yml's 09:17 nightly, so a
+    # build in flight and the feedback pull never contend for the same
+    # App Store Connect rate budget. Feedback arrives in ones and twos; more
+    # often than daily would be noise.
+    - cron: "41 10 * * *"
+  workflow_dispatch:
+
+# issues: write is for the one digest comment. contents: read for checkout.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: testflight-feedback
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    name: Post new TestFlight feedback to the digest issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Verify the digest script's own suite first
+        run: Scripts/test-testflight-feedback-digest.sh
+
+      - name: Install the App Store Connect key
+        env:
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          umask 077
+          # Explicit /usr/bin/base64, as testflight.yml does: a bare `base64`
+          # is PATH-shadowable.
+          printf '%s' "$ASC_PRIVATE_KEY" | /usr/bin/base64 --decode > "$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
+
+      - name: Post the digest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ASC_KEY_PATH: ${{ runner.temp }}/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          DIGEST_REPO: ${{ github.repository }}
+          DIGEST_ISSUE: "299"
+        run: Scripts/testflight-feedback-digest.sh
