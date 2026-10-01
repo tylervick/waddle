@@ -116,6 +116,10 @@ jobs:
           Scripts/test-asc-jwt.sh
           Scripts/test-whats-to-test.sh
           Scripts/test-upload.sh
+          # Hermetic: gh and the feedback fetcher are stubs, and one case runs
+          # the real fetcher behind a curl stub. Guards testflight-feedback.yml,
+          # whose failure modes are a replayed backlog or a silently lost report.
+          Scripts/test-testflight-feedback-digest.sh
           # Hermetic: a strict curl stub plays App Store Connect. It guards
           # app-store-screenshots.yml, whose delete-then-upload would empty a
           # live listing if the set-ownership check ever stopped biting.
