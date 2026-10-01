@@ -330,6 +330,10 @@ int WoofIOS_Run(int argc, char **argv)
     // in the unwind branch above, which runs before that post-session read
     // and would zero out the count the ended session just produced.
     touch_event_count = 0;
+    {
+        extern void G_ResetAutoUseSession(void); // g_game.c
+        G_ResetAutoUseSession();
+    }
     memset(touch_button_writes, 0, sizeof(touch_button_writes));
     memset(touch_axis_writes, 0, sizeof(touch_axis_writes));
     memset(touch_key_writes, 0, sizeof(touch_key_writes));
@@ -591,6 +595,22 @@ void WoofIOS_InjectKey(int key, bool down)
     {
         touch_key_writes[key]++;
     }
+}
+
+void WoofIOS_SetAutoUse(bool enabled)
+{
+    extern void G_SetAutoUse(boolean enabled); // g_game.c
+    G_SetAutoUse(enabled);
+}
+
+const char *WoofIOS_DebugAutoUseState(void)
+{
+    extern void G_DebugAutoUseCounts(int *enabled, int *presses); // g_game.c
+    static char buf[48];
+    int enabled, presses;
+    G_DebugAutoUseCounts(&enabled, &presses);
+    snprintf(buf, sizeof(buf), "autoUse: enabled=%d presses=%d", enabled, presses);
+    return buf;
 }
 
 bool WoofIOS_IsAutomapActive(void)

@@ -402,6 +402,102 @@ final class TouchControlsTests: XCTestCase {
                       "automap gestures must not reach the movement stick: \(writes.label)")
     }
 
+    // MARK: Auto-use (issue #114)
+
+    /// The predecessor's defining feel: walk at a door and it opens. The
+    /// engine presses USE itself when a usable line is within use range
+    /// ahead of a forward-moving player, once per line. `autoUseLabel`
+    /// (WoofIOS_DebugAutoUseState, under WADDLE_DEBUG_INPUT_COUNTS) reads
+    /// `autoUse: enabled=<0|1> presses=<n>` after the session.
+    ///
+    /// Freedoom Phase 1's E1M1 start faces east, and straight ahead the first
+    /// special line within walking distance is a lift switch about 600 map
+    /// units out (measured from the WAD's THINGS and LINEDEFS), so holding
+    /// the stick forward for a few seconds walks the player into it.
+    @MainActor
+    func testWalkingIntoAUsableLineAutoUses() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "16"
+        app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        play.tap()
+        XCTAssertTrue(app.buttons["fireButton"].waitForExistence(timeout: 30), "overlay never installed")
+        Thread.sleep(forTimeInterval: 2)
+        // Stick straight up and hold: forward, for long enough to cover the
+        // distance at walking speed with margin.
+        let stickStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.22, dy: 0.72))
+        let stickEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.22, dy: 0.52))
+        stickStart.press(forDuration: 0.1, thenDragTo: stickEnd, withVelocity: .fast, thenHoldForDuration: 7.0)
+
+        let label = app.staticTexts["autoUseLabel"]
+        XCTAssertTrue(label.waitForExistence(timeout: 60), "no auto-use readout after the session")
+        let fields = Self.equalsFields(label.label)
+        XCTAssertEqual(fields["enabled"], 1, "auto-use should be on for touch input: \(label.label)")
+        XCTAssertGreaterThanOrEqual(fields["presses"] ?? 0, 1,
+                                    "walking into the lift switch should have pressed USE: \(label.label)")
+    }
+
+    /// No usable line ahead, nothing happens: the player stands at the start
+    /// (nothing is within use range of it) for the whole session.
+    @MainActor
+    func testStandingStillNeverAutoUses() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "8"
+        app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        play.tap()
+        XCTAssertTrue(app.buttons["fireButton"].waitForExistence(timeout: 30), "overlay never installed")
+
+        let label = app.staticTexts["autoUseLabel"]
+        XCTAssertTrue(label.waitForExistence(timeout: 60), "no auto-use readout after the session")
+        let fields = Self.equalsFields(label.label)
+        XCTAssertEqual(fields["presses"], 0, "nothing ahead, nothing pressed: \(label.label)")
+    }
+
+    /// Physical input suppresses it. Under XCUITest the simulator reports a
+    /// phantom controller, which is exactly what hides the overlay in
+    /// production (PhysicalInputPolicy); without the harness override the
+    /// engine must be told auto-use is off. The policy itself is pinned in
+    /// PhysicalInputPolicyTests; this checks the engine heard it.
+    @MainActor
+    func testPhysicalControllerTurnsAutoUseOff() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "8"
+        app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        play.tap()
+
+        let label = app.staticTexts["autoUseLabel"]
+        XCTAssertTrue(label.waitForExistence(timeout: 60), "no auto-use readout after the session")
+        let fields = Self.equalsFields(label.label)
+        XCTAssertEqual(fields["enabled"], 0,
+                       "a connected controller hides the overlay and must turn auto-use off: \(label.label)")
+    }
+
+    /// Parses "autoUse: enabled=1 presses=2" into ["enabled": 1, "presses": 2].
+    private static func equalsFields(_ label: String) -> [String: Int] {
+        var out: [String: Int] = [:]
+        for token in label.split(separator: " ") {
+            let kv = token.split(separator: "=")
+            if kv.count == 2, let n = Int(kv[1]) { out[String(kv[0])] = n }
+        }
+        return out
+    }
+
     /// Parses "touchWrites: b0:2 a1:14 turn:0" into ["b0": 2, "a1": 14, "turn": 0].
     private static func writeFields(_ label: String) -> [String: Int] {
         var out: [String: Int] = [:]

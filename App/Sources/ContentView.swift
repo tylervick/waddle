@@ -56,6 +56,11 @@ struct ContentView: View {
                 Text(verbatim: String(cString: WoofIOS_DebugTouchWrites()))
                     .font(.footnote.monospaced())
                     .accessibilityIdentifier("touchWritesLabel")
+                // Auto-use (issue #114): the switch as the engine saw it and
+                // the presses it made, read after the session.
+                Text(verbatim: String(cString: WoofIOS_DebugAutoUseState()))
+                    .font(.footnote.monospaced())
+                    .accessibilityIdentifier("autoUseLabel")
                 // Cached mid-session (TouchGamepad.lastFireReleaseTriggerResidue) --
                 // WoofIOS_DebugTriggerValue() itself would just return -1 by
                 // now, since the session that attached the touch gamepad

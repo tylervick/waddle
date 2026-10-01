@@ -625,6 +625,43 @@ static boolean FilterDeathUseAction(void)
 // If recording a demo, write it out
 //
 
+#ifdef WOOF_IOS
+// Auto-use state (issue #114); see the block in G_BuildTiccmd. The switch
+// is process-lifetime (the host app sets it per session), the memory of the
+// last line and the press count reset with each level's players.
+boolean autouse_enabled;
+static line_t *autouse_last_line;
+static boolean autouse_prev_use; // BT_USE in the previous built command
+static int autouse_presses;
+
+void G_SetAutoUse(boolean enabled)
+{
+  autouse_enabled = enabled;
+}
+
+void G_DebugAutoUseCounts(int *enabled, int *presses)
+{
+  *enabled = autouse_enabled;
+  *presses = autouse_presses;
+}
+
+void G_ResetAutoUseSession(void)
+{
+  autouse_last_line = NULL;
+  autouse_prev_use = false;
+  autouse_presses = 0;
+}
+
+// Every level load: lines are rebuilt in the same arena, so a reloaded map
+// can hand the remembered line's address to a different line, or the same
+// line again, and the first approach must press. The session count stays.
+static void G_ResetAutoUseLevel(void)
+{
+  autouse_last_line = NULL;
+  autouse_prev_use = false;
+}
+#endif
+
 void G_BuildTiccmd(ticcmd_t* cmd)
 {
   const boolean strafe = M_InputGameActive(input_strafe);
@@ -863,6 +900,36 @@ void G_BuildTiccmd(ticcmd_t* cmd)
       cmd->buttons |= BT_USE;
   }
 
+#ifdef WOOF_IOS
+  // Auto-use (issue #114): a usable line ahead of a forward-moving player
+  // presses USE without a tap, as the predecessor apps did. After the
+  // manual USE sources above, so a held button is seen. Once per line: a
+  // door used again while it moves reverses, so a line is remembered and
+  // not pressed again until nothing has been ahead in between -- and the
+  // memory is kept regardless of movement, so turning away while standing
+  // still re-arms it. P_PlayerThink uses only on the DOWN edge of BT_USE,
+  // so a line is remembered only when the previous command carried no USE,
+  // or the press would be swallowed and the line never used. Off unless
+  // the host app turned it on for touch input (WoofIOS_SetAutoUse).
+  if (autouse_enabled && gamestate == GS_LEVEL && !demoplayback
+      && players[consoleplayer].playerstate == PST_LIVE)
+  {
+    line_t *ahead = P_AutoUseLineAhead(&players[consoleplayer]);
+    if (!ahead)
+    {
+      autouse_last_line = NULL;
+    }
+    else if (forward > 0 && ahead != autouse_last_line
+             && !(cmd->buttons & BT_USE) && !autouse_prev_use)
+    {
+      autouse_last_line = ahead;
+      cmd->buttons |= BT_USE;
+      autouse_presses++;
+    }
+  }
+  autouse_prev_use = (cmd->buttons & BT_USE) != 0;
+#endif
+
   // special buttons
   if (sendpause && gameaction != ga_newgame)
     {
@@ -910,6 +977,9 @@ void G_ClearInput(void)
 
 static void G_DoLoadLevel(void)
 {
+#ifdef WOOF_IOS
+  G_ResetAutoUseLevel();
+#endif
   int i;
 
   S_StopAmbientSounds();
