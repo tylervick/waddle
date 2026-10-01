@@ -17,7 +17,7 @@ symptom, in three unrelated tests at once. It was none of that. The first
 session of each test still passed because the stack is not on screen before
 the first session.
 
-Measured 2026-10-01 on PR #305's branch: the three cases failed on both the
+Measured 2026-10-01 on PR #307's branch: the three cases failed on both the
 shared simulator and a freshly created one; the same three passed on `main`
 on the fresh simulator minutes later; the shelf screenshots `play()` attaches
 show the box over the tiles in both. Two things were going on at the same
