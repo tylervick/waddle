@@ -38,7 +38,7 @@ enum EngineSession {
 
     #if DEBUG
     /// Sessions started in this launch; WADDLE_TEST_DEH_SESSIONS counts them.
-    private static var testSessionCount = 0
+    static private(set) var testSessionCount = 0
     #endif
 
     #if DEBUG

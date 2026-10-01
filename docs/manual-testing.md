@@ -40,6 +40,9 @@ overlay to remain visible even when input devices are connected.
       does nothing (no delete-confirmation state, slot list unchanged),
       then back out to gameplay and confirm MAP toggles the automap again
 - [ ] Overlay hides/shows when a controller connects/disconnects mid-session
+- [ ] Cheats do not carry into the next game: type iddqd (four-finger tap for
+      the keyboard) in one game, quit to the shelf, start a different game;
+      god mode is off (health drops when hit). Issue #304, from a tester
 - [ ] "Control Feel…" in the gear menu opens the tuning sheet; the three
       sliders (accessibilityIdentifiers `turnSpeedSlider`,
       `stickDeadZoneSlider`, `moveSensitivitySlider`) persist across app

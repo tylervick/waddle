@@ -324,7 +324,7 @@ final class SessionStartStateTests: XCTestCase {
     /// first session instead (freshEntry(dehtab:)).
     static let freshEntryBase = "amlvl=-1/-1 amstop=1 amdef=0 amcol=1 msg=0/0 sbar=0 rewind=0 "
         + "pad=0 rumble=0 tex=0 cmap=0 skipbl=0 dehstr=0 dehfiles=0 cheats=0 pars=0 dloop=0 "
-        + "dirtylv=0 compres=0"
+        + "dirtylv=0 compres=0 pcheats=0"
 
     static func freshEntry(dehtab: String?) -> String {
         freshEntryBase + " dehtab=\(dehtab ?? "missing")"
@@ -489,6 +489,44 @@ final class SessionStartStateTests: XCTestCase {
     }
 
     /// A debug label's text, attached to the test report.
+    /// Issue #304, from a tester's report: a cheat typed in one game was in
+    /// effect at the start of the next. G_PlayerReborn carries `cheats`
+    /// through its memset on purpose (upstream: for the life of the process),
+    /// so in-process sessions inherit it unless the session start clears
+    /// players[]. Session 1 is warped into a level and types iddqd through
+    /// the WADDLE_TEST_TYPE_1 seam (WoofIOS_InjectChar, the soft keyboard's
+    /// path, so M_FindCheats is what sets the flag); the post-session zone
+    /// line's `pcheats=` must show the flag set, or the case would pass on a
+    /// cheat that never landed; session 2's entry readout must then show the
+    /// flags at 0.
+    func testCheatsDoNotSurviveIntoTheNextSession() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
+        app.launchEnvironment["WADDLE_DEBUG_SESSION_START"] = "1"
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_TEST_TYPE_1"] = "iddqd"
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Waddle"].waitForExistence(timeout: 90),
+                      "launcher UI never appeared")
+        let ok = app.alerts.buttons["OK"]
+        if ok.waitForExistence(timeout: 3) { ok.tap() }
+        let phase1 = app.buttons["playFreedoom1"]
+
+        _ = play(app, tile: phase1, name: "s1-iddqd")
+        let after1 = label(app, "sessionStartZoneLabel", name: "s1") ?? ""
+        // CF_GODMODE is 2 (d_player.h). Without this the rest proves nothing.
+        XCTAssertEqual(Self.fields(after1)["pcheats"], "2",
+                       "session 1 never got god mode from the typed iddqd: \(after1)")
+        let entry1 = label(app, "sessionEntryStateLabel", name: "s1") ?? ""
+        XCTAssertEqual(Self.fields(entry1)["pcheats"], "0", "a fresh process started with cheats: \(entry1)")
+
+        _ = play(app, tile: phase1, name: "s2-after-iddqd")
+        let entry2 = label(app, "sessionEntryStateLabel", name: "s2") ?? ""
+        XCTAssertEqual(Self.fields(entry2)["pcheats"], "0",
+                       "session 2 was handed session 1's cheat flags: \(entry2)")
+    }
+
     private func label(_ app: XCUIApplication, _ identifier: String, name: String) -> String? {
         let element = app.staticTexts[identifier]
         guard element.waitForExistence(timeout: 5) else { return nil }

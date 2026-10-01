@@ -652,6 +652,23 @@ void G_ResetAutoUseSession(void)
   autouse_presses = 0;
 }
 
+// Issue #304: players[] is what a fresh process has (all zero) at the start
+// of every in-process session. G_PlayerReborn deliberately carries cheats
+// (killough: "preserve cheats across idclev") and the visitedlevels pointer
+// through its memset, so without this the previous game's god mode is in
+// effect at the start of the next one, and visitedlevels points into memory
+// the previous session freed. Called from WoofIOS_Run's reset block.
+void G_ResetSessionPlayers(void)
+{
+  memset(players, 0, sizeof(players));
+}
+
+// Debug/test telemetry only: the console player's cheat flags right now.
+int G_DebugPlayerCheats(void)
+{
+  return players[consoleplayer].cheats;
+}
+
 // Every level load: lines are rebuilt in the same arena, so a reloaded map
 // can hand the remembered line's address to a different line, or the same
 // line again, and the first approach must press. The session count stays.

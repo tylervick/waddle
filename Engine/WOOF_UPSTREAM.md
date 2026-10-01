@@ -589,6 +589,18 @@ only ever runs once):
   turns it on with the overlay and off when physical input hides it), and
   `WoofIOS_DebugAutoUseState()` reads `autoUse: enabled=<0|1> presses=<n>`.
 
+- `src/g_game.c`, `src/woof_ios.c` / `src/woof_ios.h` (issue #304) --
+  `G_ResetSessionPlayers()` zeroes `players[]` in WoofIOS_Run's per-session
+  reset block. Upstream never needs it: G_PlayerReborn preserves `cheats`
+  (and the `visitedlevels` pointer) through its memset so cheats last the
+  life of the process, and a desktop new game is a new process. Here a new
+  game is a new in-process session, so a tester's iddqd was still on at the
+  start of a different game and `visitedlevels` pointed into freed memory.
+  `G_DebugPlayerCheats()` feeds `pcheats=` in the session-entry readout and
+  `WoofIOS_DebugPlayerCheatsNow()`; the `WADDLE_TEST_TYPE_<n>` seam
+  (OverlayPresenter) types text through `WoofIOS_InjectChar` so a UI test can
+  enter a cheat without a four-finger tap.
+
 - `src/woof_ios.c` / `src/woof_ios.h` (issue #113) -- `WoofIOS_InjectKey(key,
   down)` posts one edge of a held key by Doom key code, and
   `WoofIOS_IsAutomapActive()` exposes `automapactive`. The overlay uses them
