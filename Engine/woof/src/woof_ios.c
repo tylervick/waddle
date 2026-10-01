@@ -136,18 +136,32 @@ static void WoofIOS_DebugSessionEntryCheckpoint(void)
     extern int D_DebugDemoLoopsChanged(void);
     extern int P_DebugDirtyLevelCount(void);
     extern int G_DebugRestoreCompPending(void);
+    extern int G_DebugPlayerCheats(void);
     char am[96];
     AM_DebugSessionEntry(am, sizeof(am));
     snprintf(session_entry_state, sizeof(session_entry_state),
              "%s msg=%d/%d sbar=%d rewind=%d pad=%d rumble=%d tex=%d cmap=%d skipbl=%d"
              " dehtab=%08x dehstr=%d dehfiles=%d cheats=%d pars=%d dloop=%d"
-             " dirtylv=%d compres=%d",
+             " dirtylv=%d compres=%d pcheats=%d",
              am, ST_DebugMessageLeft(), ST_DebugMessageElemSet(), ST_DebugStatusbarSet(),
              G_DebugRewindCount(), I_DebugStaleGamepad(), I_DebugRumbleGamepadSet(),
              I_DebugVideoTextureSet(), R_DebugColormapsSet(), skipblstart,
              DEH_DebugTablesHash(), DEH_DebugStringCount(), DEH_DebugFileCount(),
              M_DebugCheatsChanged(), DEH_DebugPartimesChanged(), D_DebugDemoLoopsChanged(),
-             P_DebugDirtyLevelCount(), G_DebugRestoreCompPending());
+             P_DebugDirtyLevelCount(), G_DebugRestoreCompPending(), G_DebugPlayerCheats());
+}
+
+// Debug/test telemetry only: "pcheats=<flags>", the console player's cheat
+// flags as they stand right now. Read after a session that typed a cheat,
+// it shows the cheat took (issue #304); the statics outlive the session, so
+// this is also what the next session would inherit without
+// G_ResetSessionPlayers. ContentView appends it to the zone line.
+const char *WoofIOS_DebugPlayerCheatsNow(void)
+{
+    extern int G_DebugPlayerCheats(void);
+    static char buf[24];
+    snprintf(buf, sizeof(buf), "pcheats=%d", G_DebugPlayerCheats());
+    return buf;
 }
 
 const char *WoofIOS_DebugSessionEntryState(void)
@@ -289,6 +303,11 @@ int WoofIOS_Run(int argc, char **argv)
     // the default demo loops and the -deh file list (issue #270).
     extern void DEH_ResetSession(void);
     DEH_ResetSession();
+    // players[]: G_PlayerReborn preserves cheats and the visitedlevels pointer
+    // through its memset, so the previous game's god mode would be on at the
+    // start of this one (issue #304, from a tester).
+    extern void G_ResetSessionPlayers(void);
+    G_ResetSessionPlayers();
     extern void S_ResetSessionMusic(void);
     S_ResetSessionMusic();
 
