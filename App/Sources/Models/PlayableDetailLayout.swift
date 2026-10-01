@@ -70,8 +70,9 @@ enum PlayableDetailLayout {
                                                              buttonLineHeight: 20.3,
                                                              primaryButtonCount: 1)
 
-    /// Height of everything the header draws *below* the art: the item's title,
-    /// then one primary button (Play) or two (Continue and New Game).
+    /// Height of everything the header draws *below* the art: the gap under
+    /// the art, the item's title, the gap under that, then one primary button
+    /// (Play) or two (Continue and New Game) with a gap between them.
     ///
     /// Charged per button, as if stacked, even though at ordinary text sizes
     /// `ViewThatFits` puts two side by side: the stacked case is the one that
@@ -88,9 +89,13 @@ enum PlayableDetailLayout {
                               primaryButtonCount: Int) -> CGFloat {
         let buttons = CGFloat(max(0, primaryButtonCount))
         let button = max(Theme.minimumTapTarget, buttonLineHeight + buttonVerticalPadding * 2)
+        // Two gaps always -- art to title, title to actions -- plus one more
+        // between each extra stacked button (review of PR #305 caught the
+        // formula counting only the second; the rendered cell is 12 pt taller
+        // than that formula said).
         return captionTopPadding
             + titleLineHeight
-            + captionSpacing * (1 + max(0, buttons - 1))
+            + captionSpacing * (2 + max(0, buttons - 1))
             + buttons * button
             + captionBottomPadding
     }
