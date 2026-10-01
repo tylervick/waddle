@@ -21,12 +21,19 @@ pass() { echo "ok - $1"; }
 # Fake repo mirroring the layout the guard walks. Contents are arbitrary -- the
 # guard compares bytes, it never decodes an image.
 make_fixture() { # dest
-    mkdir -p "$1/Scripts" "$1/Design/source/freedoom-glyphs" "$1/App/AppIcon.icon/Assets"
+    mkdir -p "$1/Scripts" "$1/Design/source/freedoom-glyphs" "$1/App/AppIcon.icon/Assets" \
+             "$1/App/Assets.xcassets/WaddleWordmark.imageset"
     cp "$ROOT/Scripts/check-icons-fresh.sh" "$1/Scripts/"
     for g in W A D L E; do printf 'glyph' > "$1/Design/source/freedoom-glyphs/$g.png"; done
     printf 'mark-bytes'      > "$1/Design/waddle-mark.png"
     printf '<svg/>'          > "$1/Design/waddle-mark-flat.svg"
     printf 'mark-bytes'      > "$1/App/AppIcon.icon/Assets/mark.png"
+    # The shell's wordmark is derived the same way and synced into the asset
+    # catalog at three scales; each scale is its own file, so each can drift.
+    for w in waddle-wordmark.png waddle-wordmark@2x.png waddle-wordmark@3x.png; do
+        printf "$w-bytes" > "$1/Design/$w"
+        printf "$w-bytes" > "$1/App/Assets.xcassets/WaddleWordmark.imageset/$w"
+    done
 }
 # ${2-...} not ${2:-...}: the colon form substitutes on empty AS WELL AS unset,
 # so passing "" to select full mode would silently become --sync-only and the
@@ -45,11 +52,23 @@ if check "$TMP/b" > "$TMP/out" 2>&1; then fail "passed with a drifted package co
 grep -q "mise run icons" "$TMP/out" || fail "drift error lacks regeneration guidance"
 pass "fails closed when the .icon copy drifts"
 
+# 2b. The imageset's copy of ONE wordmark scale drifted -> refuse, naming the
+#     scale. The three scales are three files, and a guard that compared only
+#     the 1x would pass a stale @3x -- the one most phones actually draw.
+make_fixture "$TMP/b2"
+printf 'drifted' > "$TMP/b2/App/Assets.xcassets/WaddleWordmark.imageset/waddle-wordmark@3x.png"
+if check "$TMP/b2" > "$TMP/out" 2>&1; then fail "passed with a drifted wordmark @3x copy"; fi
+grep -q "waddle-wordmark@3x.png" "$TMP/out" || fail "wordmark drift error does not name the file"
+grep -q "mise run icons" "$TMP/out" || fail "wordmark drift error lacks regeneration guidance"
+pass "fails closed when a wordmark scale drifts"
+
 # 3. Each required file missing in turn -> refuse. A guard that passes because
 #    its inputs vanished is worse than no guard.
 for missing in Design/source/freedoom-glyphs/W.png Design/source/freedoom-glyphs/E.png \
                Design/waddle-mark.png Design/waddle-mark-flat.svg \
-               App/AppIcon.icon/Assets/mark.png; do
+               App/AppIcon.icon/Assets/mark.png \
+               Design/waddle-wordmark@2x.png \
+               App/Assets.xcassets/WaddleWordmark.imageset/waddle-wordmark.png; do
     make_fixture "$TMP/c"; rm "$TMP/c/$missing"
     if check "$TMP/c" > "$TMP/out" 2>&1; then fail "passed with $missing absent"; fi
     grep -q "is missing" "$TMP/out" || fail "absent $missing did not report a missing file"

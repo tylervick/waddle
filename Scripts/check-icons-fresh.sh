@@ -11,7 +11,8 @@
 # TWO MODES, because they need different things installed:
 #
 #   --sync-only  Verifies App/AppIcon.icon/Assets/mark.png is byte-identical to
-#                Design/waddle-mark.png. Pure file comparison, no tooling. This
+#                Design/waddle-mark.png, and the WaddleWordmark imageset to
+#                Design/waddle-wordmark*.png. Pure file comparison, no tooling. This
 #                catches the realistic drift -- someone regenerates Design/ and
 #                forgets the package, or edits the package directly -- and is
 #                what CI runs, since the runner does not have uv.
@@ -30,6 +31,8 @@ SOURCE="$ROOT/Design/source/freedoom-glyphs"
 MARK="$ROOT/Design/waddle-mark.png"
 FLAT="$ROOT/Design/waddle-mark-flat.svg"
 ICON_ASSET="$ROOT/App/AppIcon.icon/Assets/mark.png"
+WORDMARK_SET="$ROOT/App/Assets.xcassets/WaddleWordmark.imageset"
+WORDMARKS="waddle-wordmark.png waddle-wordmark@2x.png waddle-wordmark@3x.png"
 
 SYNC_ONLY=0
 case "${1:-}" in
@@ -50,10 +53,19 @@ done
 for f in "$MARK" "$FLAT" "$ICON_ASSET"; do
   [ -f "$f" ] || fail "${f#"$ROOT"/} is missing."
 done
+for w in $WORDMARKS; do
+  for f in "$ROOT/Design/$w" "$WORDMARK_SET/$w"; do
+    [ -f "$f" ] || fail "${f#"$ROOT"/} is missing."
+  done
+done
 
 # Always: the package's copy must match the Design/ original.
 cmp -s "$MARK" "$ICON_ASSET" \
   || fail "App/AppIcon.icon/Assets/mark.png differs from Design/waddle-mark.png."
+for w in $WORDMARKS; do
+  cmp -s "$ROOT/Design/$w" "$WORDMARK_SET/$w" \
+    || fail "App/Assets.xcassets/WaddleWordmark.imageset/$w differs from Design/$w."
+done
 
 [ "$SYNC_ONLY" -eq 1 ] && exit 0
 
@@ -77,3 +89,7 @@ cmp -s "$MARK" "$TMP/waddle-mark.png" \
   || fail "Design/waddle-mark.png does not match what the glyph source produces."
 cmp -s "$FLAT" "$TMP/waddle-mark-flat.svg" \
   || fail "Design/waddle-mark-flat.svg does not match what the glyph source produces."
+for w in $WORDMARKS; do
+  cmp -s "$ROOT/Design/$w" "$TMP/$w" \
+    || fail "Design/$w does not match what the glyph source produces."
+done

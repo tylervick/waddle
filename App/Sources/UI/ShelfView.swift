@@ -71,21 +71,30 @@ struct ShelfView: View {
             }
             .padding(contentPadding)
         }
-        // Measured on the ScrollView, so this is the viewport: its own frame,
-        // less the insets the toolbar and home indicator occupy, less the
-        // padding above. Rotation and window resizing both re-fire it.
+        // Measured on the ScrollView, so this is the viewport: what is visible
+        // between the toolbar and the home indicator, less the padding above.
+        // Rotation and window resizing both re-fire it.
+        //
+        // `proxy.size` is already that region -- 724 pt on an iPhone 17 Pro --
+        // with the bars outside it reported separately as `safeAreaInsets`.
+        // Subtracting those again (as this did until 2026-09-30) under-measured
+        // the viewport by 150 pt, so the hero zone's budget was spent against
+        // a screen 20% shorter than the one it was drawn on. See
+        // `docs/learnings/geometry-proxy-size-already-excludes-safe-area.md`.
         .onGeometryChange(for: CGSize.self) { proxy in
-            let insets = proxy.safeAreaInsets
-            return CGSize(
-                width: proxy.size.width - insets.leading - insets.trailing - contentPadding * 2,
-                height: proxy.size.height - insets.top - insets.bottom
-            )
+            CGSize(width: proxy.size.width - contentPadding * 2,
+                   height: proxy.size.height)
         } action: { size in
             heroContentWidth = size.width
             viewportHeight = size.height
         }
         .background(Color.appBackground)
+        // The title stays set — it is the back button's label on the game
+        // page and what `navigationBars["Waddle"]` matches — but what the bar
+        // *shows* is the wordmark (design-system spec §5): the one retro
+        // element in the shell, and the thing that ties it to the icon.
         .navigationTitle("Waddle")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
         // Pushed, not presented (spec §3.2): one page for every tile, and no
         // second sheet to promote after the first dismisses.
@@ -148,6 +157,18 @@ struct ShelfView: View {
     // expression") rather than report a real error.
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .principal) {
+            // No interpolation: a 15 px pixel face at `Theme.wordmarkHeight`
+            // is an integer number of device pixels per source pixel, and
+            // smoothing it is what turns a crisp bevel into mush.
+            Image("WaddleWordmark")
+                .interpolation(.none)
+                .resizable()
+                .scaledToFit()
+                .frame(height: Theme.wordmarkHeight)
+                .accessibilityLabel("Waddle")
+                .accessibilityAddTraits(.isHeader)
+        }
         ToolbarItem(placement: .navigationBarLeading) {
             Button {
                 showPlayerSettings = true
@@ -212,12 +233,13 @@ struct ShelfView: View {
                 buttonHeight: welcomeButtonHeight))
     }
 
-    /// `.borderedProminent` with an explicit `minHeight`, so the row is the
+    /// `WaddlePrimaryButtonStyle` with its `minHeight`, so the row is the
     /// taller of that floor and the label's own line box plus the style's
     /// vertical padding.
     private var welcomeButtonHeight: CGFloat {
         max(Theme.minimumTapTarget,
-            UIFont.preferredFont(forTextStyle: .body).lineHeight + 14)
+            UIFont.preferredFont(forTextStyle: .body).lineHeight
+                + Theme.buttonVerticalPadding * 2)
     }
 
     /// The description as it actually wraps at this width and text size —
@@ -268,7 +290,7 @@ struct ShelfView: View {
         // No app-name row (spec §4, amended 2026-08-21): the navigation title
         // directly above this card already says "Waddle", and a first launch
         // was greeting the player with the name twice in a row.
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
             // Dropped on viewports where the card would otherwise push the
             // first tile row past the fold -- see
             // `ShelfHeroLayout.welcomeCardShowsDescription`. The button is
@@ -276,33 +298,25 @@ struct ShelfView: View {
             // when "playable in one tap" is the thing at stake.
             if showsWelcomeDescription {
                 Text(Self.welcomeDescription)
-                    .font(.subheadline)
+                    .font(Theme.Typography.secondary)
                     .foregroundStyle(Color.appSecondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Button {
-                showImporter = true
-            } label: {
-                Text("Add Your Games")
-                    .frame(maxWidth: .infinity, minHeight: Theme.minimumTapTarget)
-            }
-            .buttonStyle(.borderedProminent)
             // Adding games is this screen's primary action while it is on
             // screen, and spec §5 names it as one of the two that wear the
             // single accent (the other being Continue, which by §4's rule
-            // cannot be showing at the same time).
-            //
-            // The label is forced black. The accent is a light green, and
-            // borderedProminent's default white label measures 1.29:1 against
-            // it -- a contrast failure. Black measures 16.32:1.
-            .tint(Color.appAccent)
-            .foregroundStyle(.black)
+            // cannot be showing at the same time). The primary style owns
+            // the dark label the light accent needs.
+            Button("Add Your Games") {
+                showImporter = true
+            }
+            .buttonStyle(.waddlePrimary)
             .accessibilityIdentifier("addYourGamesButton")
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.appSurface,
-                    in: RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
+        // `waddleCard` pads by `Theme.Spacing.base`, which is
+        // `ShelfHeroLayout.welcomeCardPadding` -- the measured card height
+        // depends on the two agreeing.
+        .waddleCard()
         .accessibilityIdentifier("welcomeCard")
     }
 

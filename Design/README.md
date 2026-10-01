@@ -9,7 +9,9 @@ pipeline. Do not edit the derived assets.
 Design/source/freedoom-glyphs/{W,A,D,L,E}.png   tracked: decoded from DBIGFONT
 Design/waddle-mark.png                          derived: transparent, 1024
 Design/waddle-mark-flat.svg                     derived: rect grid, 1024 viewBox
+Design/waddle-wordmark{,@2x,@3x}.png            derived: one line, 89x15 at 1x
 App/AppIcon.icon/Assets/mark.png                derived: copy of waddle-mark.png
+App/Assets.xcassets/WaddleWordmark.imageset/    derived: copies of the wordmarks
 ```
 
 ```sh
@@ -30,6 +32,7 @@ restyle the mark. To re-derive them deliberately, run
 | App icon | `App/AppIcon.icon` — do not hand-edit; regenerate |
 | Anything at ≤1024 | `waddle-mark.png` |
 | Small sizes, favicon, README, print | `waddle-mark-flat.svg` |
+| The shell's navigation bar | `WaddleWordmark` imageset, drawn at `Theme.wordmarkHeight` with no interpolation |
 
 `waddle-mark-flat.svg` fills with `currentColor`, so it inherits colour from
 its context rather than carrying its own.

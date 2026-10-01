@@ -22,6 +22,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_DIR="${1:-$ROOT/Design}"
 ICON_ASSET="$ROOT/App/AppIcon.icon/Assets/mark.png"
+WORDMARK_SET="$ROOT/App/Assets.xcassets/WaddleWordmark.imageset"
 
 # potrace is gone: nothing traces any more. The flat vector is emitted directly
 # as a rect grid from the pixel source, which is exact and symmetric by
@@ -44,4 +45,11 @@ if [ "$OUT_DIR" = "$ROOT/Design" ]; then
   mkdir -p "$(dirname "$ICON_ASSET")"
   cp "$OUT_DIR/waddle-mark.png" "$ICON_ASSET"
   echo "  synced $(basename "$ICON_ASSET") into AppIcon.icon/Assets"
+  # The shell's wordmark, same rule: the imageset holds its own copies of the
+  # three scales, and check-icons-fresh.sh keeps them honest.
+  mkdir -p "$WORDMARK_SET"
+  for f in waddle-wordmark.png waddle-wordmark@2x.png waddle-wordmark@3x.png; do
+    cp "$OUT_DIR/$f" "$WORDMARK_SET/$f"
+  done
+  echo "  synced waddle-wordmark{,@2x,@3x}.png into WaddleWordmark.imageset"
 fi

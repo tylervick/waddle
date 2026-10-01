@@ -54,9 +54,18 @@ final class PlayableDetailLayoutTests: XCTestCase {
     /// The old behaviour, stated as the thing that must not come back: the
     /// tile's 3:4 crop at this width is 481 pt, which is more than the sheet
     /// has to spare once the header and controls are accounted for.
+    ///
+    /// The 3:4 is a literal, not `Theme.tileAspectRatio`: the bug was the
+    /// header drawing art at the *portrait* tile shape of the time, and tiles
+    /// have since gone 4:3 (spec §5, 2026-08-18). Reading the live constant
+    /// made this measure 277 pt against a 269 pt budget — still "over", by 8
+    /// pt, until the 2026-09-30 header slimmed the caption and the test
+    /// flipped without the bug coming back. Re-anchored to the geometry it
+    /// describes; see `docs/learnings/tile-aspect-is-an-input-to-the-fold-budget.md`.
     func testTileAspectRatioWouldNotHaveFit() {
         let sheet = Sheet.portraitPhone
-        let tileShaped = sheet.contentWidth / Theme.tileAspectRatio
+        let portraitTileAspect: CGFloat = 3.0 / 4.0
+        let tileShaped = sheet.contentWidth / portraitTileAspect
         let budget = sheet.height - PlayableDetailLayout.defaultCaptionHeight
             - PlayableDetailLayout.minimumControlsPeek
         XCTAssertGreaterThan(tileShaped, budget,
