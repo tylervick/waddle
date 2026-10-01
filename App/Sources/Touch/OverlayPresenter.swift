@@ -54,6 +54,9 @@ final class OverlayPresenter {
     func end() {
         pollTimer?.invalidate()
         pollTimer = nil
+        #if DEBUG
+        stopTestTyping()
+        #endif
         overlay?.removeFromSuperview()
         overlay = nil
         gamepad.detach()
@@ -96,7 +99,43 @@ final class OverlayPresenter {
         pollTimer = nil
 
         applyPolicy()
+        #if DEBUG
+        startTestTypingIfRequested()
+        #endif
     }
+
+    #if DEBUG
+    private var testTypingTimer: Timer?
+
+    /// Test-only seam (issue #304; same WADDLE_TEST_* family as the warp):
+    /// WADDLE_TEST_TYPE_<n> is text typed into the n-th session of this
+    /// launch through WoofIOS_InjectChar, the soft keyboard's own path, once
+    /// the engine reports a gameplay text context. A UI test can type a
+    /// cheat without a four-finger tap (XCUITest has no multi-finger tap)
+    /// and the engine's own M_FindCheats is what acts on it.
+    private func startTestTypingIfRequested() {
+        let key = "WADDLE_TEST_TYPE_\(EngineSession.testSessionCount)"
+        guard let text = ProcessInfo.processInfo.environment[key], !text.isEmpty else { return }
+        testTypingTimer?.invalidate()
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.testTypingTick(text) }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        testTypingTimer = timer
+    }
+
+    private func testTypingTick(_ text: String) {
+        guard overlay != nil else { stopTestTyping(); return }
+        guard WoofIOS_GetTextInputContext() == WOOF_TEXT_CTX_GAMEPLAY else { return }
+        for byte in text.utf8 { WoofIOS_InjectChar(CChar(bitPattern: byte)) }
+        stopTestTyping()
+    }
+
+    private func stopTestTyping() {
+        testTypingTimer?.invalidate()
+        testTypingTimer = nil
+    }
+    #endif
 
     private func registerNotificationObservers() {
         // Guard against double-registration: if already registered, return early

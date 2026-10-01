@@ -123,8 +123,14 @@ struct ContentView: View {
                     .accessibilityIdentifier("dehNowLabel")
                 Text(verbatim: String(cString: WoofIOS_DebugLevelStateNow()))
                     .accessibilityIdentifier("levelStateNowLabel")
-                // verbatim: a localized interpolation would print 1,500.
-                Text(verbatim: "zowned=\(WoofIOS_DebugSessionStartZoneKB()) zlumps=\(WoofIOS_DebugSessionStartLumpsKB())")
+                // verbatim: a localized interpolation would print 1,500. The
+                // player's cheat flags (issue #304) share this line rather than
+                // taking one of their own: the stack sits on the tile row, and
+                // one more line put it over the tiles' tap points, so every
+                // two-session UI test failed on "previous exit label never
+                // cleared" (docs/learnings/post-session-debug-stack-covers-the-tiles.md).
+                Text(verbatim: "zowned=\(WoofIOS_DebugSessionStartZoneKB()) zlumps=\(WoofIOS_DebugSessionStartLumpsKB()) "
+                     + String(cString: WoofIOS_DebugPlayerCheatsNow()))
                     .accessibilityIdentifier("sessionStartZoneLabel")
                 Text(verbatim: String(cString: WoofIOS_DebugSessionStartState()))
                     .accessibilityIdentifier("sessionStartStateLabel")
@@ -137,6 +143,9 @@ struct ContentView: View {
             .padding(8)
             .background(.black, in: RoundedRectangle(cornerRadius: 8))
             .padding(.horizontal, 16)
+            // Readable, never tappable: a tile under the stack must still
+            // start a session when a test taps its frame (same learning).
+            .allowsHitTesting(false)
         }
     }
     #endif
