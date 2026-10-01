@@ -74,7 +74,10 @@ while IFS= read -r id; do
     [ -n "\$id" ] || continue
     grep -qxF "\$id" "\$FEEDBACK_STATE" && continue
     case "\$id" in crash-*) kind="Crash feedback" ;; *) kind="Screenshot feedback" ;; esac
-    printf '## %s %s\n- created: 2026-09-30T10:00:00Z\n- device: iPhone17,1 (27.0)\n- comment: about %s\n\n' "\$kind" "\$id" "\$id"
+    # A per-id comment fixture, printed VERBATIM (newlines and all) as the
+    # real fetcher does; otherwise a one-liner.
+    if [ -f "$TMP/fixtures/comment-\$id.txt" ]; then comment="\$(cat "$TMP/fixtures/comment-\$id.txt")"; else comment="about \$id"; fi
+    printf '## %s %s\n- created: 2026-09-30T10:00:00Z\n- device: iPhone17,1 (27.0)\n- comment: %s\n\n' "\$kind" "\$id" "\$comment"
     new="\$new\$id
 "
 done < "$TMP/fixtures/pending.txt"
@@ -216,5 +219,71 @@ env PATH="$TMP/real/bin:$TMP/bin:/usr/bin:/bin" GH_TOKEN=stub ASC_JWT="$TMP/real
   || fail "case 9: markers from the real fetcher were: $(markers_in "$TMP/posted/001.md" | tr '\n' ' ')"
 grep -q '^## Crash feedback real-crash-7' "$TMP/posted/001.md" || fail "case 9: the real crash section is missing"
 pass "the digest parses the real fetcher's output"
+
+# 10. A tester's comment is printed verbatim, newlines included, so one that
+#     contains a "## Steps" line must stay INSIDE its submission. Split on a
+#     bare `## ` it would become a submission of its own, and with the real
+#     one in the last slot its tail would be dropped while its id was marked
+#     seen -- never delivered. The multi-line comment sits at the bound.
+reset_world
+printf 'shot-1\nshot-2\ncrash-1\n' > "$TMP/fixtures/pending.txt"
+printf 'Crashed on load.\n## Steps\n1. open the WAD\n2. ## not a heading either\n' > "$TMP/fixtures/comment-shot-2.txt"
+run_digest DIGEST_LIMIT=2 >/dev/null 2>&1 || fail "case 10: digest exited non-zero"
+body="$TMP/posted/001.md"
+[ "$(markers_in "$body" | sort | tr '\n' ' ')" = "shot-1 shot-2 " ] \
+  || fail "case 10: markers were: $(markers_in "$body" | tr '\n' ' ')"
+[ "$(grep -c '^## ' "$body")" = 2 ] || fail "case 10: the comment's '## Steps' line became a heading"
+grep -q '2. ## not a heading either' "$body" || fail "case 10: the tail of the multi-line comment was dropped"
+grep -q '1 more submission' "$body" || fail "case 10: crash-1 should have been deferred, not swallowed"
+run_digest DIGEST_LIMIT=2 >/dev/null 2>&1 || fail "case 10: second digest exited non-zero"
+[ "$(markers_in "$TMP/posted/002.md" | tr '\n' ' ')" = "crash-1 " ] || fail "case 10: crash-1 was never delivered"
+rm -f "$TMP/fixtures/comment-shot-2.txt"
+pass "a multi-line comment with a '## ' line stays inside its submission at the bound"
+
+# 11. The size budget: twenty submissions with 4,000-character comments do
+#     not fit one GitHub comment. The digest must post what fits (complete
+#     body within DIGEST_BYTES, markers included), defer the rest, and drain
+#     the whole backlog over the following runs -- never post a body the
+#     API would reject and then retry it identically forever.
+reset_world
+: > "$TMP/fixtures/pending.txt"
+for i in $(seq 1 20); do
+    echo "big-$i" >> "$TMP/fixtures/pending.txt"
+    head -c 4000 /dev/zero | tr '\0' 'x' > "$TMP/fixtures/comment-big-$i.txt"
+done
+run_digest DIGEST_BYTES=30000 >/dev/null 2>&1 || fail "case 11: first digest exited non-zero"
+body="$TMP/posted/001.md"
+[ "$(wc -c < "$body")" -le 30000 ] || fail "case 11: the body is $(wc -c < "$body") characters, over the budget"
+first=$(markers_in "$body" | wc -l | tr -d ' ')
+[ "$first" -ge 5 ] && [ "$first" -lt 20 ] || fail "case 11: expected a partial batch, got $first markers"
+grep -q "$((20 - first)) more submission" "$body" || fail "case 11: the deferred count is wrong"
+runs=1
+while [ $runs -lt 10 ]; do
+    out="$(run_digest DIGEST_BYTES=30000 2>&1)" || fail "case 11: run $((runs + 1)) exited non-zero: $out"
+    runs=$((runs + 1))
+    grep -q 'No new feedback' <<<"$out" && break
+done
+total=$(cat "$TMP"/posted/*.md | grep -o '<!-- tf-feedback-id: [^ ]* -->' | sort -u | wc -l | tr -d ' ')
+[ "$total" = 20 ] || fail "case 11: $total of 20 submissions were delivered after $runs runs"
+for f in "$TMP"/posted/*.md; do
+    [ "$(wc -c < "$f")" -le 30000 ] || fail "case 11: a later body is over the budget: $f"
+done
+pass "the character budget posts what fits and drains the backlog across runs"
+
+# 12. One submission larger than the entire budget is truncated rather than
+#     left to block the queue: it posts (marked seen, with a truncation
+#     note) and the next one follows on the next run.
+reset_world
+printf 'huge-1\nshot-1\n' > "$TMP/fixtures/pending.txt"
+head -c 9000 /dev/zero | tr '\0' 'y' > "$TMP/fixtures/comment-huge-1.txt"
+run_digest DIGEST_BYTES=5000 >/dev/null 2>&1 || fail "case 12: digest exited non-zero"
+body="$TMP/posted/001.md"
+[ "$(wc -c < "$body")" -le 5000 ] || fail "case 12: truncated body still over budget: $(wc -c < "$body")"
+[ "$(markers_in "$body" | tr '\n' ' ')" = "huge-1 " ] || fail "case 12: markers were: $(markers_in "$body" | tr '\n' ' ')"
+grep -q 'truncated' "$body" || fail "case 12: no truncation note"
+run_digest DIGEST_BYTES=5000 >/dev/null 2>&1 || fail "case 12: second digest exited non-zero"
+[ "$(markers_in "$TMP/posted/002.md" | tr '\n' ' ')" = "shot-1 " ] || fail "case 12: the queue did not move past the huge submission"
+rm -f "$TMP"/fixtures/comment-*.txt
+pass "a submission larger than the whole budget is truncated, not left to wedge the queue"
 
 echo "All testflight-feedback-digest tests passed."
