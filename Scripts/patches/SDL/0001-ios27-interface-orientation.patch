@@ -1,5 +1,5 @@
 Backport of libsdl-org/SDL commit 114aca172 ("Fix for iOS 27 no op on
-statusBarOrientation", merged 2026-09-20, PR #16355) onto release-3.4.12.
+statusBarOrientation", merged 2026-09-20, PR #16355) onto release-3.4.12; applies unchanged to release-3.4.16.
 
 iOS 27 made -[UIApplication statusBarOrientation] a no-op, and SDL's iOS
 backend read it to decide whether the screen is landscape when sizing a

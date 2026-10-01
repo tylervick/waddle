@@ -1,7 +1,7 @@
 #!/bin/bash
 # Builds SDL3 and OpenAL Soft as static libs for iOS device + simulator.
 set -euo pipefail
-SDL_TAG="release-3.4.12"
+SDL_TAG="release-3.4.16"
 OPENAL_TAG="1.25.2"
 SONIVOX_TAG="v4.0.1"
 # Streamed music (#196). libsndfile needs Ogg and Vorbis as EXTERNAL libraries
