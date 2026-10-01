@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// The shell's visual system (spec §5): always dark, art-forward, native
+/// The shell's visual system (spec §5, extended by
+/// `2026-09-30-design-system-design.md`): always dark, art-forward, native
 /// underneath.
 ///
 /// The colors live once in the asset catalog and are only *named* here. Each
@@ -14,16 +15,19 @@ import SwiftUI
 /// The metrics are here for the same reason: §5 commits to *one* shared corner
 /// radius and *one* tile shape, so the shelf, the hero and the fallback tile
 /// have to read them from a single place rather than each picking their own.
+/// The type roles and spacing scale (design-system spec §2) extend that rule
+/// to every screen: a view that picks `.subheadline` or `12` on its own is a
+/// view that will drift from the next one.
 enum Theme {
-    /// The one shared corner radius (spec §5). Tiles, the hero, and anything
-    /// else the shell rounds use this — not a per-view literal.
+    /// The one shared corner radius (spec §5). Tiles, the hero, cards and
+    /// buttons all use this — not a per-view literal.
     static let cornerRadius: CGFloat = 16
 
     /// The hairline that gives art tiles an edge (spec §5, amended
     /// 2026-08-21). Edge-to-edge art on a near-black page has no boundary of
     /// its own, so adjacent tiles read as one continuous poster no matter how
     /// wide the gap between them is — the stroke, not the gap, is what makes
-    /// a tile an object.
+    /// a tile an object. Cards and secondary buttons wear the same line.
     static let tileHairlineWidth: CGFloat = 1
     static let tileHairlineOpacity: CGFloat = 0.12
 
@@ -50,6 +54,26 @@ enum Theme {
     /// draws itself; system chrome (toolbar, sheets, context menus) already
     /// meets this.
     static let minimumTapTarget: CGFloat = 44
+
+    /// The two button styles' padding above and below their label. A button
+    /// is the taller of its label plus this and `minimumTapTarget`; the
+    /// shelf's welcome card and the game page both budget their height from
+    /// this same number.
+    static let buttonVerticalPadding: CGFloat = Spacing.md
+
+    /// The label colour for anything filled with `appAccent` or `appWarning`.
+    /// Both are light: the accent measures 1.29:1 behind a white label and
+    /// 16.32:1 behind a black one (spec §5, amended 2026-08-17). This is the
+    /// one place that rule lives; `ThemeContrastTests` checks the catalog's
+    /// actual values against it.
+    static let onAccent: Color = .black
+
+    /// Height of the shelf's wordmark (design-system spec §5). 30, and not a
+    /// rounder-looking number, because the glyphs are 15 px tall and the
+    /// image draws without interpolation: 30 pt is 4 device pixels per source
+    /// pixel on @2x and 6 on @3x. 20 or 24 would land on a fraction on one
+    /// scale or the other and smear the pixel face.
+    static let wordmarkHeight: CGFloat = 30
 
     /// The adaptive grid's minimum tile width, which is how the grid "drops
     /// columns at accessibility sizes rather than shrinking text" (spec §5).
@@ -87,6 +111,44 @@ enum Theme {
     static func gridMinimumTileWidth(for size: DynamicTypeSize) -> CGFloat {
         size.isAccessibilitySize ? 320 : 150
     }
+
+    /// The type roles (design-system spec §2). SF with Dynamic Type, no custom
+    /// fonts (spec §5). A screen picks a role, never a text style, so two
+    /// screens that mean the same thing set it the same way.
+    enum Typography {
+        /// The shelf hero's and the game page's title.
+        static let heroTitle: Font = .title2.bold()
+        /// The title on a tile's scrim.
+        static let tileTitle: Font = .headline
+        /// Every list section header, through `waddleSectionHeader`.
+        static let sectionHeader: Font = .subheadline.weight(.semibold)
+        /// The label inside the two button styles.
+        static let button: Font = .body.weight(.semibold)
+        /// Captions and last-played lines.
+        static let secondary: Font = .subheadline
+        /// Role labels, file sizes.
+        static let caption: Font = .caption
+        /// The text inside a `StatusBadge`.
+        static let badge: Font = .caption2.bold()
+        /// Build info, debug readouts, licence text.
+        static let mono: Font = .footnote.monospaced()
+    }
+
+    /// The spacing scale (design-system spec §2). The shelf's 16/20/32 were
+    /// chosen on 2026-08-21 so the intervals form a scale rather than one
+    /// uniform beat that reads as no spacing at all; these are those numbers,
+    /// named, plus the three smaller steps the components use.
+    enum Spacing {
+        static let xs: CGFloat = 4
+        static let sm: CGFloat = 8
+        static let md: CGFloat = 12
+        /// Outer page padding and card padding.
+        static let base: CGFloat = 16
+        /// The shelf's grid gap.
+        static let grid: CGFloat = 20
+        /// The break between zones on the shelf.
+        static let section: CGFloat = 32
+    }
 }
 
 extension Color {
@@ -103,9 +165,18 @@ extension Color {
     /// which is what tints system controls the shell does not draw itself.
     ///
     /// It is light: 14.98:1 as text on `appBackground`, but only 1.29:1 behind
-    /// a white label. Anything that fills with this colour needs a dark label —
-    /// see the Add Your Games button in `ShelfView`.
+    /// a white label. Anything that fills with this colour needs
+    /// `Theme.onAccent` — see `WaddlePrimaryButtonStyle`.
     static let appAccent = Color("AccentColor")
+    /// Warm amber for a state that needs attention but is not an error: a
+    /// game with no base yet. Light like the accent, so it takes
+    /// `Theme.onAccent` as its label too.
+    static let appWarning = Color("AppWarning")
+    /// The one red: a missing file, destructive emphasis.
+    static let appDanger = Color("AppDanger")
+    /// The hairline (spec §5, amended 2026-08-21) as a colour, for the stroke
+    /// tiles, cards and secondary buttons share.
+    static let appHairline = Color.white.opacity(Theme.tileHairlineOpacity)
 }
 
 extension View {
@@ -121,5 +192,38 @@ extension View {
         scrollContentBackground(.hidden)
             .background(Color.appBackground)
             .listRowBackground(Color.appSurface)
+    }
+
+    /// A card: the elevated surface, the shared radius, and the hairline that
+    /// makes it an object on the near-black page — the same edge the tiles
+    /// wear, for the same reason.
+    func waddleCard() -> some View {
+        padding(Theme.Spacing.base)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.appSurface,
+                        in: RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
+                    .strokeBorder(Color.appHairline, lineWidth: Theme.tileHairlineWidth)
+            )
+    }
+}
+
+/// A list section's header, the same on every screen: the `sectionHeader`
+/// role in the secondary tone, and the text as written rather than the
+/// uppercase transform grouped lists apply by default — the copy is already
+/// capitalised the way the spec wrote it.
+struct WaddleSectionHeader: View {
+    let title: String
+
+    init(_ title: String) {
+        self.title = title
+    }
+
+    var body: some View {
+        Text(title)
+            .font(Theme.Typography.sectionHeader)
+            .foregroundStyle(Color.appSecondaryText)
+            .textCase(nil)
     }
 }

@@ -55,3 +55,16 @@ renamed `testWelcomeCardDropsItsDescriptionOnALandscapePhone` and moved to the
 landscape-phone viewport at the shipping tile floor, the geometry where the
 full card still genuinely does not fit at 4:3. Its compact-card companion moved
 with it and now asserts the full fold clearance in the same geometry.
+
+**Again, 2026-09-30, on the game page.** `PlayableDetailLayoutTests.
+testTileAspectRatioWouldNotHaveFit` pins the header bug the type was extracted
+to fix — art drawn at the *portrait* tile shape, 481 pt on a 370 pt row — but
+computed that shape from `Theme.tileAspectRatio`. After the 4:3 change it was
+measuring 277 pt against a 269 pt budget: still "would not have fit", by 8 pt,
+for the wrong reason. The design-system header (slimmer caption, same
+contract) widened the budget to 317 pt and the test went red while nothing it
+describes had regressed. Re-anchored to a `3.0 / 4.0` literal, which is the
+geometry its own comment states. The general form: **a regression pin that
+reads a live constant stops describing the regression the day that constant
+moves** — pin the historical value in the test, and let the live constant be
+read only by tests about the live design.

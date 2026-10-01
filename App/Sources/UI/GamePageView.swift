@@ -10,6 +10,12 @@ import UIKit
 /// Pushed into the shelf's `NavigationStack` rather than presented: there is
 /// no second sheet to promote to any more, so the dismiss/present transaction
 /// race the old Details → Edit pair had to work around no longer exists.
+///
+/// The header is a hero row, not a grouped row (design-system spec §4): the
+/// art and the actions under it sit on the game's own colours, blurred behind
+/// the page, and the grouped sections start on solid ground below them. The
+/// page stays a `Form` for what a form is good at — the file list's reorder
+/// handles and swipe-to-delete.
 struct GamePageView: View {
     let game: Game
     let library: LibraryService
@@ -52,18 +58,26 @@ struct GamePageView: View {
             savesSection
             footerSection
         }
+        // `proxy.size` is the container's size *inside* its safe area -- for
+        // a pushed Form that is the region between the navigation bar and the
+        // home indicator, 724 pt on an iPhone 17 Pro -- and `safeAreaInsets`
+        // are what lies outside it. Subtracting the insets from that size
+        // again (as this did until 2026-09-30) under-measured the viewport by
+        // 150 pt and capped the art in portrait, where it has room to spare.
+        // See `docs/learnings/geometry-proxy-size-already-excludes-safe-area.md`.
         .onGeometryChange(for: CGSize.self) { proxy in
-            let insets = proxy.safeAreaInsets
-            return CGSize(
-                width: proxy.size.width - insets.leading - insets.trailing
-                    - PlayableDetailLayout.rowHorizontalInset * 2,
-                height: proxy.size.height - insets.top - insets.bottom
-            )
+            CGSize(width: proxy.size.width - PlayableDetailLayout.rowHorizontalInset * 2,
+                   height: proxy.size.height)
         } action: { size in
             artContentWidth = size.width
             viewportHeight = size.height
         }
-        .waddleScrollSurface()
+        .scrollContentBackground(.hidden)
+        // The backdrop stands in for `waddleScrollSurface`'s flat background:
+        // it paints `appBackground` itself and the art over that, so the page
+        // is the same two tones everywhere the art has faded out.
+        .background { ArtBackdropView(game: game, library: library) }
+        .listRowBackground(Color.appSurface)
         .accessibilityIdentifier("gamePage")
         .navigationTitle(game.name)
         .navigationBarTitleDisplayMode(.inline)
@@ -123,65 +137,100 @@ struct GamePageView: View {
             primaryButtonCount: continuableSlot != nil ? 2 : 1)
     }
 
+    /// The hero row: art, title, actions. Zero row insets and a clear row
+    /// background so it is drawn on the backdrop rather than in a grouped
+    /// cell. The Form's own section margin (`rowHorizontalInset`) is the only
+    /// horizontal inset, and it is what the art's width is measured against.
     private var headerSection: some View {
         Section {
-            TitleArtView(game: game, library: library,
-                         aspectRatio: Theme.heroAspectRatio,
-                         height: PlayableDetailLayout.artHeight(
-                            contentWidth: artContentWidth,
-                            viewportHeight: viewportHeight,
-                            captionHeight: captionHeight))
-            // Tap to rename (spec §3.2). A button rather than an inline field so
-            // the title reads as a title and VoiceOver announces one action.
-            Button {
-                draftName = game.name
-                showRename = true
-            } label: {
-                HStack {
-                    Text(game.name).font(.title2.bold())
-                    Image(systemName: "pencil").foregroundStyle(Color.appSecondaryText)
+            VStack(alignment: .leading, spacing: PlayableDetailLayout.captionSpacing) {
+                TitleArtView(game: game, library: library,
+                             aspectRatio: Theme.heroAspectRatio,
+                             height: PlayableDetailLayout.artHeight(
+                                contentWidth: artContentWidth,
+                                viewportHeight: viewportHeight,
+                                captionHeight: captionHeight))
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
+                            .strokeBorder(Color.appHairline, lineWidth: Theme.tileHairlineWidth)
+                    )
+                // Tap to rename (spec §3.2). A button rather than an inline field so
+                // the title reads as a title and VoiceOver announces one action.
+                Button {
+                    draftName = game.name
+                    showRename = true
+                } label: {
+                    HStack(spacing: Theme.Spacing.sm) {
+                        Text(game.name).font(Theme.Typography.heroTitle)
+                        Image(systemName: "pencil")
+                            .font(Theme.Typography.secondary)
+                            .foregroundStyle(Color.appSecondaryText)
+                    }
                 }
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("gameNameButton")
-            .accessibilityLabel("Rename \(game.name)")
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("gameNameButton")
+                .accessibilityLabel("Rename \(game.name)")
 
-            if continuableSlot != nil {
-                Button {
-                    onPlay(game, .continueNewest)
-                } label: {
-                    Label("Continue", systemImage: "clock.arrow.circlepath").frame(maxWidth: .infinity)
+                // Side by side where both labels fit on one line, stacked
+                // where Dynamic Type makes them too wide — `ViewThatFits`
+                // measures the labels' ideal widths, not the flexible frames
+                // the button style puts around them.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: PlayableDetailLayout.captionSpacing) { primaryActions }
+                    VStack(spacing: PlayableDetailLayout.captionSpacing) { primaryActions }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(game.baseID == nil)
-                .accessibilityIdentifier("continueButton")
-                Button {
-                    onPlay(game, .newGame)
-                } label: {
-                    Label("New Game", systemImage: "play.fill").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .disabled(game.baseID == nil)
-                .accessibilityIdentifier("playButton")
-            } else {
-                Button {
-                    onPlay(game, .newGame)
-                } label: {
-                    Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(game.baseID == nil)
-                .accessibilityIdentifier("playButton")
             }
+            // No horizontal padding of its own: the Form already insets the
+            // row by `rowHorizontalInset`, so the art and the caption sit
+            // flush with the cards below -- the same edge the shelf's hero
+            // shares with its grid.
+            .padding(.top, PlayableDetailLayout.captionTopPadding)
+            .padding(.bottom, PlayableDetailLayout.captionBottomPadding)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+        }
+    }
+
+    /// Continue and New Game with a resumable save; Play without one. The
+    /// primary style carries the accent and its dark label (design-system
+    /// spec §3) — this is the screen that shipped `.borderedProminent`'s
+    /// white-on-green.
+    @ViewBuilder
+    private var primaryActions: some View {
+        if continuableSlot != nil {
+            Button {
+                onPlay(game, .continueNewest)
+            } label: {
+                Label("Continue", systemImage: "clock.arrow.circlepath")
+            }
+            .buttonStyle(.waddlePrimary)
+            .disabled(game.baseID == nil)
+            .accessibilityIdentifier("continueButton")
+            Button {
+                onPlay(game, .newGame)
+            } label: {
+                Label("New Game", systemImage: "play.fill")
+            }
+            .buttonStyle(.waddleSecondary)
+            .disabled(game.baseID == nil)
+            .accessibilityIdentifier("playButton")
+        } else {
+            Button {
+                onPlay(game, .newGame)
+            } label: {
+                Label("Play", systemImage: "play.fill")
+            }
+            .buttonStyle(.waddlePrimary)
+            .disabled(game.baseID == nil)
+            .accessibilityIdentifier("playButton")
         }
     }
 
     @ViewBuilder
     private var baseSection: some View {
-        Section("Base game") {
+        Section {
             if game.isBaseGame {
                 // Locked: this game *is* the IWAD (spec §3.2).
                 LabeledContent("Base", value: baseName)
@@ -203,6 +252,8 @@ struct GamePageView: View {
                     attempt(.base(newValue))
                 }
             }
+        } header: {
+            WaddleSectionHeader("Base game")
         }
     }
 
@@ -214,10 +265,10 @@ struct GamePageView: View {
     private var filesSection: some View {
         Section {
             ForEach(files, id: \.id) { file in
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs / 2) {
                     Text(file.displayName)
                     Text(GamePage.roleLabel(for: file))
-                        .font(.caption)
+                        .font(Theme.Typography.caption)
                         .foregroundStyle(Color.appSecondaryText)
                 }
                 .accessibilityElement(children: .combine)
@@ -240,7 +291,7 @@ struct GamePageView: View {
             }
             .accessibilityIdentifier("addFileButton")
         } header: {
-            Text("Maps & Add-ons")
+            WaddleSectionHeader("Maps & Add-ons")
         } footer: {
             Text("Load order, top to bottom.")
         }
@@ -277,9 +328,9 @@ struct GamePageView: View {
 
     @ViewBuilder
     private var savesSection: some View {
-        Section(saves.isEmpty ? "Saves" : "Saves · \(saves.count)") {
+        Section {
             if saves.isEmpty {
-                Text("No saves yet").foregroundStyle(.secondary)
+                EmptyStateView(systemImage: "clock.arrow.circlepath", title: "No saves yet")
             } else {
                 ForEach(saves) { slot in
                     LabeledContent(slot.id,
@@ -292,6 +343,8 @@ struct GamePageView: View {
                     onChanged()
                 }
             }
+        } header: {
+            WaddleSectionHeader(saves.isEmpty ? "Saves" : "Saves · \(saves.count)")
         }
     }
 
@@ -380,14 +433,14 @@ struct AddFilePicker: View {
         NavigationStack {
             List {
                 if candidates.isEmpty {
-                    Text("Every file you've imported is already in this game.")
-                        .foregroundStyle(.secondary)
+                    EmptyStateView(systemImage: "tray",
+                                   title: "Every file you've imported is already in this game.")
                 }
                 if !mapSets.isEmpty {
-                    Section("Map sets") { rows(mapSets) }
+                    Section { rows(mapSets) } header: { WaddleSectionHeader("Map sets") }
                 }
                 if !addOns.isEmpty {
-                    Section("Add-ons") { rows(addOns) }
+                    Section { rows(addOns) } header: { WaddleSectionHeader("Add-ons") }
                 }
             }
             .waddleScrollSurface()
@@ -407,9 +460,11 @@ struct AddFilePicker: View {
                 onPick(file)
                 dismiss()
             } label: {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs / 2) {
                     Text(file.displayName)
-                    Text(GamePage.roleLabel(for: file)).font(.caption).foregroundStyle(.secondary)
+                    Text(GamePage.roleLabel(for: file))
+                        .font(Theme.Typography.caption)
+                        .foregroundStyle(Color.appSecondaryText)
                 }
             }
             .accessibilityIdentifier("addFile-\(file.displayName)")

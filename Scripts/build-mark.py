@@ -110,6 +110,14 @@ def to_svg(src: Image.Image, scale: int) -> str:
     return "".join(parts)
 
 
+# The in-app wordmark is the same glyphs on ONE line, at the source pixel
+# grid: 89x15 at 1x. The shell draws it at Theme.wordmarkHeight (30 pt) with
+# no interpolation, which is an integer number of device pixels per source
+# pixel on both @2x and @3x -- the asset only has to be a nearest-neighbour
+# integer scale of the 1x for that to stay crisp.
+WORDMARK_SCALES = (1, 2, 3)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-dir", required=True)
@@ -129,6 +137,13 @@ def main() -> None:
     (out / "waddle-mark-flat.svg").write_text(to_svg(mark, scale))
     print(f"  waddle-mark.png       {CANVAS}x{CANVAS}")
     print(f"  waddle-mark-flat.svg  {mark.width}x{mark.height} grid at {scale}x")
+
+    wordmark = tint(row("WADDLE"), TINT)
+    for s in WORDMARK_SCALES:
+        suffix = "" if s == 1 else f"@{s}x"
+        img = wordmark.resize((wordmark.width * s, wordmark.height * s), Image.NEAREST)
+        img.save(out / f"waddle-wordmark{suffix}.png")
+        print(f"  waddle-wordmark{suffix}.png  {img.width}x{img.height}")
 
 
 if __name__ == "__main__":

@@ -23,23 +23,28 @@ import CoreGraphics
 /// shrinks below it only on viewports too short to hold it plus the controls
 /// underneath.
 enum PlayableDetailLayout {
-    /// A `Form` row's own vertical padding, above and below its content.
-    /// Measured from the rendered hierarchy: a `.title2` line (26.3 pt) sat in
-    /// a 56.3 pt row.
-    static let rowPadding: CGFloat = 30
-
-    /// A `Form` row's inset from each edge of the form. Measured from the
-    /// rendered hierarchy: a 402 pt form held its rows at x = 16, width 370.
+    /// A `Form`'s inset from each edge of the page to its rows, measured from
+    /// the rendered hierarchy: a 402 pt form holds its rows at x = 16, width
+    /// 370. The hero row adds no inset of its own (design-system spec §4), so
+    /// its art and caption sit flush with the cards below, the way the
+    /// shelf's hero shares an edge with its grid, and the blurred backdrop
+    /// is what bleeds.
     static let rowHorizontalInset: CGFloat = 16
 
-    /// A `.large` bordered button's padding around its label, on top of the
-    /// row padding it also sits in. Measured the same way: a `.body` line
-    /// (20.3 pt) in an 80.3 pt row.
-    static let largeButtonPadding: CGFloat = 30
+    /// Above the art, inside the hero row.
+    static let captionTopPadding: CGFloat = 8
 
-    /// The gap a `Form` leaves between the last row of one section and the
-    /// header of the next.
-    static let sectionGap: CGFloat = 18
+    /// Between the art, the title and the button row, and between stacked
+    /// buttons.
+    static let captionSpacing: CGFloat = 12
+
+    /// A `WaddleButtonStyle`'s padding above and below its label; the button
+    /// is the taller of the label plus this and `Theme.minimumTapTarget`.
+    /// Named here so the budget and the style cannot disagree.
+    static let buttonVerticalPadding: CGFloat = Theme.buttonVerticalPadding
+
+    /// Below the button row, before the first section header.
+    static let captionBottomPadding: CGFloat = 16
 
     /// How much of the form below the header has to stay above the fold.
     ///
@@ -68,6 +73,12 @@ enum PlayableDetailLayout {
     /// Height of everything the header draws *below* the art: the item's title,
     /// then one primary button (Play) or two (Continue and New Game).
     ///
+    /// Charged per button, as if stacked, even though at ordinary text sizes
+    /// `ViewThatFits` puts two side by side: the stacked case is the one that
+    /// happens at accessibility sizes, where the budget is tightest, and in
+    /// portrait the art is natural-bound anyway so the over-reserve costs
+    /// nothing visible.
+    ///
     /// - Parameters:
     ///   - titleLineHeight: line height of the title's font (`.title2`).
     ///   - buttonLineHeight: line height of a button label's font (`.body`).
@@ -75,16 +86,20 @@ enum PlayableDetailLayout {
     static func captionHeight(titleLineHeight: CGFloat,
                               buttonLineHeight: CGFloat,
                               primaryButtonCount: Int) -> CGFloat {
-        let title = titleLineHeight + rowPadding
-        let button = buttonLineHeight + largeButtonPadding + rowPadding
-        return title + CGFloat(max(0, primaryButtonCount)) * button + sectionGap
+        let buttons = CGFloat(max(0, primaryButtonCount))
+        let button = max(Theme.minimumTapTarget, buttonLineHeight + buttonVerticalPadding * 2)
+        return captionTopPadding
+            + titleLineHeight
+            + captionSpacing * (1 + max(0, buttons - 1))
+            + buttons * button
+            + captionBottomPadding
     }
 
     /// Height for the detail header's art.
     ///
     /// - Parameters:
-    ///   - contentWidth: width the art is drawn at, i.e. the form's width less
-    ///     its row insets.
+    ///   - contentWidth: width the art is drawn at, i.e. the page's width less
+    ///     `rowHorizontalInset` on each side.
     ///   - viewportHeight: height visible without scrolling, i.e. the form's
     ///     height less its top and bottom safe-area insets. Zero or non-finite
     ///     means "not measured yet", and the art keeps its natural height; a

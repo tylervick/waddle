@@ -25,20 +25,15 @@ struct PlayableTileView: View {
             // read as one continuous poster whatever the gap between them.
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
-                    .strokeBorder(.white.opacity(Theme.tileHairlineOpacity),
-                                  lineWidth: Theme.tileHairlineWidth)
+                    .strokeBorder(Color.appHairline, lineWidth: Theme.tileHairlineWidth)
             )
             .overlay(alignment: .topTrailing) {
+                // A warning, not a call to action: the badge used to wear the
+                // accent, which spec §5 reserves for primary actions, so an
+                // unpaired game looked like it was inviting a tap.
                 if game.baseID == nil {
-                    Text("Needs a base game")
-                        .font(.caption2.bold())
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(Color.appAccent, in: Capsule())
-                        .foregroundStyle(.black)
-                        .padding(8)
+                    StatusBadge("Needs a base game", tone: .warning)
+                        .padding(Theme.Spacing.sm)
                         .accessibilityIdentifier("unpairedBadge")
                 }
             }
@@ -63,12 +58,12 @@ struct PlayableTileView: View {
     private var scrim: some View {
         VStack(alignment: .leading, spacing: PlayableTileLayout.titleSubtitleSpacing) {
             Text(game.name)
-                .font(.headline)
+                .font(Theme.Typography.tileTitle)
                 .foregroundStyle(.white)
                 .lineLimit(1)
             if let subtitle {
                 Text(subtitle)
-                    .font(.caption)
+                    .font(Theme.Typography.caption)
                     .foregroundStyle(Color.appSecondaryText)
                     .lineLimit(1)
             }

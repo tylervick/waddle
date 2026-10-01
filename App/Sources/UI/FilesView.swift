@@ -119,10 +119,7 @@ struct FilesView: View {
             HStack {
                 Text(wad.filename)
                 if wad.role == .mapSet && unpaired {
-                    Text("no base")
-                        .font(.caption2.bold())
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Color.red.opacity(0.35), in: Capsule())
+                    StatusBadge("no base", tone: .warning)
                 }
             }
             HStack(spacing: 4) {
@@ -131,13 +128,13 @@ struct FilesView: View {
                     Text("·")
                 }
                 Text(statusLabel(status))
-                    .foregroundStyle(status == .missing ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(status == .missing ? Color.appDanger : Color.appSecondaryText)
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            .font(Theme.Typography.caption)
+            .foregroundStyle(Color.appSecondaryText)
             Text(GamePage.usedByLine(gameNames: games.map(\.name)))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(Theme.Typography.caption)
+                .foregroundStyle(Color.appSecondaryText)
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("fileRow-\(wad.filename)")
