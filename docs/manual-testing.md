@@ -123,6 +123,22 @@ persisted across relaunch).
 ## Keyboard & mouse (iPad)
 - [ ] WASD + mouse look; overlay hidden while keyboard is connected
 
+## VoiceOver (physical device; issue #215)
+- [ ] With VoiceOver on, exploring the overlay announces each button by its
+      title (FIRE, USE, MAP, …); a finger HELD on FIRE fires continuously and
+      releasing stops it (`trigger` on the debug HUD drops to `0.00`) — the
+      buttons carry `.allowsDirectInteraction`, so VoiceOver passes the touch
+      through rather than demanding a double-tap. If it still demands one,
+      enable Direct Touch for Waddle in the VoiceOver rotor (or Settings →
+      Accessibility → VoiceOver → Rotor → Direct Touch Apps) and note that
+- [ ] Two fingers at once: one held on FIRE while another moves on the
+      stick area moves and fires together
+- [ ] The four-finger keyboard summon is expected to be claimed by VoiceOver's
+      own multi-finger gestures; confirm, and confirm a hardware keyboard
+      still types into the engine as the alternative. Record device, iOS
+      build and date at the end of
+      `docs/learnings/voiceover-direct-interaction-for-game-controls.md`
+
 ## Audio
 Physical device only: the simulator's audio path is not the device's, and
 interruptions (phone call, Siri) cannot be reproduced there. Nothing in CI or
