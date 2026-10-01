@@ -1,0 +1,101 @@
+name: Promote Build
+
+# Pushing an `rc-*` tag at a commit that already shipped (one carrying a
+# `build-<N>` tag) assigns THAT build to the external TestFlight group
+# (issue #165): promote, do not rebuild. No archive runs and no build number
+# is consumed; the bits the external group receives are the bits the
+# internal group tested. "rc" cannot live in the version string (App Store
+# Connect rejects `1.1.0-rc1`), so it lives here: in the tag and in which
+# group the build is assigned to.
+#
+#   git tag rc-1.1.0 build-231 && git push origin rc-1.1.0
+#
+# An `rc-*` tag on a commit with no `build-<N>` tag fails loudly: that is a
+# commit that was never shipped. Scripts/promote-build.sh does the App Store
+# Connect work and refuses a build that does not exist, is not VALID, or a
+# group that does not exist, each with its own exit status;
+# Scripts/test-promote-build.sh pins all of it hermetically.
+on:
+  push:
+    tags:
+      - "rc-*"
+  workflow_dispatch:
+    inputs:
+      build:
+        description: "Build number to promote (an existing, VALID upload)"
+        required: true
+      group:
+        description: "TestFlight group name (defaults to the TESTFLIGHT_EXTERNAL_GROUP variable)"
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote-build
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Assign the tagged build to the external group
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The build-* tags, and the history behind them: a depth-1 clone
+          # has neither (the trap testflight.yml documents for whats-to-test).
+          fetch-depth: 0
+
+      - name: Verify the promotion script's own suite first
+        run: Scripts/test-promote-build.sh
+
+      - name: Resolve the build number
+        id: build
+        env:
+          INPUT_BUILD: ${{ inputs.build }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_BUILD:-}" ]; then
+            echo "value=$INPUT_BUILD" >> "$GITHUB_OUTPUT"
+            echo "promoting build $INPUT_BUILD (manual dispatch)"
+            exit 0
+          fi
+          # Exactly one build-<N> tag must point at the tagged commit.
+          tags="$(git tag --points-at HEAD 'build-*')"
+          n="$(printf '%s\n' "$tags" | grep -c . || true)"
+          if [ "$n" -ne 1 ]; then
+            echo "::error::$GITHUB_REF_NAME points at a commit carrying $n build-* tags; a release candidate must be a commit that shipped exactly once. Tags found: ${tags:-none}"
+            exit 1
+          fi
+          echo "value=${tags#build-}" >> "$GITHUB_OUTPUT"
+          echo "$GITHUB_REF_NAME -> $tags"
+
+      - name: Resolve the group
+        id: group
+        env:
+          INPUT_GROUP: ${{ inputs.group }}
+          EXTERNAL_GROUP: ${{ vars.TESTFLIGHT_EXTERNAL_GROUP }}
+        run: |
+          set -euo pipefail
+          group="${INPUT_GROUP:-$EXTERNAL_GROUP}"
+          if [ -z "$group" ]; then
+            echo "::error::no group: set the repository variable TESTFLIGHT_EXTERNAL_GROUP to the external TestFlight group's exact name (Settings -> Secrets and variables -> Actions -> Variables)"
+            exit 1
+          fi
+          echo "value=$group" >> "$GITHUB_OUTPUT"
+
+      - name: Install the App Store Connect key
+        env:
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          umask 077
+          printf '%s' "$ASC_PRIVATE_KEY" | /usr/bin/base64 --decode > "$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
+
+      - name: Promote
+        env:
+          ASC_KEY_PATH: ${{ runner.temp }}/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: Scripts/promote-build.sh "${{ steps.build.outputs.value }}" "${{ steps.group.outputs.value }}"

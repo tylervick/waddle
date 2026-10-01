@@ -53,6 +53,9 @@ make_fixture() { # dest
         -e "s|https://github.com/libsndfile/libsndfile.git|file://$TMP/upstream-libsndfile|" \
         "$SCRIPT" > "$1/Scripts/build-deps.sh"
     chmod +x "$1/Scripts/build-deps.sh"
+    # build() runs the foreign-cache guard from its own Scripts/ (#72); the
+    # fixture is that root, so it needs the real guard beside the copy.
+    cp "$ROOT/Scripts/ensure-native-cmake-cache.sh" "$1/Scripts/"
     grep -q "file://$TMP/upstream-sdl" "$1/Scripts/build-deps.sh" \
         || fail "fixture did not repoint the SDL clone URL -- this test would hit the network"
     grep -q "file://$TMP/upstream-openal" "$1/Scripts/build-deps.sh" \
@@ -210,5 +213,47 @@ fi
 grep -q "without the Xiph" "$TMP/z.log" \
     || fail "the refusal did not explain the missing codecs: $(tail -3 "$TMP/z.log")"
 pass "refuses a libsndfile configured without the Xiph codecs"
+
+# --- 9. a patch under Scripts/patches/<dep>/ is applied after the checkout --
+# Fixes taken from upstream commits no pinnable release contains yet (issue
+# #291: SDL's iOS 27 orientation fix). The checkout stays at the pinned
+# commit; the patch is a working-tree change on top of it.
+P="$TMP/p"; make_fixture "$P"
+set_pin "$P" SDL_TAG v1; set_pin "$P" OPENAL_TAG v1; set_pin "$P" SONIVOX_TAG v1
+for v in LIBOGG_TAG LIBVORBIS_TAG LIBFLAC_TAG LIBOPUS_TAG LIBSNDFILE_TAG; do set_pin "$P" "$v" v1; done
+mkdir -p "$P/Scripts/patches/SDL"
+cat > "$P/Scripts/patches/SDL/0001-test.patch" <<'PATCH'
+A preamble line, as the real patches carry their provenance above the diff.
+--- a/f
++++ b/f
+@@ -1 +1,2 @@
+ one
++patched
+PATCH
+run_deps "$P"
+assert_at "$P/Vendor/src/SDL" "$TMP/upstream-sdl" v1 "patched checkout"
+[ "$(cat "$P/Vendor/src/SDL/f")" = "$(printf 'one\npatched')" ] \
+    || fail "the SDL patch was not applied: $(cat "$P/Vendor/src/SDL/f")"
+grep -q "applying 0001-test.patch" "$TMP/run.log" || fail "applying a patch printed no note"
+pass "applies a dependency's patches after its checkout"
+
+# --- 10. a second run over the patched checkout is a no-op -------------
+# The checkout is reused (still at the pin), so the patch must be seen as
+# already applied rather than applied twice or refused.
+run_deps "$P"
+[ "$(cat "$P/Vendor/src/SDL/f")" = "$(printf 'one\npatched')" ] \
+    || fail "re-running changed a patched checkout: $(cat "$P/Vendor/src/SDL/f")"
+pass "leaves an already-patched checkout alone on the next run"
+
+# --- 11. a pin bump that makes a patch stale is a loud stop -------------
+# At v2 the file no longer matches the patch's context, so the patch applies
+# neither forward nor in reverse. Silently dropping it would ship the bug the
+# patch fixes; the build must refuse and name the patch.
+set_pin "$P" SDL_TAG v2
+if PATH="$P/bin:$PATH" "$P/Scripts/build-deps.sh" > "$TMP/run.log" 2>&1; then
+    fail "a patch that no longer applies was ignored"
+fi
+grep -q "0001-test.patch" "$TMP/run.log" || fail "the refusal did not name the patch: $(tail -3 "$TMP/run.log")"
+pass "refuses when a patch applies neither forward nor in reverse"
 
 echo "all build-deps checkout-guard tests passed"

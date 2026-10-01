@@ -559,6 +559,70 @@ only ever runs once):
   read 1/1 to 6/6 before the fix. See
   `docs/learnings/i-error-ends-the-session-not-the-process.md`.
 
+- `src/woof_ios.c` / `src/woof_ios.h` (issue #48) -- the touch shim counts
+  its writes per control beside the aggregate `touch_event_count`: one slot
+  per SDL gamepad button and axis plus the turn injections, incremented at
+  the same write sites, reset with the aggregate at session start.
+  `WoofIOS_DebugTouchButtonWrites`/`AxisWrites`/`TurnWrites` read them, and
+  `WoofIOS_DebugTouchWrites()` renders the non-zero ones as one line
+  (`touchWrites: b0:2 turn:0`), shown after a session under
+  `WADDLE_DEBUG_INPUT_COUNTS`. `TouchControlsTests` uses it to assert that a
+  USE tap wrote SOUTH twice and nothing else, and that a stick drag wrote
+  axes and no button -- which the aggregate could never say.
+
+- `src/p_map.c`, `src/p_map.h`, `src/g_game.c`, `src/woof_ios.c` /
+  `src/woof_ios.h` (issue #114) -- auto-use. `P_AutoUseLineAhead(player)`
+  in p_map.c is `P_UseLines`' traverse without its side effects: it returns
+  the first special line within USERANGE that is not behind a blocked
+  opening, or NULL, and activates nothing. `G_BuildTiccmd` (WOOF_IOS) probes
+  every tic the player is alive in a level and pulses BT_USE when auto-use
+  is enabled, the command moves forward, that line differs from the last one
+  auto-used, and neither this command nor the previous one carried BT_USE
+  (P_PlayerThink uses only on the down edge, so a line remembered under a
+  held USE would never be used). The memory clears when nothing is ahead
+  (whether or not the player is moving, so turning away re-arms it) and on
+  every level load (P_SetupLevel rebuilds lines at reusable addresses), so a
+  door is used once per approach rather than toggled every tic, and a switch
+  is flipped once. The probe does not classify specials -- P_UseSpecialLine's 151 cases stay the
+  one authority -- so a walk-over special ahead costs one silent no-op press.
+  `WoofIOS_SetAutoUse(bool)` is the switch (default off; OverlayPresenter
+  turns it on with the overlay and off when physical input hides it), and
+  `WoofIOS_DebugAutoUseState()` reads `autoUse: enabled=<0|1> presses=<n>`.
+
+- `src/woof_ios.c` / `src/woof_ios.h` (issue #113) -- `WoofIOS_InjectKey(key,
+  down)` posts one edge of a held key by Doom key code, and
+  `WoofIOS_IsAutomapActive()` exposes `automapactive`. The overlay uses them
+  to pan and zoom the automap by touch: the engine's pan and zoom are held
+  keys (`AM_Responder` on the arrows, '=' and '-'), so a drag or pinch holds
+  the matching keys while the fingers move and releases them when they stop.
+  Injected keys are counted per code in `touchWrites` (`k<code>:<n>`), which
+  `TouchControlsTests.testAutomapDragPansAndPinchZooms` reads.
+
+- `src/i_video.c`, `src/g_game.c`, `src/g_game.h`, `src/d_main.c` -- the app's
+  lifecycle reaches the engine (issue #111). SDL's iOS layer observes UIKit's
+  resign-active and did-enter-background notifications itself and turns them
+  into `SDL_EVENT_WILL_ENTER_BACKGROUND` (preceded by a `WINDOW_MINIMIZED`,
+  which upstream already answers with `screenvisible = false`) and
+  `SDL_EVENT_DID_ENTER_BACKGROUND`. Upstream ignores both, so the world kept
+  running until iOS froze the process and nothing was written. SDL never
+  queues these two (they reach only an event watch, in the notification's
+  own call stack -- see
+  `docs/learnings/sdl-app-lifecycle-events-are-never-queued.md`), so
+  `I_InitGraphics` adds `AppLifecycleWatch` and `I_ShutdownGraphics` removes
+  it; the watch hands them to `G_BackgroundPause` (opens the menu in a live level, the
+  pause a single-player world actually obeys and the touch overlay can undo)
+  and `G_BackgroundSave` (writes `suspend.dsg`, its own file, so neither a
+  manual slot nor the level-start autosave is overwritten; skipped at the
+  title, in demos, in netgames, with a game action pending or the player
+  dead). UIKit posts the notifications while the engine pumps the run loop
+  (`I_StartTic`, `I_StartDisplay`), so both run between tics, the same
+  boundary `ga_savegame` saves at. `-loadgame 254` loads that file beside upstream's
+  255 for `autosave.dsg`; `App/Sources/Library/EngineSaveSlot.swift` maps the
+  name. `G_DebugBackgroundCounts` counts at the two sites, never reset, and
+  feeds `WoofIOS_DebugBackgroundState()` (`bgsave=<n> bgpause=<n>`), which
+  `BackgroundSuspendTests` reads after backgrounding a warped session (1/1)
+  and a title-screen one (0/0).
+
 Related (not upstream files): `Scripts/build-engine.sh` passes
 `-DCMAKE_FIND_ROOT_PATH="$OUT/$platform"` in addition to
 `-DCMAKE_PREFIX_PATH`. When `CMAKE_SYSTEM_NAME=iOS`, CMake restricts

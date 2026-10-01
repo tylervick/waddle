@@ -58,6 +58,10 @@ struct WaddleApp: App {
                 UserDefaults.standard.removeObject(forKey: LibraryService.didMigrateToGamesKey)
                 UserDefaults.standard.removeObject(forKey: LibraryService.didReconcileBundledBaseGameLoadoutsKey)
                 UserDefaults.standard.removeObject(forKey: LibraryService.didAdoptOrphanMapSetsKey)
+                // And the layout editor's button positions (issue #115), so
+                // a UITest that drags a button cannot leave it moved for the
+                // rest of the suite.
+                UserDefaults.standard.removeObject(forKey: TouchOverlayLayoutOverrides.userDefaultsKey)
             }
             #endif
 

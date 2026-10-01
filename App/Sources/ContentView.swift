@@ -50,6 +50,17 @@ struct ContentView: View {
                     .font(.footnote.monospaced())
                     .accessibilityIdentifier("touchEventCountLabel")
                     .padding(.bottom, 100)
+                // The same writes, per control (issue #48), so a test can say
+                // WHICH button or axis an input reached. verbatim: the
+                // string is the engine's own.
+                Text(verbatim: String(cString: WoofIOS_DebugTouchWrites()))
+                    .font(.footnote.monospaced())
+                    .accessibilityIdentifier("touchWritesLabel")
+                // Auto-use (issue #114): the switch as the engine saw it and
+                // the presses it made, read after the session.
+                Text(verbatim: String(cString: WoofIOS_DebugAutoUseState()))
+                    .font(.footnote.monospaced())
+                    .accessibilityIdentifier("autoUseLabel")
                 // Cached mid-session (TouchGamepad.lastFireReleaseTriggerResidue) --
                 // WoofIOS_DebugTriggerValue() itself would just return -1 by
                 // now, since the session that attached the touch gamepad
@@ -93,7 +104,7 @@ struct ContentView: View {
     }
 
     #if DEBUG
-    /// The engine's session-state readouts (issues #266, #268, #269), shown
+    /// The engine's session-state readouts (issues #266, #268, #269, #111), shown
     /// just above the exit label after a session when WADDLE_DEBUG_SESSION_START
     /// is set. Stacked with the label rather than given their own bottom
     /// paddings: the session-start line wraps to three lines on a phone, and
@@ -119,6 +130,8 @@ struct ContentView: View {
                     .accessibilityIdentifier("sessionStartStateLabel")
                 Text(verbatim: String(cString: WoofIOS_DebugZipWadBuffers()))
                     .accessibilityIdentifier("zipWadBuffersLabel")
+                Text(verbatim: String(cString: WoofIOS_DebugBackgroundState()))
+                    .accessibilityIdentifier("backgroundStateLabel")
             }
             .font(.footnote.monospaced())
             .padding(8)

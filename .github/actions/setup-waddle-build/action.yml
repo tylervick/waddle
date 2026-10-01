@@ -100,7 +100,10 @@ runs:
         path: |
           Vendor/out/iphoneos
           Vendor/out/iphonesimulator
-        key: deps-xcode${{ inputs.xcode-version }}-${{ hashFiles('Scripts/build-deps.sh') }}-${{ hashFiles('mise.toml') }}
+        # Scripts/patches/** is in the key because build-deps.sh applies those
+        # patches on top of the pinned checkouts (issue #291): a cached build
+        # made before a patch changed would silently lack it.
+        key: deps-xcode${{ inputs.xcode-version }}-${{ hashFiles('Scripts/build-deps.sh', 'Scripts/patches/**') }}-${{ hashFiles('mise.toml') }}
 
     # With skip-cache the restore steps do not run, so cache-hit is empty and
     # these conditions hold. Stated explicitly rather than relying on that.

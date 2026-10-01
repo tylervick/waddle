@@ -107,6 +107,11 @@ targets:
         # question on every upload.
         ITSAppUsesNonExemptEncryption: false
         UIStatusBarHidden: true
+        # What kind of app this is, for every system behaviour keyed off it
+        # (issue #245): a game, and Action to match the App Store listing
+        # (docs/app-store/metadata.md section 7). BundleInfoTests reads it
+        # back out of the built plist, so the two cannot drift.
+        LSApplicationCategoryType: public.app-category.action-games
         UIApplicationSupportsIndirectInputEvents: true
         # Wireless game controllers connect over Bluetooth; SDL's controller
         # support references CoreBluetooth, so App Store validation requires

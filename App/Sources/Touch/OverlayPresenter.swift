@@ -11,6 +11,11 @@ struct PhysicalInputPolicy: Equatable {
     var controllerConnected: Bool
     var hardwareKeyboardConnected: Bool
     var overlayShouldShow: Bool { !controllerConnected && !hardwareKeyboardConnected }
+    /// Auto-use (issue #114) is a touch affordance: it presses USE for a
+    /// player whose only USE is a button. Physical input has USE under a
+    /// finger, so the decision that hides the overlay is the decision that
+    /// turns auto-use off -- one policy, not two that can drift apart.
+    var autoUseEnabled: Bool { overlayShouldShow }
 }
 
 /// Installs the touch overlay into SDL's UIWindow once the engine session
@@ -76,8 +81,12 @@ final class OverlayPresenter {
         let tuning = TouchTuning.current()
         gamepad.tuning = tuning
         let debugHUDEnabled = UserDefaults.standard.bool(forKey: debugHUDUserDefaultsKey)
+        // The player's button positions from the layout editor (issue #115),
+        // under the same read-once rule.
+        let layoutOverrides = TouchOverlayLayoutOverrides.current()
         let view = TouchOverlayView(gamepad: gamepad, scheme: scheme,
-                                    tuning: tuning, debugHUDEnabled: debugHUDEnabled)
+                                    tuning: tuning, debugHUDEnabled: debugHUDEnabled,
+                                    layoutOverrides: layoutOverrides)
         view.frame = window.bounds
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         window.addSubview(view)
@@ -183,8 +192,10 @@ final class OverlayPresenter {
         // real session.
         let shown: Bool
         var controllerConnected = false
+        var autoUse: Bool
         if overlayForcedVisibleByHarness {
             shown = true
+            autoUse = true
         } else {
             let policy = PhysicalInputPolicy(
                 controllerConnected: !GCController.controllers().isEmpty,
@@ -192,8 +203,12 @@ final class OverlayPresenter {
             )
             shown = policy.overlayShouldShow
             controllerConnected = policy.controllerConnected
+            autoUse = policy.autoUseEnabled
         }
         overlay?.isHidden = !shown
+        // Auto-use (issue #114) is the overlay's affordance: on with it, off
+        // when physical input hides it. Same decision as the visibility.
+        WoofIOS_SetAutoUse(autoUse)
         // A visible overlay is the input the player has, forced or not; make
         // the engine read its stick from our pad rather than from whatever
         // MFi controller it opened first -- the same phantom controller the

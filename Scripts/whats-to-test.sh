@@ -318,9 +318,24 @@ changelog() { # range (may be empty, meaning "recent history")
         fi
         printf '%s\t%s\n' "$group" "$text"
     done < <(git log --first-parent --format=%H $range)
-    if [ "$FETCH_FALLBACK" -gt 0 ]; then
-        echo "note: pull request summaries unavailable for $FETCH_FALLBACK of $FETCH_TRIED changes; using their commit subjects." >&2
+    # changelog runs inside a command substitution, so its globals never
+    # reach assemble_notes; the counts go through a file and assemble_notes
+    # turns them into a diagnostic (issue #133: the note used to go to
+    # stderr alone, which in CI is a workflow log nobody reviewing the notes
+    # reads).
+    if [ -n "${FALLBACK_FILE:-}" ]; then
+        printf '%s %s\n' "$FETCH_FALLBACK" "$FETCH_TRIED" > "$FALLBACK_FILE"
     fi
+}
+
+# Diagnostics for whoever reviews the notes: kept apart from the notes
+# themselves (they are never sent to App Store Connect), written to stderr
+# as they arise, and collected so --print can show them after the notes on
+# stdout, where a reviewer reading `--print` output actually looks.
+DIAGNOSTICS=""
+diag() { # line
+    DIAGNOSTICS="$DIAGNOSTICS$1"$'\n'
+    echo "$1" >&2
 }
 
 # Folds changelog's group-tagged lines into the two tester-facing sections.
@@ -438,6 +453,7 @@ assemble_notes() { # [current-build-number]
     # TestFlight shows the number on the build a tester is holding and on the
     # previous one, so it is the one piece of bookkeeping a tester can
     # actually cross-reference, and it anchors "worked in 207" bug reports.
+    FALLBACK_FILE="$(mktemp "${TMPDIR:-/tmp}/whats-to-test-fallback.XXXXXX")"
     if [ -n "$TAG" ]; then
         HEADING="Changes since build ${TAG#build-}:"
         BODY="$(changelog "$TAG..HEAD" | format_groups)"
@@ -449,6 +465,26 @@ assemble_notes() { # [current-build-number]
         # it, because the range is a guess rather than a fact.
         HEADING="Recent changes (no previous build tag; showing the last 20 commits):"
         BODY="$(changelog "--max-count=20" | format_groups)"
+    fi
+
+    read -r FETCH_FALLBACK FETCH_TRIED < "$FALLBACK_FILE" 2>/dev/null || { FETCH_FALLBACK=0; FETCH_TRIED=0; }
+    rm -f "$FALLBACK_FILE"
+    if [ "${FETCH_FALLBACK:-0}" -gt 0 ]; then
+        diag "note: pull request summaries unavailable for $FETCH_FALLBACK of $FETCH_TRIED changes; their commit subjects were used."
+    fi
+
+    # A preamble that already shipped (issue #133). The preamble is the one
+    # hand-written half of the notes, and nothing clears it after a release;
+    # build 213's iPad text was reverted by hand so that 214 would not ship
+    # it verbatim. If the file is unchanged since the previous build tag, that
+    # build carried exactly this text. Detected here, as a warning, rather
+    # than cleared after a successful attach: clearing would mean a push to
+    # main from the release workflow, and a warning is pure script logic the
+    # hermetic suite can prove. Edited since the tag means it is this build's
+    # own; absent at the tag counts as edited (git diff reports an addition).
+    if [ -n "$PREAMBLE" ] && [ -n "$TAG" ] \
+       && git diff --quiet "$TAG" HEAD -- "$PREAMBLE_FILE" 2>/dev/null; then
+        diag "warning: the preamble in $PREAMBLE_FILE is unchanged since build ${TAG#build-}, which shipped it; edit or clear it unless it describes this build too."
     fi
 
     if [ -z "$PREAMBLE" ] && [ -z "$BODY" ]; then
@@ -629,6 +665,12 @@ MODE="${1:---print}"
 
 if [ "$MODE" = "--print" ]; then
     assemble_notes
+    # After the notes, on stdout, marked as outside them: this is the output
+    # a reviewer reads before a release, and the attach path never sees it
+    # (diagnostics there go to stderr only; the notes are captured alone).
+    if [ -n "$DIAGNOSTICS" ]; then
+        printf '\n--- not part of the notes ---\n%s' "$DIAGNOSTICS"
+    fi
     exit 0
 fi
 

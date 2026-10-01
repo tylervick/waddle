@@ -18,6 +18,15 @@ overlay to remain visible even when input devices are connected.
       Turning on the debug HUD (below) and watching `trigger` drop to `0.00`
       right after release is the fastest way to confirm this on a device.
 - [ ] USE opens doors — verify it does something, not just that FIRE does
+- [ ] Walking straight at a door opens it without tapping USE; walking at a
+      switch flips it once, not repeatedly while you stand there; a door that
+      closed again does not reopen until you step away and back (or tap USE)
+- [ ] With a game controller connected (overlay hidden), walking at a door
+      does nothing until you press the controller's USE
+- [ ] With the automap up, a one-finger drag on the map pans it in the
+      direction of the finger and stops when the finger stops; a two-finger
+      spread zooms in and a pinch zooms out; lifting a finger mid-drag does
+      not leave the map drifting
 - [ ] Weapon prev/next cycles; MAP toggles automap (previously silently did
       nothing — was wired to an unbound button); ≡ opens the menu and
       the stick + FIRE/USE navigate it
@@ -35,6 +44,14 @@ overlay to remain visible even when input devices are connected.
       sliders (accessibilityIdentifiers `turnSpeedSlider`,
       `stickDeadZoneSlider`, `moveSensitivitySlider`) persist across app
       relaunch, and Reset to Defaults restores 1.00 / 0.00 / 1.00
+- [ ] "Control Feel…" → "Edit Layout…" opens the full-screen layout editor
+      (`editLayoutButton`): dragging a button (`layoutEditor.fireButton` and
+      friends) moves it and keeps the grab point under the finger; a drag
+      past an edge parks the button at the edge; Done saves and the next
+      session's overlay has the button there, after an app relaunch too;
+      Cancel discards the drag; Reset shows the stock arrangement live. Save
+      a layout in landscape, then start a session in portrait: every button
+      is on screen (clamped), none resized
 
 ### Control-feel tuning procedure (on-device)
 
@@ -106,6 +123,22 @@ persisted across relaunch).
 ## Keyboard & mouse (iPad)
 - [ ] WASD + mouse look; overlay hidden while keyboard is connected
 
+## VoiceOver (physical device; issue #215)
+- [ ] With VoiceOver on, exploring the overlay announces each button by its
+      title (FIRE, USE, MAP, …); a finger HELD on FIRE fires continuously and
+      releasing stops it (`trigger` on the debug HUD drops to `0.00`) — the
+      buttons carry `.allowsDirectInteraction`, so VoiceOver passes the touch
+      through rather than demanding a double-tap. If it still demands one,
+      enable Direct Touch for Waddle in the VoiceOver rotor (or Settings →
+      Accessibility → VoiceOver → Rotor → Direct Touch Apps) and note that
+- [ ] Two fingers at once: one held on FIRE while another moves on the
+      stick area moves and fires together
+- [ ] The four-finger keyboard summon is expected to be claimed by VoiceOver's
+      own multi-finger gestures; confirm, and confirm a hardware keyboard
+      still types into the engine as the alternative. Record device, iOS
+      build and date at the end of
+      `docs/learnings/voiceover-direct-interaction-for-game-controls.md`
+
 ## Audio
 Physical device only: the simulator's audio path is not the device's, and
 interruptions (phone call, Siri) cannot be reproduced there. Nothing in CI or
@@ -128,6 +161,10 @@ including the failures.
       neither restarts from the top nor ends up playing over a second copy
       of itself (record which of "keeps playing" or "stops and resumes
       cleanly" you observe)
+- [ ] Backgrounding mid-level (home gesture / app switcher) leaves the ≡
+      menu open when you return, and the level is where you left it; force
+      quitting the app from the switcher instead and relaunching shows a
+      Continue hero for that game, and Continue lands in that level
 - [ ] Backgrounding mid-session (home gesture / app switcher) stops audio,
       and returning to the foreground resumes both music and sound effects
       with no stuck, looping, or dead channel; locking and unlocking the

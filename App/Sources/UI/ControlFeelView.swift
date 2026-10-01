@@ -11,6 +11,7 @@ struct ControlFeelView: View {
     private var stickDeadZone: Double = TouchTuning.default.stickDeadZone
     @AppStorage(TouchTuning.moveSensitivityKey)
     private var moveSensitivity: Double = TouchTuning.default.moveSensitivity
+    @State private var showLayoutEditor = false
 
     var body: some View {
         NavigationStack {
@@ -37,6 +38,20 @@ struct ControlFeelView: View {
                     Text("Scales forward/back and strafe output.")
                 }
                 Section {
+                    // Full-screen, not a sheet: the editor must have the
+                    // session's exact bounds for its geometry to be the
+                    // overlay's (TouchLayoutEditorView).
+                    Button {
+                        showLayoutEditor = true
+                    } label: {
+                        Label("Edit Layout…", systemImage: "hand.draw")
+                    }
+                    .accessibilityIdentifier("editLayoutButton")
+                } footer: {
+                    Text("Drag the on-screen buttons where your thumbs want them. "
+                         + "Applies when the next session starts.")
+                }
+                Section {
                     Button("Reset to Defaults") {
                         turnSpeed = TouchTuning.default.turnSpeed
                         stickDeadZone = TouchTuning.default.stickDeadZone
@@ -51,6 +66,9 @@ struct ControlFeelView: View {
             .waddleScrollSurface()
             .navigationTitle("Control Feel")
             .navigationBarTitleDisplayMode(.inline)
+            .fullScreenCover(isPresented: $showLayoutEditor) {
+                TouchLayoutEditorView()
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }

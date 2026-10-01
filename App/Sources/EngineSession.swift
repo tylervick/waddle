@@ -119,8 +119,13 @@ enum EngineSession {
         // Test-only (same seam family as WADDLE_AUTOQUIT_SECONDS above):
         // Woof never auto-warps into a level without an explicit -warp flag
         // (see README), so a UITest that needs in-game state -- not just
-        // the title screen -- has no menu-free path there otherwise.
-        if ProcessInfo.processInfo.environment["WADDLE_TEST_WARP"] != nil {
+        // the title screen -- has no menu-free path there otherwise. Not
+        // for a Continue: -loadgame wins over -warp in D_DoomMain, but a
+        // load that fails falls back to the title and the warp would then
+        // put the session in a level anyway, hiding the failure
+        // (BackgroundSuspendTests passed with its loader compiled out).
+        if ProcessInfo.processInfo.environment["WADDLE_TEST_WARP"] != nil,
+           !effectiveArguments.contains("-loadgame") {
             effectiveArguments += ["-warp", "1", "-skill", "1"]
         }
         // Test-only: turns off I_Error's own SDL message box (I_ErrorMsg), so a

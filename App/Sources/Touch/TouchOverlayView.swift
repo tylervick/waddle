@@ -10,6 +10,9 @@ final class TouchOverlayView: UIView {
     private let scheme: TouchControlScheme
     private let tuning: TouchTuning
     private let debugHUDEnabled: Bool
+    /// The player's button positions (issue #115), read once at install
+    /// like `tuning`; applied by `layout`.
+    private let layoutOverrides: TouchOverlayLayoutOverrides
 
     private var stickTouch: UITouch?
     // Placeholders only: both are rebuilt at the touch point, with the
@@ -34,12 +37,26 @@ final class TouchOverlayView: UIView {
     private var summonArmed = true
     private let stickEngagedMarker = UIView()
 
+    // Automap gestures (issue #113). While the engine's automap is up, free-
+    // area touches pan (one finger) and zoom (two) it instead of starting
+    // stick or turn tracks. The translator is pure; this owns the touches,
+    // their previous points, the keys currently held, and the idle timer
+    // that releases them when the fingers stop moving (the engine keeps
+    // panning while a key is down, so "stopped" must release).
+    private var automapTouches: [UITouch] = []
+    private var automapLastPoints: [CGPoint] = []
+    private var automapHeldKeys: AutomapKeys = []
+    private var automapIdleTimer: Timer?
+    private let automapTranslator = AutomapGestureTranslator()
+
     init(gamepad: TouchGamepad, scheme: TouchControlScheme,
-         tuning: TouchTuning, debugHUDEnabled: Bool) {
+         tuning: TouchTuning, debugHUDEnabled: Bool,
+         layoutOverrides: TouchOverlayLayoutOverrides = .none) {
         self.gamepad = gamepad
         self.scheme = scheme
         self.tuning = tuning
         self.debugHUDEnabled = debugHUDEnabled
+        self.layoutOverrides = layoutOverrides
         self.keyboard = TouchKeyboard(injector: gamepad)
         super.init(frame: .zero)
         backgroundColor = .clear
@@ -180,7 +197,7 @@ final class TouchOverlayView: UIView {
         if debugHUDEnabled {
             let label = UILabel()
             label.accessibilityIdentifier = "sessionDebugHUD"
-            label.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+            label.font = Self.debugHUDFont
             label.textColor = UIColor.white.withAlphaComponent(0.6)
             label.backgroundColor = UIColor.black.withAlphaComponent(0.3)
             label.textAlignment = .left
@@ -205,6 +222,8 @@ final class TouchOverlayView: UIView {
     // this view the instant a session ends (on the main actor), so that's
     // the reliable, correctly-isolated place to invalidate both timers.
     override func removeFromSuperview() {
+        automapIdleTimer?.invalidate()
+        automapIdleTimer = nil
         debugHUDTimer?.invalidate()
         debugHUDTimer = nil
         menuPolicyTimer?.invalidate()
@@ -224,10 +243,21 @@ final class TouchOverlayView: UIView {
         let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
             self?.updateAutomapAvailability()
             self?.updateKeyboardForContext()
+            self?.dropAutomapGestureIfMapClosed()
         }
         RunLoop.main.add(timer, forMode: .common)
         menuPolicyTimer = timer
         updateAutomapAvailability()
+    }
+
+    /// The map can close under a finger (MAP tapped with the other hand, or
+    /// the level ending); nothing must stay held for a map that is gone.
+    private func dropAutomapGestureIfMapClosed() {
+        if !automapTouches.isEmpty, !WoofIOS_IsAutomapActive() {
+            automapTouches.removeAll()
+            automapLastPoints.removeAll()
+            holdAutomapKeys([])
+        }
     }
 
     private func updateAutomapAvailability() {
@@ -332,17 +362,29 @@ final class TouchOverlayView: UIView {
 
     private func updateDebugHUD() {
         let trigger = WoofIOS_DebugTriggerValue()
-        // The last segment is what the engine sees of this overlay's input
-        // (WoofIOS_DebugInputState): which gamepad it has open and whether
-        // that is our virtual pad, button events it has processed, and the
-        // menu cursor. DebugHUDInputTelemetryTests parses it; a Revyl device
-        // run reads it off a screenshot.
+        // The second line is the engine's own state: first its window size
+        // (WoofIOS_DebugWindowState; the landscape test in TouchControlsTests
+        // reads it), then where the game is (WoofIOS_DebugGameState: level or
+        // title, the -loadgame argument, leveltime; BackgroundSuspendTests
+        // reads it), then what the engine
+        // sees of this overlay's input (WoofIOS_DebugInputState): which
+        // gamepad it has open and whether that is our virtual pad, button
+        // events it has processed, and the menu cursor.
+        // DebugHUDInputTelemetryTests parses that last segment; a Revyl
+        // device run reads it off a screenshot.
         debugHUDLabel?.text = String(
-            format: "build %@ (%@) · %@ · events %d · trigger %.2f · turn %.2f · dz %.2f · move %.2f\n%@",
+            format: "build %@ (%@) · %@ · events %d · trigger %.2f · turn %.2f · dz %.2f · move %.2f\n%@ · %@ · %@",
             BuildInfo.commit, BuildInfo.branch, scheme == .classic ? "classic" : "modern",
             WoofIOS_DebugTouchEventCount(), trigger,
             tuning.turnSpeed, tuning.stickDeadZone, tuning.moveSensitivity,
+            String(cString: WoofIOS_DebugWindowState()),
+            String(cString: WoofIOS_DebugGameState()),
             String(cString: WoofIOS_DebugInputState()))
+        // The line count can change with the text (a longer pad name, a
+        // menu item), and the frame and the buttons below it follow it.
+        if let debugHUDLabel, debugHUDLabel.frame.height != debugHUDStripHeight {
+            setNeedsLayout()
+        }
     }
 
     // MARK: Buttons
@@ -359,10 +401,37 @@ final class TouchOverlayView: UIView {
         addSubview(button)
     }
 
-    /// Height of the strip the debug HUD claims along the top edge (only
-    /// when the "Show Debug Info" toggle is on): four lines of the 11 pt
-    /// monospaced font, which is what the wrapped strip needs at phone width.
-    private static let debugHUDStripHeight: CGFloat = 60
+    static let debugHUDFont: UIFont = .monospacedSystemFont(ofSize: 11, weight: .regular)
+
+    /// The least the strip claims along the top edge (only when the "Show
+    /// Debug Info" toggle is on): four lines of the font, what the wrapped
+    /// strip needed at phone width before the second line grew.
+    static let debugHUDMinimumStripHeight: CGFloat = 60
+
+    /// The height the strip needs for `text` at `width`: what the wrapped
+    /// label measures, never less than the minimum. Measured, not fixed: a
+    /// fixed frame clipped the strip's tail (`… ab= mv= menu=`) on an iPhone
+    /// 17 Pro Max in portrait once the `gs=` segment joined the second line
+    /// (issue #111), and the tail is the part a Revyl device run reads off
+    /// a screenshot. `DebugHUDStripHeightTests` pins it.
+    static func debugHUDStripHeight(for text: String, width: CGFloat) -> CGFloat {
+        let label = UILabel()
+        label.font = debugHUDFont
+        label.numberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        label.text = text
+        let fitted = label.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        return max(debugHUDMinimumStripHeight, ceil(fitted))
+    }
+
+    /// The strip's current height, from its current text and the width the
+    /// safe area leaves it.
+    private var debugHUDStripHeight: CGFloat {
+        guard let debugHUDLabel else { return 0 }
+        let inset = safeAreaInsets
+        return Self.debugHUDStripHeight(for: debugHUDLabel.text ?? "",
+                                        width: bounds.width - inset.left - inset.right)
+    }
 
     /// Live geometry for the current bounds. Recomputed rather than cached:
     /// it is a handful of arithmetic ops, and iPadOS windowed multitasking
@@ -370,7 +439,8 @@ final class TouchOverlayView: UIView {
     /// be stale exactly when it matters.
     private var layout: TouchOverlayLayout {
         TouchOverlayLayout(bounds: bounds, safeAreaInsets: safeAreaInsets,
-                           hudReserve: debugHUDEnabled ? Self.debugHUDStripHeight : 0)
+                           hudReserve: debugHUDEnabled ? debugHUDStripHeight : 0,
+                           overrides: layoutOverrides)
     }
 
     override func layoutSubviews() {
@@ -380,7 +450,7 @@ final class TouchOverlayView: UIView {
         if let debugHUDLabel {
             debugHUDLabel.frame = CGRect(x: b.minX + inset.left, y: b.minY + inset.top,
                                          width: b.width - inset.left - inset.right,
-                                         height: Self.debugHUDStripHeight)
+                                         height: debugHUDStripHeight)
         }
         // Position *and* size come from TouchOverlayLayout -- see its doc
         // comment for the arrangement and why the offsets scale. Buttons the
@@ -425,8 +495,17 @@ final class TouchOverlayView: UIView {
         // change mid-loop, and which tracks are already owned is passed per
         // touch instead.
         let router = trackRouter
+        let automapUp = WoofIOS_IsAutomapActive()
         for touch in touches {
             let point = touch.location(in: self)
+            if automapUp {
+                // Buttons keep their near-miss cushion; everything else is
+                // the map's. Up to two fingers: a third is ignored.
+                if router.isNearButton(point) || automapTouches.count >= 2 { continue }
+                automapTouches.append(touch)
+                automapLastPoints.append(point)
+                continue
+            }
             switch router.route(point,
                                 stickTracking: stickTouch != nil,
                                 turnTracking: turnTouch != nil) {
@@ -451,6 +530,10 @@ final class TouchOverlayView: UIView {
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         if keyboardActive { return }
+        if !automapTouches.isEmpty, touches.contains(where: { automapTouches.contains($0) }) {
+            moveAutomap()
+            return
+        }
         for touch in touches {
             let point = touch.location(in: self)
             if touch == stickTouch {
@@ -476,6 +559,15 @@ final class TouchOverlayView: UIView {
     private func endTouches(_ touches: Set<UITouch>) {
         summonTouches.subtract(touches)
         if summonTouches.isEmpty { summonArmed = true }
+        if !automapTouches.isEmpty {
+            for touch in touches {
+                if let i = automapTouches.firstIndex(of: touch) {
+                    automapTouches.remove(at: i)
+                    automapLastPoints.remove(at: i)
+                }
+            }
+            if automapTouches.count < 2 { holdAutomapKeys([]) } // a lifted finger ends the gesture
+        }
         for touch in touches {
             if touch == stickTouch {
                 stickTouch = nil
@@ -487,6 +579,52 @@ final class TouchOverlayView: UIView {
                 turnBase.isHidden = true
                 turnKnob.isHidden = true
             }
+        }
+    }
+
+    // MARK: Automap gestures (issue #113)
+
+    /// One event's worth of drag or pinch, from the tracked touches' current
+    /// positions against their previous ones. O(1): two points, one byte of
+    /// keys, no allocation that follows the map.
+    private func moveAutomap() {
+        let points = automapTouches.map { $0.location(in: self) }
+        var keys: AutomapKeys = []
+        if points.count == 1 {
+            let delta = CGPoint(x: points[0].x - automapLastPoints[0].x,
+                                y: points[0].y - automapLastPoints[0].y)
+            keys = automapTranslator.keys(forDrag: delta)
+        } else if points.count == 2 {
+            let before = hypot(automapLastPoints[0].x - automapLastPoints[1].x,
+                               automapLastPoints[0].y - automapLastPoints[1].y)
+            let now = hypot(points[0].x - points[1].x, points[0].y - points[1].y)
+            if before > 0 { keys = automapTranslator.keys(forPinchRatio: now / before) }
+        }
+        automapLastPoints = points
+        holdAutomapKeys(keys)
+        // The engine pans for as long as the key is down; a finger that stops
+        // moving sends no more events, so release shortly after the last one.
+        automapIdleTimer?.invalidate()
+        let timer = Timer(timeInterval: 0.12, repeats: false) { [weak self] _ in
+            self?.holdAutomapKeys([])
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        automapIdleTimer = timer
+    }
+
+    /// Diffs `keys` against what is held and injects only the edges, so
+    /// every keydown gets exactly one keyup (a latched key would pan forever;
+    /// see docs/learnings/soft-keyboard-keydown-keyup-pairing.md).
+    private func holdAutomapKeys(_ keys: AutomapKeys) {
+        if keys == automapHeldKeys { return }
+        let released = automapHeldKeys.subtracting(keys)
+        let pressed = keys.subtracting(automapHeldKeys)
+        for code in released.engineKeyCodes { WoofIOS_InjectKey(code, false) }
+        for code in pressed.engineKeyCodes { WoofIOS_InjectKey(code, true) }
+        automapHeldKeys = keys
+        if keys.isEmpty {
+            automapIdleTimer?.invalidate()
+            automapIdleTimer = nil
         }
     }
 
@@ -543,7 +681,22 @@ final class OverlayButton: UIView {
         super.init(frame: CGRect(x: 0, y: 0, width: size, height: size))
         isMultipleTouchEnabled = false
         isAccessibilityElement = true
-        accessibilityTraits = .button
+        // Direct interaction, not .button (issue #215): a .button element is
+        // activated by VoiceOver with focus-then-double-tap, one control at a
+        // time, and Doom needs simultaneous, sustained input -- strafe while
+        // firing, hold forward while turning. .allowsDirectInteraction is the
+        // trait Apple gives a control that must receive the user's touches
+        // as touches (an on-screen piano, a drawing canvas), so VoiceOver
+        // passes a touch on this circle straight to touchesBegan/Ended and
+        // the press-and-hold machinery below works as it does without
+        // VoiceOver. The label still lets a VoiceOver user find each control
+        // by exploring. .button stays alongside it: it is what makes the
+        // control announce as a button, and it is how XCUITest and Revyl
+        // find the overlay (`app.buttons["fireButton"]`): measured with it
+        // removed, every in-game UI test lost the overlay. Direct interaction
+        // governs what a held finger does; .button only says what it is.
+        // OverlayButtonAccessibilityTraitTests pins both.
+        accessibilityTraits = [.button, .allowsDirectInteraction]
         accessibilityLabel = title
 
         backgroundColor = UIColor.white.withAlphaComponent(0.12)
