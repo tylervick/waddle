@@ -81,8 +81,12 @@ final class OverlayPresenter {
         let tuning = TouchTuning.current()
         gamepad.tuning = tuning
         let debugHUDEnabled = UserDefaults.standard.bool(forKey: debugHUDUserDefaultsKey)
+        // The player's button positions from the layout editor (issue #115),
+        // under the same read-once rule.
+        let layoutOverrides = TouchOverlayLayoutOverrides.current()
         let view = TouchOverlayView(gamepad: gamepad, scheme: scheme,
-                                    tuning: tuning, debugHUDEnabled: debugHUDEnabled)
+                                    tuning: tuning, debugHUDEnabled: debugHUDEnabled,
+                                    layoutOverrides: layoutOverrides)
         view.frame = window.bounds
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         window.addSubview(view)

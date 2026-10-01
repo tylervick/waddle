@@ -20,6 +20,14 @@ final class TouchOverlayLayoutOverrideGeometryTests: XCTestCase {
     private static let phoneLandscape = CGRect(x: 0, y: 0, width: 874, height: 402)
     private static let iPadLandscape = CGRect(x: 0, y: 0, width: 1376, height: 1032)
 
+    /// Containment with a thousandth of a point of slack: a frame clamped
+    /// flush to an edge computes `origin + width` in floating point, and on
+    /// the iPad Pro 11 (scale 1.384) that lands an ulp past 1210. The
+    /// property under test is "on screen", not "bit-exact at the edge".
+    private func contains(_ rect: CGRect, _ frame: CGRect) -> Bool {
+        rect.insetBy(dx: -0.001, dy: -0.001).contains(frame)
+    }
+
     private func layout(_ bounds: CGRect, insets: UIEdgeInsets = .zero, hudReserve: CGFloat = 0,
                         overrides: TouchOverlayLayoutOverrides = .none) -> TouchOverlayLayout {
         TouchOverlayLayout(bounds: bounds, safeAreaInsets: insets, hudReserve: hudReserve,
@@ -88,7 +96,7 @@ final class TouchOverlayLayoutOverrideGeometryTests: XCTestCase {
                 let l = layout(rect, overrides: overrides)
                 for control in TouchOverlayControl.allCases {
                     let frame = l.frame(for: control)
-                    XCTAssertTrue(rect.contains(frame),
+                    XCTAssertTrue(contains(rect, frame),
                                   "\(control.rawValue) escaped \(name) with offset \(offset): \(frame)")
                     XCTAssertEqual(frame.size, l.defaultFrame(for: control).size,
                                    "clamping must move the control, never resize it")
@@ -135,7 +143,7 @@ final class TouchOverlayLayoutOverrideGeometryTests: XCTestCase {
         var clampedOverrides = TouchOverlayLayoutOverrides.none
         clampedOverrides[.fire] = l.clampedOverrideOffset(placing: .fire, at: outside)
         let clamped = layout(Self.phoneLandscape, overrides: clampedOverrides).frame(for: .fire)
-        XCTAssertTrue(Self.phoneLandscape.contains(clamped), "\(clamped)")
+        XCTAssertTrue(contains(Self.phoneLandscape, clamped), "\(clamped)")
         XCTAssertEqual(clamped.minX, 0, accuracy: 0.001, "pinned to the left edge")
         XCTAssertEqual(clamped.maxY, Self.phoneLandscape.maxY, accuracy: 0.001, "pinned to the bottom edge")
     }

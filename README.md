@@ -293,7 +293,12 @@ Freedoom Phase 1+2 are bundled as base games.
   at a door or a switch presses USE for you (auto-use, once per line, as the
   predecessor apps did); the USE button still works for anything else. While
   the automap is up, a one-finger drag pans it and a two-finger pinch zooms
-  it (the map follows the finger; buttons keep working). Two
+  it (the map follows the finger; buttons keep working). The buttons can
+  be moved: "Control Feel…" → "Edit Layout…" opens a full-screen editor
+  where dragging a button puts it where your thumb wants it; positions
+  persist across launches, scale with the device like the defaults, are
+  clamped to the window on every install, and Reset restores the stock
+  arrangement. Two
   touch control schemes are available from the gear on the shelf, which
   opens a Settings sheet ("Touch Controls: Classic / Modern", persisted
   across launches):

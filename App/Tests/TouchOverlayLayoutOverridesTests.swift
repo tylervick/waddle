@@ -78,18 +78,29 @@ final class TouchOverlayLayoutOverridesTests: XCTestCase {
     }
 
     /// A control this build does not know (removed, renamed, or from a newer
-    /// build) is dropped; the ones it knows are kept. Non-finite numbers are
-    /// dropped too, since a NaN center would put a button nowhere.
-    func testUnknownControlsAndNonFiniteValuesAreDropped() throws {
+    /// build) is dropped; a pair that is not two numbers is dropped; the ones
+    /// it knows are kept.
+    func testUnknownControlsAndMalformedPairsAreDropped() throws {
         let json = """
-        {"fireButton":[-10,-20],"laserButton":[5,5],"useButton":[1e999,0],"menuButton":[3]}
+        {"fireButton":[-10,-20],"laserButton":[5,5],"useButton":[1,"x"],"menuButton":[3]}
         """
         defaults.set(Data(json.utf8), forKey: TouchOverlayLayoutOverrides.userDefaultsKey)
         let read = TouchOverlayLayoutOverrides.current(defaults: defaults)
         XCTAssertEqual(read[.fire], CGPoint(x: -10, y: -20))
-        XCTAssertNil(read[.use], "a non-finite coordinate must be dropped, not clamped or zeroed")
+        XCTAssertNil(read[.use], "a non-numeric coordinate must be dropped, not zeroed")
         XCTAssertNil(read[.menu], "a malformed pair must be dropped")
         XCTAssertEqual(read.offsets.count, 1)
+    }
+
+    /// A non-finite offset would put a button nowhere; it is refused at the
+    /// setter, so nothing downstream has to defend against it.
+    func testNonFiniteOffsetsAreRefused() {
+        var overrides = TouchOverlayLayoutOverrides.none
+        overrides[.use] = CGPoint(x: CGFloat.nan, y: 0)
+        XCTAssertNil(overrides[.use])
+        overrides[.use] = CGPoint(x: 0, y: CGFloat.infinity)
+        XCTAssertNil(overrides[.use])
+        XCTAssertTrue(overrides.isEmpty)
     }
 
     /// The stored shape is plain JSON keyed by the controls' accessibility

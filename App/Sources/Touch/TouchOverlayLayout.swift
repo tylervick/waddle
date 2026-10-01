@@ -88,11 +88,17 @@ struct TouchOverlayLayout {
     /// Height of the band kept clear at the bottom for Doom's status bar.
     let statusBarReserve: CGFloat
 
+    /// The player's own positions (issue #115): per-control offsets from
+    /// the default center in reference points, applied by `frame(for:)` and
+    /// clamped inside the window. `.none` is the shipped arrangement.
+    let overrides: TouchOverlayLayoutOverrides
+
     private let usable: CGRect
     private let topRowY: CGFloat
     private let bottomLimit: CGFloat
 
-    init(bounds: CGRect, safeAreaInsets: UIEdgeInsets, hudReserve: CGFloat) {
+    init(bounds: CGRect, safeAreaInsets: UIEdgeInsets, hudReserve: CGFloat,
+         overrides: TouchOverlayLayoutOverrides = .none) {
         let usable = bounds.inset(by: safeAreaInsets)
 
         // Short/long rather than width/height: a rotation must not resize
@@ -108,6 +114,7 @@ struct TouchOverlayLayout {
         let scale = Swift.min(Swift.max(raw, Self.minScale), Self.maxScale)
 
         self.scale = scale
+        self.overrides = overrides
         self.usable = usable
         self.stickRadius = 60 * scale
         self.knobRadius = 26 * scale
@@ -116,7 +123,48 @@ struct TouchOverlayLayout {
         self.bottomLimit = usable.maxY - statusBarReserve
     }
 
-    /// Where `control` belongs, in overlay coordinates.
+    /// Where `control` belongs, in overlay coordinates: its default frame,
+    /// moved by the player's offset (times `scale`) when there is one, and
+    /// then clamped so the whole circle stays inside the usable rect and
+    /// below the debug-HUD strip. The clamp is what lets a layout saved in
+    /// landscape, or on an iPad, install in portrait or in a small iPadOS
+    /// window without a button leaving the screen (issue #115's hard
+    /// requirement, and issue #52's containment property extended to every
+    /// position a user can persist). The size never changes.
+    func frame(for control: TouchOverlayControl) -> CGRect {
+        let base = defaultFrame(for: control)
+        guard let offset = overrides[control] else { return base }
+        let wanted = CGPoint(x: base.midX + offset.x * scale, y: base.midY + offset.y * scale)
+        let center = clampedCenter(wanted, diameter: base.width)
+        return CGRect(x: center.x - base.width / 2, y: center.y - base.height / 2,
+                      width: base.width, height: base.height)
+    }
+
+    /// The offset (reference points) that puts `control`'s center at
+    /// `center`, already clamped: what the layout editor stores while a
+    /// button is dragged, so the persisted position is the one the player
+    /// saw and `frame(for:)` reproduces it exactly. Placing a control at its
+    /// default center yields zero, so "dragged back" and "never moved" are
+    /// the same stored state.
+    func clampedOverrideOffset(placing control: TouchOverlayControl, at center: CGPoint) -> CGPoint {
+        let base = defaultFrame(for: control)
+        let clamped = clampedCenter(center, diameter: base.width)
+        return CGPoint(x: (clamped.x - base.midX) / scale, y: (clamped.y - base.midY) / scale)
+    }
+
+    /// `center` moved the least distance that keeps a circle of `diameter`
+    /// inside the usable rect and below the HUD reserve. A window too small
+    /// for the circle centers it on that axis rather than inverting the range.
+    private func clampedCenter(_ center: CGPoint, diameter: CGFloat) -> CGPoint {
+        let r = diameter / 2
+        func clamp(_ v: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat {
+            lo > hi ? (lo + hi) / 2 : Swift.min(Swift.max(v, lo), hi)
+        }
+        return CGPoint(x: clamp(center.x, usable.minX + r, usable.maxX - r),
+                       y: clamp(center.y, topRowY + r, usable.maxY - r))
+    }
+
+    /// Where `control` belongs with nothing moved, in overlay coordinates.
     ///
     /// ## The arrangement
     ///
@@ -136,7 +184,7 @@ struct TouchOverlayLayout {
     ///
     /// Offsets are the phone-tuned values multiplied by `scale`, so the
     /// clusters keep their shape and spacing at every size.
-    func frame(for control: TouchOverlayControl) -> CGRect {
+    func defaultFrame(for control: TouchOverlayControl) -> CGRect {
         let s = scale
         let diameter = control.baseDiameter * s
         let left = usable.minX, right = usable.maxX
