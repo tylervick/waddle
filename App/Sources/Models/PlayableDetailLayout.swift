@@ -146,6 +146,32 @@ enum PlayableDetailLayout {
         sideBySideArtHeight(contentWidth: contentWidth, viewportHeight: viewportHeight) * Theme.heroAspectRatio
     }
 
+    /// The caption column beside the art: the title, a gap, then the buttons
+    /// stacked -- the column is at most half the row, so `ViewThatFits` falls
+    /// to the stacked buttons there more often than it does in portrait, and
+    /// the budget assumes it has.
+    static func sideBySideCaptionHeight(titleLineHeight: CGFloat,
+                                        buttonLineHeight: CGFloat,
+                                        primaryButtonCount: Int) -> CGFloat {
+        let buttons = CGFloat(max(0, primaryButtonCount))
+        let button = max(Theme.minimumTapTarget, buttonLineHeight + buttonVerticalPadding * 2)
+        return titleLineHeight + captionSpacing + buttons * button + max(0, buttons - 1) * captionSpacing
+    }
+
+    /// The whole hero row, side by side: its paddings around the taller of
+    /// the art and the caption. The art is the only part the budget can
+    /// shrink; the caption is text at the reader's Dynamic Type size and is
+    /// not negotiable. So when the caption alone is taller than the room,
+    /// the row is taller than the room and the first section is reached by
+    /// scrolling -- the same answer the stacked layout gives when its floor
+    /// binds, and the honest one: a shorter art would not have helped.
+    static func sideBySideRowHeight(contentWidth: CGFloat,
+                                    viewportHeight: CGFloat,
+                                    captionHeight: CGFloat) -> CGFloat {
+        let art = sideBySideArtHeight(contentWidth: contentWidth, viewportHeight: viewportHeight)
+        return captionTopPadding + max(art, captionHeight) + captionBottomPadding
+    }
+
     /// Height for the detail header's art when stacked above the caption.
     ///
     /// - Parameters:

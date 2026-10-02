@@ -173,6 +173,47 @@ final class PlayableDetailLayoutTests: XCTestCase {
         }
     }
 
+    /// The budget is on the whole row, not only the art: with the caption a
+    /// resumable game shows at the default text size (title, Continue, New
+    /// Game stacked), the taller of art and caption still leaves a tap target
+    /// of the next section on every landscape viewport.
+    func testSideBySideRowLeavesATapTargetOfPeekWithTheDefaultCaption() {
+        let caption = PlayableDetailLayout.sideBySideCaptionHeight(titleLineHeight: 26.3,
+                                                                   buttonLineHeight: 20.3,
+                                                                   primaryButtonCount: 2)
+        for sheet in [Sheet.landscapePhone, Self.landscapePad,
+                      Sheet(contentWidth: 812 - 32, height: 375 - 44 - 21)] {
+            let row = PlayableDetailLayout.sideBySideRowHeight(contentWidth: sheet.contentWidth,
+                                                               viewportHeight: sheet.height,
+                                                               captionHeight: caption)
+            XCTAssertGreaterThanOrEqual(sheet.height - row, Theme.minimumTapTarget - 0.5,
+                                        "\(sheet.contentWidth)x\(sheet.height)")
+        }
+    }
+
+    /// And when the caption alone is taller than the room -- accessibility
+    /// text on a landscape phone -- the row is the caption's height, not
+    /// something shorter: the model does not pretend a shorter art would
+    /// have bought the peek back.
+    func testSideBySideRowIsTheCaptionWhenTheCaptionIsTaller() {
+        let sheet = Sheet.landscapePhone
+        // A three-line title at the largest accessibility size, over two
+        // stacked buttons: 156 + 12 + 2 x 65 + 12 = 310, past the 259 pt the
+        // art is allowed on this viewport.
+        let tall = PlayableDetailLayout.sideBySideCaptionHeight(titleLineHeight: 52 * 3,
+                                                                buttonLineHeight: 41,
+                                                                primaryButtonCount: 2)
+        XCTAssertGreaterThan(tall, PlayableDetailLayout.sideBySideArtHeight(contentWidth: sheet.contentWidth,
+                                                                            viewportHeight: sheet.height),
+                             "fixture no longer describes a caption taller than the art")
+        let row = PlayableDetailLayout.sideBySideRowHeight(contentWidth: sheet.contentWidth,
+                                                           viewportHeight: sheet.height,
+                                                           captionHeight: tall)
+        XCTAssertEqual(row, PlayableDetailLayout.captionTopPadding + tall + PlayableDetailLayout.captionBottomPadding,
+                       accuracy: 0.001)
+        XCTAssertGreaterThan(row, sheet.height)
+    }
+
     /// Where there is room, the art keeps its shape at its full share: the
     /// landscape iPad is natural-bound, not peek-bound.
     func testSideBySideKeepsTheNaturalHeightOnAPad() {
