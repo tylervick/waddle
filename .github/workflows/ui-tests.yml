@@ -32,6 +32,19 @@ name: UI Tests
 on:
   push:
     branches: [main]
+  # A SMOKE SUBSET on pull requests that touch the shell (see the "Run UI
+  # tests" step for which classes): nothing used to exercise WaddleUITests
+  # before merge, so the wordmark bar, the game page hero and the rename flow
+  # were all first driven on main (docs/learnings/ui-test-failures-need-a-
+  # main-baseline.md). Path-filtered so a docs- or script-only pull request
+  # does not spend a macOS runner on it; the full suite still runs on every
+  # push to main.
+  pull_request:
+    paths:
+      - App/Sources/**
+      - App/UITests/**
+      - App/Assets.xcassets/**
+      - App/project.yml
   workflow_dispatch:
     inputs:
       device:
@@ -48,6 +61,12 @@ on:
 # This workflow only ever reads the repo; it never needs to write anything.
 permissions:
   contents: read
+
+# A newer push to the same pull request supersedes the run in flight; main's
+# own runs are never cancelled.
+concurrency:
+  group: ui-tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   XCODE_VERSION: "26.2"
@@ -106,6 +125,17 @@ jobs:
           ARGS+=(-skip-testing:WaddleUITests/RealWADTests)
           if [ -n "$ONLY_TESTING" ]; then
             ARGS+=(-only-testing:"$ONLY_TESTING")
+          elif [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            # The shell smoke: the screens the design system and the shelf's
+            # layout model draw, and the flows whose identifiers and copy the
+            # UI tests pin. No engine session is started by any of these, so
+            # the subset finishes in minutes; EngineSmokeTests, the session
+            # state probes and the touch tests stay on main's full run.
+            ARGS+=(-only-testing:WaddleUITests/PlayTabTests)
+            ARGS+=(-only-testing:WaddleUITests/GamePageTests)
+            ARGS+=(-only-testing:WaddleUITests/FilesScreenTests)
+            ARGS+=(-only-testing:WaddleUITests/HiddenGamesScreenTests)
+            ARGS+=(-only-testing:WaddleUITests/ShipUITests)
           else
             ARGS+=(-only-testing:WaddleUITests)
           fi
