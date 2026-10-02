@@ -141,55 +141,85 @@ struct GamePageView: View {
     /// background so it is drawn on the backdrop rather than in a grouped
     /// cell. The Form's own section margin (`rowHorizontalInset`) is the only
     /// horizontal inset, and it is what the art's width is measured against.
+    /// `PlayableDetailLayout.arrangement` decides whether the art sits above
+    /// the caption or beside it.
     private var headerSection: some View {
         Section {
-            VStack(alignment: .leading, spacing: PlayableDetailLayout.captionSpacing) {
-                TitleArtView(game: game, library: library,
-                             aspectRatio: Theme.heroAspectRatio,
-                             height: PlayableDetailLayout.artHeight(
-                                contentWidth: artContentWidth,
-                                viewportHeight: viewportHeight,
-                                captionHeight: captionHeight))
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
-                            .strokeBorder(Color.appHairline, lineWidth: Theme.tileHairlineWidth)
-                    )
-                // Tap to rename (spec §3.2). A button rather than an inline field so
-                // the title reads as a title and VoiceOver announces one action.
-                Button {
-                    draftName = game.name
-                    showRename = true
-                } label: {
-                    HStack(spacing: Theme.Spacing.sm) {
-                        Text(game.name).font(Theme.Typography.heroTitle)
-                        Image(systemName: "pencil")
-                            .font(Theme.Typography.secondary)
-                            .foregroundStyle(Color.appSecondaryText)
+            Group {
+                switch PlayableDetailLayout.arrangement(contentWidth: artContentWidth,
+                                                        viewportHeight: viewportHeight) {
+                case .stacked:
+                    VStack(alignment: .leading, spacing: PlayableDetailLayout.captionSpacing) {
+                        heroArt(height: PlayableDetailLayout.artHeight(
+                            contentWidth: artContentWidth,
+                            viewportHeight: viewportHeight,
+                            captionHeight: captionHeight))
+                        titleButton
+                        actionsRow
+                    }
+                case .sideBySide:
+                    // Wider than tall (design-system spec §8): the art takes
+                    // up to half the row and the caption the rest, so the
+                    // art is a picture again instead of the 96 pt strip the
+                    // stacked budget left it on a landscape phone.
+                    HStack(alignment: .top, spacing: PlayableDetailLayout.captionSpacing) {
+                        heroArt(height: PlayableDetailLayout.sideBySideArtHeight(
+                            contentWidth: artContentWidth, viewportHeight: viewportHeight))
+                            .frame(width: PlayableDetailLayout.sideBySideArtWidth(
+                                contentWidth: artContentWidth, viewportHeight: viewportHeight))
+                        VStack(alignment: .leading, spacing: PlayableDetailLayout.captionSpacing) {
+                            titleButton
+                            actionsRow
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("gameNameButton")
-                .accessibilityLabel("Rename \(game.name)")
-
-                // Side by side where both labels fit on one line, stacked
-                // where Dynamic Type makes them too wide — `ViewThatFits`
-                // measures the labels' ideal widths, not the flexible frames
-                // the button style puts around them.
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: PlayableDetailLayout.captionSpacing) { primaryActions }
-                    VStack(spacing: PlayableDetailLayout.captionSpacing) { primaryActions }
-                }
             }
-            // No horizontal padding of its own: the Form already insets the
-            // row by `rowHorizontalInset`, so the art and the caption sit
-            // flush with the cards below -- the same edge the shelf's hero
-            // shares with its grid.
             .padding(.top, PlayableDetailLayout.captionTopPadding)
             .padding(.bottom, PlayableDetailLayout.captionBottomPadding)
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
+        }
+    }
+
+    private func heroArt(height: CGFloat) -> some View {
+        TitleArtView(game: game, library: library,
+                     aspectRatio: Theme.heroAspectRatio,
+                     height: height)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
+                    .strokeBorder(Color.appHairline, lineWidth: Theme.tileHairlineWidth)
+            )
+    }
+
+    /// Tap to rename (spec §3.2). A button rather than an inline field so the
+    /// title reads as a title and VoiceOver announces one action.
+    private var titleButton: some View {
+        Button {
+            draftName = game.name
+            showRename = true
+        } label: {
+            HStack(spacing: Theme.Spacing.sm) {
+                Text(game.name).font(Theme.Typography.heroTitle)
+                Image(systemName: "pencil")
+                    .font(Theme.Typography.secondary)
+                    .foregroundStyle(Color.appSecondaryText)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("gameNameButton")
+        .accessibilityLabel("Rename \(game.name)")
+    }
+
+    /// Side by side where both labels fit on one line, stacked where Dynamic
+    /// Type makes them too wide -- `ViewThatFits` measures the labels' ideal
+    /// widths, not the flexible frames the button style puts around them.
+    private var actionsRow: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: PlayableDetailLayout.captionSpacing) { primaryActions }
+            VStack(spacing: PlayableDetailLayout.captionSpacing) { primaryActions }
         }
     }
 

@@ -178,3 +178,20 @@ the other integer-scale height) as its subject, drawn on the page rather than
 in a cell. Settings gains a "Controls" header so its three sections read as
 Controls / Library / the rest. No identifier or visible string changes
 otherwise.
+
+## 8. Slice 3 (2026-10-01): the game page in landscape
+
+Stacking the art over the caption on a page that is wider than it is tall
+left the art on its 96 pt floor on every landscape phone, and a wide
+letterboxed band on a landscape iPad. Once the viewport is measured and
+`contentWidth > viewportHeight`, the hero row puts the art beside the caption
+instead: the art takes up to half the row at TITLEPIC's shape, shrinks only
+so one tap target of the first section still shows, and never goes below the
+floor; the title and the two buttons take the rest. Portrait and the
+unmeasured first frame stay stacked, so nothing about the portrait page
+changes. `PlayableDetailLayout.arrangement`, `sideBySideArtHeight` and
+`sideBySideArtWidth` hold the rule and `PlayableDetailLayoutTests` pins it.
+
+The shelf's landscape iPad hero was looked at and left alone:
+`ShelfHeroLayoutTests.testLandscapePadIsCappedButStillDominant` records that
+its dominance is a decision, not an accident.
