@@ -195,3 +195,31 @@ changes. `PlayableDetailLayout.arrangement`, `sideBySideArtHeight` and
 The shelf's landscape iPad hero was looked at and left alone:
 `ShelfHeroLayoutTests.testLandscapePadIsCappedButStillDominant` records that
 its dominance is a decision, not an accident.
+
+## 9. Slice 4 (2026-10-02): the shelf on a landscape phone, and the chrome it is budgeted against
+
+Measuring the shelf's safe-area chrome on the live view (iPhone 17 Pro, iOS
+27) gave 116 pt above and 34 below in portrait and 78 / 20 with 62 pt sides
+in landscape. The layout suites had budgeted 96 + 34 and 44 + 21 with 59 pt
+sides — a large-title bar the shelf stopped using when the wordmark made it
+inline in §5, and an inline bar assumed to be shorter than the large one
+when on this runtime it is taller. Every phone fold budget was 20 pt
+optimistic in portrait and 33 pt in landscape; the pad fixtures were already
+the harder reading and stay. The fixtures now carry the measured numbers.
+
+On those numbers, the stacked landscape-phone hero was on its 96 pt floor at
+the default text size, the first tile row peeked under a tap target at
+accessibility sizes, and the compact welcome card left the row 40.6 pt clear
+of the fold. So a landscape phone — UIKit's compact vertical size class, and
+nothing else; the landscape pad keeps its stacked, dominant hero — now lays
+the hero zone side by side, as the game page does in §8: the art takes up to
+half the row at TITLEPIC's shape, shrunk only so `minimumGridPeek` of the
+first row still shows, never below the floor; the title and Continue line sit
+beside it. The welcome card puts its tagline beside the button, which costs
+no more height than the button alone, so the tagline is kept there rather
+than dropped. The zone break in compact height is the grid gap (20) rather
+than the 32 pt rhythm break, which on a 304 pt viewport was a tenth of the
+screen. `ShelfHeroLayout.arrangement`, `sectionSpacing(compactHeight:)`,
+`sideBySideArtHeight/Width/HeroHeight` and `welcomeCardHeight(compactHeight:)`
+hold the rules; `ShelfHeroLayoutTests` and `AccessibilityTextSizeLayoutTests`
+pin them.

@@ -52,6 +52,69 @@ enum ShelfHeroLayout {
     /// collapsing into a strip too thin to read as art.
     static let minimumArtHeight: CGFloat = 96
 
+    // MARK: Compact height (design-system spec §9)
+
+    /// How the hero zone arranges itself. Stacked -- art over caption, tagline
+    /// over button -- everywhere the viewport is tall enough to hold a hero
+    /// and a tile row; side by side where it is not.
+    enum Arrangement: Equatable {
+        case stacked
+        case sideBySide
+    }
+
+    /// `compactHeight` is UIKit's compact vertical size class: a landscape
+    /// phone, and nothing else. A landscape iPad is wider than tall too, but
+    /// has 900-odd points of height and keeps the stacked, dominant hero its
+    /// tests record as a decision. On a landscape phone the stacked model
+    /// was on its 96 pt floor at the *default* text size once the chrome was
+    /// measured honestly (2026-10-02), so beside the caption is the only
+    /// arrangement that leaves both the art and a tappable tile row.
+    static func arrangement(compactHeight: Bool) -> Arrangement {
+        compactHeight ? .sideBySide : .stacked
+    }
+
+    /// The zone break, by height class: the 32 pt that gives a portrait
+    /// screen its rhythm is a tenth of a landscape phone's viewport, so there
+    /// the break is the grid's own gap.
+    static func sectionSpacing(compactHeight: Bool) -> CGFloat {
+        compactHeight ? Theme.Spacing.grid : sectionSpacing
+    }
+
+    /// Gap between the art and the caption beside it.
+    static let sideBySideSpacing: CGFloat = Theme.Spacing.md
+
+    /// At most this much of the row goes to the art beside the caption.
+    static let sideBySideArtWidthFraction: CGFloat = 0.5
+
+    /// Height for the art beside the caption: TITLEPIC's shape at up to half
+    /// the row, shrunk so `minimumGridPeek` of the first tile row still shows
+    /// under the compact zone break, never below `minimumArtHeight`. The
+    /// caption does not enter: it sits beside the art, not under it.
+    static func sideBySideArtHeight(contentWidth: CGFloat, viewportHeight: CGFloat) -> CGFloat {
+        let widest = (max(0, contentWidth) - sideBySideSpacing) * sideBySideArtWidthFraction
+        let natural = widest / Theme.heroAspectRatio
+        guard viewportHeight.isFinite, viewportHeight > 0 else { return natural }
+        let room = viewportHeight - sectionSpacing(compactHeight: true) - minimumGridPeek
+        return min(natural, max(room, minimumArtHeight))
+    }
+
+    /// The width that goes with `sideBySideArtHeight`: the art keeps its shape.
+    static func sideBySideArtWidth(contentWidth: CGFloat, viewportHeight: CGFloat) -> CGFloat {
+        sideBySideArtHeight(contentWidth: contentWidth, viewportHeight: viewportHeight) * Theme.heroAspectRatio
+    }
+
+    /// The whole hero, side by side: the taller of the art and the caption.
+    /// The caption is text at the reader's size and cannot be shrunk, so a
+    /// caption taller than the art makes the hero taller than the art, and
+    /// the grid's peek is spent on it -- the same honest answer the game
+    /// page's side-by-side row gives.
+    static func sideBySideHeroHeight(contentWidth: CGFloat,
+                                     viewportHeight: CGFloat,
+                                     captionHeight: CGFloat) -> CGFloat {
+        max(sideBySideArtHeight(contentWidth: contentWidth, viewportHeight: viewportHeight),
+            captionHeight)
+    }
+
     /// The welcome card's own metrics: 16 pt of padding all round, 12 pt
     /// between its rows. Constants because they are literals in `ShelfView`'s
     /// card and do not scale with Dynamic Type; everything that *does* scale is
@@ -75,8 +138,17 @@ enum ShelfHeroLayout {
     ///
     /// - Parameter descriptionHeight: zero for the compact form — the card
     ///   without its description line — which also drops the row gap.
+    ///
+    /// - Parameter compactHeight: on a landscape phone the tagline sits
+    ///   beside the button rather than over it, so the card is as tall as its
+    ///   taller column; the compact form (no description) is the same height
+    ///   either way.
     static func welcomeCardHeight(descriptionHeight: CGFloat,
-                                  buttonHeight: CGFloat) -> CGFloat {
+                                  buttonHeight: CGFloat,
+                                  compactHeight: Bool = false) -> CGFloat {
+        if compactHeight && descriptionHeight > 0 {
+            return welcomeCardPadding * 2 + max(descriptionHeight, buttonHeight)
+        }
         let rows = descriptionHeight > 0
             ? [descriptionHeight, buttonHeight]
             : [buttonHeight]
@@ -163,11 +235,13 @@ enum ShelfHeroLayout {
                                contentWidth: CGFloat,
                                tileMinimumWidth: CGFloat,
                                contentPadding: CGFloat,
-                               gridSpacing: CGFloat) -> CGFloat {
+                               gridSpacing: CGFloat,
+                               compactHeight: Bool = false) -> CGFloat {
         let tileRowHeight = gridColumnWidth(contentWidth: contentWidth,
                                             minimum: tileMinimumWidth,
                                             spacing: gridSpacing) / Theme.tileAspectRatio
-        return viewportHeight - contentPadding * 2 - sectionSpacing - tileRowHeight
+        return viewportHeight - contentPadding * 2
+            - sectionSpacing(compactHeight: compactHeight) - tileRowHeight
     }
 
     /// Whether the welcome card can afford its description line.
@@ -218,13 +292,15 @@ enum ShelfHeroLayout {
                                             tileMinimumWidth: CGFloat,
                                             contentPadding: CGFloat,
                                             gridSpacing: CGFloat,
-                                            fullCardHeight: CGFloat) -> Bool {
+                                            fullCardHeight: CGFloat,
+                                            compactHeight: Bool = false) -> Bool {
         guard viewportHeight.isFinite, viewportHeight > 0 else { return true }
         let budget = heroZoneBudget(viewportHeight: viewportHeight,
                                     contentWidth: contentWidth,
                                     tileMinimumWidth: tileMinimumWidth,
                                     contentPadding: contentPadding,
-                                    gridSpacing: gridSpacing)
+                                    gridSpacing: gridSpacing,
+                                    compactHeight: compactHeight)
         // `+ minimumFoldClearance`, not a bare `>=`: a card that spends the
         // budget exactly leaves the tile row ending on the fold, which is the
         // state that made the tap flaky rather than the state that fixed it.

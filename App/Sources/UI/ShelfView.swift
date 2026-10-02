@@ -32,6 +32,10 @@ struct ShelfView: View {
     @AppStorage(debugHUDUserDefaultsKey) private var debugHUD: Bool = false
     @State private var errorAlert: EngineErrorAlert?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// Compact is a landscape phone and nothing else (design-system spec §9):
+    /// the one height class where the hero zone goes side by side.
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    private var compactHeight: Bool { verticalSizeClass == .compact }
 
     /// Width available to the hero's art and the height visible without
     /// scrolling, measured from the scroll view itself rather than from its
@@ -51,7 +55,8 @@ struct ShelfView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: ShelfHeroLayout.sectionSpacing) {
+            VStack(alignment: .leading,
+                   spacing: ShelfHeroLayout.sectionSpacing(compactHeight: compactHeight)) {
                 switch zone {
                 case .welcome: welcomeCard
                 case .resume(let game): hero(for: game)
@@ -230,7 +235,9 @@ struct ShelfView: View {
             gridSpacing: gridSpacing,
             fullCardHeight: ShelfHeroLayout.welcomeCardHeight(
                 descriptionHeight: welcomeDescriptionHeight,
-                buttonHeight: welcomeButtonHeight))
+                buttonHeight: welcomeButtonHeight,
+                compactHeight: compactHeight),
+            compactHeight: compactHeight)
     }
 
     /// `WaddlePrimaryButtonStyle` with its `minHeight`, so the row is the
@@ -247,7 +254,9 @@ struct ShelfView: View {
     /// reason this is measured instead of assumed.
     private var welcomeDescriptionHeight: CGFloat {
         let font = UIFont.preferredFont(forTextStyle: .subheadline)
-        let inner = heroContentWidth - ShelfHeroLayout.welcomeCardPadding * 2
+        var inner = heroContentWidth - ShelfHeroLayout.welcomeCardPadding * 2
+        // Beside the button the tagline has half the card, less the gap.
+        if compactHeight { inner = (inner - ShelfHeroLayout.welcomeCardRowSpacing) / 2 }
         guard inner > 0 else { return font.lineHeight }
         let box = (Self.welcomeDescription as NSString).boundingRect(
             with: CGSize(width: inner, height: .greatestFiniteMagnitude),
@@ -290,34 +299,58 @@ struct ShelfView: View {
         // No app-name row (spec §4, amended 2026-08-21): the navigation title
         // directly above this card already says "Waddle", and a first launch
         // was greeting the player with the name twice in a row.
-        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-            // Dropped on viewports where the card would otherwise push the
-            // first tile row past the fold -- see
-            // `ShelfHeroLayout.welcomeCardShowsDescription`. The button is
-            // what spec §4 leads with; the sentence is the part that can go
-            // when "playable in one tap" is the thing at stake.
-            if showsWelcomeDescription {
-                Text(Self.welcomeDescription)
-                    .font(Theme.Typography.secondary)
-                    .foregroundStyle(Color.appSecondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
+        // Tagline over button, or beside it on a landscape phone (design-system
+        // spec §9), where a stacked card would push the first tile row off the
+        // fold before the tagline had earned its place.
+        Group {
+            switch ShelfHeroLayout.arrangement(compactHeight: compactHeight) {
+            case .stacked:
+                VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+                    welcomeDescriptionText
+                    welcomeButton
+                }
+            case .sideBySide:
+                HStack(alignment: .center, spacing: Theme.Spacing.md) {
+                    welcomeDescriptionText
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    welcomeButton
+                        .frame(maxWidth: .infinity)
+                }
             }
-            // Adding games is this screen's primary action while it is on
-            // screen, and spec §5 names it as one of the two that wear the
-            // single accent (the other being Continue, which by §4's rule
-            // cannot be showing at the same time). The primary style owns
-            // the dark label the light accent needs.
-            Button("Add Your Games") {
-                showImporter = true
-            }
-            .buttonStyle(.waddlePrimary)
-            .accessibilityIdentifier("addYourGamesButton")
         }
         // `waddleCard` pads by `Theme.Spacing.base`, which is
         // `ShelfHeroLayout.welcomeCardPadding` -- the measured card height
         // depends on the two agreeing.
         .waddleCard()
         .accessibilityIdentifier("welcomeCard")
+    }
+
+    /// Dropped on viewports where the card would otherwise push the first
+    /// tile row past the fold -- see
+    /// `ShelfHeroLayout.welcomeCardShowsDescription`. The button is what spec
+    /// §4 leads with; the sentence is the part that can go when "playable in
+    /// one tap" is the thing at stake.
+    @ViewBuilder
+    private var welcomeDescriptionText: some View {
+        if showsWelcomeDescription {
+            Text(Self.welcomeDescription)
+                .font(Theme.Typography.secondary)
+                .foregroundStyle(Color.appSecondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Adding games is this screen's primary action while it is on screen,
+    /// and spec §5 names it as one of the two that wear the single accent
+    /// (the other being Continue, which by §4's rule cannot be showing at the
+    /// same time). The primary style owns the dark label the light accent
+    /// needs.
+    private var welcomeButton: some View {
+        Button("Add Your Games") {
+            showImporter = true
+        }
+        .buttonStyle(.waddlePrimary)
+        .accessibilityIdentifier("addYourGamesButton")
     }
 
     /// The Continue hero: full-width art, title, and when it was last played.
@@ -333,32 +366,29 @@ struct ShelfView: View {
         Button {
             play(game, mode: .continueNewest)
         } label: {
-            VStack(alignment: .leading, spacing: heroCaptionSpacing) {
-                TitleArtView(game: game, library: library,
-                             aspectRatio: Theme.heroAspectRatio,
-                             height: ShelfHeroLayout.artHeight(
-                                contentWidth: heroContentWidth,
-                                viewportHeight: viewportHeight,
-                                captionHeight: heroCaptionHeight))
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius,
-                                                style: .continuous))
-                Text(game.name).font(.title2.bold())
-                HStack(spacing: 4) {
-                    // Continue is this screen's primary action, so it — and
-                    // only it — wears the one red accent (spec §5). The
-                    // last-played half stays secondary.
-                    Group {
-                        Image(systemName: "play.fill")
-                        Text("Continue")
+            // Art over caption, or beside it on a landscape phone (design-
+            // system spec §9), where the stacked art was on its 96 pt floor
+            // at the default text size.
+            Group {
+                switch ShelfHeroLayout.arrangement(compactHeight: compactHeight) {
+                case .stacked:
+                    VStack(alignment: .leading, spacing: heroCaptionSpacing) {
+                        heroArt(game, height: ShelfHeroLayout.artHeight(
+                            contentWidth: heroContentWidth,
+                            viewportHeight: viewportHeight,
+                            captionHeight: heroCaptionHeight))
+                        heroCaption(game)
                     }
-                    .foregroundStyle(Color.appAccent)
-                    if let played = game.lastPlayed {
-                        Text("·")
-                        Text(played, format: .relative(presentation: .named))
+                case .sideBySide:
+                    HStack(alignment: .top, spacing: ShelfHeroLayout.sideBySideSpacing) {
+                        heroArt(game, height: ShelfHeroLayout.sideBySideArtHeight(
+                            contentWidth: heroContentWidth, viewportHeight: viewportHeight))
+                            .frame(width: ShelfHeroLayout.sideBySideArtWidth(
+                                contentWidth: heroContentWidth, viewportHeight: viewportHeight))
+                        heroCaption(game)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                .font(.subheadline)
-                .foregroundStyle(Color.appSecondaryText)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -366,6 +396,35 @@ struct ShelfView: View {
         .accessibilityIdentifier("continueHero")
         .accessibilityLabel("Continue \(TileAccessibility.label(for: game))")
         .contextMenu { contextMenuItems(for: game) }
+    }
+
+    private func heroArt(_ game: Game, height: CGFloat) -> some View {
+        TitleArtView(game: game, library: library,
+                     aspectRatio: Theme.heroAspectRatio,
+                     height: height)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
+    }
+
+    /// The title over the Continue line. Continue is this screen's primary
+    /// action, so it -- and only it -- wears the one accent (spec §5); the
+    /// last-played half stays secondary.
+    private func heroCaption(_ game: Game) -> some View {
+        VStack(alignment: .leading, spacing: heroCaptionSpacing) {
+            Text(game.name).font(Theme.Typography.heroTitle)
+            HStack(spacing: Theme.Spacing.xs) {
+                Group {
+                    Image(systemName: "play.fill")
+                    Text("Continue")
+                }
+                .foregroundStyle(Color.appAccent)
+                if let played = game.lastPlayed {
+                    Text("·")
+                    Text(played, format: .relative(presentation: .named))
+                }
+            }
+            .font(Theme.Typography.secondary)
+            .foregroundStyle(Color.appSecondaryText)
+        }
     }
 
     /// The ghost tile closing a small library's grid (spec §5, amended
