@@ -45,19 +45,38 @@ paste; `docs/app-store/screenshots/` holds the images;
 
 ## 2. Build and upload
 
-**Releases run from CI.** Dispatch the `TestFlight` workflow — do not archive
-by hand unless CI is unavailable.
+**Releases run from CI.** Do not archive by hand unless CI is unavailable.
 
-**Most builds arrive without you.** The workflow also runs on a nightly
-schedule (`17 9 * * *`, so ~01:17 PT in winter and ~02:17 PT in summer). A
-`gate` job asks `Scripts/release-due.sh` whether `main` has moved past the
-newest `build-*` tag and skips the whole release if it has not, so a quiet day
-costs nothing and ships nothing. Everything below is still how you release *on
-demand* — for a version cut, a signing change, or anything you do not want to
-wait a night for. A manual dispatch is never gated: it ships whether or not
-`main` moved, which is what makes it the way to re-release after a failed notes
-attach or to ship an engine rebuild that changes the binary with no new commits
-behind it.
+**Builds ship on merge.** `ci.yml` calls the `TestFlight` workflow after its
+build and unit tests pass on a push to `main`. A `gate` job asks
+`Scripts/release-due.sh` whether anything that goes into the binary changed
+since the newest `build-*` tag, and skips the whole release if not, so a
+docs-only, test-only or workflow-only merge costs nothing and ships nothing
+(the script's `NON_BINARY_PATHS` is the list; a change that lands under a
+path not named there ships). Every uploaded build reaches the internal
+TestFlight group through that group's **automatic distribution** setting in
+App Store Connect; keep the external group's setting **off**, so an outside
+tester gets a build only through the promotion below. Nothing in the workflow
+adds a build to a group.
+
+**Build numbers** are the newest `build-*` tag plus one, whichever path runs,
+so the merge path and the dispatch path count on one sequence. Two merges in
+quick succession release one after the other on a shared concurrency group.
+
+**Manual dispatch** (Actions › TestFlight › Run workflow on `main`) is still
+how you release *on demand*, and it is never gated: it ships whether or not
+`main` moved, which is what makes it the way to re-release after a failed
+notes attach or to ship an engine rebuild that changes the binary with no new
+commits behind it. Tick `validate_only` for a dry run (no build number
+consumed). Leave `build_number` empty unless retrying a release whose upload
+succeeded but whose tag did not land.
+
+**The What to Test preamble** (`docs/app-store/whats-to-test.md`) heads the
+notes only if it changed since the previous build's tag: it is written for the
+next build, and the same text must not go out with every build after. Write
+it in the pull request that ships the change it describes; merged on its own
+it ships nothing and then heads the next code change's build. Preview with
+`Scripts/whats-to-test.sh --print`.
 
 **Promoting a shipped build to external testers** is a tag, not a build
 (issue #165): `CFBundleShortVersionString` cannot carry "rc", and rebuilding

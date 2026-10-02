@@ -132,11 +132,12 @@ jobs:
           # Hermetic too, with a stateful stub so the read-back is exercised.
           # Guards app-store-listing.yml, which overwrites the store's text.
           Scripts/test-update-store-listing.sh
-          # Decides whether testflight.yml's nightly schedule ships at all.
-          # Hermetic: throwaway git repos in a temp dir, with a ceiling set so
-          # the no-repository cases cannot wander up into this checkout. It is
-          # the only pull-request-visible test of that gate -- the workflow
-          # bash around it runs nowhere before merge.
+          # Decides whether a merge to main ships a TestFlight build at all
+          # (the `testflight` job below calls testflight.yml, whose gate runs
+          # it). Hermetic: throwaway git repos in a temp dir, with a ceiling
+          # set so the no-repository cases cannot wander up into this
+          # checkout. It is the only pull-request-visible test of that gate --
+          # the workflow bash around it runs nowhere before merge.
           Scripts/test-release-due.sh
           # Hermetic: it clears GH_TOKEN/GITHUB_TOKEN and strips PATH itself,
           # so it needs no credentials here and never reaches real GitHub.
@@ -693,3 +694,32 @@ jobs:
             --repo "${{ github.repository }}" \
             --commit "${{ github.sha }}" \
             --yes --json
+
+  # Ships the merge to TestFlight. `needs: build-and-test` is the whole of the
+  # gate on quality: this runs only after the unit tests passed on this exact
+  # commit, so a red build never reaches a tester. The called workflow's own
+  # first job then decides whether anything that goes into the binary changed
+  # since the last shipped build (Scripts/release-due.sh), so a docs-only or
+  # test-only merge costs no macOS runner and sends no notification.
+  #
+  # `uses:` rather than more steps here, so the release lane keeps one
+  # definition for the merge path and the hand-dispatched path (dry runs,
+  # retries, the cases the gate cannot see from git). The secrets are not
+  # passed: they belong to the `app-store` environment, which the called job
+  # declares and GitHub resolves there -- see the note above testflight.yml's
+  # `workflow_call` trigger.
+  testflight:
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # contents: write for the build-N tag the called workflow pushes; the
+    # caller's grant is the ceiling of what the called workflow may hold, and
+    # the workflow-level `contents: read` above would otherwise be it.
+    permissions:
+      contents: write
+    # The same group testflight.yml declares, because a called workflow's own
+    # concurrency is not guaranteed to apply. Two merges in quick succession
+    # release one after the other; a dispatch waits for a merge in flight.
+    concurrency:
+      group: testflight
+      cancel-in-progress: false
+    uses: ./.github/workflows/testflight.yml

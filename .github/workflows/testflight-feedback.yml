@@ -10,10 +10,10 @@ name: TestFlight Feedback
 # contract; Scripts/test-testflight-feedback-digest.sh pins it.
 on:
   schedule:
-    # Daily, off the hour and away from testflight.yml's 09:17 nightly, so a
-    # build in flight and the feedback pull never contend for the same
-    # App Store Connect rate budget. Feedback arrives in ones and twos; more
-    # often than daily would be noise.
+    # Daily, off the hour. Builds ship on merge now (testflight.yml), so this
+    # cannot be scheduled away from them; the two share the App Store
+    # Connect rate budget rarely enough not to matter. Feedback arrives in
+    # ones and twos; more often than daily would be noise.
     - cron: "41 10 * * *"
   workflow_dispatch:
 

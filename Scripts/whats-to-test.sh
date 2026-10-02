@@ -497,14 +497,25 @@ assemble_notes() { # [current-build-number]
     # hand-written half of the notes, and nothing clears it after a release;
     # build 213's iPad text was reverted by hand so that 214 would not ship
     # it verbatim. If the file is unchanged since the previous build tag, that
-    # build carried exactly this text. Detected here, as a warning, rather
-    # than cleared after a successful attach: clearing would mean a push to
-    # main from the release workflow, and a warning is pure script logic the
+    # build carried exactly this text, so it is LEFT OUT here -- a preamble is
+    # written for the next build, not for every build after. This used to be a
+    # warning, which was enough when a human dispatched every release and read
+    # the log; builds ship on merge now, and a warning in a log nobody opens
+    # is how the same paragraph rides along for a month. Left out rather than
+    # cleared after a successful attach: clearing would mean a push to main
+    # from the release workflow, and leaving it out is pure script logic the
     # hermetic suite can prove. Edited since the tag means it is this build's
     # own; absent at the tag counts as edited (git diff reports an addition).
-    if [ -n "$PREAMBLE" ] && [ -n "$TAG" ] \
+    #
+    # The one exception: with NOTHING else to say, an unchanged preamble is
+    # kept. That is a re-release of the same commit (a failed notes attach, or
+    # an engine rebuild) and the framing it shipped with still describes it;
+    # dropping it would fail the step AFTER the upload, at the most expensive
+    # moment to find out.
+    if [ -n "$PREAMBLE" ] && [ -n "$TAG" ] && [ -n "$BODY" ] \
        && git diff --quiet "$TAG" HEAD -- "$PREAMBLE_FILE" 2>/dev/null; then
-        diag "warning: the preamble in $PREAMBLE_FILE is unchanged since build ${TAG#build-}, which shipped it; edit or clear it unless it describes this build too."
+        diag "note: the preamble in $PREAMBLE_FILE is unchanged since build ${TAG#build-}, which shipped it; leaving it out. Edit it in the pull request whose build it should head."
+        PREAMBLE=""
     fi
 
     if [ -z "$PREAMBLE" ] && [ -z "$BODY" ]; then

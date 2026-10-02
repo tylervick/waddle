@@ -827,16 +827,32 @@ printf '%s\n' "$out_stdout" | grep -q "not part of the notes" \
 pass "the fallback count is printed with the notes, labelled as not part of them"
 
 # 41. A preamble that already shipped: unchanged since the previous build
-# tag, so build 206 carried exactly this text. Assembling the next build's
-# notes must say so -- build 213's iPad preamble would have shipped verbatim
-# on 214 had a hand revert been forgotten (issue #133).
+# tag, so build 206 carried exactly this text. With a changelog to ship, the
+# next build's notes must LEAVE IT OUT and say so on stderr -- build 213's
+# iPad preamble would have shipped verbatim on 214 had a hand revert been
+# forgotten (issue #133), and now that builds ship on merge there is no hand
+# to forget. The changelog itself must survive the drop.
 K="$(make_repo k 'git commit -q --allow-empty -m "fix(ui): a change after the tag"' 'Please try the new iPad control layout.')"
-out="$(notes "$K")"
-printf '%s\n' "$out" | grep -q "preamble.*unchanged since build 206" \
-    || fail "an already-shipped preamble was not reported:\n$out"
-printf '%s\n' "$out" | grep -q "^Please try the new iPad control layout.$" \
-    || fail "the preamble itself went missing from the notes:\n$out"
-pass "reports a preamble that is unchanged since the previous shipped build"
+out="$(notes "$K")" || fail "41: exited non-zero:\n$out"
+printf '%s\n' "$out" | grep -q "preamble.*unchanged since build 206.*leaving it out" \
+    || fail "leaving the already-shipped preamble out was not said:\n$out"
+! printf '%s\n' "$out" | grep -q "^Please try the new iPad control layout.$" \
+    || fail "an already-shipped preamble rode along with the next build's notes:\n$out"
+printf '%s\n' "$out" | grep -q -- "- A change after the tag" \
+    || fail "the changelog went missing along with the preamble:\n$out"
+pass "leaves out a preamble that is unchanged since the previous shipped build"
+
+# 41b. The exception: nothing merged since the tag AND the preamble is
+# unchanged. That is a re-release of the same commit, the framing it shipped
+# with still describes it, and failing here would fail AFTER the upload. Case
+# 5 above pins the success; this pins that the drop rule does not fire.
+K2="$(make_repo k2 '' 'Re-testing build 206 signing.')"
+out="$(notes "$K2")" || fail "41b: a re-release with an unchanged preamble and no changes failed:\n$out"
+! printf '%s\n' "$out" | grep -q "leaving it out" \
+    || fail "41b: the preamble was dropped although it was the only thing to say:\n$out"
+printf '%s\n' "$out" | grep -q "^Re-testing build 206 signing.$" \
+    || fail "41b: the preamble is missing from a re-release's notes:\n$out"
+pass "keeps an unchanged preamble when it is the only thing to tell a tester"
 
 # 42. A preamble edited since the previous build tag is this build's own,
 # and must NOT be reported.
@@ -851,14 +867,19 @@ printf '%s\n' "$out" | grep -q "^Please try the new automap gestures.$" \
     || fail "the edited preamble is not in the notes:\n$out"
 pass "does not report a preamble edited since the previous shipped build"
 
-# 43. The staleness diagnostic is for the reviewer, not the tester: on the
-# ATTACH path the notes sent to App Store Connect carry the preamble and the
-# changelog only.
-M="$(make_repo m 'git commit -q --allow-empty -m "fix(ui): a change after the tag"' 'Please try the new iPad control layout.')"
+# 43. The diagnostics are for the reviewer, not the tester: on the ATTACH
+# path the notes sent to App Store Connect carry the preamble and the
+# changelog only. The preamble here is edited after the tag so that it is
+# this build's own and reaches the payload; case 41 covers the unchanged one.
+M="$(make_repo m '
+printf "Please try the new iPad control layout." > docs/app-store/whats-to-test.md
+git add -A; git commit -qm "docs(app-store): preamble for the next build"
+git commit -q --allow-empty -m "fix(ui): a change after the tag"
+' 'An older preamble.')"
 stub_curl "$M"
 attach "$M" 207
 sent="$(whats_new "$M/body.json")"
-! printf '%s\n' "$sent" | grep -q "unchanged since build\|not part of the notes" \
+! printf '%s\n' "$sent" | grep -q "unchanged since build\|leaving it out\|not part of the notes" \
     || fail "a diagnostic line was sent to App Store Connect:\n$sent"
 printf '%s\n' "$sent" | grep -q "Please try the new iPad control layout." \
     || fail "the preamble did not reach the attached notes:\n$sent"
