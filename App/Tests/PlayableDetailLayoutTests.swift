@@ -120,6 +120,84 @@ final class PlayableDetailLayoutTests: XCTestCase {
                        accuracy: 0.5)
     }
 
+    // MARK: Side by side (design-system spec §8)
+
+    /// iPad Pro 13-inch landscape: 1366 x 1024 pt, less the Form's row insets
+    /// and an inline bar plus the home indicator.
+    private static let landscapePad = Sheet(contentWidth: 1366 - 32, height: 1024 - 54 - 20)
+
+    /// Portrait and unmeasured pages stack; a page wider than it is tall puts
+    /// the art beside the caption. This is the rule that takes a landscape
+    /// phone off the 96 pt floor.
+    func testArrangementFollowsTheViewportsShape() {
+        XCTAssertEqual(PlayableDetailLayout.arrangement(contentWidth: 370, viewportHeight: 724), .stacked)
+        XCTAssertEqual(PlayableDetailLayout.arrangement(contentWidth: 842, viewportHeight: 327), .sideBySide)
+        XCTAssertEqual(PlayableDetailLayout.arrangement(contentWidth: 1334, viewportHeight: 950), .sideBySide)
+        XCTAssertEqual(PlayableDetailLayout.arrangement(contentWidth: 842, viewportHeight: 0), .stacked)
+        XCTAssertEqual(PlayableDetailLayout.arrangement(contentWidth: 842, viewportHeight: .nan), .stacked)
+    }
+
+    /// The point of the arrangement: on a landscape phone the art is a
+    /// picture, well above the floor the stacked budget left it on.
+    func testSideBySideLiftsTheLandscapePhoneOffTheFloor() {
+        let sheet = Sheet.landscapePhone
+        let stacked = artHeight(sheet)
+        let beside = PlayableDetailLayout.sideBySideArtHeight(contentWidth: sheet.contentWidth,
+                                                              viewportHeight: sheet.height)
+        XCTAssertEqual(stacked, PlayableDetailLayout.minimumArtHeight, accuracy: 0.5,
+                       "the stacked case no longer floors, so this test no longer describes the trade")
+        XCTAssertGreaterThan(beside, stacked * 2)
+    }
+
+    /// The art never takes more than its share of the row, so the title and
+    /// two buttons always have at least half the width.
+    func testSideBySideArtNeverExceedsHalfTheRow() {
+        for sheet in [Sheet.landscapePhone, Self.landscapePad] {
+            let width = PlayableDetailLayout.sideBySideArtWidth(contentWidth: sheet.contentWidth,
+                                                                viewportHeight: sheet.height)
+            XCTAssertLessThanOrEqual(width, sheet.contentWidth * PlayableDetailLayout.sideBySideArtWidthFraction + 0.5,
+                                     "\(sheet.contentWidth) wide")
+        }
+    }
+
+    /// Whatever the viewport, one tap target of the next section stays below
+    /// the hero row -- the side-by-side twin of the stacked peek rule.
+    func testSideBySideLeavesATapTargetOfPeek() {
+        for sheet in [Sheet.landscapePhone, Self.landscapePad,
+                      Sheet(contentWidth: 812 - 32, height: 375 - 44 - 21)] { // the smallest landscape phone
+            let art = PlayableDetailLayout.sideBySideArtHeight(contentWidth: sheet.contentWidth,
+                                                               viewportHeight: sheet.height)
+            let row = PlayableDetailLayout.captionTopPadding + art + PlayableDetailLayout.captionBottomPadding
+            XCTAssertGreaterThanOrEqual(sheet.height - row, Theme.minimumTapTarget - 0.5,
+                                        "\(sheet.contentWidth)x\(sheet.height)")
+        }
+    }
+
+    /// Where there is room, the art keeps its shape at its full share: the
+    /// landscape iPad is natural-bound, not peek-bound.
+    func testSideBySideKeepsTheNaturalHeightOnAPad() {
+        let sheet = Self.landscapePad
+        let natural = (sheet.contentWidth - PlayableDetailLayout.captionSpacing)
+            * PlayableDetailLayout.sideBySideArtWidthFraction / Theme.heroAspectRatio
+        XCTAssertEqual(PlayableDetailLayout.sideBySideArtHeight(contentWidth: sheet.contentWidth,
+                                                                viewportHeight: sheet.height),
+                       natural, accuracy: 0.5)
+    }
+
+    /// Width and height agree on TITLEPIC's shape.
+    func testSideBySideArtKeepsTheHeroAspect() {
+        let sheet = Sheet.landscapePhone
+        let h = PlayableDetailLayout.sideBySideArtHeight(contentWidth: sheet.contentWidth, viewportHeight: sheet.height)
+        let w = PlayableDetailLayout.sideBySideArtWidth(contentWidth: sheet.contentWidth, viewportHeight: sheet.height)
+        XCTAssertEqual(w / h, Theme.heroAspectRatio, accuracy: 0.001)
+    }
+
+    /// The floor holds here too.
+    func testSideBySideNeverShrinksBelowTheFloor() {
+        XCTAssertEqual(PlayableDetailLayout.sideBySideArtHeight(contentWidth: 800, viewportHeight: 120),
+                       PlayableDetailLayout.minimumArtHeight, accuracy: 0.5)
+    }
+
     // MARK: The caption it budgets against
 
     /// Two primary buttons (Continue and New Game) reserve more than one

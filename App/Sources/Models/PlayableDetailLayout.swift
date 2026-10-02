@@ -100,7 +100,53 @@ enum PlayableDetailLayout {
             + captionBottomPadding
     }
 
-    /// Height for the detail header's art.
+    // MARK: Side by side (design-system spec §8)
+
+    /// How the hero row arranges its art and caption.
+    enum HeroArrangement: Equatable {
+        /// Art above the title and actions: portrait, and before measurement.
+        case stacked
+        /// Art beside the title and actions: a page wider than it is tall.
+        case sideBySide
+    }
+
+    /// Stacked until the viewport is measured; side by side once the page is
+    /// wider than it is tall. Stacking on a short, wide page is what pinned
+    /// the art to its 96 pt floor on every landscape phone: the caption and
+    /// the controls' peek left nothing for it. Beside the caption, the art
+    /// spends width, which a landscape page has to spare.
+    static func arrangement(contentWidth: CGFloat, viewportHeight: CGFloat) -> HeroArrangement {
+        guard viewportHeight.isFinite, viewportHeight > 0 else { return .stacked }
+        return contentWidth > viewportHeight ? .sideBySide : .stacked
+    }
+
+    /// At most this much of the row's width goes to the art when it sits
+    /// beside the caption; the title and two buttons need the rest.
+    static let sideBySideArtWidthFraction: CGFloat = 0.5
+
+    /// What must stay visible below a side-by-side hero: one tap target of
+    /// the first section, so the page reads as scrollable. The stacked
+    /// `minimumControlsPeek` (300) is unreachable on a landscape phone at all
+    /// -- that is why stacking there fell to the floor.
+    static let sideBySideMinimumPeek: CGFloat = Theme.minimumTapTarget
+
+    /// Height for the art beside the caption: TITLEPIC's shape at up to half
+    /// the row's width, shrunk so one tap target of the next section still
+    /// shows, and never below `minimumArtHeight`.
+    static func sideBySideArtHeight(contentWidth: CGFloat, viewportHeight: CGFloat) -> CGFloat {
+        let widest = (max(0, contentWidth) - captionSpacing) * sideBySideArtWidthFraction
+        let natural = widest / Theme.heroAspectRatio
+        guard viewportHeight.isFinite, viewportHeight > 0 else { return natural }
+        let room = viewportHeight - captionTopPadding - captionBottomPadding - sideBySideMinimumPeek
+        return min(natural, max(room, minimumArtHeight))
+    }
+
+    /// The width that goes with `sideBySideArtHeight`: the art keeps its shape.
+    static func sideBySideArtWidth(contentWidth: CGFloat, viewportHeight: CGFloat) -> CGFloat {
+        sideBySideArtHeight(contentWidth: contentWidth, viewportHeight: viewportHeight) * Theme.heroAspectRatio
+    }
+
+    /// Height for the detail header's art when stacked above the caption.
     ///
     /// - Parameters:
     ///   - contentWidth: width the art is drawn at, i.e. the page's width less
