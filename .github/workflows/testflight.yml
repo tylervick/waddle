@@ -34,13 +34,16 @@ on:
         type: string
         required: false
         default: ''
-  # No `secrets:` block: the signing material and the App Store Connect key
-  # are secrets of the `app-store` environment, which the release job below
-  # declares, and GitHub resolves environment secrets in the called job
-  # itself -- `on.workflow_call` has no `environment` keyword and cannot be
-  # handed them by the caller. That is also what keeps them from a branch:
-  # the environment's deployment rule admits `main` only, and the ref it
-  # checks is the caller's.
+  # No `secrets:` block declared here, but the caller must still pass them:
+  # ci.yml's testflight job uses `secrets: inherit`, because a called
+  # workflow receives no secrets at all unless its caller hands them over.
+  # The signing material and the App Store Connect key are secrets of the
+  # `app-store` environment, which the release job below declares, and the
+  # environment decides which values the inherited names resolve to. That is
+  # also what keeps them from a branch: the environment's deployment rule
+  # admits `main` only, and the ref it checks is the caller's. The first
+  # on-merge release ran with every secret empty for want of that line;
+  # Scripts/check-called-workflow-secrets.sh now refuses its absence.
   workflow_call:
     inputs:
       validate_only:
