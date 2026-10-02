@@ -17,10 +17,10 @@ struct ContentView: View {
         .overlay(alignment: .bottom) {
             if let notice = ImportNotices.shared.current {
                 Text(notice)
-                    .font(.footnote)
-                    .padding(.horizontal, 16)
+                    .font(Theme.Typography.secondary)
+                    .padding(.horizontal, Theme.Spacing.base)
                     .frame(minHeight: Theme.minimumTapTarget)
-                    .background(.thinMaterial, in: Capsule())
+                    .waddleBanner()
                     .accessibilityIdentifier("importNoticeBanner")
                     // The banner is tappable to dismiss, so it is one of the
                     // controls the shell draws itself and owes spec §5's 44 pt
@@ -31,14 +31,15 @@ struct ContentView: View {
                     .padding(.bottom, 100)
             }
             if let code = lastExitCode {
-                VStack(spacing: 8) {
+                VStack(spacing: Theme.Spacing.sm) {
                     #if DEBUG
                     sessionStartDebugStack
                     #endif
                     Text("Engine exited: \(code)")
-                        .font(.footnote.monospaced())
-                        .padding(6)
-                        .background(.thinMaterial, in: Capsule())
+                        .font(Theme.Typography.mono)
+                        .padding(.horizontal, Theme.Spacing.md)
+                        .padding(.vertical, Theme.Spacing.sm)
+                        .waddleBanner()
                         .accessibilityIdentifier("engineExitLabel")
                 }
                 .padding(.bottom, 60)

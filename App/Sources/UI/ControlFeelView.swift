@@ -80,21 +80,25 @@ struct ControlFeelView: View {
 
     private func slider(_ title: String, value: Binding<Double>,
                         range: ClosedRange<Double>, id: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
             HStack {
                 Text(title)
                 Spacer()
                 Text(String(format: "%.2f", value.wrappedValue))
                     .font(.body.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.appSecondaryText)
                     .accessibilityIdentifier("\(id)Value")
             }
             Slider(value: value, in: range) {
                 Text(title)
             } minimumValueLabel: {
-                Text(String(format: "%.2f", range.lowerBound)).font(.caption2)
+                Text(String(format: "%.2f", range.lowerBound))
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Color.appSecondaryText)
             } maximumValueLabel: {
-                Text(String(format: "%.2f", range.upperBound)).font(.caption2)
+                Text(String(format: "%.2f", range.upperBound))
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Color.appSecondaryText)
             }
             .accessibilityIdentifier(id)
         }

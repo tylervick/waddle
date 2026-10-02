@@ -165,8 +165,16 @@ badge component's only consumers, so they move with it.
   game with a save, modded game without), shelf with the wordmark, portrait
   and landscape, default and `.accessibility3`.
 
-## 7. Out of scope (slice 2)
+## 7. Slice 2 (2026-10-01)
 
 Settings, Control Feel, Files, Hidden Games, About, Add to Game, and the
-banners in `ContentView` move onto the tokens in a follow-up. They are
-unchanged here beyond the badge and status-colour swaps above.
+banners in `ContentView` move onto the tokens. Stock `Form`/`List` throughout;
+what changes is: every section header goes through `WaddleSectionHeader`,
+every empty state through `EmptyStateView`, every caption and secondary line
+through the type roles and `appSecondaryText`, and the two floating banners
+become `waddleBanner()` capsules (surface tone, hairline) instead of
+`thinMaterial`. About gets the wordmark at `Theme.wordmarkHeightLarge` (45,
+the other integer-scale height) as its subject, drawn on the page rather than
+in a cell. Settings gains a "Controls" header so its three sections read as
+Controls / Library / the rest. No identifier or visible string changes
+otherwise.

@@ -75,6 +75,11 @@ enum Theme {
     /// scale or the other and smear the pixel face.
     static let wordmarkHeight: CGFloat = 30
 
+    /// The wordmark on the About screen, where it is the subject rather than
+    /// a title. 45 for the same reason 30 is: 9 device pixels per source pixel
+    /// on @3x and 6 on @2x, both integers.
+    static let wordmarkHeightLarge: CGFloat = 45
+
     /// The adaptive grid's minimum tile width, which is how the grid "drops
     /// columns at accessibility sizes rather than shrinking text" (spec §5).
     ///
@@ -206,6 +211,17 @@ extension View {
                 RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
                     .strokeBorder(Color.appHairline, lineWidth: Theme.tileHairlineWidth)
             )
+    }
+}
+
+extension View {
+    /// A floating banner over the shelf: the import notice and the engine's
+    /// exit label. A capsule in the surface tone with the hairline, so it is
+    /// an object on the page the way a card is, rather than a smear of
+    /// whatever art happens to be under it.
+    func waddleBanner() -> some View {
+        background(Color.appSurface, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.appHairline, lineWidth: Theme.tileHairlineWidth))
     }
 }
 
