@@ -172,15 +172,29 @@ import json, re, sys
 # the whole notes field -- and the caller falls back to the subject. The
 # sentence terminator set is "." and "?" only: this project ships an engine
 # literally named "Woof!", so "!" would cut mid-name.
+#
+# A paragraph that is only issue-closing references ("Closes #115",
+# "Fixes #1, #2") is a GitHub instruction, not prose, and this repository
+# opens every loop pull request with one (Scripts/loop-prompt.md). It is
+# skipped and the next paragraph taken (issue #311: build 275 shipped 13
+# bullets as commit subjects because that line was the paragraph the 15-
+# character floor saw). The nine keywords and the reference forms are
+# GitHub"s own; a body that is nothing but the closing line still ends on
+# the subject, as before.
 try:
     doc = json.loads(sys.stdin.buffer.read().decode("utf-8"))
     body = doc.get("body") or ""
 except Exception:
     sys.exit(1)
 body = re.sub(r"<!--.*?-->", "", body, flags=re.S)
+REF = r"(?:#\d+|GH-\d+|[\w.-]+/[\w.-]+#\d+|https?://github\.com/[\w.-]+/[\w.-]+/issues/\d+)"
+CLOSING = re.compile(
+    r"^(?:(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s*" + REF + r"(?:\s*[,;]?\s*(?:and\s+)?" + REF + r")*\s*[.,;]?\s*)+$",
+    re.I)
+paragraphs = []
 para = []
 in_code = False
-for raw in body.splitlines():
+for raw in body.splitlines() + [""]:
     line = raw.strip()
     if line.startswith("```") or line.startswith("~~~"):
         in_code = not in_code
@@ -189,10 +203,16 @@ for raw in body.splitlines():
         continue
     if not line or line[0] in "#-*+>|!" or re.match(r"\d+[.)] ", line):
         if para:
-            break
+            paragraphs.append(" ".join(para))
+            para = []
         continue
     para.append(line)
-text = " ".join(para)
+text = ""
+for candidate in paragraphs:
+    if CLOSING.match(candidate.strip()):
+        continue
+    text = candidate
+    break
 text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
 text = re.sub(r"[`*_]", "", text)
 text = re.sub(r"\s+", " ", text).strip()
