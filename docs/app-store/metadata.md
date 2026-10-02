@@ -483,7 +483,7 @@ scroll edge effect under the floating tab bar.
 | 1 | In-game (Freedoom Phase 1, touch overlay) | `05-ingame.png` |
 | 2 | Shelf — Continue hero over the game grid, TITLEPIC tile art | `01-play-tab.png` |
 | 3 | Files (Settings → Files) — grouped into Base games / Map sets / Add-ons | `02-library.png` |
-| 4 | Game page — SCYTHE, a map set paired with Freedoom Phase 2 at import: base game, Maps & Add-ons, compatibility | `03-preset-editor.png` |
+| 4 | Game page — SCYTHE, a map set paired with Freedoom Phase 2 at import: its TITLEPIC beside the title and Play, the Base game section beneath | `03-preset-editor.png` |
 | 5 | Automap | `06-automap.png` |
 | 6 | Control Feel sheet | `04-control-feel.png` |
 

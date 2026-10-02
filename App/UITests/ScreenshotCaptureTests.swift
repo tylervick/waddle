@@ -245,20 +245,26 @@ final class ScreenshotCaptureTests: XCTestCase {
 
         // A map set is a game the moment it is imported (spec §2.1): SCYTHE
         // arrives already paired with Freedoom Phase 2, which is the story the
-        // listing tells. Photograph that game's page, scrolled so Base game and
-        // Maps & Add-ons share the frame on a landscape phone.
+        // listing tells. Photograph that game's page at the top, where the
+        // design-system hero (its TITLEPIC beside the title and Play, PR #314)
+        // is the frame and the Base game section peeks beneath it. It used to
+        // be shot scrolled so Base game and Maps & Add-ons shared the frame,
+        // which left the hero out of the listing entirely.
         let tile = app.buttons["game-\(moddedGame)"]
         XCTAssertTrue(scrollIntoView(app, tile), "\(moddedGame) tile missing from the shelf")
         openGamePage(app, tile: "game-\(moddedGame)")
         XCTAssertTrue(app.buttons["basePicker"].label.contains("Freedoom Phase 2"),
                       "\(moddedGame) is not paired with Freedoom Phase 2")
-        // Scroll first: the file rows sit below the fold, and a lazy list's
-        // off-screen rows are absent from the hierarchy, not merely hidden.
+        XCTAssertTrue(app.buttons["playButton"].waitForExistence(timeout: 5),
+                      "\(moddedGame)'s page has no Play button in its hero")
+        shoot("03-preset-editor")
+        // The file list is still checked, after the shot: the rows sit below
+        // the fold, and a lazy list's off-screen rows are absent from the
+        // hierarchy, not merely hidden, so this has to scroll to see them.
         scrollGamePage(app, to: app.buttons["addFileButton"])
         XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "fileRow-\(moddedFile)")
             .firstMatch.waitForExistence(timeout: 5),
                       "\(moddedGame)'s page does not list \(moddedFile)")
-        shoot("03-preset-editor")
 
         // Back to the shelf for the home shot: one grid of base games and
         // modded games, tiles carrying extracted TITLEPIC art. This is what a
