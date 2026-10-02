@@ -12,6 +12,57 @@ extension XCTestCase {
             field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existing.count))
         }
         field.typeText(text)
+        waitForAlertToSettle()
+    }
+
+    /// Waits until the keyboard is back on screen and the alert that holds
+    /// its focus has moved clear of it, so the next tap is aimed at where the
+    /// alert's buttons are rather than where they were.
+    ///
+    /// On the iOS 27 simulator, `typeText` into an alert's text field hides
+    /// the software keyboard while it types -- its frame sits entirely below
+    /// the screen (y = 918 on an 874 pt display) -- and the alert drops to
+    /// the centre. About 400 ms after the last key the keyboard slides back
+    /// (y = 590) and the alert springs up to its keyboard-avoiding position.
+    /// A tap issued straight after `typeText` is aimed at the centred frame
+    /// and lands below the alert once it has moved: nothing is hit, the alert
+    /// stays up with the typed text, and the test taps through it (issue
+    /// #306; iOS 26.2 on CI does not do this). The keyboard *element* exists
+    /// throughout, so "is there a keyboard" is not the condition; "is its
+    /// frame on screen, and is the alert clear of it" is. See
+    /// docs/learnings/ios27-alert-moves-under-typetext.md.
+    ///
+    /// Once the resting condition holds, the alert's frame also has to read
+    /// the same three samples running (the probes only ever saw the two
+    /// discrete positions, so this is insurance against an in-flight frame,
+    /// at the cost of 200 ms). A timeout fails here, by name, rather than
+    /// letting the next tap fail somewhere less legible.
+    func waitForAlertToSettle(timeout: TimeInterval = 3,
+                              file: StaticString = #filePath, line: UInt = #line) {
+        let app = XCUIApplication()
+        let alert = app.alerts.firstMatch
+        guard alert.exists else { return }
+        let deadline = Date().addingTimeInterval(timeout)
+        var previousAlertFrame: CGRect?
+        var stableSamples = 0
+        repeat {
+            let keyboard = app.keyboards.firstMatch
+            guard keyboard.exists else { return }
+            let keyboardFrame = keyboard.frame
+            let alertFrame = alert.frame
+            let onScreen = keyboardFrame.minY < app.frame.maxY
+            if onScreen && !alertFrame.intersects(keyboardFrame) {
+                stableSamples = alertFrame == previousAlertFrame ? stableSamples + 1 : 1
+                if stableSamples >= 3 { return }
+            } else {
+                stableSamples = 0
+            }
+            previousAlertFrame = alertFrame
+            Thread.sleep(forTimeInterval: 0.1)
+        } while Date() < deadline
+        XCTFail("the alert did not settle clear of the keyboard within \(timeout)s " +
+                "(alert \(alert.frame), keyboard \(app.keyboards.firstMatch.frame))",
+                file: file, line: line)
     }
 
     /// Opens a tile's game page via its long-press menu (spec §3.1).
