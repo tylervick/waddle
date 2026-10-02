@@ -44,10 +44,10 @@ private enum TextMetrics {
         lineHeight(.title2, category) + lineHeight(.subheadline, category) + 6 * 2
     }
 
-    /// Mirrors `ShelfView.welcomeButtonHeight`: a `.borderedProminent` label
-    /// plus the style's vertical padding, floored at the tap target.
+    /// Mirrors `ShelfView.welcomeButtonHeight`: a `WaddlePrimaryButtonStyle`
+    /// label plus the style's vertical padding, floored at the tap target.
     static func buttonHeight(_ category: UIContentSizeCategory) -> CGFloat {
-        max(Theme.minimumTapTarget, lineHeight(.body, category) + 14)
+        max(Theme.minimumTapTarget, lineHeight(.body, category) + Theme.buttonVerticalPadding * 2)
     }
 
     /// Mirrors `ShelfView.welcomeDescriptionHeight`: the real wrapped height
@@ -233,30 +233,31 @@ final class AccessibilityTextSizeLayoutTests: XCTestCase {
         }
     }
 
-    /// In landscape the caption *is* charged against the art, and a bigger
-    /// caption really does shrink it. On the Pro Max's landscape viewport the
-    /// art goes 166.8 pt → 96 pt between `.large` and the largest accessibility
-    /// size. A layout that ignored `captionHeight` would return the same number
+    /// Where the stacked cap binds, the caption *is* charged against the art
+    /// and a bigger caption really does shrink it. That place is the
+    /// landscape pad now: with the chrome measured honestly (2026-10-02) the
+    /// landscape phones are compact-height and lay the hero side by side,
+    /// where the caption sits beside the art and is not charged against it.
+    /// A layout that ignored `captionHeight` would return the same number
     /// twice, which is what this discriminates against.
-    func testLandscapeArtShrinksAsTheCaptionGrows() {
-        for viewport in [Viewport.landscapePhone, Viewport.landscapeProPhone] {
-            let large = ShelfHeroLayout.artHeight(
-                contentWidth: viewport.contentWidth, viewportHeight: viewport.height,
-                captionHeight: TextMetrics.captionHeight(.large))
-            let biggest = ShelfHeroLayout.artHeight(
-                contentWidth: viewport.contentWidth, viewportHeight: viewport.height,
-                captionHeight: TextMetrics.captionHeight(.accessibilityExtraExtraExtraLarge))
-            XCTAssertLessThan(biggest, large)
-        }
+    func testLandscapePadArtShrinksAsTheCaptionGrows() {
+        let viewport = Viewport.landscapePad
+        let large = ShelfHeroLayout.artHeight(
+            contentWidth: viewport.contentWidth, viewportHeight: viewport.height,
+            captionHeight: TextMetrics.captionHeight(.large))
+        let biggest = ShelfHeroLayout.artHeight(
+            contentWidth: viewport.contentWidth, viewportHeight: viewport.height,
+            captionHeight: TextMetrics.captionHeight(.accessibilityExtraExtraExtraLarge))
+        XCTAssertLessThan(large, viewport.naturalArtHeight, "the cap does not bind here; the test proves nothing")
+        XCTAssertLessThan(biggest, large)
+        XCTAssertGreaterThan(biggest, ShelfHeroLayout.minimumArtHeight)
     }
 
-    /// And it stops at the floor rather than following the caption below it.
-    /// Both landscape viewports drive `room` under `minimumArtHeight` at the
-    /// largest accessibility size — 85.7 pt on the Pro Max, 47.7 pt on the Pro
-    /// — so the returned height is the floor, not the room. Asserting `room`
-    /// is genuinely the smaller of the two is what keeps this from going
-    /// vacuous the way the portrait version did.
-    func testLandscapeArtStopsAtItsFloorInsteadOfFollowingTheCaptionDown() {
+    /// The stacked model still stops at its floor rather than following the
+    /// caption below it -- pinned on the landscape phones' geometry as a
+    /// property of the function, which is what `ShelfView` would fall back
+    /// to if a landscape phone ever reported a regular height class.
+    func testStackedArtStopsAtItsFloorInsteadOfFollowingTheCaptionDown() {
         for viewport in [Viewport.landscapePhone, Viewport.landscapeProPhone] {
             let caption = TextMetrics.captionHeight(.accessibilityExtraExtraExtraLarge)
             let room = viewport.height - caption
@@ -270,22 +271,29 @@ final class AccessibilityTextSizeLayoutTests: XCTestCase {
         }
     }
 
-    /// What the floor costs, stated rather than left implicit: when the clamp
-    /// binds, the hero keeps 96 pt of art by spending the grid's peek, so the
-    /// first row shows less than `minimumGridPeek`. That is the documented
-    /// trade in `minimumArtHeight` — "an accessibility text size on a short
-    /// viewport" reaches the floor and the grid is reached by scrolling — and
-    /// this pins the one thing that must survive it: the row is still at least
-    /// a tap target tall, not a sliver.
-    func testTheFloorNeverCostsMorePeekThanATapTarget() {
+    /// What a landscape phone actually shows at the largest accessibility
+    /// size: the hero side by side, the caption beside the art. The art is
+    /// not charged for the caption, so the first tile row keeps its full
+    /// peek -- more than a tap target -- unless the caption itself outgrows
+    /// the art, in which case the hero is the caption's height and the grid
+    /// is reached by scrolling (the same honest answer the game page gives).
+    func testSideBySideKeepsTheFirstRowTappableAtEveryAccessibilitySize() {
         for viewport in [Viewport.landscapePhone, Viewport.landscapeProPhone] {
-            let caption = TextMetrics.captionHeight(.accessibilityExtraExtraExtraLarge)
-            let art = ShelfHeroLayout.artHeight(
-                contentWidth: viewport.contentWidth, viewportHeight: viewport.height,
-                captionHeight: caption)
-            let peek = viewport.height - caption - ShelfHeroLayout.sectionSpacing - art
-            XCTAssertGreaterThanOrEqual(peek, Theme.minimumTapTarget,
-                                        "peek \(peek) leaves the first row untappable")
+            for category in TextMetrics.accessibilityCategories {
+                let caption = TextMetrics.captionHeight(category)
+                let art = ShelfHeroLayout.sideBySideArtHeight(
+                    contentWidth: viewport.contentWidth, viewportHeight: viewport.height)
+                let hero = ShelfHeroLayout.sideBySideHeroHeight(
+                    contentWidth: viewport.contentWidth, viewportHeight: viewport.height,
+                    captionHeight: caption)
+                let peek = viewport.height - hero - ShelfHeroLayout.sectionSpacing(compactHeight: true)
+                if caption <= art {
+                    XCTAssertGreaterThanOrEqual(peek, Theme.minimumTapTarget,
+                                                "\(category.rawValue): peek \(peek) leaves the first row untappable")
+                } else {
+                    XCTAssertEqual(hero, caption, accuracy: 0.001, "\(category.rawValue)")
+                }
+            }
         }
     }
 

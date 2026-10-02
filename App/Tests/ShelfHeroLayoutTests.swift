@@ -25,22 +25,32 @@ struct Viewport {
     var naturalArtHeight: CGFloat { contentWidth / Theme.heroAspectRatio }
 
     /// iPhone 17 Pro Max landscape -- the device #159 was measured on.
-    /// 2868x1320@3 = 956x440 pt, less 59 pt of sensor-housing safe area on
-    /// each side and the shelf's own 16 pt padding on each side, less a 44 pt
-    /// navigation bar and a 21 pt home indicator.
-    static let landscapePhone = Viewport(contentWidth: 956 - 59 * 2 - 32,
-                                         height: 440 - 44 - 21)
+    /// 2868x1320@3 = 956x440 pt, less the safe-area chrome the shelf's
+    /// scroll view actually reports in landscape -- 62 pt of sensor housing
+    /// on each side, a 78 pt bar above and 20 pt below (read off the live
+    /// view on an iPhone 17 Pro, iOS 27, 2026-10-02; the 17 Pro and Pro Max
+    /// share the chrome) -- and the shelf's own 16 pt padding on each side.
+    /// This used to assume 59 / 44 / 21, which was 33 pt of height the shelf
+    /// never had.
+    static let landscapePhone = Viewport(contentWidth: 956 - 62 * 2 - 32,
+                                         height: 440 - 78 - 20)
     /// iPhone 17 Pro landscape: 874x402 pt, with the same sensor-housing and
     /// chrome subtractions as `landscapePhone` above. Not the widest phone --
     /// the point of this fixture is a landscape viewport whose welcome-card
     /// verdict sits well clear of the fold boundary, where the Pro Max's
     /// landed within a point of it after the 2026-08-21 design pass.
-    static let landscapeProPhone = Viewport(contentWidth: 874 - 59 * 2 - 32,
-                                            height: 402 - 44 - 21)
-    /// iPhone 17 Pro portrait: 1206x2622@3 = 402x874 pt.
+    static let landscapeProPhone = Viewport(contentWidth: 874 - 62 * 2 - 32,
+                                            height: 402 - 78 - 20)
+    /// iPhone 17 Pro portrait: 1206x2622@3 = 402x874 pt, less the 116 pt the
+    /// inline bar and status bar take above the scroll view and the 34 pt
+    /// home indicator below it (measured as above). 96 was the large-title
+    /// bar the shelf had before the wordmark made it inline (PR #305); the
+    /// inline bar on this runtime is taller than the large one was budgeted.
     static let portraitPhone = Viewport(contentWidth: 402 - 32,
-                                        height: 874 - 96 - 34)
-    /// iPad Pro 13" M4 portrait: 2064x2752@2 = 1032x1376 pt.
+                                        height: 874 - 116 - 34)
+    /// iPad Pro 13" M4 portrait: 2064x2752@2 = 1032x1376 pt. The pad measures
+    /// 86 above and 25 below in both orientations; 96 + 20 is kept as the
+    /// harder reading.
     static let portraitPad = Viewport(contentWidth: 1032 - 32,
                                       height: 1376 - 96 - 20)
     /// iPad Pro 13" M4 landscape.
@@ -68,11 +78,15 @@ struct SupportedDevice {
     /// Height the shelf never sees: the navigation bar, and the home
     /// indicator on the devices that have one.
     ///
-    /// A large-title navigation bar is ~96 pt and the home indicator 34,
-    /// hence 130 for everything with an indicator. The home-button SE has no
-    /// indicator but does have a 20 pt status bar above the same bar, so 116.
-    /// Both are the *taller* reading — an inline bar is nearer 44 — which
-    /// makes every assertion below the harder version of itself.
+    /// Measured, not assumed: the shelf's scroll view on an iPhone 17 Pro
+    /// (iOS 27, 2026-10-02) reports 116 pt above it -- status bar plus the
+    /// inline bar the wordmark sits in since PR #305 -- and the 34 pt home
+    /// indicator below, hence 150 for everything with an indicator. This was
+    /// 130, budgeted for a ~96 pt large-title bar on the belief that an
+    /// inline bar would be nearer 44; on this runtime the inline bar is the
+    /// taller one, and every fold assertion was 20 pt easier than the screen.
+    /// The home-button SE has no indicator and a 20 pt status bar; 116 is
+    /// kept there as the harder reading (20 + 57 measures 77).
     let chrome: CGFloat
 
     var contentWidth: CGFloat { width - ShelfLayoutFixture.contentPadding * 2 }
@@ -84,9 +98,9 @@ struct SupportedDevice {
     /// (440 x 956 pt)", which is the Pro Max's geometry under the Pro's name.
     /// Both are named here so no assertion below has to spell either out.
     static let uiTestsDestination = SupportedDevice(name: "iPhone 16 Pro/17/17 Pro",
-                                                    width: 402, height: 874, chrome: 130)
+                                                    width: 402, height: 874, chrome: 150)
     static let widestPhone = SupportedDevice(name: "iPhone 16/17 Pro Max",
-                                             width: 440, height: 956, chrome: 130)
+                                             width: 440, height: 956, chrome: 150)
     /// The shortest supported viewport (551 pt) — the home-button SE. Height,
     /// not width, is what decides whether the welcome card affords its rows,
     /// so the card's tightest portrait geometry is this one, not the mini's.
@@ -95,16 +109,16 @@ struct SupportedDevice {
 
     static let allPhones: [SupportedDevice] = [
         // The floor, and the reason this list exists at all.
-        SupportedDevice(name: "iPhone 12/13 mini", width: 360, height: 780, chrome: 130),
+        SupportedDevice(name: "iPhone 12/13 mini", width: 360, height: 780, chrome: 150),
         shortestPhone,
-        SupportedDevice(name: "iPhone 11 Pro", width: 375, height: 812, chrome: 130),
-        SupportedDevice(name: "iPhone 12/13/14/16e", width: 390, height: 844, chrome: 130),
-        SupportedDevice(name: "iPhone 14 Pro/15/16", width: 393, height: 852, chrome: 130),
+        SupportedDevice(name: "iPhone 11 Pro", width: 375, height: 812, chrome: 150),
+        SupportedDevice(name: "iPhone 12/13/14/16e", width: 390, height: 844, chrome: 150),
+        SupportedDevice(name: "iPhone 14 Pro/15/16", width: 393, height: 852, chrome: 150),
         uiTestsDestination,
-        SupportedDevice(name: "iPhone 11/11 Pro Max", width: 414, height: 896, chrome: 130),
-        SupportedDevice(name: "iPhone Air", width: 420, height: 912, chrome: 130),
-        SupportedDevice(name: "iPhone 12/13/14 Pro Max", width: 428, height: 926, chrome: 130),
-        SupportedDevice(name: "iPhone 14 Pro Max/15/16 Plus", width: 430, height: 932, chrome: 130),
+        SupportedDevice(name: "iPhone 11/11 Pro Max", width: 414, height: 896, chrome: 150),
+        SupportedDevice(name: "iPhone Air", width: 420, height: 912, chrome: 150),
+        SupportedDevice(name: "iPhone 12/13/14 Pro Max", width: 428, height: 926, chrome: 150),
+        SupportedDevice(name: "iPhone 14 Pro Max/15/16 Plus", width: 430, height: 932, chrome: 150),
         widestPhone,
     ]
 
@@ -174,41 +188,92 @@ final class ShelfHeroLayoutTests: XCTestCase {
             - captionHeight - ShelfHeroLayout.sectionSpacing
     }
 
-    // MARK: - The defect
+    // MARK: - The defect, and the compact-height model that replaced the cap there
 
     /// The bug, stated as geometry: on a landscape phone the unconstrained
-    /// hero was about 500 pt of art in a viewport of about 375, so the grid
-    /// and the hero's own caption were both below the fold. Remove the cap in
-    /// `ShelfHeroLayout.artHeight` and this is the assertion that fails.
-    func testLandscapePhoneLeavesTheFirstTileRowAboveTheFold() {
+    /// hero was about 500 pt of art in a viewport of about 340, so the grid
+    /// and the hero's own caption were both below the fold. A cap fixed that
+    /// in August; measuring the chrome honestly (2026-10-02, 78 + 20 pt of
+    /// bar and indicator, not 44 + 21) then showed the capped, stacked art on
+    /// its 96 pt floor at the *default* text size on a 17 Pro. A landscape
+    /// phone is compact-height, and compact height is side by side.
+    func testLandscapePhoneIsCompactHeightAndGoesSideBySide() {
         let viewport = Viewport.landscapePhone
-        // The premise: without a cap there would not have been room.
         XCTAssertGreaterThan(viewport.naturalArtHeight, viewport.height)
-
-        XCTAssertGreaterThanOrEqual(gridBand(viewport), ShelfHeroLayout.minimumGridPeek)
-        // A LazyVGrid omits off-screen cells entirely, so this band is also
-        // what puts the first row in the accessibility hierarchy at all -- and
-        // it clears spec §5's 44 pt target, so that row is tappable without
-        // scrolling rather than merely peeking.
-        XCTAssertGreaterThan(gridBand(viewport), Theme.minimumTapTarget)
+        XCTAssertEqual(ShelfHeroLayout.arrangement(compactHeight: true), .sideBySide)
+        XCTAssertEqual(ShelfHeroLayout.arrangement(compactHeight: false), .stacked)
     }
 
-    /// The hero's caption is part of the hero: reserving space for the grid
-    /// but not for the title and Continue line would move the problem down a
-    /// view instead of fixing it.
-    func testLandscapePhoneKeepsTheCaptionInFrame() {
-        let viewport = Viewport.landscapePhone
-        let heroHeight = artHeight(viewport) + ShelfHeroLayout.defaultCaptionHeight
-        XCTAssertLessThan(heroHeight, viewport.height)
+    /// Beside the caption, the art is a picture again -- well above the
+    /// floor the stacked budget left it on -- and the first tile row still
+    /// peeks `minimumGridPeek`, tappable without scrolling.
+    func testSideBySideLeavesTheFirstTileRowAboveTheFoldOnALandscapePhone() {
+        for viewport in [Viewport.landscapePhone, Viewport.landscapeProPhone] {
+            let stacked = artHeight(viewport)
+            let beside = ShelfHeroLayout.sideBySideArtHeight(contentWidth: viewport.contentWidth,
+                                                             viewportHeight: viewport.height)
+            XCTAssertGreaterThan(beside, stacked, "\(viewport.contentWidth) wide")
+            let band = viewport.height
+                - ShelfHeroLayout.sideBySideHeroHeight(contentWidth: viewport.contentWidth,
+                                                       viewportHeight: viewport.height,
+                                                       captionHeight: ShelfHeroLayout.defaultCaptionHeight)
+                - ShelfHeroLayout.sectionSpacing(compactHeight: true)
+            XCTAssertGreaterThanOrEqual(band, ShelfHeroLayout.minimumGridPeek, "\(viewport.contentWidth) wide")
+            XCTAssertGreaterThan(band, Theme.minimumTapTarget)
+        }
     }
 
-    /// A cap, not a demotion (spec §5 still has the hero leading the screen):
-    /// even at its most constrained the art stays the largest thing on the
-    /// screen -- taller than its own caption and taller than the visible grid.
-    func testLandscapePhoneHeroStillLeadsTheScreen() {
+    /// The caption sits beside the art, so it is in frame by construction;
+    /// what has to hold is that the hero as a whole fits the viewport.
+    func testSideBySideHeroFitsTheLandscapeViewport() {
         let viewport = Viewport.landscapePhone
-        XCTAssertGreaterThan(artHeight(viewport), ShelfHeroLayout.defaultCaptionHeight)
-        XCTAssertGreaterThan(artHeight(viewport), gridBand(viewport))
+        let hero = ShelfHeroLayout.sideBySideHeroHeight(contentWidth: viewport.contentWidth,
+                                                        viewportHeight: viewport.height,
+                                                        captionHeight: ShelfHeroLayout.defaultCaptionHeight)
+        XCTAssertLessThan(hero, viewport.height)
+    }
+
+    /// Still a cap, not a demotion (spec §5 has the hero leading the screen):
+    /// beside the caption the art is taller than its caption and takes half
+    /// the row, and is still taller than the visible grid band.
+    func testSideBySideHeroStillLeadsTheLandscapeScreen() {
+        let viewport = Viewport.landscapePhone
+        let art = ShelfHeroLayout.sideBySideArtHeight(contentWidth: viewport.contentWidth,
+                                                      viewportHeight: viewport.height)
+        XCTAssertGreaterThan(art, ShelfHeroLayout.defaultCaptionHeight)
+        let band = viewport.height - art - ShelfHeroLayout.sectionSpacing(compactHeight: true)
+        XCTAssertGreaterThan(art, band)
+        XCTAssertLessThanOrEqual(ShelfHeroLayout.sideBySideArtWidth(contentWidth: viewport.contentWidth,
+                                                                    viewportHeight: viewport.height),
+                                 viewport.contentWidth * ShelfHeroLayout.sideBySideArtWidthFraction + 0.5)
+    }
+
+    /// The art keeps TITLEPIC's shape beside the caption.
+    func testSideBySideArtKeepsTheHeroAspect() {
+        let viewport = Viewport.landscapeProPhone
+        let h = ShelfHeroLayout.sideBySideArtHeight(contentWidth: viewport.contentWidth, viewportHeight: viewport.height)
+        let w = ShelfHeroLayout.sideBySideArtWidth(contentWidth: viewport.contentWidth, viewportHeight: viewport.height)
+        XCTAssertEqual(w / h, Theme.heroAspectRatio, accuracy: 0.001)
+    }
+
+    /// The floor holds beside the caption too, and the unmeasured first frame
+    /// keeps the natural shape rather than flashing the floor.
+    func testSideBySideFloorsAndKeepsTheNaturalHeightBeforeMeasurement() {
+        XCTAssertEqual(ShelfHeroLayout.sideBySideArtHeight(contentWidth: 800, viewportHeight: 150),
+                       ShelfHeroLayout.minimumArtHeight, accuracy: 0.5)
+        let natural = (800 - ShelfHeroLayout.sideBySideSpacing)
+            * ShelfHeroLayout.sideBySideArtWidthFraction / Theme.heroAspectRatio
+        XCTAssertEqual(ShelfHeroLayout.sideBySideArtHeight(contentWidth: 800, viewportHeight: 0),
+                       natural, accuracy: 0.5)
+    }
+
+    /// The compact zone break is the grid's gap; the regular one is the
+    /// rhythm's largest interval, untouched.
+    func testCompactHeightUsesTheGridGapAsItsZoneBreak() {
+        XCTAssertEqual(ShelfHeroLayout.sectionSpacing(compactHeight: true), Theme.Spacing.grid)
+        XCTAssertEqual(ShelfHeroLayout.sectionSpacing(compactHeight: false), ShelfHeroLayout.sectionSpacing)
+        XCTAssertLessThan(ShelfHeroLayout.sectionSpacing(compactHeight: true),
+                          ShelfHeroLayout.sectionSpacing(compactHeight: false))
     }
 
     // MARK: - Where the hero already fit
@@ -266,8 +331,14 @@ final class ShelfHeroLayoutTests: XCTestCase {
     /// that gives way, not the grid and not the caption. That is the whole
     /// point of `ShelfView` measuring the caption through `UIFont` instead of
     /// assuming a default-size constant.
+    ///
+    /// Anchored to the landscape pad: with the chrome measured honestly the
+    /// landscape phones are compact-height and no longer stack, and the pad
+    /// is where the stacked cap binds without reaching the floor.
     func testAccessibilityCaptionShrinksTheArtNotTheRest() {
-        let viewport = Viewport.landscapePhone
+        let viewport = Viewport.landscapePad
+        XCTAssertGreaterThan(viewport.naturalArtHeight, artHeight(viewport),
+                             "the cap no longer binds here, so this test proves nothing")
         let large: CGFloat = 120
         XCTAssertLessThan(artHeight(viewport, captionHeight: large), artHeight(viewport))
         XCTAssertGreaterThanOrEqual(gridBand(viewport, captionHeight: large),
@@ -367,42 +438,66 @@ final class ShelfHeroLayoutTests: XCTestCase {
     /// The regression this budget exists for -- a full card that does not fit
     /// above the first tile row, which left `playFreedoom1` present, on
     /// screen, and impossible to activate -- anchored to where the shipping
-    /// geometry is still that tight. At 4:3 tiles every portrait phone
-    /// affords the full card (`testEverySupportedPhoneClearsTheFoldWithTheFullCard`
-    /// pins that); a 17 Pro landscape viewport (337 pt against a 148.5 pt
-    /// budget for a 128 pt card plus the 44 pt clearance) does not, so the
-    /// description is what gives.
-    ///
-    /// The 17 Pro, not the Pro Max: after the 2026-08-21 design pass the Pro
-    /// Max's landscape verdict lands within a point of the fold boundary --
-    /// inside this type's own modelling error -- and a device anchor that
-    /// close is measuring rounding, not the rule. The exact boundary is
-    /// pinned by the constructed-budget cases below.
-    func testWelcomeCardDropsItsDescriptionOnALandscapePhone() {
+    /// geometry is tightest. At 4:3 tiles every portrait phone affords the
+    /// full card (`testEverySupportedPhoneClearsTheFoldWithTheFullCard` pins
+    /// that). On a landscape phone the card goes side by side (compact
+    /// height, spec §9): the tagline beside the button, which costs no more
+    /// height than the button alone, so the description is *kept* there now,
+    /// and the stacked card -- what a landscape phone would show without the
+    /// compact arrangement -- still does not fit, which is what the second
+    /// assertion keeps on record.
+    func testWelcomeCardKeepsItsDescriptionBesideTheButtonOnALandscapePhone() {
+        let sideBySide = ShelfHeroLayout.welcomeCardHeight(descriptionHeight: ShelfLayoutFixture.descriptionHeight,
+                                                           buttonHeight: ShelfLayoutFixture.buttonHeight,
+                                                           compactHeight: true)
+        XCTAssertTrue(ShelfHeroLayout.welcomeCardShowsDescription(
+            viewportHeight: Viewport.landscapeProPhone.height,
+            contentWidth: Viewport.landscapeProPhone.contentWidth,
+            tileMinimumWidth: Theme.gridMinimumTileWidth(for: .large),
+            contentPadding: ShelfLayoutFixture.contentPadding,
+            gridSpacing: ShelfLayoutFixture.gridSpacing,
+            fullCardHeight: sideBySide,
+            compactHeight: true))
         XCTAssertFalse(ShelfHeroLayout.welcomeCardShowsDescription(
             viewportHeight: Viewport.landscapeProPhone.height,
             contentWidth: Viewport.landscapeProPhone.contentWidth,
             tileMinimumWidth: Theme.gridMinimumTileWidth(for: .large),
             contentPadding: ShelfLayoutFixture.contentPadding,
             gridSpacing: ShelfLayoutFixture.gridSpacing,
-            fullCardHeight: defaultSizeCard))
+            fullCardHeight: defaultSizeCard,
+            compactHeight: false),
+            "the stacked card fits a landscape phone after all; the compact arrangement is no longer load-bearing")
     }
 
     /// The compact card must actually solve it -- a budget that both forms
     /// fail is a cap that only looks like one. Same geometry, and the full
-    /// clearance: dropping the description has to leave the row tappable,
-    /// not merely visible.
+    /// clearance: the row has to be tappable, not merely visible. With the
+    /// chrome measured honestly this held by 40.6 pt under the 32 pt zone
+    /// break; the compact break is what puts it back over the tap target.
     func testCompactWelcomeCardLeavesTheFirstRowAboveTheFold() {
         let compact = ShelfHeroLayout.welcomeCardHeight(descriptionHeight: 0,
-                                                        buttonHeight: 44)
+                                                        buttonHeight: 44,
+                                                        compactHeight: true)
         let budget = ShelfHeroLayout.heroZoneBudget(
             viewportHeight: Viewport.landscapeProPhone.height,
             contentWidth: Viewport.landscapeProPhone.contentWidth,
             tileMinimumWidth: Theme.gridMinimumTileWidth(for: .large),
             contentPadding: ShelfLayoutFixture.contentPadding,
-            gridSpacing: ShelfLayoutFixture.gridSpacing)
+            gridSpacing: ShelfLayoutFixture.gridSpacing,
+            compactHeight: true)
         XCTAssertGreaterThanOrEqual(budget - compact,
                                     ShelfHeroLayout.minimumFoldClearance)
+    }
+
+    /// The side-by-side card is as tall as its taller column, and the
+    /// compact form is the same height either way.
+    func testSideBySideCardIsTheTallerColumn() {
+        XCTAssertEqual(ShelfHeroLayout.welcomeCardHeight(descriptionHeight: 40, buttonHeight: 44, compactHeight: true),
+                       ShelfHeroLayout.welcomeCardPadding * 2 + 44)
+        XCTAssertEqual(ShelfHeroLayout.welcomeCardHeight(descriptionHeight: 90, buttonHeight: 44, compactHeight: true),
+                       ShelfHeroLayout.welcomeCardPadding * 2 + 90)
+        XCTAssertEqual(ShelfHeroLayout.welcomeCardHeight(descriptionHeight: 0, buttonHeight: 44, compactHeight: true),
+                       ShelfHeroLayout.welcomeCardHeight(descriptionHeight: 0, buttonHeight: 44))
     }
 
     /// And the full card must be shown wherever it does fit: this is a cap,

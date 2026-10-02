@@ -15,16 +15,20 @@ private struct Sheet {
     var naturalArtHeight: CGFloat { contentWidth / Theme.heroAspectRatio }
 
     /// iPhone 17 Pro portrait, the device this bug was measured on: 402 pt
-    /// wide, less 16 pt of `Form` row inset on each side. A full-height sheet
-    /// starts 62 pt down and runs to the bottom, less a 54 pt inline
-    /// navigation bar and a 34 pt home indicator.
+    /// wide, less 16 pt of `Form` row inset on each side; 874 pt tall, less
+    /// the 116 pt of status bar and inline navigation bar above the form and
+    /// the 34 pt home indicator below it (read off the live form, iOS 27,
+    /// 2026-10-02).
     static let portraitPhone = Sheet(contentWidth: 402 - 32,
-                                     height: 874 - 62 - 54 - 34)
+                                     height: 874 - 116 - 34)
 
-    /// iPhone 17 Pro landscape: 874x402 pt, less 16 pt row insets and the
-    /// same chrome. The short viewport is the case a ratio alone gets wrong.
-    static let landscapePhone = Sheet(contentWidth: 874 - 32,
-                                      height: 402 - 54 - 21)
+    /// iPhone 17 Pro landscape: 874x402 pt, less 62 pt of sensor housing on
+    /// each side and 16 pt row insets, and 78 pt above / 20 pt below (same
+    /// measurement). The short viewport is the case a ratio alone gets wrong.
+    /// This used to assume 874 - 32 by 402 - 54 - 21: 124 pt wider and 23 pt
+    /// taller than the form the page actually gets.
+    static let landscapePhone = Sheet(contentWidth: 874 - 62 * 2 - 32,
+                                      height: 402 - 78 - 20)
 }
 
 final class PlayableDetailLayoutTests: XCTestCase {
@@ -122,9 +126,9 @@ final class PlayableDetailLayoutTests: XCTestCase {
 
     // MARK: Side by side (design-system spec §8)
 
-    /// iPad Pro 13-inch landscape: 1366 x 1024 pt, less the Form's row insets
-    /// and an inline bar plus the home indicator.
-    private static let landscapePad = Sheet(contentWidth: 1366 - 32, height: 1024 - 54 - 20)
+    /// iPad Pro 13-inch (M4) landscape: 1376 x 1032 pt, less the Form's row
+    /// insets, and 86 pt above / 25 pt below (measured as above).
+    private static let landscapePad = Sheet(contentWidth: 1376 - 32, height: 1032 - 86 - 25)
 
     /// Portrait and unmeasured pages stack; a page wider than it is tall puts
     /// the art beside the caption. This is the rule that takes a landscape
@@ -164,7 +168,7 @@ final class PlayableDetailLayoutTests: XCTestCase {
     /// the hero row -- the side-by-side twin of the stacked peek rule.
     func testSideBySideLeavesATapTargetOfPeek() {
         for sheet in [Sheet.landscapePhone, Self.landscapePad,
-                      Sheet(contentWidth: 812 - 32, height: 375 - 44 - 21)] { // the smallest landscape phone
+                      Sheet(contentWidth: 812 - 44 * 2 - 32, height: 375 - 78 - 20)] { // iPhone 13 mini landscape
             let art = PlayableDetailLayout.sideBySideArtHeight(contentWidth: sheet.contentWidth,
                                                                viewportHeight: sheet.height)
             let row = PlayableDetailLayout.captionTopPadding + art + PlayableDetailLayout.captionBottomPadding
@@ -182,7 +186,7 @@ final class PlayableDetailLayoutTests: XCTestCase {
                                                                    buttonLineHeight: 20.3,
                                                                    primaryButtonCount: 2)
         for sheet in [Sheet.landscapePhone, Self.landscapePad,
-                      Sheet(contentWidth: 812 - 32, height: 375 - 44 - 21)] {
+                      Sheet(contentWidth: 812 - 44 * 2 - 32, height: 375 - 78 - 20)] {
             let row = PlayableDetailLayout.sideBySideRowHeight(contentWidth: sheet.contentWidth,
                                                                viewportHeight: sheet.height,
                                                                captionHeight: caption)
