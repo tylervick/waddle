@@ -718,8 +718,11 @@ jobs:
       contents: write
     # The same group testflight.yml declares, because a called workflow's own
     # concurrency is not guaranteed to apply. Two merges in quick succession
-    # release one after the other; a dispatch waits for a merge in flight.
+    # release one after the other; a dispatch waits for a merge in flight,
+    # and queue: max is what keeps it waiting instead of being cancelled by
+    # the merge after that (see the note on testflight.yml's concurrency).
     concurrency:
       group: testflight
       cancel-in-progress: false
+      queue: max
     uses: ./.github/workflows/testflight.yml

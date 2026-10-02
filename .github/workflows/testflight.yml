@@ -59,10 +59,15 @@ on:
 # quick succession therefore release one after the other, and the second
 # measures from the tag the first pushed. cancel-in-progress is false because
 # cancelling mid-upload burns a build number server-side while reporting
-# nothing.
+# nothing. queue: max because GitHub's default keeps ONE pending run per
+# group and cancels it when another arrives: a hand dispatch waiting behind a
+# merge build would be silently dropped by the next merge, and unlike a
+# dropped merge (the next one carries its commits) a dispatch asks for
+# something no later merge repeats -- a re-release, or an engine rebuild.
 concurrency:
   group: testflight
   cancel-in-progress: false
+  queue: max
 
 env:
   XCODE_VERSION: "26.2"
