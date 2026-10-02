@@ -1,24 +1,27 @@
 name: TestFlight
 
-# Scheduled nightly, plus manual dispatch. The rule this used to state --
-# "shipping is a deliberate act and must never be a side effect of a push or a
-# tag" -- is narrowed here, not dropped, and the narrowing is only in the word
-# "push". No individual merge ships anything, and no tag ships anything. What
-# ships is one scheduled act per day, carrying whatever main accumulated, and
-# only when main actually moved past the newest build-* tag (the `gate` job
-# below, via Scripts/release-due.sh).
+# Ships on merge, plus manual dispatch. `ci.yml` calls this after its build
+# and unit tests pass on a push to `main`; the `gate` job below then asks
+# Scripts/release-due.sh whether anything that goes into the binary changed
+# since the newest build-* tag, and skips the archive otherwise. A docs-only,
+# test-only or workflow-only merge ships nothing. Every uploaded build reaches
+# the internal TestFlight group through that group's automatic-distribution
+# setting in App Store Connect; the external group's setting stays off, and a
+# build reaches it only through promote-build.yml. Nothing here adds a build
+# to a group.
 #
-# Per-merge releases were the alternative and were rejected on the numbers: at
-# the two or three merged pull requests a day this repo lands, they would mean
-# three builds daily whose What-to-Test notes are each a single bullet, which
-# teaches testers to ignore the notification. Once ignored, the notification
-# cannot be un-ignored by shipping more often.
+# This used to run nightly instead, on the argument that two or three
+# single-bullet builds a day would teach testers to ignore the notification.
+# The internal group is the team, who want the build the moment it exists;
+# the external group is where cadence matters, and it is promoted by hand. The
+# "no tag ships anything" half of the old rule still holds: build-* tags are
+# written BY a release, never read as a trigger.
+#
+# The manual dispatch remains for a dry run (`validate_only`), for a retry
+# with an explicit `build_number`, and for the two cases the gate cannot see
+# from git: re-releasing after a failed notes attach, and shipping an engine
+# rebuild that changes the binary with no new commits behind it.
 on:
-  schedule:
-    # 01:17 America/Los_Angeles in winter, 02:17 in summer -- cron has no
-    # timezone and GitHub reads it as UTC. Deliberately off the hour: schedules
-    # bunch at :00, and a contended queue delays them, sometimes past an hour.
-    - cron: '17 9 * * *'
   workflow_dispatch:
     inputs:
       validate_only:
@@ -31,36 +34,65 @@ on:
         type: string
         required: false
         default: ''
+  # No `secrets:` block: the signing material and the App Store Connect key
+  # are secrets of the `app-store` environment, which the release job below
+  # declares, and GitHub resolves environment secrets in the called job
+  # itself -- `on.workflow_call` has no `environment` keyword and cannot be
+  # handed them by the caller. That is also what keeps them from a branch:
+  # the environment's deployment rule admits `main` only, and the ref it
+  # checks is the caller's.
+  workflow_call:
+    inputs:
+      validate_only:
+        type: boolean
+        required: false
+        default: false
+      build_number:
+        type: string
+        required: false
+        default: ''
 
 # Ref-INDEPENDENT on purpose: a ref-keyed group (as ci.yml uses) would not
-# serialize two dispatches on different refs, which is the exact race this
-# prevents. cancel-in-progress is false because cancelling mid-upload burns a
-# build number server-side while reporting nothing.
+# serialize a dispatch against a merge-triggered run, which is the exact race
+# this prevents. The caller job in ci.yml declares the same group, because a
+# called workflow's own concurrency is not guaranteed to apply. Two merges in
+# quick succession therefore release one after the other, and the second
+# measures from the tag the first pushed. cancel-in-progress is false because
+# cancelling mid-upload burns a build number server-side while reporting
+# nothing. queue: max because GitHub's default keeps ONE pending run per
+# group and cancels it when another arrives: a hand dispatch waiting behind a
+# merge build would be silently dropped by the next merge, and unlike a
+# dropped merge (the next one carries its commits) a dispatch asks for
+# something no later merge repeats -- a re-release, or an engine rebuild.
 concurrency:
   group: testflight
   cancel-in-progress: false
+  queue: max
 
 env:
   XCODE_VERSION: "26.2"
-  # Builds 1-6 are consumed. run_number starts at 1 for a new workflow, so
-  # this floor clears them with room for out-of-band manual uploads. First CI
-  # release is 201. Documented in the design spec.
+  # Only for a repository that has never shipped, before any build-* tag
+  # exists: that one build is OFFSET + run number. Every later build is the
+  # newest tag plus one. The run number is NOT usable here in general: inside
+  # a called workflow `github.run_number` is the CALLER's (ci.yml's, already
+  # in the hundreds), so deriving from it would have the merge path and the
+  # dispatch path count on two unrelated sequences -- see
+  # docs/learnings/run-number-in-called-workflow-is-the-callers.md.
   #
-  # Since the nightly schedule landed, build numbers have GAPS: a night the
-  # gate declines still consumes a run_number, so the sequence skips. That is
-  # harmless -- App Store Connect requires build numbers to be unique and
-  # increasing, never contiguous -- but it means a missing number is not
-  # evidence of a lost or failed release, and the run list is the only place
-  # that distinction is recorded.
+  # Builds 1-6 were consumed by hand before CI released anything; the first
+  # CI release was 201. The nightly era left GAPS (a declined night still
+  # consumed a run number), which is harmless -- App Store Connect requires
+  # unique and increasing, never contiguous -- so a missing number is not
+  # evidence of a lost release.
   BUILD_NUMBER_OFFSET: 200
 
 jobs:
   # Deliberately a separate ubuntu job rather than a first step of the macOS
-  # one. Two things follow from the split and neither is cosmetic: a quiet
-  # night never spins up a macOS runner at all, and a declined night reads as
-  # `skipped` in the run list instead of as a green run that silently did
-  # nothing -- the shape that makes a broken schedule indistinguishable from a
-  # calm week.
+  # one. Two things follow from the split and neither is cosmetic: a merge
+  # that changes nothing in the binary never spins up a macOS runner at all,
+  # and a declined merge reads as `skipped` in the run list instead of as a
+  # green run that silently did nothing -- the shape that makes a broken
+  # trigger indistinguishable from a calm week.
   gate:
     name: Anything to ship?
     runs-on: ubuntu-latest
@@ -93,14 +125,14 @@ jobs:
       - name: Ask whether main moved
         id: due
         env:
-          # A manual dispatch is the owner meaning it, and the schedule's gate
-          # must not second-guess that. Re-releasing after a failed notes
+          # A manual dispatch is the owner meaning it, and the gate must not
+          # second-guess that. Re-releasing after a failed notes
           # attach, and shipping an engine rebuild that changes the binary with
           # no new commits behind it, are both legitimate and both look exactly
           # like "nothing to ship" when measured from git alone.
           EVENT: ${{ github.event_name }}
         run: |
-          if [ "$EVENT" != "schedule" ]; then
+          if [ "$EVENT" = "workflow_dispatch" ]; then
             echo "ship=true" >> "$GITHUB_OUTPUT"
             echo "Manual dispatch: shipping regardless of what main has done."
             exit 0
@@ -116,10 +148,10 @@ jobs:
           fi
           if [ "$DUE" = "yes" ]; then
             echo "ship=true" >> "$GITHUB_OUTPUT"
-            echo "main has moved since the last shipped build; releasing."
+            echo "Something that goes into the binary changed since the last shipped build; releasing."
           else
             echo "ship=false" >> "$GITHUB_OUTPUT"
-            echo "No commits since the newest build-* tag; nothing to ship tonight."
+            echo "Nothing that goes into the binary has changed since the newest build-* tag; not shipping."
           fi
 
   testflight:
@@ -164,11 +196,28 @@ jobs:
           OFFSET: ${{ env.BUILD_NUMBER_OFFSET }}
           RUN_NUMBER: ${{ github.run_number }}
         run: |
-          if [ -n "$OVERRIDE" ]; then N="$OVERRIDE"; else N=$(( OFFSET + RUN_NUMBER )); fi
+          # The build-* tags are the local record of every number App Store
+          # Connect has accepted; the checkout above fetched them all. Sorted
+          # as VERSIONS, not by ancestry as Scripts/release-due.sh does: the
+          # question here is "what is the highest number ever used", and a
+          # retry tagged off the main line still counts. Runs serialize on
+          # the concurrency group, so the tag the previous run pushed is here
+          # before this one reads it.
+          NEWEST="$(git tag --list 'build-*' --sort=-v:refname | head -n 1 | sed 's/^build-//')"
+          if [ -n "$OVERRIDE" ]; then N="$OVERRIDE"
+          elif [ -n "$NEWEST" ]; then N=$(( NEWEST + 1 ))
+          else N=$(( OFFSET + RUN_NUMBER )); fi
           [[ "$N" =~ ^[0-9]+$ ]] || { echo "::error::build number '$N' is not numeric"; exit 1; }
           [ "$N" -gt 6 ] || { echo "::error::build number $N is at or below the consumed 1-6"; exit 1; }
+          # Only an override can fail this now. Catching it here costs
+          # seconds; letting it through costs the archive and then a rejected
+          # upload.
+          if [ -n "$NEWEST" ] && [ "$N" -le "$NEWEST" ]; then
+            echo "::error::build number $N is not above the newest shipped build $NEWEST"
+            exit 1
+          fi
           echo "value=$N" >> "$GITHUB_OUTPUT"
-          echo "Build number: $N"
+          echo "Build number: $N (newest tag: ${NEWEST:-none})"
 
       - uses: ./.github/actions/setup-waddle-build
         with:
@@ -292,12 +341,11 @@ jobs:
             echo "::error::Build $N IS UPLOADED and the release did NOT fail --"
             echo "::error::only the build-$N tag could not be recorded (a"
             echo "::error::tag-protection ruleset or a transient push failure)."
-            echo "::error::Re-running this workflow will NOT fix this: a retry"
-            echo "::error::reuses the same run number, computes the same build"
-            echo "::error::number, and would tag the wrong build if it even got"
-            echo "::error::this far again -- it would instead be rejected earlier,"
-            echo "::error::at upload, since App Store Connect rejects a duplicate"
-            echo "::error::build. Create and push the tag by hand instead:"
+            echo "::error::Re-running this workflow will NOT fix this: with the"
+            echo "::error::tag missing, a retry derives the same build number"
+            echo "::error::from the previous tag and is rejected at upload, since"
+            echo "::error::App Store Connect refuses a duplicate build; the next"
+            echo "::error::MERGE does the same. Create and push the tag by hand:"
             echo "::error::  git -c tag.gpgSign=false tag build-$N \\"
             echo "::error::    && git push origin build-$N"
             echo "::error::(the -c is not optional on a machine with tag.gpgSign"
@@ -365,16 +413,19 @@ jobs:
         if: always()
         env:
           REF: ${{ github.ref_name }}
+          EVENT: ${{ github.event_name }}
           BUILD_NUM: ${{ steps.buildnum.outputs.value }}
           VALIDATE_ONLY: ${{ inputs.validate_only }}
         run: |
           if [ "$VALIDATE_ONLY" = "true" ]; then MODE="validate only"; else MODE="upload"; fi
+          if [ "$EVENT" = "workflow_dispatch" ]; then HOW="dispatched by hand"; else HOW="on merge ($EVENT)"; fi
           {
             echo "### TestFlight run"
             echo ""
             echo "- Build number: **$BUILD_NUM**"
             echo "- Mode: $MODE"
             echo "- Ref: \`$REF\`"
+            echo "- Trigger: $HOW"
             echo ""
             echo "Confirm the build appears in App Store Connect. Xcode 26's altool"
             echo "can report success for an upload that did not happen, so a green"

@@ -45,19 +45,42 @@ paste; `docs/app-store/screenshots/` holds the images;
 
 ## 2. Build and upload
 
-**Releases run from CI.** Dispatch the `TestFlight` workflow — do not archive
-by hand unless CI is unavailable.
+**Releases run from CI.** Do not archive by hand unless CI is unavailable.
 
-**Most builds arrive without you.** The workflow also runs on a nightly
-schedule (`17 9 * * *`, so ~01:17 PT in winter and ~02:17 PT in summer). A
-`gate` job asks `Scripts/release-due.sh` whether `main` has moved past the
-newest `build-*` tag and skips the whole release if it has not, so a quiet day
-costs nothing and ships nothing. Everything below is still how you release *on
-demand* — for a version cut, a signing change, or anything you do not want to
-wait a night for. A manual dispatch is never gated: it ships whether or not
-`main` moved, which is what makes it the way to re-release after a failed notes
-attach or to ship an engine rebuild that changes the binary with no new commits
-behind it.
+**Builds ship on merge.** `ci.yml` calls the `TestFlight` workflow after its
+build and unit tests pass on a push to `main`. A `gate` job asks
+`Scripts/release-due.sh` whether anything that goes into the binary changed
+since the newest `build-*` tag, and skips the whole release if not, so a
+docs-only, test-only or workflow-only merge costs nothing and ships nothing
+(the script's `NON_BINARY_PATHS` is the list; a change that lands under a
+path not named there ships). Every uploaded build reaches the internal
+TestFlight group through that group's **automatic distribution** setting in
+App Store Connect; keep the external group's setting **off**, so an outside
+tester gets a build only through the promotion below. Nothing in the workflow
+adds a build to a group.
+
+**Build numbers** are the newest `build-*` tag plus one, whichever path runs,
+so the merge path and the dispatch path count on one sequence. Two merges in
+quick succession release one after the other on a shared concurrency group.
+
+**Manual dispatch** (Actions › TestFlight › Run workflow on `main`) is still
+how you release *on demand*, and it is never gated: it ships whether or not
+`main` moved, which is what makes it the way to re-release after a failed
+notes attach or to ship an engine rebuild that changes the binary with no new
+commits behind it. Tick `validate_only` for a dry run (no build number
+consumed). Leave `build_number` empty unless App Store Connect already holds
+a number that no `build-*` tag records, such as an upload made outside CI. A
+CI upload whose tag failed to push is repaired by pushing that tag by hand at
+the commit that shipped, exactly as the run's error says, never by overriding:
+an override uploads a second build, and the next merge still derives the
+missing number from the old tag and is rejected.
+
+**The What to Test preamble** (`docs/app-store/whats-to-test.md`) heads the
+notes only if it changed since the previous build's tag: it is written for the
+next build, and the same text must not go out with every build after. Write
+it in the pull request that ships the change it describes; merged on its own
+it ships nothing and then heads the next code change's build. Preview with
+`Scripts/whats-to-test.sh --print`.
 
 **Promoting a shipped build to external testers** is a tag, not a build
 (issue #165): `CFBundleShortVersionString` cannot carry "rc", and rebuilding
@@ -90,9 +113,11 @@ App Review is already passed, so a build promoted under the current
 build of a *new* version string re-enters review, which is the cost of a
 version cut, not a defect.
 
-Build numbers therefore have gaps — a night the gate declines still consumes a
-`run_number`. A missing number is not a lost release; check the Actions run
-list before assuming one went wrong.
+Build numbers below 276 have gaps: in the nightly era a declined night still
+consumed a `run_number`. Since builds became the newest tag plus one, a run
+that fails before its upload leaves no gap and one that fails after it leaves
+one. A missing number is not a lost release; check the Actions run list before
+assuming one went wrong.
 
 - [ ] **Preflight** (do this first whenever signing, certificates or profiles
       have changed). Builds, signs, exports and validates against App Store
@@ -117,11 +142,16 @@ list before assuming one went wrong.
       **validate_only** for a preflight.
 
 - [ ] `build_number` (either mode) overrides the derived number. Only needed
-      when retrying a release whose upload already landed server-side.
-- [ ] The build number is derived automatically as `200 + run_number`; there
-      is nothing to bump in `App/project.yml` any more. It is validated
-      (numeric, above the consumed 1–6) *before* the build starts, and the
-      number used is written to the run summary.
+      when App Store Connect holds a number no `build-*` tag records (an
+      upload made outside CI). A CI upload that landed but was not tagged is
+      fixed by pushing its tag by hand, not by overriding — see "Manual
+      dispatch" above.
+- [ ] The build number is derived automatically as the newest `build-*` tag
+      plus one (`200 + run_number` only for a repository with no tag at all);
+      there is nothing to bump in `App/project.yml` any more. It is validated
+      (numeric, above the consumed 1–6, and above the newest tag, override
+      included) *before* the build starts, and the number used is written to
+      the run summary.
 - [ ] **Confirm the build appears in App Store Connect.** A green run is not
       proof of delivery: Xcode 26's `altool` has been observed reporting
       "Successfully uploaded" for an upload that did not happen.

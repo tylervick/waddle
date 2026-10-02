@@ -57,14 +57,14 @@ run() {
 
 # 1. The once-ever bootstrap. A repo that has never shipped has no build-*
 #    tag to measure from, and the honest answer is "ship" -- not "error",
-#    which would make the very first scheduled run need a human.
+#    which would make the very first release need a human.
 make_repo bootstrap
 run
 [ "$RUN_STATUS" -eq 0 ] || fail "1: bootstrap exited $RUN_STATUS: $RUN_ERR"
 [ "$RUN_OUT" = "yes" ] || fail "1: bootstrap said '$RUN_OUT', want yes"
 pass "no build-* tag anywhere is a bootstrap yes"
 
-# 2. The quiet night this whole script exists for. A tag on HEAD means the
+# 2. The quiet case this whole script exists for. A tag on HEAD means the
 #    last release already carries every commit, and a build made now would be
 #    byte-identical to the last one with an empty changelog behind it.
 make_repo quiet
@@ -95,8 +95,8 @@ pass "several commits since the tag is yes"
 # 5. The lexical-sort trap, and the reason this uses `git describe` rather
 #    than `git tag -l | sort | tail -1`. Sorted as text, build-9 comes after
 #    build-10, so a naive implementation would measure from the OLDER tag,
-#    find commits behind it, and ship a duplicate build every single night
-#    once the build number crossed into two digits. Ordered by ancestry,
+#    find commits behind it, and ship a duplicate build on every merge once
+#    the build number crossed into two digits. Ordered by ancestry,
 #    build-10 is the nearest tag and the answer is no.
 make_repo lexical-trap
 git tag build-9
@@ -144,8 +144,8 @@ pass "a newer non-build-* tag does not hide commits since the last build"
 #    depth-1 clone has neither the build-* tags nor the history behind them --
 #    a trap this repo already documents for Scripts/whats-to-test.sh. If that
 #    setting is ever dropped, the tags are present but unreachable from HEAD,
-#    and treating that as a bootstrap would ship a build EVERY night forever
-#    while reporting success. It must fail closed instead.
+#    and treating that as a bootstrap would ship a build on EVERY merge
+#    forever while reporting success. It must fail closed instead.
 make_repo unreachable-tag
 git tag build-201
 git checkout -q --orphan detached
@@ -183,7 +183,7 @@ pass "a repo with no commits fails closed"
 
 # 12. The verdict is the whole of stdout, with no decoration. testflight.yml
 #     compares it with `=`, so a stray banner or a trailing period would make
-#     the gate read every night as `no` and silently stop releasing -- a
+#     the gate read every merge as `no` and silently stop releasing -- a
 #     failure that looks exactly like a quiet week.
 make_repo stdout-shape
 git tag build-201
@@ -191,5 +191,82 @@ commit "a fix"
 run
 [ "$RUN_OUT" = "yes" ] || fail "12: stdout was '$RUN_OUT', want exactly yes"
 pass "stdout is the bare verdict and nothing else"
+
+# A commit touching one named path, so the fixtures can say WHAT moved.
+commit_path() { # path, message
+    mkdir -p "$(dirname "$1")"; echo "$2" >> "$1"; git add -A; git commit -qm "$2"
+}
+
+# 13. Builds ship on merge now, so a merge that changes nothing a tester could
+#     notice must not spend a macOS runner or send a notification. Docs, the
+#     test suites, the UI tests, the CI guards, the workflows themselves and
+#     the root prose are each named out in NON_BINARY_PATHS; one commit to
+#     each, and the answer is still no.
+make_repo non-binary-only
+git tag build-201
+commit_path docs/learnings/x.md "docs: a learning"
+commit_path App/Tests/XTests.swift "test: a unit test"
+commit_path App/UITests/XUITests.swift "test(ui): a ui test"
+commit_path Scripts/test-x.sh "test: a suite"
+commit_path Scripts/check-x.sh "ci: a guard"
+commit_path Scripts/fixtures/x.txt "test: a fixture"
+commit_path .github/workflows/x.yml "ci: a workflow"
+commit_path Design/source/x.svg "design: a glyph source"
+commit_path README.md "docs: readme"
+commit_path renovate.json "chore: renovate"
+run
+[ "$RUN_STATUS" -eq 0 ] || fail "13: exited $RUN_STATUS: $RUN_ERR"
+[ "$RUN_OUT" = "no" ] || fail "13: said '$RUN_OUT', want no -- none of these paths reaches the binary"
+pass "commits that touch only non-binary paths are no"
+
+# 14. One source change among many non-binary ones is enough to ship. The
+#     exclusions narrow the diff; they never veto it.
+make_repo mixed
+git tag build-201
+commit_path docs/learnings/x.md "docs: a learning"
+commit_path App/Sources/X.swift "fix(ui): a change"
+commit_path App/Tests/XTests.swift "test: its test"
+run
+[ "$RUN_STATUS" -eq 0 ] || fail "14: exited $RUN_STATUS: $RUN_ERR"
+[ "$RUN_OUT" = "yes" ] || fail "14: said '$RUN_OUT', want yes -- App/Sources changed"
+pass "a source change among non-binary changes is yes"
+
+# 15. The list is an EXCLUSION list, so what it does not name ships. Pinned
+#     for the build inputs that live next to excluded siblings and would be
+#     the easy mistake: a release script and an engine patch under Scripts/,
+#     the toolchain pins in mise.toml, and a brand-new top-level directory
+#     nobody has classified yet.
+for spec in \
+    "Scripts/archive.sh:a release script" \
+    "Scripts/patches/woof.patch:an engine patch" \
+    "Scripts/build-engine.sh:the engine build" \
+    "mise.toml:a toolchain pin" \
+    "Engine/x.c:engine source" \
+    "NewThing/x.swift:an unclassified new directory"; do
+    path="${spec%%:*}"; what="${spec#*:}"
+    make_repo "binary-$(echo "$path" | tr '/.' '--')"
+    git tag build-201
+    commit_path "$path" "change $what"
+    run
+    [ "$RUN_STATUS" -eq 0 ] || fail "15: $path exited $RUN_STATUS: $RUN_ERR"
+    [ "$RUN_OUT" = "yes" ] || fail "15: $path said '$RUN_OUT', want yes -- $what goes into the binary"
+done
+pass "paths not named in the exclusion list ship, including a new top-level one"
+
+# 16. A path that is excluded at one depth is not excluded at another: a
+#     README inside App/Sources matches `*.md` and stays out, but
+#     Scripts/test-helpers.sh is a suite only by the `test-*.sh` pattern, and
+#     Scripts/testing-notes.txt is not a suite at all.
+make_repo pattern-edges
+git tag build-201
+commit_path Scripts/testing-notes.txt "chore: not a suite"
+run
+[ "$RUN_OUT" = "yes" ] || fail "16: Scripts/testing-notes.txt said '$RUN_OUT', want yes -- it is not a test-*.sh suite"
+make_repo pattern-edges-md
+git tag build-201
+commit_path App/Sources/README.md "docs: a nested readme"
+run
+[ "$RUN_OUT" = "no" ] || fail "16: a nested README.md said '$RUN_OUT', want no -- *.md matches at any depth"
+pass "the exclusion patterns match where intended and nowhere else"
 
 echo "All release-due tests passed."
