@@ -726,3 +726,11 @@ jobs:
       cancel-in-progress: false
       queue: max
     uses: ./.github/workflows/testflight.yml
+    # A called workflow sees NO repository secrets unless the caller passes
+    # them. The first merge-path release (run 37060983966, 2026-10-02) got as
+    # far as `security import` and failed with "SecKeychainItemImport: One or
+    # more parameters passed to a function were not valid" -- a .p12 decoded
+    # from an empty BUILD_CERTIFICATE_BASE64. The dispatch and schedule paths
+    # never showed it because they run testflight.yml directly, with the
+    # secrets in scope. See docs/learnings/called-workflow-gets-no-secrets.md.
+    secrets: inherit
