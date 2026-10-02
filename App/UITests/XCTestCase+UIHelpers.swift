@@ -31,19 +31,38 @@ extension XCTestCase {
     /// throughout, so "is there a keyboard" is not the condition; "is its
     /// frame on screen, and is the alert clear of it" is. See
     /// docs/learnings/ios27-alert-moves-under-typetext.md.
-    func waitForAlertToSettle(timeout: TimeInterval = 3) {
+    ///
+    /// Once the resting condition holds, the alert's frame also has to read
+    /// the same three samples running (the probes only ever saw the two
+    /// discrete positions, so this is insurance against an in-flight frame,
+    /// at the cost of 200 ms). A timeout fails here, by name, rather than
+    /// letting the next tap fail somewhere less legible.
+    func waitForAlertToSettle(timeout: TimeInterval = 3,
+                              file: StaticString = #filePath, line: UInt = #line) {
         let app = XCUIApplication()
         let alert = app.alerts.firstMatch
         guard alert.exists else { return }
         let deadline = Date().addingTimeInterval(timeout)
+        var previousAlertFrame: CGRect?
+        var stableSamples = 0
         repeat {
             let keyboard = app.keyboards.firstMatch
             guard keyboard.exists else { return }
             let keyboardFrame = keyboard.frame
+            let alertFrame = alert.frame
             let onScreen = keyboardFrame.minY < app.frame.maxY
-            if onScreen && !alert.frame.intersects(keyboardFrame) { return }
+            if onScreen && !alertFrame.intersects(keyboardFrame) {
+                stableSamples = alertFrame == previousAlertFrame ? stableSamples + 1 : 1
+                if stableSamples >= 3 { return }
+            } else {
+                stableSamples = 0
+            }
+            previousAlertFrame = alertFrame
             Thread.sleep(forTimeInterval: 0.1)
         } while Date() < deadline
+        XCTFail("the alert did not settle clear of the keyboard within \(timeout)s " +
+                "(alert \(alert.frame), keyboard \(app.keyboards.firstMatch.frame))",
+                file: file, line: line)
     }
 
     /// Opens a tile's game page via its long-press menu (spec §3.1).
