@@ -14,29 +14,54 @@ struct AboutView: View {
 
     var body: some View {
         List {
+            // The mark, as the subject of the one screen that is about the
+            // app rather than the games (design-system spec §5): drawn on
+            // the page, not in a grouped cell, and at the larger integer
+            // scale so the pixel face stays crisp.
+            Section {
+                Image("WaddleWordmark")
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: Theme.wordmarkHeightLarge)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Theme.Spacing.md)
+                    .accessibilityLabel("Waddle")
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
             Section {
                 LabeledContent("Version",
                     value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")
                 LabeledContent("Build", value: "\(BuildInfo.commit) (\(BuildInfo.branch))")
                 LabeledContent("Engine", value: "Woof! (GPL-2.0)")
             }
-            Section("Open source") {
+            Section {
                 Link("Source code on GitHub", destination: sourceURL)
-                Text("Waddle is free software under the GNU GPL v2. It bundles Freedoom and plays your own WAD files; no game data is included from commercial releases.")
-                    .font(.footnote)
+                Text("Waddle is free software under the GNU GPL v3. It bundles Freedoom and plays your own WAD files; no game data is included from commercial releases.")
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Color.appSecondaryText)
+            } header: {
+                WaddleSectionHeader("Open source")
             }
-            Section("Diagnostics") {
+            Section {
                 Button("Export Diagnostics") { exportDiagnostics() }
                     .accessibilityIdentifier("exportDiagnosticsButton")
                 Text("Bundles recent engine session logs (which can include the names of your WAD files), a log of app events like launches and sessions, crash reports, and device details. Nothing leaves your device unless you share this file.")
-                    .font(.footnote)
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Color.appSecondaryText)
+            } header: {
+                WaddleSectionHeader("Diagnostics")
             }
-            Section("Licenses") {
+            Section {
                 ForEach(licenseFiles, id: \.0) { name, file in
                     NavigationLink(name) {
                         LicenseTextView(title: name, filename: file)
                     }
                 }
+            } header: {
+                WaddleSectionHeader("Licenses")
             }
         }
         .waddleScrollSurface()
@@ -101,9 +126,9 @@ struct LicenseTextView: View {
     var body: some View {
         ScrollView {
             Text(loadText())
-                .font(.system(.footnote, design: .monospaced))
+                .font(Theme.Typography.mono)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
+                .padding(Theme.Spacing.base)
         }
         .background(Color.appBackground)
         .navigationTitle(title)

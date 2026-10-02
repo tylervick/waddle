@@ -39,9 +39,11 @@ struct PlayerSettingsView: View {
                         Label("Control Feel", systemImage: "slider.horizontal.3")
                     }
                     .accessibilityIdentifier("controlFeelButton")
+                } header: {
+                    WaddleSectionHeader("Controls")
                 }
 
-                Section("Library") {
+                Section {
                     NavigationLink {
                         FilesView(library: library)
                     } label: {
@@ -55,6 +57,8 @@ struct PlayerSettingsView: View {
                         Label("Hidden Games", systemImage: "eye.slash")
                     }
                     .accessibilityIdentifier("hiddenGamesButton")
+                } header: {
+                    WaddleSectionHeader("Library")
                 }
 
                 Section {

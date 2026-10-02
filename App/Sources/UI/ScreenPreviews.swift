@@ -124,4 +124,44 @@ private struct ModdedGamePagePreviewHost: View {
         .preferredColorScheme(.dark)
         .dynamicTypeSize(.accessibility3)
 }
+
+// MARK: - Settings, Files, Hidden Games, About (design-system slice 2)
+//
+// Stock lists on the tokens. Nothing here has arithmetic of its own; these
+// exist so the section headers, empty states and the About wordmark are seen
+// rather than assumed.
+
+#Preview("Settings") {
+    PlayerSettingsView(library: ShelfPreviewFixture.factory().library)
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Files") {
+    NavigationStack {
+        FilesView(library: ShelfPreviewFixture.factory().library)
+    }
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Hidden Games, empty") {
+    NavigationStack {
+        HiddenGamesView(library: ShelfPreviewFixture.factory().library)
+    }
+    .preferredColorScheme(.dark)
+}
+
+#Preview("About") {
+    NavigationStack {
+        AboutView(library: ShelfPreviewFixture.factory().library)
+    }
+    .preferredColorScheme(.dark)
+}
+
+#Preview("About, accessibility3") {
+    NavigationStack {
+        AboutView(library: ShelfPreviewFixture.factory().library)
+    }
+    .preferredColorScheme(.dark)
+    .dynamicTypeSize(.accessibility3)
+}
 #endif

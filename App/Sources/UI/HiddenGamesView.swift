@@ -9,8 +9,9 @@ struct HiddenGamesView: View {
     var body: some View {
         List {
             if hidden.isEmpty {
-                Text("Nothing is hidden. Long-press a tile on the shelf to hide it.")
-                    .foregroundStyle(.secondary)
+                EmptyStateView(systemImage: "eye.slash",
+                               title: "Nothing is hidden.",
+                               hint: "Long-press a tile on the shelf to hide it.")
             }
             ForEach(hidden, id: \.id) { game in
                 // No identifier on this HStack itself: a container identifier

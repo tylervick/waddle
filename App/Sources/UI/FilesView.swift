@@ -85,13 +85,15 @@ struct FilesView: View {
     var body: some View {
         List {
             ForEach(groups) { group in
-                Section(group.title) {
+                Section {
                     ForEach(group.wads, id: \.id) { wad in
                         row(for: wad)
                     }
                     .onDelete { offsets in
                         delete(offsets.map { group.wads[$0] })
                     }
+                } header: {
+                    WaddleSectionHeader(group.title)
                 }
             }
         }
@@ -115,14 +117,14 @@ struct FilesView: View {
         let size = library.fileSize(for: wad)
         let games = usedBy[wad.id] ?? []
         let unpaired = games.contains { $0.baseID == nil }
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: Theme.Spacing.xs / 2) {
             HStack {
                 Text(wad.filename)
                 if wad.role == .mapSet && unpaired {
                     StatusBadge("no base", tone: .warning)
                 }
             }
-            HStack(spacing: 4) {
+            HStack(spacing: Theme.Spacing.xs) {
                 if let size {
                     Text(size, format: .byteCount(style: .file))
                     Text("·")
