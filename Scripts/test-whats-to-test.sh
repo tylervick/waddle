@@ -864,4 +864,42 @@ printf '%s\n' "$sent" | grep -q "Please try the new iPad control layout." \
     || fail "the preamble did not reach the attached notes:\n$sent"
 pass "keeps both diagnostics out of the notes that are attached"
 
+# 40. THE CLOSING-LINE CASE (issue #311): every loop pull request opens its
+#     body with a paragraph of exactly "Closes #N", which the 15-character
+#     floor rejected, so build 275 shipped 13 bullets as commit subjects.
+#     That line is a GitHub instruction, not prose: the bullet must be the
+#     sentence of the paragraph AFTER it.
+r="$(make_repo prclosing 'merge_pr 130 "feat(touch): drag-and-drop editor for the overlay"')"
+stub_curl "$r"
+(cd "$r" && git remote add origin https://github.com/tylervick/waddle.git)
+printf '%s' '{"body":"Closes #115\n\n## What\n\nA drag-and-drop editor for the touch overlay, so a player can put every button where their thumb wants it.\n\nReviewer detail follows."}' > "$r/pr.130.json"
+out="$(print_stubbed "$r")" || fail "prclosing case exited non-zero: $out"
+echo "$out" | grep -qF -- "- A drag-and-drop editor for the touch overlay, so a player can put every button where their thumb wants it." \
+    || fail "did not skip the closing line to the prose after it; got: $out"
+echo "$out" | grep -qF "Drag-and-drop editor for the overlay" && fail "fell back to the commit subject despite prose after the closing line; got: $out"
+pass "skips an opening Closes #N paragraph and summarises the prose after it"
+
+# 40b. The other keywords and reference forms GitHub honours, several at
+#      once, with the keyword capitalised and the line ending in a period:
+#      all one closing paragraph, all skipped.
+r="$(make_repo prclosing2 'merge_pr 131 "fix(ui): survive a long closing line"')"
+stub_curl "$r"
+(cd "$r" && git remote add origin https://github.com/tylervick/waddle.git)
+printf '%s' '{"body":"Fixes #12, resolves GH-13 and tylervick/waddle#14.\n\nThe import sheet no longer loses its selection when the app is backgrounded.\n"}' > "$r/pr.131.json"
+out="$(print_stubbed "$r")" || fail "prclosing2 case exited non-zero: $out"
+echo "$out" | grep -qF -- "- The import sheet no longer loses its selection when the app is backgrounded." \
+    || fail "a multi-reference closing line was not skipped; got: $out"
+pass "skips a closing paragraph in any of GitHub's keyword and reference forms"
+
+# 40c. A body that is NOTHING but the closing line keeps today's behaviour:
+#      the commit subject, not an empty bullet and not the closing line.
+r="$(make_repo prclosingonly 'merge_pr 132 "fix(ui): only a closing line"')"
+stub_curl "$r"
+(cd "$r" && git remote add origin https://github.com/tylervick/waddle.git)
+printf '%s' '{"body":"Closes #99\n"}' > "$r/pr.132.json"
+out="$(print_stubbed "$r")" || fail "prclosingonly case exited non-zero: $out"
+echo "$out" | grep -qF -- "- Only a closing line" || fail "a closing-only body did not fall back to the subject; got: $out"
+echo "$out" | grep -qF "Closes #99" && fail "the closing line itself was emitted as a bullet; got: $out"
+pass "a body that is only a closing line still falls back to the commit subject"
+
 echo "All whats-to-test tests passed."
