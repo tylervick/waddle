@@ -4,6 +4,6 @@ A new look, and more ways to play.
 - Move the on-screen buttons where your thumbs want them: Settings › Control Feel › Edit Layout.
 - Walk into doors and switches to use them. Auto-use is on for touch play and steps aside when a controller or keyboard is connected.
 - Pan the automap with a drag and zoom it with a pinch.
-- Leaving the app mid-level pauses and saves the game, so a call or a swipe home costs no progress; the shelf offers to continue it.
+- Swipe home mid-level and the game pauses and saves itself, so the shelf can offer to continue it later.
 - VoiceOver can operate the game controls directly.
 - Fixes: cheats no longer carry into the next game, Quit Game works every time, and an error after a failed launch can be dismissed.
