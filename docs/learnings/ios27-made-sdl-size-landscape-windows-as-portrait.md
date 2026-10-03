@@ -43,3 +43,11 @@ patch applied unchanged (`git apply --check` against a pristine
 `release-3.4.16` clone, then `build-deps.sh`'s own apply), so upstream's fix
 is still main-only and the patch stays. Nothing in 3.4.13 to 3.4.16 touches
 `SDL_uikitwindow.m`'s orientation path.
+
+**Bumped to `release-3.4.18` on 2026-10-03** (with SONiVOX `v4.0.2`, after
+the Woof 16 re-vendor in #328). None of the 73 commits in 3.4.17 and 3.4.18 is
+the upstream orientation fix or touches the uikit window path, so the patch
+stays; `build-deps.sh` applied it unchanged. The one iOS-relevant change in
+the range is `295ca921` "implement joystick hotplugging", which is the path the
+overlay's virtual gamepad attaches through, so `TouchControlsTests` is the
+suite to watch on this bump, not only the orientation test.
