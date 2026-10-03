@@ -108,6 +108,11 @@ jobs:
           Scripts/test-globals-diff.sh
           Scripts/test-check-eas-bank.sh
           Scripts/test-check-eas-realtime.sh
+          # Hermetic fixtures plus one live case: refuses a job that calls a
+          # reusable workflow reading secrets without passing it any, which
+          # is how the first on-merge TestFlight release ran with every
+          # secret empty.
+          Scripts/test-check-called-workflow-secrets.sh
           # Both hermetic: test-asc-jwt.sh generates its own throwaway EC key
           # and never reads the real App Store Connect key; test-whats-to-test.sh
           # stubs git, curl and the token minter and never reaches the network.
@@ -704,10 +709,7 @@ jobs:
   #
   # `uses:` rather than more steps here, so the release lane keeps one
   # definition for the merge path and the hand-dispatched path (dry runs,
-  # retries, the cases the gate cannot see from git). The secrets are not
-  # passed: they belong to the `app-store` environment, which the called job
-  # declares and GitHub resolves there -- see the note above testflight.yml's
-  # `workflow_call` trigger.
+  # retries, the cases the gate cannot see from git).
   testflight:
     needs: build-and-test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -726,11 +728,13 @@ jobs:
       cancel-in-progress: false
       queue: max
     uses: ./.github/workflows/testflight.yml
-    # A called workflow sees NO repository secrets unless the caller passes
-    # them. The first merge-path release (run 37060983966, 2026-10-02) got as
-    # far as `security import` and failed with "SecKeychainItemImport: One or
-    # more parameters passed to a function were not valid" -- a .p12 decoded
-    # from an empty BUILD_CERTIFICATE_BASE64. The dispatch and schedule paths
-    # never showed it because they run testflight.yml directly, with the
-    # secrets in scope. See docs/learnings/called-workflow-gets-no-secrets.md.
+    # A called workflow receives NO secrets unless the caller passes them,
+    # and that is true even though the called job declares the `app-store`
+    # environment: the environment decides which VALUES the names resolve to,
+    # the caller decides whether the names arrive at all. The first on-merge
+    # release (run 37060983966) ran with every secret empty for want of this
+    # line. `inherit` rather than a named list because the names are the
+    # called workflow's business and the environment's branch rule, not this
+    # list, is what keeps them from a branch.
+    # Scripts/check-called-workflow-secrets.sh refuses the line's absence.
     secrets: inherit
