@@ -3,7 +3,7 @@
 set -euo pipefail
 SDL_TAG="release-3.4.18"
 OPENAL_TAG="1.25.2"
-SONIVOX_TAG="v4.0.1"
+SONIVOX_TAG="v4.0.2"
 # Streamed music (#196). libsndfile needs Ogg and Vorbis as EXTERNAL libraries
 # for OGG support -- it vendors neither -- so this is three pins, not one.
 # Build order below is load-bearing: vorbis needs ogg, sndfile needs both.
