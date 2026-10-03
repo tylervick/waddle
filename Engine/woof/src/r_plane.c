@@ -113,8 +113,8 @@ static fixed_t viewx_trans, viewy_trans;
 
 fixed_t *yslope = NULL;
 
-// [FG] linear horizontal sky scrolling
-boolean linearsky;
+// [Nugget] Sky projection
+skyprojection_t sky_projection;
 static angle_t *xtoskyangle;
 
 // Hexen-style foreground sky rendering
@@ -127,7 +127,8 @@ static byte *skytran;
 //
 void R_InitPlanes (void)
 {
-  xtoskyangle = linearsky ? linearskyangle : xtoviewangle;
+  // [Nugget] Sky projection
+  xtoskyangle = (sky_projection == SKYPROJ_LINEAR) ? linearskyangle : xtoviewangle;
   skytran = W_CacheLumpName("SKYTRAN", PU_STATIC);
 }
 
@@ -178,11 +179,11 @@ void R_InitVisplanesRes(void)
 // BASIC PRIMITIVE
 //
 
-static void R_MapPlane(int y, int x1, int x2, const lighttable_t * const thiscolormap)
+static void R_MapPlane(int y, int x1, int x2,
+                       const lighttable_t * const thiscolormap,
+                       const byte *const brightmap)
 {
   fixed_t distance;
-  unsigned lookup;
-  int lightindex;
   int dx;
   fixed_t dy;
 
@@ -227,22 +228,19 @@ static void R_MapPlane(int y, int x1, int x2, const lighttable_t * const thiscol
   ds_yfrac = viewy_trans - FixedMul(angle_sin, distance) + dx * ds_ystep;
 
   // ID24 per-sector colormaps
-  if (fixedcolormapindex)
+  if (fixedcolormapoffset)
   {
-    ds_colormap[0] = thiscolormap + fixedcolormapindex * 256;
-    ds_colormap[1] = (STRICTMODE(brightmaps) || force_brightmaps)
-                      ? thiscolormap
-                      : ds_colormap[0];
+    ds_colormap = thiscolormap + fixedcolormapoffset;
   }
   else
   {
-    lookup = distance >> LIGHTZSHIFT;
-    lookup = CLAMP(lookup, 0, MAXLIGHTZ - 1);
-    lightindex = zlightindex[planezlightindex * MAXLIGHTZ + lookup];
-    ds_colormap[0] = thiscolormap + lightindex * 256;
-    ds_colormap[1] = (STRICTMODE(brightmaps) || force_brightmaps)
-                      ? thiscolormap
-                      : ds_colormap[0];
+    unsigned index = distance >> LIGHTZSHIFT;
+    index = MIN(index, MAXLIGHTZ - 1);
+
+    const lighttable_t *const colormap =
+        thiscolormap + planezlightoffset[index];
+
+    ds_colormap = R_GetBrightmappedColormap(colormap, thiscolormap, brightmap);
   }
 
   ds_y = y;
@@ -409,12 +407,13 @@ visplane_t *R_CheckPlane(visplane_t *pl, int start, int stop)
 // [FG] 32-bit integer math
 static void R_MakeSpans(int x, unsigned int t1, unsigned int b1,
                         unsigned int t2, unsigned int b2,
-                        const lighttable_t * const colormap)
+                        const lighttable_t * const colormap,
+                        const byte *const brightmap)
 {
   for (; t1 < t2 && t1 <= b1; t1++)
-    R_MapPlane(t1, spanstart[t1], x-1, colormap);
+    R_MapPlane(t1, spanstart[t1], x-1, colormap, brightmap);
   for (; b1 > b2 && b1 >= t1; b1--)
-    R_MapPlane(b1, spanstart[b1] ,x-1, colormap);
+    R_MapPlane(b1, spanstart[b1] ,x-1, colormap, brightmap);
   while (t2 < t1 && t2 <= b2)
     spanstart[t2++] = x;
   while (b2 > b1 && b2 >= t2)
@@ -455,19 +454,29 @@ static void DrawSkyTex(visplane_t *pl, sky_t *sky, skytex_t *skytex)
     }
 
     // sidedef-defined skies are stretched here
-    if (stretchsky && sky->stretchable && side)
+    if (side && !sky->vertically_scrolling)
     {
-        dc_texturemid = dc_texturemid * dc_texheight / SKYSTRETCH_HEIGHT;
-        dc_iscale = dc_iscale * dc_texheight / SKYSTRETCH_HEIGHT;
-    }
+        // If the sky is scrolled vertically for at least one tic,
+        // we mark it as vertically-scrolling permanently
+        if (sky->texturemid_tic != leveltime)
+        {
+            if (sky->old_texturemid != dc_texturemid)
+            {
+                sky->vertically_scrolling = true;
+                sky->stretchable = false;
+            }
+            else
+            {
+                sky->texturemid_tic = leveltime;
+                sky->old_texturemid = dc_texturemid;
+            }
+        }
 
-    angle_t an = viewangle + deltax;
-
-    if (sky->texturemid_tic != leveltime)
-    {
-        sky->vertically_scrolling = (sky->old_texturemid != dc_texturemid);
-        sky->old_texturemid = dc_texturemid;
-        sky->texturemid_tic = leveltime;
+        if (stretchsky && sky->stretchable)
+        {
+            dc_texturemid = dc_texturemid * dc_texheight / SKYSTRETCH_HEIGHT;
+            dc_iscale = dc_iscale * dc_texheight / SKYSTRETCH_HEIGHT;
+        }
     }
 
     if (colfunc != R_DrawTLColumn && !sky->vertically_scrolling && dc_texheight >= 128)
@@ -484,11 +493,22 @@ static void DrawSkyTex(visplane_t *pl, sky_t *sky, skytex_t *skytex)
         colfunc = R_DrawSkyColumn;
     }
 
+    const angle_t an = viewangle + deltax;
+
+    // [Nugget] Sky projection
+    const fixed_t base_iscale = dc_iscale;
+
     for (int x = pl->minx; x <= pl->maxx; x++)
     {
         dc_x = x;
         dc_yl = pl->top[x];
         dc_yh = pl->bottom[x];
+
+        // [Nugget] Sky projection
+        if (sky_projection == SKYPROJ_CYLINDRICAL)
+        {
+            dc_iscale = FixedMul(base_iscale, finecosine[xtoviewangle[x] >> ANGLETOFINESHIFT]);
+        }
 
         if (dc_yl != USHRT_MAX && dc_yl <= dc_yh)
         {
@@ -510,9 +530,9 @@ static void DrawSkyDef(visplane_t *pl, sky_t *sky)
     // killough 7/19/98: fix hack to be more realistic:
 
     if (STRICTMODE_COMP(comp_skymap)
-        || !(dc_colormap[0] = dc_colormap[1] = fixedcolormap))
+        || !(dc_colormap = fixedcolormap))
     {
-        dc_colormap[0] = dc_colormap[1] = fullcolormap; // killough 3/20/98
+        dc_colormap = fullcolormap; // killough 3/20/98
     }
 
     DrawSkyTex(pl, sky, &sky->background);
@@ -540,6 +560,8 @@ static void do_draw_plane(visplane_t *pl)
 
     boolean swirling = false;
 
+    const byte *brightmap;
+
     if (pl->picnum != NO_TEXTURE)
     {
         // sky flat
@@ -565,18 +587,19 @@ static void do_draw_plane(visplane_t *pl)
         if (swirling)
         {
             ds_source = R_DistortedFlat(firstflat + pl->picnum);
-            ds_brightmap = R_BrightmapForFlatNum(pl->picnum);
+            brightmap = R_BrightmapForFlatNum(pl->picnum);
         }
         else
         {
             ds_source = V_CacheFlatNum(firstflat + flattranslation[pl->picnum],
                                        PU_STATIC);
-            ds_brightmap = R_BrightmapForFlatNum(flattranslation[pl->picnum]);
+            brightmap = R_BrightmapForFlatNum(flattranslation[pl->picnum]);
         }
     }
     else
     {
         ds_source = R_MissingFlat();
+        brightmap = nobrightmap;
     }
 
     xoffs = pl->xoffs; // killough 2/28/98: Add offsets
@@ -601,25 +624,16 @@ static void do_draw_plane(visplane_t *pl)
         viewy_trans = yoffs - (FixedMul(viewx, sin) + FixedMul(viewy, cos));
     }
 
-    int stop, light;
     planeheight = abs(pl->height - viewz);
-    light = (pl->lightlevel >> LIGHTSEGSHIFT) + extralight;
 
-    if (light >= LIGHTLEVELS)
-    {
-        light = LIGHTLEVELS - 1;
-    }
-
-    if (light < 0)
-    {
-        light = 0;
-    }
-
-    stop = pl->maxx + 1;
+    const int stop = pl->maxx + 1;
     pl->top[pl->minx - 1] = pl->top[stop] = USHRT_MAX;
 
-    planezlightindex = light;
-    planezlightoffset = &zlightoffset[light * MAXLIGHTZ];
+    int light = (pl->lightlevel >> LIGHTSEGSHIFT) + extralight;
+    light = CLAMP(light, 0, LIGHTLEVELS - 1);
+
+    planezlightoffset = zlightoffset[light];
+
     const lighttable_t * const thiscolormap = (pl->tint >= 0)
                                             ? colormaps[pl->tint]
                                             : fullcolormap;
@@ -627,7 +641,7 @@ static void do_draw_plane(visplane_t *pl)
     for (int x = pl->minx; x <= stop; x++)
     {
         R_MakeSpans(x, pl->top[x - 1], pl->bottom[x - 1], pl->top[x],
-                    pl->bottom[x], thiscolormap);
+                    pl->bottom[x], thiscolormap, brightmap);
     }
 
     if (!swirling)

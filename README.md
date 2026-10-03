@@ -193,9 +193,9 @@ images move together with the slot names in
   `Engine/WOOF_UPSTREAM.md`.
 - **Woof! is pinned to a `master` commit, not a release tag.**
   `Scripts/vendor-woof.sh` hardcodes `WOOF_COMMIT` to a specific commit on
-  the SDL3-based tree (it reports itself as "Woof 15.2.0"). The newer-looking
-  `woof_15.3.0` tag is actually the older SDL2-era tree and does not build
-  against this project's SDL3-only iOS dependencies. See
+  the SDL3-based tree (currently `1462fadc`, which reports itself as
+  "Woof 16.0.0"). The `woof_15.3.0` tag is the older SDL2-era tree and does
+  not build against this project's SDL3-only iOS dependencies. See
   `Engine/WOOF_UPSTREAM.md` for the exact commit, provenance, and the full
   iOS patch set carried on top of it.
 - **`woof.pk3` is staged at the app bundle root**

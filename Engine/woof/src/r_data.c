@@ -30,7 +30,9 @@
 #include "doomtype.h"
 #include "i_printf.h"
 #include "i_system.h"
+#include "i_video.h"
 #include "info.h"
+#include "m_argv.h"
 #include "m_array.h"
 #include "m_fixed.h"
 #include "m_misc.h"
@@ -44,7 +46,9 @@
 #include "r_skydefs.h"
 #include "r_state.h"
 #include "r_tranmap.h"
+#include "v_trans.h"
 #include "v_patch.h"
+#include "v_srgb.h"
 #include "v_video.h" // cr_dark, cr_shaded
 #include "w_wad.h"
 #include "z_zone.h"
@@ -120,7 +124,11 @@ byte      **texturecomposite2;
 int       *flattranslation;             // for global animation
 int       *flatterrain;
 int       *texturetranslation;
-const byte **texturebrightmap; // [crispy] brightmaps
+
+// [crispy] brightmaps
+const byte **texturebrightmap,
+           **actualtexturebrightmap,
+           **notexturebrightmap;
 
 // Really complex printing shit...
 static void M_ProgressBarStart(const int item_count, const char *msg)
@@ -557,6 +565,11 @@ byte *R_GetColumnMasked(int tex, int col)
   return texturecomposite[tex] + ofs;
 }
 
+void R_ToggleTextureBrightmaps(void)
+{
+  texturebrightmap = use_brightmaps ? actualtexturebrightmap : notexturebrightmap;
+}
+
 //
 // R_InitTextures
 // Initializes the texture list
@@ -566,7 +579,8 @@ byte *R_GetColumnMasked(int tex, int col)
 static inline void RegisterTexture(texture_t *texture, int i)
 {
     // [crispy] initialize brightmaps
-    texturebrightmap[i] = R_BrightmapForTexName(texture->name);
+    actualtexturebrightmap[i] = R_BrightmapForTexName(texture->name);
+    notexturebrightmap[i] = nobrightmap;
 
     // killough 4/9/98: make column offsets 32-bit;
     // clean up malloc-ing to use sizeof
@@ -590,6 +604,8 @@ static inline void RegisterTexture(texture_t *texture, int i)
 // Slots of the per-texture tables that R_InitTextures has allocated and
 // zeroed, so the next session's cleanup frees only those (issue #269).
 static int texture_slots;
+
+void R_ResetSessionColormaps(void); // defined at the end of this file
 
 // Test-only fault injection for SessionStartStateTests: with
 // WADDLE_DEBUG_FAIL_TEXTURES="<session>:<texture>[,...]" in the environment,
@@ -669,7 +685,9 @@ void R_InitTextures (void)
   Z_Free(texturewidthmask);     texturewidthmask = NULL;
   Z_Free(texturewidth);         texturewidth = NULL;
   Z_Free(textureheight);        textureheight = NULL;
-  Z_Free(texturebrightmap);     texturebrightmap = NULL;
+  Z_Free(actualtexturebrightmap); actualtexturebrightmap = NULL;
+  Z_Free(notexturebrightmap);   notexturebrightmap = NULL;
+  texturebrightmap = NULL;      // an alias of one of the two above
   Z_Free(texturetranslation);   texturetranslation = NULL;
 #endif
 
@@ -781,7 +799,12 @@ void R_InitTextures (void)
   texturewidth =
     Z_Malloc(numtextures*sizeof*texturewidth, PU_STATIC, 0);
   textureheight = Z_Malloc(numtextures*sizeof*textureheight, PU_STATIC, 0);
-  texturebrightmap = Z_Malloc (numtextures * sizeof(*texturebrightmap), PU_STATIC, 0);
+
+  actualtexturebrightmap =
+    Z_Malloc (numtextures * sizeof(*actualtexturebrightmap), PU_STATIC, 0);
+
+  notexturebrightmap =
+    Z_Malloc (numtextures * sizeof(*notexturebrightmap), PU_STATIC, 0);
 #ifdef WOOF_IOS
   // Every slot the loops below have not reached yet reads NULL, so an
   // I_Error part-way through leaves nothing the next cleanup cannot free.
@@ -929,6 +952,8 @@ void R_InitTextures (void)
       textures[i]->next = textures[j]->index;   // Prepend to chain
       textures[j]->index = i;
     }
+
+  R_ToggleTextureBrightmaps();
 }
 
 //
@@ -1030,41 +1055,53 @@ void R_InvulMode(void)
   {
     case INVUL_VANILLA:
       default_comp[comp_skymap] = 1;
-      memcpy(&colormaps[0][256*32], invul_orig, 256);
+      memcpy(&colormaps[0][PLAYPAL_SIZE * 32], invul_orig, PLAYPAL_SIZE);
       break;
     case INVUL_MBF:
       default_comp[comp_skymap] = 0;
-      memcpy(&colormaps[0][256*32], invul_orig, 256);
+      memcpy(&colormaps[0][PLAYPAL_SIZE * 32], invul_orig, PLAYPAL_SIZE);
       break;
     case INVUL_GRAY:
       default_comp[comp_skymap] = 0;
-      memcpy(&colormaps[0][256*32], invul_gray, 256);
+      memcpy(&colormaps[0][PLAYPAL_SIZE * 32], invul_gray, PLAYPAL_SIZE);
       break;
   }
 }
 
 void R_InitColormaps(void)
 {
-  int i;
   firstcolormaplump = W_GetNumForName("C_START");
   lastcolormaplump  = W_GetNumForName("C_END");
   numcolormaps = lastcolormaplump - firstcolormaplump;
 #ifdef WOOF_IOS
-  Z_Free(colormaps); // the previous session's array (issue #269)
-  colormaps = NULL;
+  R_ResetSessionColormaps(); // the previous session's, if any (issue #269)
 #endif
+
   colormaps = Z_Malloc(sizeof(*colormaps) * numcolormaps, PU_STATIC, 0);
 
-  colormaps[0] = W_CacheLumpNum(W_GetNumForName("COLORMAP"), PU_STATIC);
+  byte *const all_colormaps =
+    Z_Malloc(sizeof(**colormaps) * numcolormaps * COLORMAP_SIZE, PU_STATIC, 0);
 
-  for (i=1; i<numcolormaps; i++)
-    colormaps[i] = W_CacheLumpNum(i+firstcolormaplump, PU_STATIC);
+  for (int i = 0; i < numcolormaps; i++)
+  {
+    colormaps[i] = all_colormaps + COLORMAP_SIZE * i;
+
+    const int lump_num = i ? firstcolormaplump + i : W_GetNumForName("COLORMAP");
+
+    const int lump_size = W_LumpLength(lump_num);
+    const int copied_size = MIN(lump_size, COLORMAP_SIZE);
+
+    W_ReadLumpSize(lump_num, colormaps[i], copied_size);
+
+    // If the colormap were undersized, the old code would probably read garbage data;
+    // we roughly emulate this by not initializing the remainder, if any
+  }
 
   // [FG] dark/shaded color translation table
-  cr_dark = &colormaps[0][256*15];
-  cr_shaded = &colormaps[0][256*6];
+  cr_dark = &colormaps[0][PLAYPAL_SIZE * 15];
+  cr_shaded = &colormaps[0][PLAYPAL_SIZE * 6];
 
-  memcpy(invul_orig, &colormaps[0][256*32], 256);
+  memcpy(invul_orig, &colormaps[0][PLAYPAL_SIZE * 32], PLAYPAL_SIZE);
   R_InvulMode();
 }
 
@@ -1127,8 +1164,8 @@ byte *R_MissingFlat(void)
 
     if (buffer == NULL)
     {
-        const byte c1 = colrngs[CR_PURPLE][v_lightest_color];
-        const byte c2 = v_darkest_color;
+        const byte c1 = xlat[CR_PURPLE].table[playpal_global->white];
+        const byte c2 = playpal_global->black;
 
         buffer = Z_Malloc(FLATSIZE, PU_LEVEL, (void **)&buffer);
 
@@ -1351,11 +1388,16 @@ void R_PrecacheLevel(void)
 // Called from WoofIOS_Run before every D_DoomMain() (issue #268).
 // G_ReloadDefaults -> R_InvulMode writes 256 bytes into colormaps[0] before
 // R_Init reassigns it, and colormaps still pointed at the previous session's
-// COLORMAP lump. With the array gone R_InvulMode returns early, as in a
-// fresh process; that write would be a use-after-free once the previous
-// session's lumps are freed (#269).
+// colormap block. With the array gone R_InvulMode returns early, as in a
+// fresh process. Since Woof 16 the colormaps are no longer cached lumps (which
+// W_Close frees) but one Z_Malloc'd block that every colormaps[i] points
+// into, with colormaps[0] at its start, so that block is freed here too.
 void R_ResetSessionColormaps(void)
 {
+    if (colormaps)
+    {
+        Z_Free(colormaps[0]);
+    }
     Z_Free(colormaps);
     colormaps = NULL;
 }

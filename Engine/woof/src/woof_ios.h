@@ -156,7 +156,7 @@ const char *WoofIOS_DebugGameState(void);
 //    cheats=<cheat codes replaced> pars=<par times changed>
 //    dloop=<default demo-loop entries edited>
 //    dirtylv=<levels in p_dirty's archive> compres=<COMPDB restore pending>"
-// A fresh process reads "amlvl=-1/-1 amstop=1 amdef=0 amcol=1 msg=0/0
+// A fresh process reads "amlvl=-1/-1 amstop=1 amdef=0 amcol=1 msg=0
 // sbar=0 rewind=0 pad=0 rumble=0 tex=0 cmap=0 skipbl=0 dehtab=<its own>
 // dehstr=0 dehfiles=0 cheats=0 pars=0 dloop=0 dirtylv=0 compres=0 pcheats=0",
 // and so must every later

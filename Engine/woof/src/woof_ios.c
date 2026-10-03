@@ -126,7 +126,6 @@ static void WoofIOS_DebugSessionEntryCheckpoint(void)
     extern int I_DebugRumbleGamepadSet(void);
     extern int I_DebugVideoTextureSet(void);
     extern boolean skipblstart;
-    extern int ST_DebugMessageElemSet(void);
     extern int R_DebugColormapsSet(void);
     extern unsigned DEH_DebugTablesHash(void);
     extern int DEH_DebugStringCount(void);
@@ -140,10 +139,10 @@ static void WoofIOS_DebugSessionEntryCheckpoint(void)
     char am[96];
     AM_DebugSessionEntry(am, sizeof(am));
     snprintf(session_entry_state, sizeof(session_entry_state),
-             "%s msg=%d/%d sbar=%d rewind=%d pad=%d rumble=%d tex=%d cmap=%d skipbl=%d"
+             "%s msg=%d sbar=%d rewind=%d pad=%d rumble=%d tex=%d cmap=%d skipbl=%d"
              " dehtab=%08x dehstr=%d dehfiles=%d cheats=%d pars=%d dloop=%d"
              " dirtylv=%d compres=%d pcheats=%d",
-             am, ST_DebugMessageLeft(), ST_DebugMessageElemSet(), ST_DebugStatusbarSet(),
+             am, ST_DebugMessageLeft(), ST_DebugStatusbarSet(),
              G_DebugRewindCount(), I_DebugStaleGamepad(), I_DebugRumbleGamepadSet(),
              I_DebugVideoTextureSet(), R_DebugColormapsSet(), skipblstart,
              DEH_DebugTablesHash(), DEH_DebugStringCount(), DEH_DebugFileCount(),

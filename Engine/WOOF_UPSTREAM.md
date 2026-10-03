@@ -1,9 +1,14 @@
 # Vendored Woof! provenance
 
 - Upstream: https://github.com/fabiangreffrath/woof
-- Pin: master commit `798acebd52b6cc1623dde556d3e3a236a25a41d1` (2026-07-12,
-  SDL3 ≥ 3.4 tree; reports version 15.2.0)
-- Vendored by: `Scripts/vendor-woof.sh`
+- Pin: master commit `1462fadc90a4589c9cfc246d9e014ed5f02a2e54` (2026-10-01,
+  SDL3 ≥ 3.4 tree; reports version 16.0.0). The pristine tree is the commit
+  `engine: vendor Woof! master 1462fadc (16.0.0 tree)`; the iOS patch set is
+  exactly what `git diff <that commit> -- Engine/woof` shows (59 files).
+- Previous pin: master `798acebd` (2026-07-12, 15.2.0; pristine commit
+  `9bea4bb`), carried from Plan 1 until the 2026-10-03 re-vendor (issue #79).
+- Vendored by: `Scripts/vendor-woof.sh` -- only as step 3 of the procedure at
+  the end of this file; run on its own it wipes the patch set.
 
 Previously pinned to tag `woof_15.3.0`, which turned out to be the
 SDL2-era tree — incompatible with the SDL3-only iOS dependency set
@@ -430,7 +435,7 @@ only ever runs once):
   started made the next `AM_Start` run `AM_Stop` on the previous session's
   `marknums`), `AM_ApplyColors`' `first_time` (hoisted likewise), and frees
   `amdef`. `ST_ResetSessionMessages()` clears the previous session's last
-  message and `st_msg_elem`; `ST_ResetSessionStatusbar()` NULLs `statusbar`,
+  message (and `st_msg_elem`, until Woof 16 removed it); `ST_ResetSessionStatusbar()` NULLs `statusbar`,
   which `I_InitGraphics` read before it was rewritten; `G_ResetRewind(true)`
   drops the previous session's keyframes; `R_ResetSessionColormaps()` frees
   the array `R_InvulMode` wrote through before `R_Init`; `skipblstart` goes
@@ -635,6 +640,44 @@ only ever runs once):
   `BackgroundSuspendTests` reads after backgrounding a warped session (1/1)
   and a title-screen one (0/0).
 
+- Re-vendor to 16.0.0 (`1462fadc`, issue #79, 2026-10-03). The patch set
+  moved onto a tree with the brightmap refactor (#2924), the colormap and
+  lighting rewrites (#2789, #2864), the minimap (#2836), the centered-message
+  removal (#2844), the wipe cleanup (#2868) and the savegame overhaul (#2737,
+  #2861, #2918). Five files conflicted textually; these are the patches that
+  changed, and why:
+  - `src/am_map.c` -- `lastlevel`/`lastepisode` are now upstream's per-view
+    arrays in `StartView()` (the full automap and the minimap each keep one),
+    hoisted as arrays and reset per view in `AM_ResetSessionState()`; the
+    `amlvl=` field reports the full view's pair.
+  - `src/r_data.c` -- `texturebrightmap` is now an alias of
+    `actualtexturebrightmap` or `notexturebrightmap`; the per-session free
+    covers the two real tables and NULLs the alias. `colormaps[i]` are no
+    longer cached lumps (which `W_Close` frees) but rows of one `Z_Malloc`'d
+    block whose start is `colormaps[0]`, so `R_ResetSessionColormaps()` frees
+    that block before the array, and `R_InitColormaps()` calls it too.
+  - `src/r_main.c` -- `zlightindex`/`scalelightindex` are gone;
+    `zlightoffset` and `scalelightoffset` are each a row-pointer array over one
+    block whose start is row 0, and are freed as such.
+  - `src/st_stuff.c` -- upstream made `UpdateStatusBar` public as
+    `ST_UpdateStatusBar(void)`; the hoisted `oldbarindex` stays.
+  - `src/st_widgets.c`, `src/woof_ios.c`/`.h` -- `st_msg_elem` no longer
+    exists (#2844), so `ST_ResetSessionMessages()` only clears the message, the
+    `ST_DebugMessageElemSet()` seam is gone and the entry readout's field is
+    `msg=<left>` rather than `msg=<left>/<elem>`; `SessionStartStateTests`'
+    fresh-process literal changed with it.
+  - `src/d_main.c` -- `wipe_Invalid` is `wipe_Default` now.
+  - `src/v_palette.c` (new upstream file, new patch) -- `InitPlaypal()`
+    allocates one palette table per gamma level for each of two palettes every
+    session and nothing frees them; under `WOOF_IOS` the previous session's are
+    freed first. The lump behind `playpal->data` is the lump cache's, which
+    `W_Close` already frees.
+  - `src/g_game.h` -- `G_SaveGameName`/`G_MBFSaveGameName` take `(slot, page)`
+    now. The suspend save keeps its own name through `SaveGameName("suspend.dsg")`,
+    and `-loadgame 254`/`255` in `d_main.c` are unchanged. Saves are compressed
+    JSON since #2737; the app reads only a save's file name, never its contents
+    (`App/Sources/Library/EngineSaveSlot.swift`).
+
 Related (not upstream files): `Scripts/build-engine.sh` passes
 `-DCMAKE_FIND_ROOT_PATH="$OUT/$platform"` in addition to
 `-DCMAKE_PREFIX_PATH`. When `CMAKE_SYSTEM_NAME=iOS`, CMake restricts
@@ -659,10 +702,38 @@ app's final link then fails with undefined `ebur128_*` symbols.
 
 ## Updating to a new upstream pin
 
-1. `git log --oneline -- Engine/woof` and note the `engine:` patch commits.
-2. Update `WOOF_COMMIT` in `Scripts/vendor-woof.sh`, run it (this wipes the
-   tree).
-3. Commit the new pristine tree as `engine: vendor Woof! <commit>`.
-4. Re-apply each patch commit with `git cherry-pick` (or by hand), resolving
-   conflicts against the new tree.
-5. Rebuild and re-run the simulator smoke test (Task 10) before merging.
+The patch set is 59 files over 53 commits, most of which also edit `App/`, so
+replaying commits one by one is no longer the cheap path; a three-way merge in
+a scratch clone of upstream is. The 2026-10-03 move (111 upstream commits, 32
+files touched on both sides) produced five textual conflicts this way. See
+`docs/learnings/revendor-woof-with-a-three-way-merge.md` for the traps.
+
+1. Note the current pristine vendor commit `<old-pristine>` (the latest
+   `engine: vendor Woof! ...` commit) and record the patched file set:
+   `git diff --name-status <old-pristine>..main -- Engine/woof`.
+2. In a scratch clone of upstream: `git checkout -b patches <old-pin>`, then
+   `rsync -a --delete --exclude .git Engine/woof/ <clone>/`, commit; then
+   `git checkout -b merged <new-pin>` and `git merge patches`. Resolve the
+   conflicts. Then read every `WOOF_IOS` block in every file upstream touched,
+   not only the conflicted ones: a per-session free mirrors an allocation
+   upstream may have replaced without a textual conflict (brightmaps,
+   colormaps and light tables all did in 2026-10), and grep new upstream files
+   for allocations at init that need the same treatment (`v_palette.c` did).
+3. Update `WOOF_COMMIT` in `Scripts/vendor-woof.sh`, run it (this wipes the
+   tree) and commit the pristine tree as `engine: vendor Woof! master <commit>`.
+4. `rsync -a --delete --exclude .git <clone>/ Engine/woof/`, then
+   `git checkout --` any file that differs only between the tarball and a git
+   checkout (`toolsrc/defswani.dat`, line endings). Compare
+   `git diff --name-status <new-pristine> -- Engine/woof` with the list from
+   step 1: every file must still be there, plus whatever the bump added, and
+   `src/woof_ios.c`, `src/woof_ios.h` and `src/i_easmusic.c` must still be
+   pure additions. A file that dropped out is a lost patch no test notices.
+5. `cmake --build Vendor/build/woof-iphoneos --target woof -- -k 0` collects
+   every compile error in one pass (renamed identifiers surface here, not in
+   the merge); then `Scripts/build-engine.sh`.
+6. Run the unit suite and the multi-session UI suites (`EngineSmokeTests`,
+   `SessionStartStateTests`, `MenuStateAcrossSessionsTests`,
+   `BackgroundSuspendTests`, `QuitGameTests`, `TouchControlsTests`): the unit
+   suite links the framework but never starts a second session, which is where
+   most of the patch set lives. Then update this file's pin and patch notes,
+   `CLAUDE.md`, `README.md` and `docs/learnings/woof-engine-pin.md`.

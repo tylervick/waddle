@@ -62,7 +62,6 @@ void MN_StartControlPanel(void);
 void MN_AddEpisode(const char *map, const char *gfx, const char *txt, char key);
 void MN_ClearEpisodes(void);
 
-void MN_ForcedLoadAutoSave(const char *msg);
 void MN_ForcedLoadGame(const char *msg); // killough 5/15/98: forced loadgames
 void MN_SetupResetMenu(void);
 void MN_UpdateFreeLook(void);
@@ -91,10 +90,6 @@ extern int savepage;
 
 extern const char *skill_strings[];
 extern const char *widescreen_strings[];
-
-void M_ResetAutoSave(void);
-
-void MN_SetQuickSaveSlot(int slot);
 
 void M_SaveAutoSave(void);
 

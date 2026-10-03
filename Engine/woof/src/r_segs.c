@@ -92,36 +92,34 @@ static int    *maskedtexturecol; // [FG] 32-bit integer math
 
 static void SetLight(const int32_t lightlevel)
 {
-    if (!fixedcolormapindex)
+    if (!fixedcolormapoffset)
     {
-        int32_t lightnum = (lightlevel >> LIGHTSEGSHIFT) + extralight;
-        // [crispy]
-        lightnum += curline->fakecontrast;
-        walllightindex = CLAMP(lightnum, 0, LIGHTLEVELS - 1);
+        int32_t lightnum = (lightlevel >> LIGHTSEGSHIFT)
+                         + extralight
+                         + curline->fakecontrast; // [crispy]
+
+        lightnum = CLAMP(lightnum, 0, LIGHTLEVELS - 1);
+
+        walllightoffset = scalelightoffset[lightnum];
+    }
+}
+
+static void CalculateLighting(const lighttable_t * const thiscolormap,
+                              const fixed_t scale,
+                              const byte *const brightmap)
+{
+    if (fixedcolormapoffset)
+    {
+        dc_colormap = thiscolormap + fixedcolormapoffset;
     }
     else
     {
-        walllightindex = fixedcolormapindex;
-    }
-    walllightoffset = &scalelightoffset[walllightindex * MAXLIGHTSCALE];
-}
+        // per-sector colormap
+        const lighttable_t *const colormap =
+            thiscolormap + walllightoffset[R_GetLightIndex(scale)];
 
-static void CalculateLighting(const lighttable_t * const thiscolormap, fixed_t scale)
-{
-    // dimishing
-    int32_t colormapindex = fixedcolormapindex;
-    if (!fixedcolormapindex)
-    {
-        int32_t lightindex = R_GetLightIndex(scale);
-        colormapindex = walllightindex < NUMCOLORMAPS
-                      ? scalelightindex[walllightindex * MAXLIGHTSCALE + lightindex]
-                      : walllightindex;
+        dc_colormap = R_GetBrightmappedColormap(colormap, thiscolormap, brightmap);
     }
-    // per-sector colormap
-    dc_colormap[0] = thiscolormap + colormapindex * 256;
-    dc_colormap[1] = (!fixedcolormap && (STRICTMODE(brightmaps) || force_brightmaps))
-                   ? thiscolormap
-                   : dc_colormap[0];
 }
 
 static const int32_t R_SideLightLevel(const side_t *side)
@@ -159,7 +157,7 @@ static void SideLightLevel_Bottom(const side_t *side)
 //
 
 static const lighttable_t * const GetSideTint(const side_t * const side,
-                                                     const sector_t * const sect)
+                                              const sector_t * const sect)
 {
   const int32_t tint = (side->tint >= 0) ? side->tint : sect->tint;
   return (tint >= 0) ? colormaps[tint] : fullcolormap;
@@ -224,7 +222,8 @@ void R_RenderMaskedSegRange(drawseg_t *ds, int x1, int x2)
     }
 
   dc_texturemid += side->interprowoffset + side->offsety_mid;
-  dc_brightmap = texturebrightmap[texnum];
+
+  const byte *const brightmap = texturebrightmap[texnum];
 
   // draw the columns
   for (dc_x = x1 ; dc_x <= x2 ; dc_x++, spryscale += rw_scalestep)
@@ -232,7 +231,7 @@ void R_RenderMaskedSegRange(drawseg_t *ds, int x1, int x2)
       {
         fixed_t column = maskedtexturecol[dc_x] + FixedToInt(side->offsetx_mid);
         // killough 11/98:
-        CalculateLighting(thiscolormap, spryscale);
+        CalculateLighting(thiscolormap, spryscale, brightmap);
 
         // killough 3/2/98:
         //
@@ -447,10 +446,14 @@ static void R_RenderSegLoop(const lighttable_t * const thiscolormap)
           dc_texturemid = rw_midtexturemid;
           dc_source = R_GetColumn(midtexture, texturecolumn + FixedToInt(curline->sidedef->offsetx_mid));
           dc_texheight = textureheight[midtexture]>>FRACBITS; // killough
-          dc_brightmap = texturebrightmap[midtexture];
+
+          const byte *const brightmap = texturebrightmap[midtexture];
+
           SideLightLevel_Mid(curline->sidedef);
-          CalculateLighting(thiscolormap, rw_scale);
+          CalculateLighting(thiscolormap, rw_scale, brightmap);
+
           colfunc ();
+
           ceilingclip[rw_x] = viewheight;
           floorclip[rw_x] = -1;
         }
@@ -473,10 +476,14 @@ static void R_RenderSegLoop(const lighttable_t * const thiscolormap)
                   dc_texturemid = rw_toptexturemid;
                   dc_source = R_GetColumn(toptexture, texturecolumn + FixedToInt(curline->sidedef->offsetx_top));
                   dc_texheight = textureheight[toptexture]>>FRACBITS;//killough
-                  dc_brightmap = texturebrightmap[toptexture];
+
+                  const byte *const brightmap = texturebrightmap[toptexture];
+
                   SideLightLevel_Top(curline->sidedef);
-                  CalculateLighting(thiscolormap, rw_scale);
+                  CalculateLighting(thiscolormap, rw_scale, brightmap);
+
                   colfunc ();
+
                   ceilingclip[rw_x] = mid;
                 }
               else
@@ -502,10 +509,14 @@ static void R_RenderSegLoop(const lighttable_t * const thiscolormap)
                   dc_texturemid = rw_bottomtexturemid;
                   dc_source = R_GetColumn(bottomtexture, texturecolumn + FixedToInt(curline->sidedef->offsetx_bottom));
                   dc_texheight = textureheight[bottomtexture]>>FRACBITS; // killough
-                  dc_brightmap = texturebrightmap[bottomtexture];
+
+                  const byte *const brightmap = texturebrightmap[bottomtexture];
+
                   SideLightLevel_Bottom(curline->sidedef);
-                  CalculateLighting(thiscolormap, rw_scale);
+                  CalculateLighting(thiscolormap, rw_scale, brightmap);
+
                   colfunc ();
+
                   floorclip[rw_x] = mid;
                 }
               else

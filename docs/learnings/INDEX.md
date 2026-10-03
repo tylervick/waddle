@@ -4,6 +4,7 @@ One file per hard-won fact. Add an entry here in the same PR that adds the file 
 `Scripts/check-substrate.sh` enforces the bijection.
 
 - [The Woof pin is a master commit, not a release tag](woof-engine-pin.md) — why `woof_15.3.0` must never be used
+- [Re-vendoring Woof is a three-way merge, and "auto-merged" is not "correct"](revendor-woof-with-a-three-way-merge.md) — merge the patch set in a scratch clone of upstream, then re-read every `WOOF_IOS` free against the allocation it mirrors; the pristine-to-head file list is the integrity check
 - [Engine resource paths are load-bearing and non-obvious](engine-resource-layout.md) — woof.pk3, GameData/, and the `-save` flag
 - [SDL startup and signal handling inside the SwiftUI-owned app](sdl-main-ready-and-sigterm.md) — SDL_SetMainReady and the SIGTERM bracket
 - [Orientation support needs both halves, or it silently does nothing](orientation-needs-both-halves.md) — Info.plist *and* SDL_HINT_ORIENTATIONS

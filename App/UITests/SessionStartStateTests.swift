@@ -322,7 +322,7 @@ final class SessionStartStateTests: XCTestCase {
     /// What a fresh process hands its first session (WoofIOS_DebugSessionEntryState).
     /// dehtab is a hash of engine tables, so each test takes it from its own
     /// first session instead (freshEntry(dehtab:)).
-    static let freshEntryBase = "amlvl=-1/-1 amstop=1 amdef=0 amcol=1 msg=0/0 sbar=0 rewind=0 "
+    static let freshEntryBase = "amlvl=-1/-1 amstop=1 amdef=0 amcol=1 msg=0 sbar=0 rewind=0 "
         + "pad=0 rumble=0 tex=0 cmap=0 skipbl=0 dehstr=0 dehfiles=0 cheats=0 pars=0 dloop=0 "
         + "dirtylv=0 compres=0 pcheats=0"
 
