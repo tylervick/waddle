@@ -381,14 +381,6 @@ static void I_PCS_ShutdownModule(void)
     }
 
     UnregisterCallback();
-#ifdef WOOF_IOS
-    // The sound playing at shutdown is a lump W_Close frees; the next session
-    // would read it in GetFreq and Z_Free it again in CachePCSLump (#269).
-    // Cleared here, once the callback above can no longer run.
-    current_sound_lump = NULL;
-    current_sound_pos = NULL;
-    current_sound_remaining = 0;
-#endif
 }
 
 static void I_PCS_ShutdownSound(void)

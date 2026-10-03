@@ -22,6 +22,7 @@ set(WOOF_SOURCES
     decl_main.c            decl_main.h
     decl_props.c
     decl_states.c
+    decl_sndinfo.c         decl_sndinfo.h
     decl_sounds.c          decl_sounds.h
     deh_ammo.c
     deh_bex_helper.c
@@ -167,7 +168,6 @@ set(WOOF_SOURCES
     r_segs.c               r_segs.h
     r_sky.c                r_sky.h
     r_skydefs.c            r_skydefs.h
-                           r_srgb.h
                            r_state.h
     r_swirl.c              r_swirl.h
     r_things.c             r_things.h
@@ -184,7 +184,9 @@ set(WOOF_SOURCES
     statdump.c             statdump.h
     tables.c               tables.h
     v_flextran.c           v_flextran.h
+    v_palette.c            v_palette.h
     v_patch.c              v_patch.h
+                           v_srgb.h
     v_trans.c              v_trans.h
     v_video.c              v_video.h
     w_wad.c                w_wad.h
@@ -197,17 +199,8 @@ set(WOOF_SOURCES
     z_zone.c               z_zone.h
 )
 
-# Standard target definition. On iOS the engine is a static library hosted
-# by a native app; the process-owning main() in i_main.c is replaced by the
-# re-entrant session entry in woof_ios.c.
-if(IOS)
-    list(REMOVE_ITEM WOOF_SOURCES i_main.c)
-    list(APPEND WOOF_SOURCES woof_ios.c woof_ios.h)
-    add_library(woof STATIC ${WOOF_SOURCES})
-    target_compile_definitions(woof PUBLIC WOOF_IOS)
-else()
-    add_executable(woof ${WOOF_SOURCES})
-endif()
+# Standard target definition
+add_executable(woof ${WOOF_SOURCES})
 target_woof_settings(woof)
 target_include_directories(woof PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../")
 
@@ -240,6 +233,7 @@ target_link_libraries(
             miniz::miniz
             spng::spng
             netlib
+            base64
             md5
             sha1
             opl
@@ -283,12 +277,6 @@ endif()
 if(HAVE_FLUIDSYNTH)
     target_sources(woof PRIVATE i_flmusic.c)
     target_link_libraries(woof PRIVATE FluidSynth::libfluidsynth)
-endif()
-
-# Waddle patch (#116): the wavetable MIDI module.
-if(HAVE_SONIVOX)
-    target_sources(woof PRIVATE i_easmusic.c)
-    target_link_libraries(woof PRIVATE sonivox::sonivox)
 endif()
 
 if(HAVE_LIBXMP)
@@ -340,8 +328,6 @@ if(WIN32)
     list(APPEND SETUP_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/setup-res.rc")
 endif()
 
-# woof-setup is a separate configuration-tool executable; not built on iOS.
-if(NOT IOS)
 add_executable(woof-setup WIN32 ${SETUP_SOURCES})
 target_woof_settings(woof-setup)
 
@@ -356,7 +342,6 @@ target_link_libraries(
 
 if(MSVC)
     target_link_options(woof-setup PRIVATE "/MANIFEST:NO")
-endif()
 endif()
 
 # Base file
@@ -373,9 +358,7 @@ endif()
 
 # Install
 #
-# Files to package in our distribution. Skipped on iOS: woof-setup does not
-# exist there and the static library is staged into the xcframework directly.
-if(NOT IOS)
+# Files to package in our distribution.
 if(WIN32)
     if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.21 AND NOT VCPKG_TOOLCHAIN)
         install(
@@ -391,5 +374,4 @@ if(WIN32)
     endif()
 else()
     install(TARGETS woof woof-setup RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-endif()
 endif()

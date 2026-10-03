@@ -3,15 +3,13 @@
 #cmakedefine PROJECT_STRING "@PROJECT_STRING@"
 #cmakedefine PROJECT_SHORTNAME "@PROJECT_SHORTNAME@"
 #cmakedefine PROJECT_APPID "@PROJECT_APPID@"
+#cmakedefine PROJECT_APPID_SETUP "@PROJECT_APPID_SETUP@"
 #cmakedefine HAVE_LIBM
 #cmakedefine01 HAVE_DECL_STRCASECMP
 #cmakedefine01 HAVE_DECL_STRNCASECMP
 #cmakedefine HAVE_GETPWUID
 #cmakedefine HAVE_ALSA
 #cmakedefine HAVE_FLUIDSYNTH
-
-/* Waddle patch (#116): SONiVOX EAS wavetable MIDI. */
-#cmakedefine HAVE_SONIVOX
 #cmakedefine HAVE_LIBXMP
 #cmakedefine HAVE_SNDFILE
 #cmakedefine HAVE_SNDFILE_MPEG

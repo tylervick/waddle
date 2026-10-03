@@ -39,52 +39,38 @@
 
 // Doom
 static demoloop_entry_t demoloop_registered[] = {
-    { "TITLEPIC", "D_INTRO",  170, TYPE_ART,  wipe_Melt },
-    { "DEMO1",    "",         0,   TYPE_DEMO, wipe_Melt },
-    { "CREDIT",   "",         200, TYPE_ART,  wipe_Melt },
-    { "DEMO2",    "",         0,   TYPE_DEMO, wipe_Melt },
-    { "HELP2",    "",         200, TYPE_ART,  wipe_Melt },
-    { "DEMO3",    "",         0,   TYPE_DEMO, wipe_Melt },
+    { "TITLEPIC", "D_INTRO",  170, TYPE_ART,  wipe_Default },
+    { "DEMO1",    "",         0,   TYPE_DEMO, wipe_Default },
+    { "CREDIT",   "",         200, TYPE_ART,  wipe_Default },
+    { "DEMO2",    "",         0,   TYPE_DEMO, wipe_Default },
+    { "HELP2",    "",         200, TYPE_ART,  wipe_Default },
+    { "DEMO3",    "",         0,   TYPE_DEMO, wipe_Default },
 };
 
 // Ultimate Doom
 static demoloop_entry_t demoloop_retail[] = {
-    { "TITLEPIC", "D_INTRO",  170, TYPE_ART,  wipe_Melt },
-    { "DEMO1",    "",         0,   TYPE_DEMO, wipe_Melt },
-    { "CREDIT",   "",         200, TYPE_ART,  wipe_Melt },
-    { "DEMO2",    "",         0,   TYPE_DEMO, wipe_Melt },
-    { "CREDIT",   "",         200, TYPE_ART,  wipe_Melt },
-    { "DEMO3",    "",         0,   TYPE_DEMO, wipe_Melt },
-    { "DEMO4",    "",         0,   TYPE_DEMO, wipe_Melt },
+    { "TITLEPIC", "D_INTRO",  170, TYPE_ART,  wipe_Default },
+    { "DEMO1",    "",         0,   TYPE_DEMO, wipe_Default },
+    { "CREDIT",   "",         200, TYPE_ART,  wipe_Default },
+    { "DEMO2",    "",         0,   TYPE_DEMO, wipe_Default },
+    { "CREDIT",   "",         200, TYPE_ART,  wipe_Default },
+    { "DEMO3",    "",         0,   TYPE_DEMO, wipe_Default },
+    { "DEMO4",    "",         0,   TYPE_DEMO, wipe_Default },
 };
 
 // Doom II & Final Doom
 static demoloop_entry_t demoloop_commercial[] = {
-    { "TITLEPIC", "D_DM2TTL", 385, TYPE_ART,  wipe_Melt },
-    { "DEMO1",    "",         0,   TYPE_DEMO, wipe_Melt },
-    { "CREDIT",   "",         200, TYPE_ART,  wipe_Melt },
-    { "DEMO2",    "",         0,   TYPE_DEMO, wipe_Melt },
-    { "TITLEPIC", "D_DM2TTL", 385, TYPE_ART,  wipe_Melt },
-    { "DEMO3",    "",         0,   TYPE_DEMO, wipe_Melt },
-    { "DEMO4",    "",         0,   TYPE_DEMO, wipe_Melt },
+    { "TITLEPIC", "D_DM2TTL", 385, TYPE_ART,  wipe_Default },
+    { "DEMO1",    "",         0,   TYPE_DEMO, wipe_Default },
+    { "CREDIT",   "",         200, TYPE_ART,  wipe_Default },
+    { "DEMO2",    "",         0,   TYPE_DEMO, wipe_Default },
+    { "TITLEPIC", "D_DM2TTL", 385, TYPE_ART,  wipe_Default },
+    { "DEMO3",    "",         0,   TYPE_DEMO, wipe_Default },
+    { "DEMO4",    "",         0,   TYPE_DEMO, wipe_Default },
 };
 
 demoloop_t demoloop = NULL;
 int        demoloop_count = 0;
-
-#ifdef WOOF_IOS
-// iOS carries D_DoomMain (and thus D_SetupDemoLoop) across multiple in-process
-// play sessions -- WoofIOS_Run re-runs it once per session (see woof_ios.c /
-// WOOF_UPSTREAM.md), whereas upstream Woof runs it once per process. The two
-// globals above therefore outlive a session and are re-read by the next one.
-// `demoloop` is a static default array on the common path (D_GetDefaultDemoLoop)
-// and a heap m_array only when a DEMOLOOP lump was parsed; this flag tracks
-// which, so the per-session reset in D_SetupDemoLoop only array_free()s a heap
-// array and never a static default (whose m_array header would land before the
-// static array -- an instant SIGABRT / "pointer being freed was not allocated"
-// on session 2, which is exactly the crash this guards against).
-static boolean demoloop_dynamic = false;
-#endif
 
 static void D_ParseOutroWipe(json_t *json, demoloop_entry_t *entry)
 {
@@ -176,12 +162,6 @@ static boolean D_ParseDemoLoopEntry(json_t *json)
     }
 
     array_push(demoloop, entry);
-#ifdef WOOF_IOS
-    // demoloop is now a heap m_array; mark it so D_SetupDemoLoop's per-session
-    // reset frees it (and only it) next time. Cleared again at every
-    // array_free(demoloop) below so a static default never inherits this flag.
-    demoloop_dynamic = true;
-#endif
     return true;
 }
 
@@ -219,9 +199,6 @@ static void D_ParseDemoLoop(void)
         if (!D_ParseDemoLoopEntry(entry))
         {
             array_free(demoloop);
-#ifdef WOOF_IOS
-            demoloop_dynamic = false;
-#endif
             JS_Close("DEMOLOOP");
             return;
         }
@@ -303,9 +280,6 @@ static void D_CheckPrimaryLumps(void)
         {
             I_Printf(VB_WARNING, "DEMOLOOP: invalid primarylump");
             array_free(demoloop);
-#ifdef WOOF_IOS
-            demoloop_dynamic = false;
-#endif
             break;
         }
     }
@@ -313,21 +287,6 @@ static void D_CheckPrimaryLumps(void)
 
 void D_SetupDemoLoop(void)
 {
-#ifdef WOOF_IOS
-    // Reset the file-scope demoloop state before each in-process session (see
-    // the demoloop_dynamic comment above). Only free it when it is a heap
-    // m_array; a static default array from a prior session must never be
-    // array_free()d. array_free() already NULLs demoloop when it fires; the
-    // unconditional assignments below cover the static-default case too.
-    if (demoloop_dynamic)
-    {
-        array_free(demoloop);
-    }
-    demoloop = NULL;
-    demoloop_count = 0;
-    demoloop_dynamic = false;
-#endif
-
     D_ParseDemoLoop();
 
     if (demoloop)
@@ -342,53 +301,3 @@ void D_SetupDemoLoop(void)
         D_TitlePicFix();
     }
 }
-
-#ifdef WOOF_IOS
-#include <string.h>
-
-// Called from DEH_ResetSession (deh_main.c) before every D_DoomMain() on iOS
-// (issue #270): D_GetDefaultDemoLoop edits these static defaults in place
-// (DEH_MUSIC_LUMP, HELP2 for a PWAD that has it, D_TitlePicFix's DMENUPIC),
-// and every later game in the process inherited the edits -- a game without
-// DMENUPIC after a BFG Edition IWAD would lose its title page.
-static demoloop_entry_t pristine_registered[arrlen(demoloop_registered)];
-static demoloop_entry_t pristine_retail[arrlen(demoloop_retail)];
-static demoloop_entry_t pristine_commercial[arrlen(demoloop_commercial)];
-static boolean demoloops_saved;
-
-void D_ResetDefaultDemoLoops(void)
-{
-    if (!demoloops_saved)
-    {
-        memcpy(pristine_registered, demoloop_registered, sizeof(pristine_registered));
-        memcpy(pristine_retail, demoloop_retail, sizeof(pristine_retail));
-        memcpy(pristine_commercial, demoloop_commercial, sizeof(pristine_commercial));
-        demoloops_saved = true;
-    }
-    else
-    {
-        memcpy(demoloop_registered, pristine_registered, sizeof(pristine_registered));
-        memcpy(demoloop_retail, pristine_retail, sizeof(pristine_retail));
-        memcpy(demoloop_commercial, pristine_commercial, sizeof(pristine_commercial));
-    }
-}
-
-// Debug seam: how many default demo-loop entries differ from the pristine ones.
-int D_DebugDemoLoopsChanged(void)
-{
-    int n = 0;
-    for (int i = 0; demoloops_saved && i < arrlen(pristine_registered); ++i)
-    {
-        n += memcmp(&demoloop_registered[i], &pristine_registered[i], sizeof(demoloop_entry_t)) != 0;
-    }
-    for (int i = 0; demoloops_saved && i < arrlen(pristine_retail); ++i)
-    {
-        n += memcmp(&demoloop_retail[i], &pristine_retail[i], sizeof(demoloop_entry_t)) != 0;
-    }
-    for (int i = 0; demoloops_saved && i < arrlen(pristine_commercial); ++i)
-    {
-        n += memcmp(&demoloop_commercial[i], &pristine_commercial[i], sizeof(demoloop_entry_t)) != 0;
-    }
-    return n;
-}
-#endif

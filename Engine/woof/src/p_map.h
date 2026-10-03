@@ -52,11 +52,6 @@ void    P_SlideMove(struct mobj_s *mo);
 extern boolean (*P_CheckSight)(struct mobj_s *t1, struct mobj_s *t2);
 boolean P_CheckFov(struct mobj_s *t1, struct mobj_s *t2, angle_t fov);
 void    P_UseLines(struct player_s *player);
-#ifdef WOOF_IOS
-// The first special line within USERANGE ahead of the player, or NULL;
-// activates nothing (issue #114, auto-use).
-struct line_s *P_AutoUseLineAhead(struct player_s *player);
-#endif
 
 // killough 8/2/98: add 'mask' argument to prevent friends autoaiming at others
 fixed_t P_AimLineAttack(struct mobj_s *t1, angle_t angle, fixed_t distance, int mask);

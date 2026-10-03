@@ -47,7 +47,7 @@
 #include "r_state.h"
 #include "s_sound.h"
 #include "sounds.h"
-#include "v_video.h"
+#include "v_trans.h"
 #include "z_zone.h"
 
 static mobj_t    *tmthing;
@@ -1768,49 +1768,6 @@ static boolean PTR_UseTraverse(intercept_t *in)
 
     S_StartSound (usething, sfx_noway), false : true;
 }
-
-#ifdef WOOF_IOS
-// Auto-use (issue #114): P_UseLines' traverse without its side effects.
-// Stops at the first special line, as PTR_UseTraverse would, and at the
-// first non-special line with no opening, as it would; activates nothing
-// and plays nothing. Which specials USE can activate is decided by
-// P_UseSpecialLine when G_BuildTiccmd presses USE for that line, so this
-// does not classify them: a walk-over special ahead costs one silent no-op
-// press, once, because the caller remembers the line.
-static line_t *autouse_hit;
-
-static boolean PTR_AutoUseTraverse(intercept_t *in)
-{
-  line_t *l = in->d.line;
-  if (l->special)
-  {
-    autouse_hit = l;
-    return false;
-  }
-  P_LineOpening(l);
-  return openrange > 0; // keep looking through an opening; a wall ends it
-}
-
-line_t *P_AutoUseLineAhead(player_t *player)
-{
-  fixed_t x1, y1, x2, y2;
-  int angle;
-
-  if (!player->mo)
-  {
-    return NULL;
-  }
-  usething = player->mo;
-  angle = player->mo->angle >> ANGLETOFINESHIFT;
-  x1 = player->mo->x;
-  y1 = player->mo->y;
-  x2 = x1 + (USERANGE>>FRACBITS)*finecosine[angle];
-  y2 = y1 + (USERANGE>>FRACBITS)*finesine[angle];
-  autouse_hit = NULL;
-  P_PathTraverse(x1, y1, x2, y2, PT_ADDLINES, PTR_AutoUseTraverse);
-  return autouse_hit;
-}
-#endif
 
 // Returns false if a "oof" sound should be made because of a blocking
 // linedef. Makes 2s middles which are impassable, as well as 2s uppers

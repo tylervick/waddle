@@ -68,10 +68,6 @@ static music_module_t *midi_module = NULL;
 static int midi_player_menu;
 static const char *midi_player_string = "";
 
-// Waddle patch (#116): set once, the first time a build carrying the wavetable
-// synth actually plays through it. See the two halves in I_InitMusic.
-static int waddle_midi_migrated;
-
 // haleyjd: safety variables to keep changes to *_card from making
 // these routines think that sound has been initialized when it hasn't
 static boolean snd_init = false;
@@ -479,34 +475,57 @@ void I_ShutdownSound(void)
     snd_init = false;
 }
 
-// [FG] add links for likely missing sounds
+// add links for optional sounds
 
-struct
+static void LinkOptionalSounds(void)
 {
-    const int from, to;
-} static const sfx_subst[] = {
-    {sfx_secret, sfx_itmbk },
-    {sfx_itmbk,  sfx_getpow},
-    {sfx_getpow, sfx_itemup},
-    {sfx_itemup, sfx_None  },
+    struct
+    {
+        const int from, to;
+    } const sfx_subst[] = {
+        // "a secret is revealed" sound
+        {sfx_secret, sfx_itmbk },
+        {sfx_itmbk,  sfx_getpow},
+        {sfx_getpow, sfx_itemup},
+        {sfx_itemup, sfx_None  },
 
-    {sfx_splash, sfx_oof   },
-    {sfx_ploosh, sfx_oof   },
-    {sfx_lvsiz,  sfx_oof   },
-    {sfx_splsml, sfx_None  },
-    {sfx_plosml, sfx_None  },
-    {sfx_lavsml, sfx_None  },
-};
+        // optional chaingun firing sound
+        {sfx_chgun,  sfx_pistol},
 
-static void LinkSounds(void)
-{
-    // [FG] add links for likely missing sounds
+        // sounds when hitting animated floor
+        {sfx_splash, sfx_oof   },
+        {sfx_ploosh, sfx_oof   },
+        {sfx_lvsiz,  sfx_oof   },
+        {sfx_splsml, sfx_None  },
+        {sfx_plosml, sfx_None  },
+        {sfx_lavsml, sfx_None  },
+
+        // optional menu and intermission sounds
+        {sfx_mnuopn, sfx_swtchn},
+        {sfx_mnucls, sfx_swtchx},
+        {sfx_mnuact, sfx_pistol},
+        {sfx_mnubak, sfx_swtchn},
+        {sfx_mnumov, sfx_pstop },
+        {sfx_mnusli, sfx_stnmov},
+        {sfx_mnusel, sfx_itemup},
+        {sfx_mnuerr, sfx_oof   },
+        {sfx_inttic, sfx_pistol},
+        {sfx_inttot, sfx_barexp},
+        {sfx_intnex, sfx_sgcock},
+        {sfx_intnet, sfx_pldeth},
+        {sfx_intdms, sfx_slop  },
+    };
+
     for (int i = 0; i < arrlen(sfx_subst); i++)
     {
         sfxinfo_t *from = &S_sfx[sfx_subst[i].from],
                   *to = &S_sfx[sfx_subst[i].to];
 
-        if (from->lumpnum == -1)
+        if (from->link)
+        {
+            from->link = &S_sfx[(size_t)from->link];
+        }
+        else if (from->lumpnum == -1)
         {
             from->link = to;
         }
@@ -562,7 +581,7 @@ void I_InitSound(void)
     I_Printf(VB_INFO, " Precaching all sound effects... ");
     CacheSounds();
     I_Printf(VB_INFO, "done.");
-    LinkSounds();
+    LinkOptionalSounds();
 }
 
 boolean I_AllowReinitSound(void)
@@ -683,37 +702,6 @@ boolean I_InitMusic(void)
 
     I_AtExit(I_ShutdownMusic, true);
 
-    // Waddle patch (#116), first half: move existing installs onto the
-    // wavetable synth once. Woof restores the MIDI player by NAME, so without
-    // this an upgrading player keeps OPL3 forever and never hears the parity
-    // fix. The marker is why this is a migration and not a policy -- someone
-    // who deliberately picks OPL3 back must keep it.
-    //
-    // The marker is NOT set here; see the second half below. Appearing in the
-    // device list only proves the module registered, not that it initialises.
-    boolean eas_offered = false;
-
-    if (!waddle_midi_migrated)
-    {
-        const char **available = I_DeviceList();
-
-        for (int i = 0; i < array_size(available); ++i)
-        {
-            if (!strcasecmp(available[i], "SONiVOX EAS Wavetable"))
-            {
-                eas_offered = true;
-                break;
-            }
-        }
-
-        if (eas_offered
-            && (!strcasecmp(midi_player_string, "OPL3 Emulation: GENMIDI")
-                || !strcasecmp(midi_player_string, "OPL3 Emulation: DMXOPL")))
-        {
-            midi_player_string = "SONiVOX EAS Wavetable";
-        }
-    }
-
     const char **strings = I_DeviceList();
     for (int i = 0; i < array_size(strings); ++i)
     {
@@ -725,22 +713,6 @@ boolean I_InitMusic(void)
     }
 
     I_SetMidiPlayer();
-
-    // Waddle patch (#116), second half -- the only place the marker is set.
-    // I_SetMidiPlayer leaves midi_player_string naming whatever module
-    // actually initialised, which is not necessarily the one selected above:
-    // if EAS is listed but I_EAS_InitStream fails, the fallback loop takes the
-    // first module that does initialise (OPL3) and rewrites the name back.
-    // Recording the migration before that point would mark as done something
-    // that did not happen, and it would never be retried -- stranding that
-    // player off wavetable permanently, silently, on every later build.
-    //
-    // Leaving the marker unset is always the safe direction: it costs one list
-    // walk next launch. Setting it wrongly costs a player their music.
-    if (eas_offered && !strcasecmp(midi_player_string, "SONiVOX EAS Wavetable"))
-    {
-        waddle_midi_migrated = 1;
-    }
 
     return true;
 }
@@ -787,44 +759,6 @@ boolean IsMid(byte *mem, int len)
     return len > 4 && !memcmp(mem, "MThd", 4);
 }
 
-// Waddle patch (#196): names the container a refused music lump appears to be,
-// so "no music" in the session log says WHICH format nobody could play.
-//
-// Deliberately says only what the bytes are, not what would fix it. Which
-// modules exist is a build-time question -- libsndfile is on in this app's
-// engine but a standalone Woof build may have it off -- so naming a library
-// here would be a guess that reads as fact. The caller already says no module
-// accepted the lump; this says what the lump was.
-static const char *MusicFormatHint(byte *mem, int len)
-{
-    if (len < 4)
-    {
-        return "truncated";
-    }
-    // MIDI and MUS are normally accepted, so reaching here with one means it
-    // parsed badly rather than being an unsupported container -- worth saying
-    // distinctly instead of lumping it in with "unrecognised".
-    if (!memcmp(mem, "MThd", 4))            { return "MIDI (malformed?)"; }
-    if (!memcmp(mem, "MUS\x1a", 4))         { return "MUS (malformed?)"; }
-    if (!memcmp(mem, "OggS", 4))            { return "Ogg"; }
-    if (!memcmp(mem, "fLaC", 4))            { return "FLAC"; }
-    // RIFF is a container marker shared by AVI and WEBP among others, so the
-    // WAVE tag at offset 8 is what actually makes it a WAV.
-    if (len >= 12 && !memcmp(mem, "RIFF", 4) && !memcmp(mem + 8, "WAVE", 4))
-    {
-        return "WAV";
-    }
-    if (!memcmp(mem, "IMPM", 4))            { return "Impulse Tracker module"; }
-    if (!memcmp(mem, "SCRM", 4))            { return "ScreamTracker module"; }
-    // The full 15 bytes, not min(15, len): a shorter compare classifies any
-    // 4-byte lump beginning "Exte" as an XM module.
-    if (len >= 15 && !memcmp(mem, "Extended Module", 15))
-    {
-        return "XM module";
-    }
-    return "unrecognised";
-}
-
 boolean IsMus(byte *mem, int len)
 {
     return len > 4 && !memcmp(mem, "MUS\x1a", 4);
@@ -842,15 +776,7 @@ void *I_RegisterSong(void *data, int size)
             return result;
         }
     }
-    // Waddle patch (#196): refusing every module used to return NULL in
-    // silence, and the caller logged the track as though it had played. A
-    // player heard nothing and neither the log nor the diagnostics bundle
-    // could tell that apart from a map with no music.
     active_module = NULL;
-    I_Printf(VB_ERROR,
-             "I_RegisterSong: no music module accepted this lump -- %s; "
-             "it will be silent",
-             MusicFormatHint((byte *)data, size));
     return NULL;
 }
 
@@ -937,11 +863,6 @@ void I_BindSoundVariables(void)
     BIND_NUM_MENU(midi_player_menu, 0, UL);
     M_BindStr("midi_player_string", &midi_player_string, "", wad_no,
               "MIDI Player string");
-    // Waddle patch (#116). Bound purely so it survives a launch: without
-    // persistence the migration fires every time and overrules a player who
-    // switched back to OPL3. ss_none keeps it out of the setup menus.
-    BIND_NUM(waddle_midi_migrated, 0, 0, 1,
-             "Waddle: MIDI player already migrated to wavetable (internal)");
     for (int i = 0; i < arrlen(music_modules); ++i)
     {
         music_modules[i]->I_BindVariables();

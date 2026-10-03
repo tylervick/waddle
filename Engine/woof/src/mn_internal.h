@@ -45,6 +45,19 @@ typedef enum
     key_mode
 } menu_input_mode_t;
 
+typedef struct
+{
+    const char *text;
+    mrect_t rect;
+    int flags;
+} setup_tab_t;
+
+void MN_SetCurrentPage(int page);
+void MN_SetCurrentTabs(setup_tab_t *tab);
+void MN_DrawTabs(void);
+void MN_HighlightTab(int x, int y);
+boolean SetupLoadSaveTab(int *page);
+
 void M_ChooseSkill(int choice);
 
 extern int maxscreenblocks;
@@ -64,7 +77,6 @@ extern int warning_about_changes, print_warning_about_changes;
 
 void MN_InitDefaults(void);
 extern const char *gamma_strings[];
-void MN_ResetGamma(void);
 void MN_DrawDelVerify(void);
 
 boolean MN_SetupCursorPostion(int x, int y);
@@ -266,10 +278,6 @@ typedef struct default_s
     int modified;                    // Whether it's been modified
     config_t orig_default;           // Original default, if modified
     struct setup_menu_s *setup_menu; // Xref to setup menu item, if any
-#ifdef WOOF_IOS
-    char *loaded_string;             // Block M_LoadDefaults/M_ParseOption last
-                                     // strdup'd into *location.s (issue #39)
-#endif
 } default_t;
 
 extern default_t *defaults;

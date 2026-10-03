@@ -20,13 +20,12 @@
 #include <string.h>
 
 #include "doomtype.h"
-#include "i_video.h"
 #include "m_misc.h"
 #include "m_swap.h"
 #include "r_defs.h"
+#include "v_palette.h"
 #include "v_patch.h"
 #include "v_video.h"
-#include "w_wad.h"
 #include "z_zone.h"
 
 typedef struct
@@ -55,27 +54,6 @@ static boolean upper;
 static int kerning;
 
 #define FON2_SPACE 12
-
-#ifdef WOOF_IOS
-// Issue #253 review. MN_LoadFon2() runs once per process upstream; here it
-// runs once per session that has a DBIGFONT, on top of the previous
-// session's glyphs (a malloc'd table and PU_STATIC patches, which nothing
-// frees), and a session WITHOUT the lump would keep drawing the last one's
-// glyphs. Called from MN_ResetMenuTables() before each session's D_DoomMain.
-void MN_ResetFon2(void)
-{
-    for (int i = 0; i < numchars; ++i)
-    {
-        if (chars[i].width && chars[i].patch)
-        {
-            Z_Free(chars[i].patch);
-        }
-    }
-    free(chars);
-    chars = NULL;
-    numchars = 0;
-}
-#endif
 
 boolean MN_LoadFon2(const byte *gfx_data, int size)
 {
@@ -125,14 +103,13 @@ boolean MN_LoadFon2(const byte *gfx_data, int size)
     }
 
     // Build translation table for palette.
-    byte *playpal = W_CacheLumpName("PLAYPAL", PU_CACHE);
     byte *translate = malloc(header->palsize + 1);
     for (int i = 0; i < header->palsize + 1; ++i)
     {
         int r = *p++;
         int g = *p++;
         int b = *p++;
-        translate[i] = I_GetNearestColor(playpal, r, g, b);
+        translate[i] = V_GetNearestColor(PAL_GLOBAL, r, g, b);
     }
 
     // 0 is transparent, last is border color

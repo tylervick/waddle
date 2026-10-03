@@ -45,6 +45,7 @@
 #include "r_voxel.h"
 #include "tables.h"
 #include "v_patch.h"
+#include "v_trans.h"
 #include "v_video.h"
 #include "w_wad.h"
 #include "z_zone.h"
@@ -71,8 +72,6 @@ typedef struct {
 
 fixed_t pspritescale;
 fixed_t pspriteiscale;
-
-lighttable_t **spritelights;        // killough 1/25/98 made static
 
 // [Woof!] optimization for drawing huge amount of drawsegs.
 // adapted from prboom-plus/src/r_things.c
@@ -207,25 +206,7 @@ void R_InitSpriteDefs(char **namelist)
   if (!numentries || !*namelist)
     return;
 
-#ifdef WOOF_IOS
-  // Once per session here; the previous session's definitions were orphaned
-  // (issue #269). num_sprites is already this session's, so remember ours.
-  static int sprites_count;
-  if (sprites)
-  {
-    for (i = 0; i < sprites_count; i++)
-    {
-      Z_Free(sprites[i].spriteframes);
-    }
-    Z_Free(sprites);
-    sprites = NULL;
-  }
-#endif
-
   sprites = Z_Calloc(num_sprites, sizeof(*sprites), PU_STATIC, NULL);
-#ifdef WOOF_IOS
-  sprites_count = num_sprites; // counted only once the table exists
-#endif
 
   // Create hash table based on just the first four letters of each sprite
   // killough 1/31/98
@@ -446,23 +427,22 @@ void R_DrawVisSprite(vissprite_t *vis, int x1, int x2)
   fixed_t  frac;
   patch_t  *patch = V_CachePatchNum (vis->patch+firstspritelump, PU_CACHE);
 
-  dc_colormap[0] = vis->colormap[0];
-  dc_colormap[1] = vis->colormap[1];
-  dc_brightmap = vis->brightmap;
-
   // killough 4/11/98: rearrange and handle translucent sprites
   // mixed with translucent/non-translucent 2s normals
 
-  if (!dc_colormap[0])   // NULL colormap = shadow draw
+  if (!vis->colormap[0])   // NULL colormap = shadow draw
   {
     colfunc = R_DrawFuzzColumn;    // killough 3/14/98
   }
   else
   {
+    dc_colormap =
+      R_GetBrightmappedColormap(vis->colormap[0], vis->colormap[1], vis->brightmap);
+
     // [FG] colored blood and gibs
     if (vis->mobjflags_extra & MFX_COLOREDBLOOD)
     {
-      dc_translation = red2col[vis->color];
+      dc_translation = xlat[vis->color].lump;
     }
     else if (vis->mobjflags & MF_TRANSLATION)
     {
@@ -538,7 +518,6 @@ static void R_ProjectSprite(mobj_t* thing, int lightlevel_override)
   spritedef_t   *sprdef;
   spriteframe_t *sprframe;
   int       lump;
-  boolean   flip;
   vissprite_t *vis;
   fixed_t   iscale;
   int heightsec;      // killough 3/27/98
@@ -596,7 +575,8 @@ static void R_ProjectSprite(mobj_t* thing, int lightlevel_override)
 
   xscale = FixedDiv(projection, tz);
 
-    // decide which patch to use for sprite relative to player
+  // decide which patch to use for sprite relative to player
+
   if ((unsigned) thing->sprite >= num_sprites)
     I_Error ("invalid sprite number %i", thing->sprite);
 
@@ -608,28 +588,37 @@ static void R_ProjectSprite(mobj_t* thing, int lightlevel_override)
 
   sprframe = &sprdef->spriteframes[thing->frame & FF_FRAMEMASK];
 
-  if (sprframe->rotate)
-    {
-      // choose a different rotation based on player view
-      angle_t ang = R_PointToAngle(interpx, interpy);
-      unsigned rot = (ang-interpangle+(unsigned)(ANG45/2)*9)>>29;
-      lump = sprframe->lump[rot];
-      flip = (boolean) sprframe->flip[rot];
-    }
-  else
-    {
-      // use single rotation for all views
-      lump = sprframe->lump[0];
-      flip = (boolean) sprframe->flip[0];
-    }
+  boolean flip = false;
 
   // [crispy] randomly flip corpse, blood and death animation sprites
   if (STRICTMODE(flipcorpses) &&
       (thing->flags_extra & MFX_MIRROREDCORPSE) &&
       !(thing->flags & MF_SHOOTABLE) &&
       (thing->intflags & MIF_FLIP))
+  {
+    flip = !flip;
+  }
+
+  if (sprframe->rotate)
     {
-      flip = !flip;
+      // choose a different rotation based on player view
+      angle_t ang = R_PointToAngle(interpx, interpy);
+      unsigned rot = (ang-interpangle+(unsigned)(ANG45/2)*9)>>29;
+
+      // [Alaux] Proper rotation for flipped things
+      if (flip)
+      {
+        rot = (8 - rot) & 7;
+      }
+
+      lump = sprframe->lump[rot];
+      flip ^= (boolean) sprframe->flip[rot];
+    }
+  else
+    {
+      // use single rotation for all views
+      lump = sprframe->lump[0];
+      flip ^= (boolean) sprframe->flip[0];
     }
 
   txc = tx; // [FG] sprite center coordinate
@@ -725,34 +714,42 @@ static void R_ProjectSprite(mobj_t* thing, int lightlevel_override)
   if (thing->flags & MF_SHADOW)
   {
     // shadow draw
-    vis->colormap[0] = vis->colormap[1] = NULL;
+    vis->colormap[0] = NULL;
   }
-  else if (fixedcolormap)
+  else if (fixedcolormapoffset)
   {
     // fixed map
-    vis->colormap[0] = vis->colormap[1] = thiscolormap + fixedcolormapindex * 256;
+    vis->colormap[0] = thiscolormap + fixedcolormapoffset;
+    vis->brightmap = nobrightmap;
   }
   else if (thing->frame & FF_FULLBRIGHT)
   {
     // full bright
     // killough 3/20/98
-    vis->colormap[0] = vis->colormap[1] = thiscolormap;
+    vis->colormap[0] = thiscolormap;
+    vis->brightmap = nobrightmap;
   }
   else
   {
     // diminished light
-    const int index = R_GetLightIndex(xscale);
+
     int lightnum = (demo_version >= DV_MBF)
                  ? (lightlevel_override >> LIGHTSEGSHIFT)
                  : (thing->subsector->sector->lightlevel >> LIGHTSEGSHIFT);
 
-    lightnum = CLAMP(lightnum + extralight, 0, LIGHTLEVELS - 1);
-    int* spritelightoffsets = &scalelightoffset[MAXLIGHTSCALE * lightnum];
+    lightnum += extralight;
+    lightnum = CLAMP(lightnum, 0, LIGHTLEVELS - 1);
+
+    const int *const spritelightoffsets = scalelightoffset[lightnum];
+    const int index = R_GetLightIndex(xscale);
 
     vis->colormap[0] = thiscolormap + spritelightoffsets[index];
-    vis->colormap[1] = (STRICTMODE(brightmaps) || force_brightmaps)
-                       ? thiscolormap
-                       : dc_colormap[0];
+    vis->colormap[1] = thiscolormap;
+
+    vis->brightmap = thing->state ? R_BrightmapForState(thing->state - states) : nobrightmap;
+
+    if (vis->brightmap == nobrightmap)
+      vis->brightmap = R_BrightmapForSprite(thing->sprite);
   }
 
   // ID24 per-state tranmap
@@ -768,7 +765,7 @@ static void R_ProjectSprite(mobj_t* thing, int lightlevel_override)
   {
     vis->tranmap = main_addimap;
   }
-  else if (thing->flags & MF_TRANSLUCENT)
+  else if ((thing->flags & MF_TRANSLUCENT) || (thing->intflags & MIF_GHOST))
   {
     vis->tranmap = main_tranmap;
   }
@@ -776,10 +773,6 @@ static void R_ProjectSprite(mobj_t* thing, int lightlevel_override)
   {
     vis->tranmap = NULL;
   }
-
-  vis->brightmap = thing->state ? R_BrightmapForState(thing->state - states) : nobrightmap;
-  if (vis->brightmap == nobrightmap)
-    vis->brightmap = R_BrightmapForSprite(thing->sprite);
 
   // [Alaux] Lock crosshair on target
   if (STRICTMODE(hud_crosshair_lockon) && thing == crosshair_target)
@@ -874,19 +867,15 @@ void R_DrawPSprite(pspdef_t *psp, int lightlevel_override)
 
   // decide which patch to use
 
-#ifdef RANGECHECK
   if ((unsigned) psp->state->sprite >= num_sprites)
     I_Error ("invalid sprite number %i", psp->state->sprite);
-#endif
 
   sprdef = &sprites[psp->state->sprite];
 
-#ifdef RANGECHECK
   if ((psp->state->frame&FF_FRAMEMASK) >= sprdef->numframes)
     I_Error ("invalid frame %i for sprite %s",
              (int)(psp->state->frame & FF_FRAMEMASK),
              sprnames[psp->state->sprite]);
-#endif
 
   sprframe = &sprdef->spriteframes[psp->state->frame & FF_FRAMEMASK];
 
@@ -954,25 +943,27 @@ void R_DrawPSprite(pspdef_t *psp, int lightlevel_override)
   vis->patch = lump;
 
   const lighttable_t * const thiscolormap =
-      GetThingTint(viewplayer->mo, viewplayer->mo->subsector->sector);
+    GetThingTint(viewplayer->mo, viewplayer->mo->subsector->sector);
 
   // killough 7/11/98: beta psprites did not draw shadows
   if ((viewplayer->powers[pw_invisibility] > 4*32
       || viewplayer->powers[pw_invisibility] & 8) && !beta_emulation)
   {
     // shadow draw
-    vis->colormap[0] = vis->colormap[1] = NULL;
+    vis->colormap[0] = NULL;
   }
-  else if (fixedcolormap)
+  else if (fixedcolormapoffset)
   {
     // fixed color
-    vis->colormap[0] = vis->colormap[1] = thiscolormap + fixedcolormapindex * 256;
+    vis->colormap[0] = thiscolormap + fixedcolormapoffset;
+    vis->brightmap = nobrightmap;
   }
   else if (psp->state->frame & FF_FULLBRIGHT)
   {
     // full bright
     // killough 3/20/98
-    vis->colormap[0] = vis->colormap[1] = thiscolormap;
+    vis->colormap[0] = thiscolormap;
+    vis->brightmap = nobrightmap;
   }
   else
   {
@@ -981,13 +972,15 @@ void R_DrawPSprite(pspdef_t *psp, int lightlevel_override)
                  ? (lightlevel_override >> LIGHTSEGSHIFT)
                  : (viewplayer->mo->subsector->sector->lightlevel >> LIGHTSEGSHIFT);
 
-    lightnum = CLAMP(lightnum + extralight, 0, LIGHTLEVELS - 1);
-    int* spritelightoffsets = &scalelightoffset[MAXLIGHTSCALE * lightnum];
+    lightnum += extralight;
+    lightnum = CLAMP(lightnum, 0, LIGHTLEVELS - 1);
+
+    const int *const spritelightoffsets = scalelightoffset[lightnum];
 
     vis->colormap[0] = thiscolormap + spritelightoffsets[MAXLIGHTSCALE - 1];
-    vis->colormap[1] = (STRICTMODE(brightmaps) || force_brightmaps)
-                        ? thiscolormap
-                        : dc_colormap[0];
+    vis->colormap[1] = thiscolormap;
+
+    vis->brightmap = R_BrightmapForState(psp->state - states);
   }
 
   // ID24 per-state tranmap
@@ -1003,7 +996,7 @@ void R_DrawPSprite(pspdef_t *psp, int lightlevel_override)
   {
     vis->tranmap = main_addimap;
   }
-  else if (viewplayer->mo->flags & MF_TRANSLUCENT)
+  else if (viewplayer->mo->flags & MF_TRANSLUCENT /* || (thing->intflags & MIF_GHOST) */)
   {
     vis->tranmap = main_tranmap;
   }
@@ -1011,8 +1004,6 @@ void R_DrawPSprite(pspdef_t *psp, int lightlevel_override)
   {
     vis->tranmap = NULL;
   }
-
-  vis->brightmap = R_BrightmapForState(psp->state - states);
 
   // [crispy] free look
   vis->texturemid += (centery - viewheight/2) * pspriteiscale;

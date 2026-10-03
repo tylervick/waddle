@@ -19,13 +19,6 @@
 #include "doomtype.h"
 #include "i_printf.h"
 
-#if defined(__APPLE__)
-#include <TargetConditionals.h>
-#endif
-#if !defined(TARGET_OS_IPHONE)
-#define TARGET_OS_IPHONE 0
-#endif
-
 //---------------------------------------------------------
 //    WINMM
 //---------------------------------------------------------
@@ -383,9 +376,7 @@ void MIDI_CloseDevice(void)
 //---------------------------------------------------------
 //    CoreMIDI and DLS Synth
 //---------------------------------------------------------
-// macOS only: CoreAudio/HostTime.h and the DLS synth are unavailable on
-// iOS, which falls through to the DUMMY backend below.
-#elif defined(__APPLE__) && !TARGET_OS_IPHONE
+#elif defined(__APPLE__)
 
 #include <AudioToolbox/AudioToolbox.h>
 #include <AudioUnit/AudioUnit.h>

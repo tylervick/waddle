@@ -154,13 +154,12 @@ static void AddDirs(w_module_t *module, w_handle_t handle, const char *base)
     }
 }
 
-// Next lump-source priority; W_Close() restarts it on iOS (see there).
-static int next_priority;
-
 boolean W_AddPath(const char *path)
 {
+    static int priority;
+
     w_handle_t handle = {0};
-    handle.priority = next_priority++;
+    handle.priority = priority++;
 
     w_module_t *active_module = NULL;
 
@@ -478,11 +477,19 @@ void W_InitMultipleFiles(void)
 // W_LumpLength
 // Returns the buffer size needed to load the given lump.
 //
+static inline int LumpLength(int lump)
+{
+  return lumpinfo[lump].size;
+}
+
 int W_LumpLength (int lump)
 {
+#ifdef RANGECHECK
   if (lump >= numlumps)
     I_Error ("%i >= numlumps",lump);
-  return lumpinfo[lump].size;
+#endif
+
+  return LumpLength(lump);
 }
 
 //
@@ -491,16 +498,9 @@ int W_LumpLength (int lump)
 //  which must be >= W_LumpLength().
 //
 
-void W_ReadLumpSize(int lump, void *dest, int size)
+static inline void ReadLumpSize(int lump, void *dest, int size)
 {
     lumpinfo_t *info = lumpinfo + lump;
-
-#ifdef RANGECHECK
-    if (lump >= numlumps)
-    {
-        I_Error("%i >= numlumps", lump);
-    }
-#endif
 
     if (!size || !info->size)
     {
@@ -525,6 +525,23 @@ void W_ReadLumpSize(int lump, void *dest, int size)
     I_EndRead();
 }
 
+void W_ReadLumpSize(int lump, void *dest, int size)
+{
+#ifdef RANGECHECK
+    if (lump >= numlumps)
+    {
+        I_Error("%i >= numlumps", lump);
+    }
+#endif
+
+    ReadLumpSize(lump, dest, size);
+}
+
+static void ReadLump(int lump, void *dest)
+{
+    ReadLumpSize(lump, dest, -1);
+}
+
 void W_ReadLump(int lump, void *dest)
 {
     W_ReadLumpSize(lump, dest, -1);
@@ -543,7 +560,7 @@ void *W_CacheLumpNum(int lump, pu_tag tag)
 #endif
 
   if (!lumpcache[lump])      // read the lump in
-    W_ReadLump(lump, Z_Malloc(W_LumpLength(lump), tag, &lumpcache[lump]));
+    ReadLump(lump, Z_Malloc(LumpLength(lump), tag, &lumpcache[lump]));
   else
     Z_ChangeTag(lumpcache[lump],tag);
 
@@ -555,7 +572,7 @@ void *W_CacheLumpNum(int lump, pu_tag tag)
 // [FG] name of the WAD file that contains the lump
 const char *W_WadNameForLump (const int lump)
 {
-  if (lump < 0 || lump >= numlumps)
+  if (!W_LumpExists(lump))
     return "invalid";
   else
   {
@@ -568,21 +585,25 @@ const char *W_WadNameForLump (const int lump)
   }
 }
 
+boolean W_LumpExists(const int lump)
+{
+  return 0 <= lump && lump < numlumps;
+}
+
 boolean W_IsIWADLump (const int lump)
 {
-	return lump >= 0 && lump < numlumps &&
-	       lumpinfo[lump].wad_file == wadfiles[0];
+	return W_LumpExists(lump) && lumpinfo[lump].wad_file == wadfiles[0];
 }
 
 // check if lump is from WAD
 boolean W_IsWADLump (const int lump)
 {
-	return lump >= 0 && lump < numlumps && lumpinfo[lump].wad_file;
+	return W_LumpExists(lump) && lumpinfo[lump].wad_file;
 }
 
 boolean W_LumpExistsWithName(int lump, char *name)
 {
-  if (lump < 0 || lump >= numlumps)
+  if (!W_LumpExists(lump))
     return false;
 
   if (name && strncasecmp(lumpinfo[lump].name, name, 8))
@@ -596,7 +617,7 @@ int W_LumpLengthWithName(int lump, char *name)
   if (!W_LumpExistsWithName(lump, name))
     return 0;
 
-  return W_LumpLength(lump);
+  return LumpLength(lump);
 }
 
 // killough 10/98: support .deh from wads
@@ -648,46 +669,6 @@ void W_Close(void)
     {
         modules[i]->Close();
     }
-
-#ifdef WOOF_IOS
-    // Every lump this session cached (PU_STATIC, PU_CACHE or PU_LEVEL) names
-    // &lumpcache[i] as its zone owner, and was orphaned when the next session
-    // allocated its own lumpcache: measured 14 MB per title-only session with
-    // Freedoom (issue #269). Free them before the array, so no block is left whose
-    // owner pointer aims into freed memory. This waited on the holders that
-    // kept lump pointers across sessions being reset first (#268, #277): the
-    // automap's marknums and stopped flag, colormaps, statusbar.
-    if (lumpcache)
-    {
-        for (int i = 0; i < numlumps; ++i)
-        {
-            Z_Free(lumpcache[i]);
-        }
-        Z_Free(lumpcache);
-        lumpcache = NULL;
-    }
-
-    // A second engine session in the same process calls
-    // W_InitMultipleFiles() again from scratch. `lumpinfo`/`wadfiles` are
-    // realloc-backed arrays (m_array.h) that would otherwise still hold
-    // this session's entries (each module already tore down the handles
-    // those entries point to, above) with the fresh session's entries
-    // appended after them instead of starting at index 0 -- notably,
-    // `wadfiles[0]` is read all over d_main.c/g_game.c as "the IWAD name".
-    for (int i = 0; i < array_size(wadfiles); ++i)
-    {
-        free((void *)wadfiles[i]);
-    }
-    array_free(wadfiles);
-    array_free(lumpinfo);
-    numlumps = 0;
-    // The priority counter otherwise keeps climbing across sessions, so the
-    // same lump gets a different handle.priority each time (measured: 0 in
-    // one session, 13 in the next). Consistent within a session, but anything
-    // that remembers a priority across sessions -- bigfont_priority in
-    // mn_menu.c did -- compares numbers from two different lists.
-    next_priority = 0;
-#endif
 }
 
 //----------------------------------------------------------------------------

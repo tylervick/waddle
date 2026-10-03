@@ -72,16 +72,7 @@ void I_SafeExit(int rc)
         }
     }
 
-#ifdef WOOF_IOS
-    // A second engine session in the same process must be able to run its
-    // own exit handlers, so reset the priority cursor before unwinding.
-    exit_priority = 0;
-
-    extern void WoofIOS_ExitUnwind(int rc);
-    WoofIOS_ExitUnwind(rc);
-#else
     exit(rc);
-#endif
 }
 
 // Schedule a function to be called when the program receives a signal.
@@ -90,22 +81,6 @@ static atexit_listentry_t *atsignal_funcs;
 
 void I_AtSignal(atexit_func_t func)
 {
-#ifdef WOOF_IOS
-    // Each engine session in the same process re-registers the same
-    // handlers via D_DoomMain (unlike the exit lists, nothing ever drains
-    // this one — I_SignalHandler only runs on an actual fatal signal), so
-    // skip a func that's already registered instead of growing the list
-    // per session.
-    for (atexit_listentry_t *existing = atsignal_funcs; existing;
-         existing = existing->next)
-    {
-        if (existing->func == func)
-        {
-            return;
-        }
-    }
-#endif
-
     atexit_listentry_t *entry = malloc(sizeof(*entry));
     entry->func = func;
     entry->next = atsignal_funcs;

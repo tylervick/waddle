@@ -359,7 +359,7 @@ static void cheat_autoaim(void)
 static void cheat_mus(char *buf)
 {
   int musnum;
-  mapentry_t* entry;
+  MI_Entry_t* entry;
   
   //jff 3/20/98 note: this cheat allowed in netgame/demorecord
 
@@ -371,9 +371,9 @@ static void cheat_mus(char *buf)
   
   // First check if we have a mapinfo entry for the requested level.
   if (gamemode == commercial)
-    entry = G_LookupMapinfo(1, 10*(buf[0]-'0') + (buf[1]-'0'));
+    entry = MI_MapEntry(1, 10*(buf[0]-'0') + (buf[1]-'0'));
   else
-    entry = G_LookupMapinfo(buf[0]-'0', buf[1]-'0');
+    entry = MI_MapEntry(buf[0]-'0', buf[1]-'0');
 
   if (entry && entry->music[0])
   {
@@ -616,7 +616,7 @@ static void cheat_clev0(void)
 
   cur = M_StringDuplicate(MapName(gameepisode, gamemap));
 
-  G_GotoNextLevel(&epsd, &map);
+  MI_NextMap(&epsd, &map);
   next = MapName(epsd, map);
 
   if (W_CheckNumForName(next) != -1)
@@ -630,7 +630,7 @@ static void cheat_clev0(void)
 static void cheat_clev(char *buf)
 {
   int epsd, map;
-  mapentry_t* entry;
+  MI_Entry_t* entry;
 
   if (gamemode == commercial)
   {
@@ -649,7 +649,7 @@ static void cheat_clev(char *buf)
 
   // First check if we have a mapinfo entry for the requested level.
   // If this is present the remaining checks should be skipped.
-  entry = G_LookupMapinfo(epsd, map);
+  entry = MI_MapEntry(epsd, map);
   if (!entry)
   {
     char *next;
@@ -814,8 +814,6 @@ static void cheat_spechits(void)
 {
   int i, speciallines = 0;
   boolean origcards[NUMCARDS];
-  line_t dummy;
-  boolean trigger_keen = true;
 
   // [crispy] temporarily give all keys
   for (i = 0; i < NUMCARDS; i++)
@@ -893,89 +891,7 @@ static void cheat_spechits(void)
     plyr->cards[i] = origcards[i];
   }
 
-  if (gamemapinfo && array_size(gamemapinfo->bossactions))
-  {
-    thinker_t *th;
-
-    for (th = thinkercap.next ; th != &thinkercap ; th = th->next)
-    {
-      if (th->function.p1 == P_MobjThinker)
-      {
-        mobj_t *mo = (mobj_t *) th;
-
-        bossaction_t *bossaction;
-        array_foreach(bossaction, gamemapinfo->bossactions)
-        {
-          if (bossaction->type == mo->type)
-          {
-            dummy = *lines;
-            dummy.special = (short)bossaction->special;
-            dummy.args[0] = (short)bossaction->tag;
-            // use special semantics for line activation to block problem types.
-            if (!P_UseSpecialLine(mo, &dummy, 0, true))
-              P_CrossSpecialLine(&dummy, 0, mo, true);
-
-            speciallines++;
-
-            if (dummy.args[0] == 666)
-              trigger_keen = false;
-          }
-        }
-      }
-    }
-  }
-  else
-  {
-    // [crispy] trigger tag 666/667 events
-    if (gamemode == commercial)
-    {
-      if (gamemap == 7)
-      {
-        // Mancubi
-        dummy.args[0] = 666;
-        speciallines += EV_DoFloor(&dummy, lowerFloorToLowest);
-        trigger_keen = false;
-
-        // Arachnotrons
-        dummy.args[0] = 667;
-        speciallines += EV_DoFloor(&dummy, raiseToTexture);
-      }
-    }
-    else
-    {
-      if (gameepisode == 1)
-      {
-        // Barons of Hell
-        dummy.args[0] = 666;
-        speciallines += EV_DoFloor(&dummy, lowerFloorToLowest);
-        trigger_keen = false;
-      }
-      else if (gameepisode == 4)
-      {
-        if (gamemap == 6)
-        {
-          // Cyberdemons
-          dummy.args[0] = 666;
-          speciallines += EV_DoDoor(&dummy, blazeOpen);
-          trigger_keen = false;
-        }
-        else if (gamemap == 8)
-        {
-          // Spider Masterminds
-          dummy.args[0] = 666;
-          speciallines += EV_DoFloor(&dummy, lowerFloorToLowest);
-          trigger_keen = false;
-        }
-      }
-    }
-  }
-
-  // Keens (no matter which level they are on)
-  if (trigger_keen)
-  {
-    dummy.args[0] = 666;
-    speciallines += EV_DoDoor(&dummy, doorOpen);
-  }
+  MI_SpecHits(&speciallines);
 
   P_MapEnd();
 
@@ -1412,55 +1328,3 @@ boolean M_CheatResponder(event_t *ev)
 // Lee's Jan 19 sources
 //
 //----------------------------------------------------------------------------
-
-#ifdef WOOF_IOS
-// Called from DEH_ResetSession (deh_main.c) before every D_DoomMain() on iOS
-// (issue #270): a DEHACKED Cheat section replaces a sequence with a heap copy
-// and nothing put the original back, so the next game got the previous
-// game's cheat codes.
-typedef struct
-{
-    char *sequence;
-    int sequence_len;
-    boolean deh_modified;
-} pristine_cheat_t;
-
-static pristine_cheat_t pristine_cheats[arrlen(cheats_table)];
-static boolean cheats_saved;
-
-void M_ResetCheatSequences(void)
-{
-    for (int i = 0; cheats_table[i].sequence; ++i)
-    {
-        cheat_sequence_t *cht = &cheats_table[i];
-        if (!cheats_saved)
-        {
-            pristine_cheats[i].sequence = cht->sequence;
-            pristine_cheats[i].sequence_len = cht->sequence_len;
-            pristine_cheats[i].deh_modified = cht->deh_modified;
-            continue;
-        }
-        if (cht->sequence != pristine_cheats[i].sequence)
-        {
-            free(cht->sequence); // M_StringDuplicate in DEH_CheatParseLine
-        }
-        cht->sequence = pristine_cheats[i].sequence;
-        cht->sequence_len = pristine_cheats[i].sequence_len;
-        cht->deh_modified = pristine_cheats[i].deh_modified;
-        cht->chars_read = 0;
-        cht->param_chars_read = 0;
-    }
-    cheats_saved = true;
-}
-
-// Debug seam: how many cheat sequences differ from the pristine ones.
-int M_DebugCheatsChanged(void)
-{
-    int n = 0;
-    for (int i = 0; cheats_saved && cheats_table[i].sequence; ++i)
-    {
-        n += cheats_table[i].sequence != pristine_cheats[i].sequence;
-    }
-    return n;
-}
-#endif

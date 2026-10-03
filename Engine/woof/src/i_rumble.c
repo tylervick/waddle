@@ -235,13 +235,6 @@ void I_ShutdownRumble(void)
 {
     if (!I_GamepadEnabled())
     {
-#ifdef WOOF_IOS
-        // joy_enable can be switched off after I_InitRumble allocated the
-        // channels and a gamepad was opened; the next session in this process
-        // must not inherit either (issue #268).
-        free(rumble.channels);
-        memset(&rumble, 0, sizeof(rumble));
-#endif
         return;
     }
 
@@ -263,12 +256,6 @@ void I_ShutdownRumble(void)
 
     free(rumble.channels);
     FreeFFT();
-#ifdef WOOF_IOS
-    // Everything else here outlived the session too, including the closed
-    // gamepad, which I_UpdateRumble could use before I_SetRumbleSupported
-    // ran again (issue #268). A fresh process starts from all zeros.
-    memset(&rumble, 0, sizeof(rumble));
-#endif
 }
 
 void I_InitRumble(void)
@@ -301,19 +288,7 @@ static void InitFFT(int rate, int step)
 {
     static int last_rate = -1;
 
-#ifdef WOOF_IOS
-    // iOS re-runs the engine across multiple in-process sessions (see
-    // WOOF_UPSTREAM.md). At each session's exit I_ShutdownRumble -> FreeFFT
-    // frees and NULLs the fft.* buffers, but this function-local `last_rate`
-    // guard outlives the session and cannot be reached from FreeFFT. On the
-    // next session the first cached sound usually has the same sample rate, so
-    // `last_rate == rate` still holds and we would skip re-allocating and then
-    // dereference the freed (NULL) fft.in/out/window in CalcPeakFFT -> SIGSEGV.
-    // Re-initialise whenever the buffers are gone, whatever the cached rate.
-    if (last_rate == rate && fft.setup)
-#else
     if (last_rate == rate)
-#endif
     {
         return;
     }
@@ -832,11 +807,3 @@ void I_BindRumbleVariables(void)
     BIND_NUM_GENERAL(joy_rumble, 5, 0, 10,
         "Rumble intensity (0 = Off; 10 = 100%)");
 }
-
-#ifdef WOOF_IOS
-// Debug seam for WoofIOS_DebugSessionEntryState (woof_ios.c).
-int I_DebugRumbleGamepadSet(void)
-{
-    return rumble.gamepad != NULL;
-}
-#endif

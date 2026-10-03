@@ -24,6 +24,10 @@
 #include <ctype.h>
 #endif
 
+#ifdef __linux__
+#include <unistd.h>
+#endif
+
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,6 +43,8 @@
 #include "d_player.h"
 #include "d_ticcmd.h"
 #include "decl_main.h"
+#include "decl_sndinfo.h"
+#include "decl_sounds.h"
 #include "deh_main.h"
 #include "deh_strings.h"
 #include "deh_thing.h"
@@ -85,6 +91,7 @@
 #include "statdump.h"
 #include "g_umapinfo.h"
 #include "v_patch.h"
+#include "v_palette.h"
 #include "v_video.h"
 #include "w_wad.h"
 #include "wi_stuff.h"
@@ -224,27 +231,15 @@ void D_ProcessEvents (void)
 
 // wipegamestate can be set to -1 to force a wipe on the next draw
 gamestate_t wipegamestate = GS_DEMOSCREEN;
-wipefx_t    screen_wipe_internal = wipe_Invalid;
+wipefx_t    screen_wipe_internal = wipe_Default;
 wipefx_t    screen_wipe = wipe_None;
-
-#ifdef WOOF_IOS
-// D_Display's memory of the previous frame, hoisted to file scope so
-// D_ResetSessionState() can give each session the first frame upstream's
-// one run per process gets (issue #266).
-static boolean viewactivestate = false;
-static boolean menuactivestate = false;
-static gamestate_t oldgamestate = GS_NONE;
-static boolean borderdrawcount;
-#endif
 
 void D_Display (void)
 {
-#ifndef WOOF_IOS
   static boolean viewactivestate = false;
   static boolean menuactivestate = false;
   static gamestate_t oldgamestate = GS_NONE;
   static boolean borderdrawcount;
-#endif
   int wipestart;
   boolean done, wipe;
 
@@ -274,7 +269,7 @@ void D_Display (void)
   wipe = false;
 
   // save the current screen if about to wipe
-  if (gamestate != wipegamestate && screen_wipe_internal)
+  if (gamestate != wipegamestate)
     {
       wipe = true;
       wipe_StartScreen(0, 0, video.width, video.height);
@@ -327,7 +322,7 @@ void D_Display (void)
 
   // clean up border stuff
   if (gamestate != oldgamestate && gamestate != GS_LEVEL)
-    I_SetPalette (W_CacheLumpName ("PLAYPAL",PU_CACHE));
+    V_ResetPalette();
 
   // see if the border needs to be initially drawn
   if (gamestate == GS_LEVEL && oldgamestate != GS_LEVEL)
@@ -729,7 +724,7 @@ static boolean FileContainsMaps(const char *filename)
 {
     for (int i = 0; i < array_size(umapinfo); ++i)
     {
-        if (CheckMapLump(umapinfo[i].mapname, filename))
+        if (CheckMapLump(umapinfo[i].lumpname, filename))
         {
             return true;
         }
@@ -830,7 +825,7 @@ static void InitGameVersion(void)
     // @category compat
     //
     // Emulate a specific version of Doom. Valid values are "1.9",
-    // "ultimate", "final", "chex". Implies -complevel vanilla.
+    // "ultimate", "final", "final2", "chex". Requires -complevel vanilla.
     //
 
     p = M_CheckParm("-gameversion");
@@ -1272,7 +1267,8 @@ static void LoadIWadBase(void)
     D_GetModeAndMissionByIWADName(M_BaseName(wadfiles[0]), &local_gamemode,
                                   &local_gamemission);
 
-    if (local_gamemission == none || local_gamemode == indetermined)
+    if (local_gamemission == none
+        || (local_gamemode == indetermined && local_gamemission != doom))
     {
         return;
     }
@@ -1465,55 +1461,6 @@ static void D_ShowEndDoom(void)
 
 boolean fast_exit = false;
 
-#ifdef WOOF_IOS
-// Called from WoofIOS_Run before every D_DoomMain(). Each of these outlived
-// the previous session and was read by the next one before anything
-// rewrote it; measured with the writable-globals diff (issue #266,
-// docs/engine-session-globals.md has the table).
-void D_ResetSessionState(void)
-{
-  // Set by the previous session's SDL_EVENT_QUIT (i_video.c), so every
-  // later session would exit as if the window had been closed.
-  fast_exit = false;
-
-  // The previous session's last frame: without this the first title frame
-  // of a session that follows one quit mid-demo melts in from black.
-  wipegamestate = GS_DEMOSCREEN;
-  screen_wipe_internal = wipe_Invalid;
-  viewactivestate = false;
-  menuactivestate = false;
-  oldgamestate = GS_NONE;
-  borderdrawcount = false;
-
-  // demoloop_prev pointed into the previous session's demo loop, which
-  // D_SetupDemoLoop frees when it came from a DEMOLOOP lump; the first
-  // D_DoAdvanceDemo read its outro_wipe before anything reassigned it.
-  demosequence = 0;
-  pagetic = 0;
-  pagename = NULL;
-  demoloop_point = NULL;
-  demoloop_prev = NULL;
-
-  // PrepareAutoloadPaths appends; a second session scanned every autoload
-  // directory twice (next_priority 13 in session 1, 25 in session 2).
-  for (int i = 0; i < array_size(autoload_paths); ++i)
-  {
-    free(autoload_paths[i]);
-  }
-  array_free(autoload_paths);
-}
-
-// Debug seam for WoofIOS_DebugSessionStartState (woof_ios.c).
-const char *D_DebugSessionState(void)
-{
-  static char buf[128];
-  snprintf(buf, sizeof(buf), "exit=%d wipe=%d/%d oldgs=%d view=%d demoprev=%d autoload=%d",
-           fast_exit, wipegamestate, screen_wipe_internal, oldgamestate,
-           viewactivestate, demoloop_prev != NULL, (int)array_size(autoload_paths));
-  return buf;
-}
-#endif
-
 boolean D_AllowEndDoom(void)
 {
   if (fast_exit)
@@ -1679,6 +1626,18 @@ void D_DoomMain(void)
     M_PrintHelpString();
     I_SafeExit(0);
   }
+
+  #ifdef __linux__
+
+  if (M_ParmExists("-setup"))
+  {
+    char* setup_path = M_StringJoin(D_DoomExeDir(), DIR_SEPARATOR_S, PROJECT_SHORTNAME "-setup");
+    char* args[] = { setup_path, NULL };
+    execv(setup_path, args);
+    I_SafeExit(1);
+  }
+
+  #endif
 
   // [FG] initialize logging verbosity early to decide
   //      if the following lines will get printed or not
@@ -2176,6 +2135,11 @@ void D_DoomMain(void)
 
   W_ProcessInWads("DECLARE", DECL_Parse, PROCESS_IWAD | PROCESS_PWAD);
 
+  if (!DECL_HasAmbientSounds())
+  {
+    W_ProcessInWads("SNDINFO", SNDINFO_Parse, PROCESS_IWAD | PROCESS_PWAD);
+  }
+
   DECL_Install();
 
   // Ambient
@@ -2216,14 +2180,12 @@ void D_DoomMain(void)
 
   if (!M_ParmExists("-nomapinfo"))
   {
-    W_ProcessInWads("UMAPINFO", G_ParseMapInfo, PROCESS_IWAD | PROCESS_PWAD);
+    W_ProcessInWads("UMAPINFO", MI_ParseUniversalMapInfo, PROCESS_IWAD | PROCESS_PWAD);
   }
 
   G_ParseCompDatabase();
 
   D_SetSavegameDirectory();
-
-  V_InitColorTranslation(); //jff 4/24/98 load color translation lumps
 
   // killough 2/22/98: copyright / "modified game" / SPA banners removed
 
@@ -2260,6 +2222,9 @@ void D_DoomMain(void)
 
   W_ProcessInWads("TRAKINFO", S_ParseTrakInfo, PROCESS_IWAD | PROCESS_PWAD);
   D_SetupDemoLoop();
+
+  I_Printf(VB_INFO, "V_InitPalette: Init palette sub system.");
+  V_InitPalette();
 
   I_Printf(VB_INFO, "M_Init: Init miscellaneous info.");
   M_Init();
@@ -2482,23 +2447,12 @@ void D_DoomMain(void)
     G_LoadAutoSave(file, true);
     free(file);
   }
-#ifdef WOOF_IOS
-  // 254 is this port's suspend save (G_BackgroundSave, issue #111): the level
-  // the player was in when the app was backgrounded. Same loader as the
-  // autosave, since neither is a numbered slot.
-  else if (startloadgame == 254 && !demorecording && gameaction != ga_playdemo
-           && !netgame)
-  {
-    char *file = G_SuspendSaveName();
-    G_LoadAutoSave(file, true);
-    free(file);
-  }
-#endif
   else if (startloadgame >= 0 && startloadgame <= 77) // Page 0-7, slot 0-7.
   {
+    const int slot = startloadgame % 10, page = startloadgame / 10;
     char *file;
-    file = G_SaveGameName(startloadgame);
-    G_LoadGame(file, startloadgame, true); // killough 5/15/98: add command flag
+    file = G_SaveGameName(slot, page);
+    G_LoadGame(file, slot, page, true); // killough 5/15/98: add command flag
     free(file);
   }
   else
@@ -2506,10 +2460,14 @@ void D_DoomMain(void)
     {
       if (autostart || netgame)
 	{
-	  G_InitNew(startskill, startepisode, startmap);
+	  G_InitNew(startskill, startepisode, startmap, false);
 	  // [crispy] no need to write a demo header in demo continue mode
 	  if (demorecording && gameaction != ga_playdemo)
+	  {
 	    G_BeginRecording();
+	    // enforce melt as first screen wipe for demorecording
+	    screen_wipe_internal = wipe_Melt;
+	  }
 	}
       else
 	D_StartTitle();                 // start up intro loop
@@ -2525,21 +2483,6 @@ void D_DoomMain(void)
   TryRunTics();
 
   D_StartGameLoop();
-
-#ifdef WOOF_IOS
-  // Writable-globals checkpoint for Scripts/globals-diff.py: every session
-  // passes here exactly once, after all of D_DoomMain's init and before the
-  // first tic, so two sessions of one game should leave these bytes alike.
-  // No-op unless WADDLE_DEBUG_GLOBALS_DIFF is set (woof_ios.c).
-  {
-      extern void WoofIOS_DebugGlobalsCheckpoint(void);
-      WoofIOS_DebugGlobalsCheckpoint();
-      // Same point, always on: the few values issue #266 reset, as a string
-      // the app can show after the session (WoofIOS_DebugSessionStartState).
-      extern void WoofIOS_DebugSessionStartCheckpoint(void);
-      WoofIOS_DebugSessionStartCheckpoint();
-  }
-#endif
 
   for (;;)
     {

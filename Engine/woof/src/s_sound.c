@@ -970,49 +970,6 @@ static extra_music_t extra_music;
 
 int current_musicnum = -1;
 
-#ifdef WOOF_IOS
-// Songs this session got a handle for; read by the session-start seam.
-static int music_started;
-
-// Called from WoofIOS_Run before every D_DoomMain(). The previous session's
-// music outlives it here (issue #266): mus_playing still named the track
-// that was playing at the quit, so a session that opened on the same track
-// hit the `already playing` early returns in S_ChangeMusic and
-// S_ChangeMusInfoMusic and had no title music at all; and S_music kept each
-// track's lump number from the previous session's WAD directory
-// (S_ChangeMusic looks one up only while it is 0), plus any BEX [MUSIC]
-// rename. Both go back to what the compiler initialised.
-void S_ResetSessionMusic(void)
-{
-    static musicinfo_t pristine[mus_musinfo + 1];
-    static boolean saved;
-    if (!saved)
-    {
-        memcpy(pristine, S_music, sizeof(pristine));
-        saved = true;
-    }
-    else
-    {
-        memcpy(S_music, pristine, sizeof(pristine));
-    }
-    mus_playing = NULL;
-    mus_paused = false;
-    current_musicnum = -1;
-}
-
-// Debug seam, reset from WoofIOS_Run on its own so that the count stays
-// honest when S_ResetSessionMusic is the thing under test.
-void S_DebugResetMusicStarted(void)
-{
-    music_started = 0;
-}
-
-int S_DebugMusicStarted(void)
-{
-    return music_started;
-}
-#endif
-
 void S_ChangeMusic(int musicnum, int looping)
 {
     musicinfo_t *music;
@@ -1066,51 +1023,14 @@ void S_ChangeMusic(int musicnum, int looping)
     I_PlaySong((void *)music->handle, looping);
 
     // [crispy] log played music
-    // Waddle patch (#196): only when it actually played. A NULL handle means
-    // no module accepted the lump, and logging the format string there
-    // reported "Unknown" as though it were a successful play.
-    if (music->handle)
-    {
-        I_Printf(VB_DEBUG, "S_ChangeMusic: %.8s (%s), %s",
-                 lumpinfo[music->lumpnum].name,
-                 W_WadNameForLump(music->lumpnum),
-                 I_MusicFormat());
-    }
-    else
-    {
-        I_Printf(VB_ERROR, "S_ChangeMusic: %.8s (%s) produced no music",
-                 lumpinfo[music->lumpnum].name,
-                 W_WadNameForLump(music->lumpnum));
-    }
+    I_Printf(VB_DEBUG, "S_ChangeMusic: %.8s (%s), %s",
+             lumpinfo[music->lumpnum].name,
+             W_WadNameForLump(music->lumpnum),
+             I_MusicFormat());
 
     music->lumpnum = old_lumpnum;
 
-    // Waddle patch (#196): a track that never registered is not the track
-    // that is playing. Recording it as such would also block a retry -- the
-    // `mus_playing == music` early return above -- and leave pause/resume
-    // holding a handle that was never valid.
-    //
-    // Releasing the lump here is not optional. S_StopMusic is what normally
-    // returns music->data from PU_STATIC to PU_CACHE, and it bails on
-    // !mus_playing -- so leaving mus_playing unset without this would retain
-    // every rejected lump for the rest of the session. The NULL guard mirrors
-    // S_StopMusic's, for wads with empty music lumps.
-    if (music->handle)
-    {
-        mus_playing = music;
-#ifdef WOOF_IOS
-        music_started++;
-#endif
-    }
-    else
-    {
-        if (music->data != NULL)
-        {
-            Z_ChangeTag(music->data, PU_CACHE);
-        }
-        music->data = NULL;
-        mus_playing = NULL;
-    }
+    mus_playing = music;
 
     // [crispy] musinfo.items[0] is reserved for the map's default music
     if (!musinfo.items[0])
@@ -1157,42 +1077,15 @@ void S_ChangeMusInfoMusic(int lumpnum, int looping)
 
     I_PlaySong((void *)music->handle, looping);
 
-    // [crispy] log played music -- see the S_ChangeMusic note above (#196).
-    if (music->handle)
-    {
-        I_Printf(VB_DEBUG, "S_ChangeMusInfoMusic: %.8s (%s), %s",
-                 lumpinfo[music->lumpnum].name,
-                 W_WadNameForLump(music->lumpnum),
-                 I_MusicFormat());
-    }
-    else
-    {
-        I_Printf(VB_ERROR, "S_ChangeMusInfoMusic: %.8s (%s) produced no music",
-                 lumpinfo[music->lumpnum].name,
-                 W_WadNameForLump(music->lumpnum));
-    }
+    // [crispy] log played music
+    I_Printf(VB_DEBUG, "S_ChangeMusInfoMusic: %.8s (%s), %s",
+             lumpinfo[music->lumpnum].name,
+             W_WadNameForLump(music->lumpnum),
+             I_MusicFormat());
 
     music->lumpnum = lumpnum;
 
-    // Waddle patch (#196): see the note in S_ChangeMusic -- a track that never
-    // registered must not be recorded as the one playing, and its lump has to
-    // be released here because S_StopMusic will not reach it.
-    if (music->handle)
-    {
-        mus_playing = music;
-#ifdef WOOF_IOS
-        music_started++;
-#endif
-    }
-    else
-    {
-        if (music->data != NULL)
-        {
-            Z_ChangeTag(music->data, PU_CACHE);
-        }
-        music->data = NULL;
-        mus_playing = NULL;
-    }
+    mus_playing = music;
 
     musinfo.current_item = lumpnum;
 }
@@ -1254,27 +1147,15 @@ void S_StopMusic(void)
 //  determines music if any, changes music.
 //
 
-static inline int WRAP(int i, int w)
+void S_Reset(void)
 {
-    while (i < 0)
-    {
-        i += w;
-    }
-
-    return i % w;
-}
-
-void S_Start(void)
-{
-    int cnum, mnum;
-
     // kill all playing sounds at start of level
     //  (trust me - a good idea)
 
     // jff 1/22/98 skip sound init if sound not enabled
     if (!nosfxparm)
     {
-        for (cnum = 0; cnum < snd_channels; ++cnum)
+        for (int cnum = 0; cnum < snd_channels; ++cnum)
         {
             if (channels[cnum].sfxinfo)
             {
@@ -1286,41 +1167,14 @@ void S_Start(void)
     // [crispy] reset musinfo data at the start of a new map
     memset(&musinfo, 0, sizeof(musinfo));
     musinfo.current_item = -1;
+}
 
+void S_Start(void)
+{
     // start new music for the level
     mus_paused = 0;
 
-    if (gamemapinfo && gamemapinfo->music[0])
-    {
-        int muslump = W_CheckNumForName(gamemapinfo->music);
-        if (muslump >= 0)
-        {
-            S_ChangeMusInfoMusic(muslump, true);
-            return;
-        }
-        // If the mapinfo defined music cannot be found, try the default for the
-        // given map.
-    }
-
-    if (idmusnum != -1)
-    {
-        mnum = idmusnum; // jff 3/17/98 reload IDMUS music if not -1
-    }
-    else
-    {
-        if (gamemode == commercial)
-        {
-            mnum = mus_runnin + WRAP(gamemap - 1, NUMMUSIC - mus_runnin);
-        }
-        else
-        {
-            mnum = mus_e1m1
-                   + WRAP((gameepisode - 1) * 9 + gamemap - 1,
-                          mus_runnin - mus_e1m1);
-        }
-    }
-
-    S_ChangeMusic(mnum, true);
+    MI_ChangeMusic();
 }
 
 //

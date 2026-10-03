@@ -2,7 +2,7 @@
 # Vendors the pinned Woof! commit into Engine/woof.
 # WARNING: re-running clobbers local iOS patches — see Engine/WOOF_UPSTREAM.md.
 set -euo pipefail
-WOOF_COMMIT="798acebd52b6cc1623dde556d3e3a236a25a41d1"
+WOOF_COMMIT="1462fadc90a4589c9cfc246d9e014ed5f02a2e54"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$ROOT/Engine/woof"
 TMP="$(mktemp -d)"

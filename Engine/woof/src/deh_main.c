@@ -77,18 +77,9 @@ boolean deh_apply_cheats = true;
 
 static char **deh_filenames;
 
-#ifdef WOOF_IOS
-// Hoisted from AddDEHFileName so DEH_ResetSession can restart it (#270).
-static int deh_filenames_count;
-#endif
-
 void AddDEHFileName(const char *filename)
 {
-#ifdef WOOF_IOS
-    int i = deh_filenames_count++;
-#else
     static int i;
-#endif
     deh_filenames = I_Realloc(deh_filenames, (i + 2) * sizeof(*deh_filenames));
     deh_filenames[i++] = M_StringDuplicate(filename);
     deh_filenames[i] = NULL;
@@ -466,8 +457,9 @@ void DEH_ParseCommandLine(void)
     //!
     // @category mod
     // @arg <files>
+    // @help
     //
-    // Load the given dehacked/bex patch(es)
+    // Load the given dehacked/bex patch(es).
     //
     int p = M_CheckParm("-deh");
 
@@ -508,109 +500,3 @@ void DEH_PostProcess(void)
         states[S_DSGUNFLASH1].tics = 4;
     }
 }
-
-#ifdef WOOF_IOS
-#include "deh_thing.h"
-#include "p_inter.h"
-
-// Called from WoofIOS_Run before every D_DoomMain() (issue #270). DEHACKED
-// patches these tables in place, once per session here, and nothing put the
-// defaults back, so a game played after a modded one kept the mod's
-// weapons, ammo, health rules, cheats, par times and text. The states,
-// mobjinfo, sfx and sprite tables are rebuilt from their originals by
-// DSDH_Init, and S_music by S_ResetSessionMusic; this covers the rest.
-extern int bex_pars[][9];
-extern void DEH_ResetPartimes(void);
-extern void M_ResetCheatSequences(void);
-extern void DEH_ResetStringReplacements(void);
-extern void D_ResetDefaultDemoLoops(void);
-
-static int *const deh_misc_values[] = {
-    &deh_initial_health, &deh_initial_bullets, &deh_max_health,
-    &deh_max_armor, &deh_green_armor_class, &deh_blue_armor_class,
-    &deh_max_soulsphere, &deh_soulsphere_health, &deh_megasphere_health,
-    &deh_god_mode_health, &deh_idfa_armor, &deh_idfa_armor_class,
-    &deh_idkfa_armor, &deh_idkfa_armor_class, &deh_bfg_cells_per_shot,
-    &deh_species_infighting, &deh_max_health_bonus,
-};
-
-static struct
-{
-    boolean saved;
-    weaponinfo_t weaponinfo[NUMWEAPONS + 2];
-    int maxammo[NUMAMMO], clipammo[NUMAMMO];
-    int misc[arrlen(deh_misc_values)];
-} pristine_deh;
-
-void DEH_ResetSession(void)
-{
-    if (!pristine_deh.saved)
-    {
-        memcpy(pristine_deh.weaponinfo, weaponinfo, sizeof(pristine_deh.weaponinfo));
-        memcpy(pristine_deh.maxammo, maxammo, sizeof(pristine_deh.maxammo));
-        memcpy(pristine_deh.clipammo, clipammo, sizeof(pristine_deh.clipammo));
-        for (int i = 0; i < arrlen(deh_misc_values); ++i)
-        {
-            pristine_deh.misc[i] = *deh_misc_values[i];
-        }
-        pristine_deh.saved = true;
-    }
-    else
-    {
-        memcpy(weaponinfo, pristine_deh.weaponinfo, sizeof(pristine_deh.weaponinfo));
-        memcpy(maxammo, pristine_deh.maxammo, sizeof(pristine_deh.maxammo));
-        memcpy(clipammo, pristine_deh.clipammo, sizeof(pristine_deh.clipammo));
-        for (int i = 0; i < arrlen(deh_misc_values); ++i)
-        {
-            *deh_misc_values[i] = pristine_deh.misc[i];
-        }
-    }
-    deh_set_maxhealth = false;
-    deh_set_bfgcells = false;
-    deh_set_blood_color = false;
-    // DEH_Init re-reads -nocheats, but only runs while deh_initialized is
-    // false, so a later session kept the first session's answer.
-    deh_apply_cheats = true;
-    deh_initialized = false;
-
-    // The -deh files a session loaded; the demo footer and save metadata
-    // read this list, so a later session reported every earlier one's.
-    for (int i = 0; i < deh_filenames_count; ++i)
-    {
-        free(deh_filenames[i]);
-    }
-    free(deh_filenames);
-    deh_filenames = NULL;
-    deh_filenames_count = 0;
-
-    DEH_ResetPartimes();
-    M_ResetCheatSequences();
-    DEH_ResetStringReplacements();
-    D_ResetDefaultDemoLoops();
-}
-
-// Debug seam for WoofIOS_DebugSessionEntryState (woof_ios.c): an FNV-1a hash
-// of the tables restored above, so two entries can be compared for equality.
-unsigned DEH_DebugTablesHash(void)
-{
-    unsigned hash = 2166136261u;
-    #define HASH_BYTES(p, n) \
-        for (size_t k_ = 0; k_ < (n); ++k_) \
-        { hash = (hash ^ ((const unsigned char *)(p))[k_]) * 16777619u; }
-    HASH_BYTES(weaponinfo, sizeof(pristine_deh.weaponinfo));
-    HASH_BYTES(maxammo, sizeof(pristine_deh.maxammo));
-    HASH_BYTES(clipammo, sizeof(pristine_deh.clipammo));
-    for (int i = 0; i < arrlen(deh_misc_values); ++i)
-    {
-        HASH_BYTES(deh_misc_values[i], sizeof(int));
-    }
-    #undef HASH_BYTES
-    return hash;
-}
-
-int DEH_DebugFileCount(void)
-{
-    return deh_filenames_count;
-}
-#endif
-
