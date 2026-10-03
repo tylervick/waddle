@@ -139,9 +139,23 @@ void arena_free(arena_t *arena, void *ptr)
     array_push(arena->deleted, block);
 }
 
+#ifdef WOOF_IOS
+// Address space reserved by every arena alive in this process; debug seam
+// for WoofIOS_DebugSessionStartState (issue #269).
+static size_t reserved_total;
+
+int M_DebugArenaReservedMB(void)
+{
+    return (int)(reserved_total / (1024 * 1024));
+}
+#endif
+
 arena_t *M_ArenaInit(int reserve, int commit)
 {
     arena_t *arena = calloc(1, sizeof(*arena));
+#ifdef WOOF_IOS
+    reserved_total += reserve;
+#endif
 
     arena->reserve = reserve;
     arena->buffer = I_ReserveRegion(reserve);

@@ -154,12 +154,13 @@ static void AddDirs(w_module_t *module, w_handle_t handle, const char *base)
     }
 }
 
+// Next lump-source priority; W_Close() restarts it on iOS (see there).
+static int next_priority;
+
 boolean W_AddPath(const char *path)
 {
-    static int priority;
-
     w_handle_t handle = {0};
-    handle.priority = priority++;
+    handle.priority = next_priority++;
 
     w_module_t *active_module = NULL;
 
@@ -669,6 +670,46 @@ void W_Close(void)
     {
         modules[i]->Close();
     }
+
+#ifdef WOOF_IOS
+    // Every lump this session cached (PU_STATIC, PU_CACHE or PU_LEVEL) names
+    // &lumpcache[i] as its zone owner, and was orphaned when the next session
+    // allocated its own lumpcache: measured 14 MB per title-only session with
+    // Freedoom (issue #269). Free them before the array, so no block is left whose
+    // owner pointer aims into freed memory. This waited on the holders that
+    // kept lump pointers across sessions being reset first (#268, #277): the
+    // automap's marknums and stopped flag, colormaps, statusbar.
+    if (lumpcache)
+    {
+        for (int i = 0; i < numlumps; ++i)
+        {
+            Z_Free(lumpcache[i]);
+        }
+        Z_Free(lumpcache);
+        lumpcache = NULL;
+    }
+
+    // A second engine session in the same process calls
+    // W_InitMultipleFiles() again from scratch. `lumpinfo`/`wadfiles` are
+    // realloc-backed arrays (m_array.h) that would otherwise still hold
+    // this session's entries (each module already tore down the handles
+    // those entries point to, above) with the fresh session's entries
+    // appended after them instead of starting at index 0 -- notably,
+    // `wadfiles[0]` is read all over d_main.c/g_game.c as "the IWAD name".
+    for (int i = 0; i < array_size(wadfiles); ++i)
+    {
+        free((void *)wadfiles[i]);
+    }
+    array_free(wadfiles);
+    array_free(lumpinfo);
+    numlumps = 0;
+    // The priority counter otherwise keeps climbing across sessions, so the
+    // same lump gets a different handle.priority each time (measured: 0 in
+    // one session, 13 in the next). Consistent within a session, but anything
+    // that remembers a priority across sessions -- bigfont_priority in
+    // mn_menu.c did -- compares numbers from two different lists.
+    next_priority = 0;
+#endif
 }
 
 //----------------------------------------------------------------------------

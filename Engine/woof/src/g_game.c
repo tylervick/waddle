@@ -632,6 +632,60 @@ static boolean FilterDeathUseAction(void)
 // If recording a demo, write it out
 //
 
+#ifdef WOOF_IOS
+// Auto-use state (issue #114); see the block in G_BuildTiccmd. The switch
+// is process-lifetime (the host app sets it per session), the memory of the
+// last line and the press count reset with each level's players.
+boolean autouse_enabled;
+static line_t *autouse_last_line;
+static boolean autouse_prev_use; // BT_USE in the previous built command
+static int autouse_presses;
+
+void G_SetAutoUse(boolean enabled)
+{
+  autouse_enabled = enabled;
+}
+
+void G_DebugAutoUseCounts(int *enabled, int *presses)
+{
+  *enabled = autouse_enabled;
+  *presses = autouse_presses;
+}
+
+void G_ResetAutoUseSession(void)
+{
+  autouse_last_line = NULL;
+  autouse_prev_use = false;
+  autouse_presses = 0;
+}
+
+// Issue #304: players[] is what a fresh process has (all zero) at the start
+// of every in-process session. G_PlayerReborn deliberately carries cheats
+// (killough: "preserve cheats across idclev") and the visitedlevels pointer
+// through its memset, so without this the previous game's god mode is in
+// effect at the start of the next one, and visitedlevels points into memory
+// the previous session freed. Called from WoofIOS_Run's reset block.
+void G_ResetSessionPlayers(void)
+{
+  memset(players, 0, sizeof(players));
+}
+
+// Debug/test telemetry only: the console player's cheat flags right now.
+int G_DebugPlayerCheats(void)
+{
+  return players[consoleplayer].cheats;
+}
+
+// Every level load: lines are rebuilt in the same arena, so a reloaded map
+// can hand the remembered line's address to a different line, or the same
+// line again, and the first approach must press. The session count stays.
+static void G_ResetAutoUseLevel(void)
+{
+  autouse_last_line = NULL;
+  autouse_prev_use = false;
+}
+#endif
+
 void G_BuildTiccmd(ticcmd_t* cmd)
 {
   const boolean strafe = M_InputGameActive(input_strafe);
@@ -870,6 +924,36 @@ void G_BuildTiccmd(ticcmd_t* cmd)
       cmd->buttons |= BT_USE;
   }
 
+#ifdef WOOF_IOS
+  // Auto-use (issue #114): a usable line ahead of a forward-moving player
+  // presses USE without a tap, as the predecessor apps did. After the
+  // manual USE sources above, so a held button is seen. Once per line: a
+  // door used again while it moves reverses, so a line is remembered and
+  // not pressed again until nothing has been ahead in between -- and the
+  // memory is kept regardless of movement, so turning away while standing
+  // still re-arms it. P_PlayerThink uses only on the DOWN edge of BT_USE,
+  // so a line is remembered only when the previous command carried no USE,
+  // or the press would be swallowed and the line never used. Off unless
+  // the host app turned it on for touch input (WoofIOS_SetAutoUse).
+  if (autouse_enabled && gamestate == GS_LEVEL && !demoplayback
+      && players[consoleplayer].playerstate == PST_LIVE)
+  {
+    line_t *ahead = P_AutoUseLineAhead(&players[consoleplayer]);
+    if (!ahead)
+    {
+      autouse_last_line = NULL;
+    }
+    else if (forward > 0 && ahead != autouse_last_line
+             && !(cmd->buttons & BT_USE) && !autouse_prev_use)
+    {
+      autouse_last_line = ahead;
+      cmd->buttons |= BT_USE;
+      autouse_presses++;
+    }
+  }
+  autouse_prev_use = (cmd->buttons & BT_USE) != 0;
+#endif
+
   // special buttons
   if (sendpause && gameaction != ga_newgame)
     {
@@ -917,6 +1001,9 @@ void G_ClearInput(void)
 
 static void G_DoLoadLevel(boolean from_savegame)
 {
+#ifdef WOOF_IOS
+  G_ResetAutoUseLevel();
+#endif
   int i;
 
   S_StopAmbientSounds();
@@ -2419,6 +2506,83 @@ static void G_DoSaveAutoSave(void)
   DoSaveGame(name);
   free(name);
 }
+
+#ifdef WOOF_IOS
+// --- Backgrounding (issue #111) ---
+//
+// iOS gives a backgrounded app no time: the process is frozen a few seconds
+// after it leaves the screen and may be discarded without another callback.
+// SDL turns the app's lifecycle into events (SDL_OnApplicationWillEnterBackground
+// on resign-active, SDL_OnApplicationDidEnterBackground on background entry)
+// that only an event watch receives; i_video.c's AppLifecycleWatch hands them
+// here from inside the engine's own run-loop pump (I_StartTic,
+// I_StartDisplay), between tics, so the world is at the same boundary
+// G_Ticker runs ga_savegame at.
+//
+// Counted at the sites that act and never reset, so
+// WoofIOS_DebugBackgroundState reports what happened across the process.
+static int background_pauses;
+static int background_saves;
+static int background_leveltime; // leveltime the last save captured
+
+char *G_SuspendSaveName(void)
+{
+  return SaveGameName("suspend.dsg");
+}
+
+// Resign-active: the player is about to lose the screen (app switcher,
+// Control Center, a call). Opening Woof's own menu is what freezes a
+// single-player world (G_Ticker skips ticcmds while menuactive && !netgame),
+// and it is the pause the touch overlay can undo: it has a menu button, not a
+// pause key. Nothing to freeze at the title, in a demo, or outside a level.
+void G_BackgroundPause(void)
+{
+  if (gamestate != GS_LEVEL || !usergame || demoplayback || netgame
+      || menuactive)
+  {
+    return;
+  }
+  MN_StartControlPanel();
+  background_pauses++;
+}
+
+// Background entry: write the player's live level to its own file, so a
+// process iOS discards while backgrounded loses nothing. Its own file (see
+// G_SuspendSaveName; -loadgame 254 in d_main.c) so it never overwrites a
+// manual slot or the level-start autosave the death-use reload depends on.
+// Not at the title, in a demo (playback or recording), a netgame, with a game
+// action pending (the world is about to change), or with the player dead: a
+// save of a corpse resumes a corpse, and the previous save is the better one.
+void G_BackgroundSave(void)
+{
+  if (gamestate != GS_LEVEL || !usergame || demoplayback || demorecording
+      || netgame || gameaction != ga_nothing
+      || players[consoleplayer].playerstate != PST_LIVE)
+  {
+    return;
+  }
+
+  // savedescription may hold a name the player has just committed in the
+  // save menu (G_SaveGame sets it a tic before ga_savegame writes it), and
+  // DoSaveGame clears it, so keep theirs around ours.
+  char pending[sizeof(savedescription)];
+  memcpy(pending, savedescription, sizeof(pending));
+  strcpy(savedescription, "Backgrounded");
+  char *name = G_SuspendSaveName();
+  DoSaveGame(name);
+  free(name);
+  memcpy(savedescription, pending, sizeof(pending));
+  background_saves++;
+  background_leveltime = leveltime;
+}
+
+void G_DebugBackgroundCounts(int *saves, int *pauses, int *saved_leveltime)
+{
+  *saves = background_saves;
+  *pauses = background_pauses;
+  *saved_leveltime = background_leveltime;
+}
+#endif
 
 static byte *LoadCustomSkillOptions(byte *opt_p)
 {

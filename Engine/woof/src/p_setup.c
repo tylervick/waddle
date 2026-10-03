@@ -46,6 +46,7 @@
 #include "p_maputl.h"
 #include "p_mobj.h"
 #include "p_setup.h"
+#include "p_dirty.h"  // P_ArchiveDirtyArraysCurrentLevel, test hook below
 #include "p_spec.h"
 #include "p_tick.h"
 #include "p_udmf.h"
@@ -1354,6 +1355,16 @@ void P_SetupLevel(int episode, int map_num, skill_t skill, boolean from_savegame
     bmap_format_names[map.bmap_format],
     map.reject_built ? "+Reject" : "",
     G_GetCurrentComplevelName());
+
+#ifdef WOOF_IOS
+  // Test-only: with WADDLE_DEBUG_ARCHIVE_LEVEL set, archive this level's
+  // dirty arrays as a completed level would (G_DoWorldDone), so a test can
+  // reach p_dirty's level list without finishing a map (issue #268).
+  if (getenv("WADDLE_DEBUG_ARCHIVE_LEVEL"))
+  {
+    P_ArchiveDirtyArraysCurrentLevel();
+  }
+#endif
 }
 
 //
@@ -1365,6 +1376,24 @@ void P_Init (void)
   P_InitPicAnims();
   R_InitSprites(sprnames);
 
+#ifdef WOOF_IOS
+  // P_Init runs once per session here, and each session used to reserve five
+  // fresh arenas without releasing the last five: 352 MB of address space
+  // per session, plus the previous level's committed pages (issue #269).
+  // Reuse them instead. Nothing is loaded at this point, so clearing is what
+  // P_SetupLevel would do anyway; releasing the regions would leave any
+  // pointer the previous session left behind pointing at unmapped memory.
+  if (world_arena)
+  {
+    M_ArenaClear(world_arena);
+    M_ArenaClear(thinkers_arena);
+    M_ArenaClear(msecnodes_arena);
+    M_ArenaClear(activeceilings_arena);
+    M_ArenaClear(activeplats_arena);
+  }
+  else
+#endif
+  {
   #define SIZE_MB(x) ((x) * 1024 * 1024)
   world_arena = M_ArenaInit(SIZE_MB(128), SIZE_MB(4));
   thinkers_arena = M_ArenaInit(SIZE_MB(128), SIZE_MB(2));
@@ -1372,7 +1401,12 @@ void P_Init (void)
   activeceilings_arena = M_ArenaInit(SIZE_MB(32), SIZE_MB(1));
   activeplats_arena = M_ArenaInit(SIZE_MB(32), SIZE_MB(1));
   #undef SIZE_MB
+  }
 
+#ifdef WOOF_IOS
+  // Same lifetime; num_states can differ between sessions, so reallocate.
+  free(seenstate_tab);
+#endif
   seenstate_tab = calloc(num_states, sizeof(*seenstate_tab));
 }
 

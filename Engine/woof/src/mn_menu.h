@@ -35,6 +35,8 @@ struct event_s;
 
 boolean M_Responder(struct event_s *ev);
 
+boolean MN_SaveStringEntering(void);
+
 boolean M_ShortcutResponder(const struct event_s *ev);
 
 // Called by main loop,

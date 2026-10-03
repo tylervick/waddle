@@ -230,6 +230,14 @@ static void W_FILE_Close(void)
     {
         fclose(descriptors[i]);
     }
+
+#ifdef WOOF_IOS
+    // A second engine session in the same process re-opens every file
+    // from scratch; without clearing this array first, its next
+    // W_FILE_Close() would fclose() these already-closed FILE* handles a
+    // second time.
+    array_free(descriptors);
+#endif
 }
 
 w_module_t w_file_module =

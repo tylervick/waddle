@@ -67,6 +67,14 @@ void G_Ticker(void);
 void G_ScreenShot(void);
 void G_ReloadDefaults(boolean keep_demover); // killough 3/1/98: loads game defaults
 char *G_AutoSaveName(void);
+#ifdef WOOF_IOS
+// Backgrounding (issue #111): the suspend save's path, the two hooks
+// i_video.c calls on SDL's app events, and their never-reset counters.
+char *G_SuspendSaveName(void);
+void G_BackgroundPause(void);
+void G_BackgroundSave(void);
+void G_DebugBackgroundCounts(int *saves, int *pauses, int *saved_leveltime);
+#endif
 char *G_SaveGameName(int, int); // killough 3/22/98: sets savegame filename
 char *G_MBFSaveGameName(int, int); // MBF savegame filename
 void G_SetFastParms(int);        // killough 4/10/98: sets -fast parameters

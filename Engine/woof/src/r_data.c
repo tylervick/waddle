@@ -600,6 +600,38 @@ static inline void RegisterTexture(texture_t *texture, int i)
     texturewidth[i] = texture->width;
 }
 
+#ifdef WOOF_IOS
+// Slots of the per-texture tables that R_InitTextures has allocated and
+// zeroed, so the next session's cleanup frees only those (issue #269).
+static int texture_slots;
+
+void R_ResetSessionColormaps(void); // defined at the end of this file
+
+// Test-only fault injection for SessionStartStateTests: with
+// WADDLE_DEBUG_FAIL_TEXTURES="<session>:<texture>[,...]" in the environment,
+// the <session>th call of R_InitTextures in this process calls I_Error when
+// it reaches <texture> in the TEXTURE1/2 loop, or, for -1, right after
+// numtextures is set and before the tables exist. That is what a malformed
+// texture directory does, on demand. No-op when the variable is unset.
+static int init_textures_calls;
+
+static void DebugFailTextures(int point)
+{
+  const char *spec = getenv("WADDLE_DEBUG_FAIL_TEXTURES");
+  while (spec && *spec)
+  {
+    int session, at;
+    if (sscanf(spec, "%d:%d", &session, &at) == 2
+        && session == init_textures_calls && at == point)
+    {
+      I_Error("WADDLE_DEBUG_FAIL_TEXTURES: session %d, texture %d", session, point);
+    }
+    spec = strchr(spec, ',');
+    spec = spec ? spec + 1 : NULL;
+  }
+}
+#endif
+
 void R_InitTextures (void)
 {
   maptexture_t *mtexture;
@@ -620,6 +652,44 @@ void R_InitTextures (void)
   int  numtextures1, numtextures2, tx_numtextures;
   int  *directory;
   int  errors = 0;
+
+#ifdef WOOF_IOS
+  // Once per session here, and every table below used to be orphaned by the
+  // next session's (issue #269: about 1.1 MB each time with Freedoom). The
+  // composites go first, because each names &texturecomposite[i] as its
+  // zone owner and freeing the array under a live block would leave the
+  // next Z_FreeTag(PU_LEVEL) writing into freed memory.
+  //
+  // The previous session may have ended in I_Error part-way through this
+  // function (a malformed texture directory, say), so the loop is bounded by
+  // how many slots were allocated and zeroed below, not by numtextures, and
+  // every table and slot is checked before use.
+  for (i = 0; i < texture_slots; i++)
+  {
+    if (texturecomposite)  Z_Free(texturecomposite[i]);
+    if (texturecomposite2) Z_Free(texturecomposite2[i]);
+    if (texturecolumnlump) Z_Free(texturecolumnlump[i]);
+    if (texturecolumnofs)  Z_Free(texturecolumnofs[i]);
+    if (texturecolumnofs2) Z_Free(texturecolumnofs2[i]);
+    if (textures)          Z_Free(textures[i]);
+  }
+  texture_slots = 0;
+  init_textures_calls++;
+  Z_Free(textures);             textures = NULL;
+  Z_Free(texturecolumnlump);    texturecolumnlump = NULL;
+  Z_Free(texturecolumnofs);     texturecolumnofs = NULL;
+  Z_Free(texturecolumnofs2);    texturecolumnofs2 = NULL;
+  Z_Free(texturecomposite);     texturecomposite = NULL;
+  Z_Free(texturecomposite2);    texturecomposite2 = NULL;
+  Z_Free(texturecompositesize); texturecompositesize = NULL;
+  Z_Free(texturewidthmask);     texturewidthmask = NULL;
+  Z_Free(texturewidth);         texturewidth = NULL;
+  Z_Free(textureheight);        textureheight = NULL;
+  Z_Free(actualtexturebrightmap); actualtexturebrightmap = NULL;
+  Z_Free(notexturebrightmap);   notexturebrightmap = NULL;
+  texturebrightmap = NULL;      // an alias of one of the two above
+  Z_Free(texturetranslation);   texturetranslation = NULL;
+#endif
 
   // Load the patch names from pnames.lmp.
   name[8] = 0;
@@ -695,6 +765,9 @@ void R_InitTextures (void)
       maxoff2 = 0;
     }
   numtextures = numtextures1 + numtextures2;
+#ifdef WOOF_IOS
+  DebugFailTextures(-1);
+#endif
 
   if (tx_numtextures > 0)
   {
@@ -732,6 +805,17 @@ void R_InitTextures (void)
 
   notexturebrightmap =
     Z_Malloc (numtextures * sizeof(*notexturebrightmap), PU_STATIC, 0);
+#ifdef WOOF_IOS
+  // Every slot the loops below have not reached yet reads NULL, so an
+  // I_Error part-way through leaves nothing the next cleanup cannot free.
+  memset(textures, 0, numtextures * sizeof(*textures));
+  memset(texturecolumnlump, 0, numtextures * sizeof(*texturecolumnlump));
+  memset(texturecolumnofs, 0, numtextures * sizeof(*texturecolumnofs));
+  memset(texturecolumnofs2, 0, numtextures * sizeof(*texturecolumnofs2));
+  memset(texturecomposite, 0, numtextures * sizeof(*texturecomposite));
+  memset(texturecomposite2, 0, numtextures * sizeof(*texturecomposite2));
+  texture_slots = numtextures;
+#endif
 
   // Complex printing shit factored out
   M_ProgressBarStart(numtextures, __func__);
@@ -740,6 +824,9 @@ void R_InitTextures (void)
   for (i=0 ; i<numtextures1 + numtextures2 ; i++, directory++)
     {
       M_ProgressBarMove(i); // killough
+#ifdef WOOF_IOS
+      DebugFailTextures(i);
+#endif
 
       if (i == numtextures1)
         {
@@ -884,6 +971,12 @@ void R_InitFlats(void)
   // killough 4/9/98: make column offsets 32-bit;
   // clean up malloc-ing to use sizeof
 
+#ifdef WOOF_IOS
+  Z_Free(flattranslation); // the previous session's (issue #269)
+  Z_Free(flatterrain);
+  flattranslation = NULL;
+  flatterrain = NULL;
+#endif
   flattranslation =
     Z_Malloc((numflats+1)*sizeof(*flattranslation), PU_STATIC, 0);
 
@@ -915,6 +1008,12 @@ void R_InitSpriteLumps(void)
   // killough 4/9/98: make columnd offsets 32-bit;
   // clean up malloc-ing to use sizeof
 
+#ifdef WOOF_IOS
+  Z_Free(spritewidth); // the previous session's (issue #269)
+  Z_Free(spriteoffset);
+  Z_Free(spritetopoffset);
+  spritewidth = spriteoffset = spritetopoffset = NULL;
+#endif
   spritewidth = Z_Malloc(numspritelumps*sizeof*spritewidth, PU_STATIC, 0);
   spriteoffset = Z_Malloc(numspritelumps*sizeof*spriteoffset, PU_STATIC, 0);
   spritetopoffset =
@@ -974,6 +1073,9 @@ void R_InitColormaps(void)
   firstcolormaplump = W_GetNumForName("C_START");
   lastcolormaplump  = W_GetNumForName("C_END");
   numcolormaps = lastcolormaplump - firstcolormaplump;
+#ifdef WOOF_IOS
+  R_ResetSessionColormaps(); // the previous session's, if any (issue #269)
+#endif
 
   colormaps = Z_Malloc(sizeof(*colormaps) * numcolormaps, PU_STATIC, 0);
 
@@ -1281,3 +1383,28 @@ void R_PrecacheLevel(void)
 // ???
 //
 //-----------------------------------------------------------------------------
+
+#ifdef WOOF_IOS
+// Called from WoofIOS_Run before every D_DoomMain() (issue #268).
+// G_ReloadDefaults -> R_InvulMode writes 256 bytes into colormaps[0] before
+// R_Init reassigns it, and colormaps still pointed at the previous session's
+// colormap block. With the array gone R_InvulMode returns early, as in a
+// fresh process. Since Woof 16 the colormaps are no longer cached lumps (which
+// W_Close frees) but one Z_Malloc'd block that every colormaps[i] points
+// into, with colormaps[0] at its start, so that block is freed here too.
+void R_ResetSessionColormaps(void)
+{
+    if (colormaps)
+    {
+        Z_Free(colormaps[0]);
+    }
+    Z_Free(colormaps);
+    colormaps = NULL;
+}
+
+// Debug seam for WoofIOS_DebugSessionEntryState (woof_ios.c).
+int R_DebugColormapsSet(void)
+{
+    return colormaps != NULL;
+}
+#endif

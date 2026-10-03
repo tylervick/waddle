@@ -425,10 +425,51 @@ static void M_FinishReadThis(int choice)
 //
 // killough 10/98: updated with new screens
 
+#ifdef WOOF_IOS
+// Draw a help screen's backdrop without betting the session on the lump
+// being there. Upstream's V_CachePatchName() routes a miss through
+// W_GetNumForName(), whose failure path is a hard I_Error("%.8s not
+// found!") -- fine for a standalone port that exits to a shell, fatal here,
+// where the engine runs in-process behind the app UI and takes the player's
+// running game down with it. Commercial IWADs in a user's library really do
+// turn up without their help lump (TNT.WAD copies, twice from TestFlight),
+// and the only way to reach this is opening Read This! from the menu.
+//
+// Resolve the lump first, then fall back to CREDIT -- the same substitute
+// upstream already presses into service as DOOM 2's second help page -- and
+// draw nothing at all if even that is missing, leaving a blank screen the
+// player can back out of. When the requested lump is present this resolves
+// to exactly the number V_CachePatchName() would have looked up, so only
+// the missing-lump path differs.
+static void MN_DrawHelpLumpOrFallback(const char *name)
+{
+    // W_CheckWidescreenPatch() hands back a pointer into its own static
+    // buffer for the wide variant, so each result is consumed by the
+    // W_CheckNumForName() on the same line rather than held across calls.
+    int lump = W_CheckNumForName(W_CheckWidescreenPatch(name));
+
+    if (lump < 0)
+    {
+        lump = W_CheckNumForName(W_CheckWidescreenPatch("CREDIT"));
+    }
+
+    if (lump < 0)
+    {
+        return;
+    }
+
+    V_DrawPatchFullScreen(V_CachePatchNum(lump, PU_CACHE));
+}
+#endif
+
 static void M_DrawReadThis1(void)
 {
+#ifdef WOOF_IOS
+    MN_DrawHelpLumpOrFallback("HELP2");
+#else
     V_DrawPatchFullScreen(
         V_CachePatchName(W_CheckWidescreenPatch("HELP2"), PU_CACHE));
+#endif
 }
 
 //
@@ -439,6 +480,16 @@ static void M_DrawReadThis1(void)
 static void M_DrawReadThis2(void)
 {
     // Display help screen from PWAD
+#ifdef WOOF_IOS
+    // This path already asks W_CheckNumForName() rather than
+    // W_GetNumForName(), but it never reads the answer: a -1 goes straight
+    // into V_CachePatchNum(), which bounds-checks only the upper end
+    // (`lump >= numlumps`) and then indexes lumpcache[-1]. That is a
+    // different failure from the I_Error() the other two screens hit, and a
+    // worse one -- out-of-bounds rather than a clean abort -- so it takes
+    // the same guard.
+    MN_DrawHelpLumpOrFallback(gamemode == commercial ? "HELP" : "HELP1");
+#else
     int helplump;
     if (gamemode == commercial)
     {
@@ -450,12 +501,20 @@ static void M_DrawReadThis2(void)
     }
 
     V_DrawPatchFullScreen(V_CachePatchNum(helplump, PU_CACHE));
+#endif
 }
 
 static void M_DrawReadThisCommercial(void)
 {
+#ifdef WOOF_IOS
+    // The screen the TestFlight reports landed on: bound to ReadDef1 for
+    // gamemode == commercial in M_Init() below, so a HELP-less TNT.WAD
+    // reaches it from the main menu's Read This! entry.
+    MN_DrawHelpLumpOrFallback("HELP");
+#else
     V_DrawPatchFullScreen(
         V_CachePatchName(W_CheckWidescreenPatch("HELP"), PU_CACHE));
+#endif
 }
 
 /////////////////////////////
@@ -2159,6 +2218,121 @@ static void AddLineBreaks(char *string)
 
 #undef MAX_STRLEN
 
+#ifdef WOOF_IOS
+// Issue #253. M_Init() below edits these file-scope tables in place according
+// to gamemode/gameversion -- MainMenu[readthis] = MainMenu[quitdoom],
+// MainDef.numitems--, MainDef.y += 8, EpiDef.numitems--, the ReadDef1/2
+// rebinding, M_InitExtendedHelp()'s ReadMenu2 rebinding, bigfont_priority
+// and the FON2 glyphs -- and upstream never needs to undo any of it, because upstream
+// runs D_DoomMain() once per process. Here WoofIOS_Run() runs it once per
+// session, so the edits accumulated: every commercial session took one entry
+// off the main menu and one episode off the next retail game, for the rest
+// of the process. Same hazard class as WOOF_UPSTREAM.md's Task 10 list.
+//
+// The first call snapshots the tables as the compiler initialised them; every
+// later call puts that snapshot back. It has to run BEFORE D_DoomMain(), not
+// inside M_Init(): G_ParseMapInfo() (d_main.c) fills EpisodeMenu/EpiDef/
+// EpiCustom from the current session's UMAPINFO before M_Init() runs, and a
+// reset inside M_Init() would wipe those. EpisodeMenu alttext strings from a
+// previous session's UMAPINFO are strdup'd (MN_AddEpisode), so they are freed
+// before the pristine pointers go back.
+void MN_ResetFon2(void); // mn_font.c, WOOF_IOS only
+
+static struct
+{
+    boolean taken;
+    menuitem_t main_menu[arrlen(MainMenu)];
+    menu_t main_def;
+    menuitem_t episode_menu[MAX_EPISODES];
+    menu_t epi_def;
+    short epi_menu_map[MAX_EPISODES];
+    short epi_menu_epi[MAX_EPISODES];
+    boolean epi_custom;
+    menu_t new_def;
+    menuitem_t read_menu1[arrlen(ReadMenu1)];
+    menuitem_t read_menu2[arrlen(ReadMenu2)];
+    menu_t read_def1;
+    menu_t read_def2;
+    int bigfont_priority;
+} pristine;
+
+void MN_ResetMenuTables(void)
+{
+    if (!pristine.taken)
+    {
+        memcpy(pristine.main_menu, MainMenu, sizeof(MainMenu));
+        pristine.main_def = MainDef;
+        memcpy(pristine.episode_menu, EpisodeMenu, sizeof(EpisodeMenu));
+        pristine.epi_def = EpiDef;
+        memcpy(pristine.epi_menu_map, EpiMenuMap, sizeof(EpiMenuMap));
+        memcpy(pristine.epi_menu_epi, EpiMenuEpi, sizeof(EpiMenuEpi));
+        pristine.epi_custom = EpiCustom;
+        pristine.new_def = NewDef;
+        memcpy(pristine.read_menu1, ReadMenu1, sizeof(ReadMenu1));
+        memcpy(pristine.read_menu2, ReadMenu2, sizeof(ReadMenu2));
+        pristine.read_def1 = ReadDef1;
+        pristine.read_def2 = ReadDef2;
+        pristine.bigfont_priority = bigfont_priority;
+        pristine.taken = true;
+        return;
+    }
+
+    for (int i = 0; i < MAX_EPISODES; i++)
+    {
+        if (EpisodeMenu[i].alttext != pristine.episode_menu[i].alttext)
+        {
+            free((void *)EpisodeMenu[i].alttext);
+        }
+    }
+    memcpy(MainMenu, pristine.main_menu, sizeof(MainMenu));
+    MainDef = pristine.main_def;
+    memcpy(EpisodeMenu, pristine.episode_menu, sizeof(EpisodeMenu));
+    EpiDef = pristine.epi_def;
+    memcpy(EpiMenuMap, pristine.epi_menu_map, sizeof(EpiMenuMap));
+    memcpy(EpiMenuEpi, pristine.epi_menu_epi, sizeof(EpiMenuEpi));
+    EpiCustom = pristine.epi_custom;
+    NewDef = pristine.new_def;
+    memcpy(ReadMenu1, pristine.read_menu1, sizeof(ReadMenu1));
+    // M_InitExtendedHelp() rebinds ReadMenu2[0].routine to M_ExtHelp when a
+    // session has HELP01.., and a later session without them never unbinds.
+    memcpy(ReadMenu2, pristine.read_menu2, sizeof(ReadMenu2));
+    ReadDef1 = pristine.read_def1;
+    ReadDef2 = pristine.read_def2;
+    // M_Init() sets these only when the session has a DBIGFONT; without the
+    // reset a session that lacks one keeps the previous session's priority
+    // and glyphs (mn_font.c).
+    bigfont_priority = pristine.bigfont_priority;
+    MN_ResetFon2();
+}
+#endif
+
+#ifdef WOOF_IOS
+// Debug/test telemetry (WoofIOS_DebugMenuGeometry): the four table values
+// that M_Init() edits in place per gamemode, plus the DBIGFONT priority, so a UITest can read what the
+// NEXT session in this process will inherit. Read-only; engine-internal.
+// Debug/test telemetry (WoofIOS_DebugInputState): the menu cursor, or -1
+// when no menu is up, so a HUD can show whether a stick drag moved it.
+int MN_DebugMenuCursor(void)
+{
+    return menuactive ? itemOn : -1;
+}
+
+// How many MENU_UP/MENU_DOWN actions M_Responder has acted on this session.
+static int menu_moves;
+int MN_DebugMenuMoves(void)
+{
+    return menu_moves;
+}
+
+const char *MN_DebugMenuGeometry(void)
+{
+    static char buf[64];
+    M_snprintf(buf, sizeof(buf), "main=%d@%d epi=%d@%d bigfont=%d", MainDef.numitems,
+               MainDef.y, EpiDef.numitems, EpiDef.y, bigfont_priority);
+    return buf;
+}
+#endif
+
 void M_Init(void)
 {
     MN_InitDefaults(); // killough 11/98
@@ -2819,6 +2993,14 @@ static boolean AllowDeleteSaveGame(void)
              && LoadDef.menuitems[index].status));
 }
 
+// Exposes the (static) save-name text-entry state so the iOS host
+// (woof_ios.c's soft keyboard) can gate its keyboard to the save-name
+// field. Nonzero whenever the Load/Save menu is capturing a typed name.
+boolean MN_SaveStringEntering(void)
+{
+    return saveStringEnter != 0;
+}
+
 boolean M_Responder(event_t *ev)
 {
     int ch;
@@ -3078,6 +3260,7 @@ boolean M_Responder(event_t *ev)
 
     if (action == MENU_DOWN) // phares 3/7/98
     {
+        menu_moves++; // WOOF_IOS debug telemetry (MN_DebugMenuMoves)
         do
         {
             if (itemOn + 1 > currentMenu->numitems - 1)
@@ -3095,6 +3278,7 @@ boolean M_Responder(event_t *ev)
 
     if (action == MENU_UP) // phares 3/7/98
     {
+        menu_moves++; // WOOF_IOS debug telemetry (MN_DebugMenuMoves)
         do
         {
             if (!itemOn)

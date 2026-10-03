@@ -102,6 +102,12 @@ static playpal_t *InitPlaypal(palette_t pal, const char *name, int32_t num)
 
     for (gammalevel_t g = GAMMA_MIN; g < GAMMA_COUNT; g++)
     {
+#ifdef WOOF_IOS
+        // The previous session's table for this palette and gamma level
+        // (issue #269); a fresh process has NULL here. The lump behind
+        // playpal->data is the lump cache's, which W_Close already frees.
+        Z_Free(playpal->palette[g]);
+#endif
         playpal->palette[g] = Z_Malloc(playpal->length, PU_STATIC, NULL);
 
         for (size_t i = 0; i < playpal->length; i++)

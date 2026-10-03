@@ -199,8 +199,17 @@ set(WOOF_SOURCES
     z_zone.c               z_zone.h
 )
 
-# Standard target definition
-add_executable(woof ${WOOF_SOURCES})
+# Standard target definition. On iOS the engine is a static library hosted
+# by a native app; the process-owning main() in i_main.c is replaced by the
+# re-entrant session entry in woof_ios.c.
+if(IOS)
+    list(REMOVE_ITEM WOOF_SOURCES i_main.c)
+    list(APPEND WOOF_SOURCES woof_ios.c woof_ios.h)
+    add_library(woof STATIC ${WOOF_SOURCES})
+    target_compile_definitions(woof PUBLIC WOOF_IOS)
+else()
+    add_executable(woof ${WOOF_SOURCES})
+endif()
 target_woof_settings(woof)
 target_include_directories(woof PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../")
 
@@ -279,6 +288,12 @@ if(HAVE_FLUIDSYNTH)
     target_link_libraries(woof PRIVATE FluidSynth::libfluidsynth)
 endif()
 
+# Waddle patch (#116): the wavetable MIDI module.
+if(HAVE_SONIVOX)
+    target_sources(woof PRIVATE i_easmusic.c)
+    target_link_libraries(woof PRIVATE sonivox::sonivox)
+endif()
+
 if(HAVE_LIBXMP)
     target_sources(woof PRIVATE i_xmp.c)
     target_link_libraries(woof PRIVATE libxmp::xmp)
@@ -328,6 +343,8 @@ if(WIN32)
     list(APPEND SETUP_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/setup-res.rc")
 endif()
 
+# woof-setup is a separate configuration-tool executable; not built on iOS.
+if(NOT IOS)
 add_executable(woof-setup WIN32 ${SETUP_SOURCES})
 target_woof_settings(woof-setup)
 
@@ -342,6 +359,7 @@ target_link_libraries(
 
 if(MSVC)
     target_link_options(woof-setup PRIVATE "/MANIFEST:NO")
+endif()
 endif()
 
 # Base file
@@ -358,7 +376,9 @@ endif()
 
 # Install
 #
-# Files to package in our distribution.
+# Files to package in our distribution. Skipped on iOS: woof-setup does not
+# exist there and the static library is staged into the xcframework directly.
+if(NOT IOS)
 if(WIN32)
     if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.21 AND NOT VCPKG_TOOLCHAIN)
         install(
@@ -374,4 +394,5 @@ if(WIN32)
     endif()
 else()
     install(TARGETS woof woof-setup RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
 endif()

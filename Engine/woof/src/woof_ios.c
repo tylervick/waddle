@@ -1,0 +1,1175 @@
+//
+// iOS host-app entry point. Replaces i_main.c: instead of letting the
+// engine exit() the process (fatal on iOS), all exits unwind back here.
+//
+#include "woof_ios.h"
+
+#include <locale.h>
+#include <pthread.h>
+#include <setjmp.h>
+#include <signal.h>
+#include <dlfcn.h>
+#include <mach-o/dyld.h>
+#include <mach-o/getsect.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+// SDL_MAIN_HANDLED tells SDL_main.h we are supplying our own entry point
+// (SwiftUI's synthesized main) instead of letting it inject its normal
+// platform trampoline (which on iOS would otherwise compile an actual
+// main()/UIApplicationMain shim into this translation unit and collide
+// with Swift's). We still need the header for the SDL_SetMainReady()
+// declaration used in WoofIOS_Run() below.
+#define SDL_MAIN_HANDLED
+#include "SDL3/SDL.h"
+#include "SDL3/SDL_main.h"
+
+#include <ctype.h>
+
+#include "config.h"
+#include "d_event.h"  // event_t / ev_keydown / ev_text
+#include "d_main.h"   // D_PostEvent
+#include "doomdef.h"  // gamestate_t, GS_LEVEL
+#include "doomkeys.h" // KEY_BACKSPACE, KEY_ENTER
+#include "doomtype.h" // `boolean` typedef backing the `menuactive` extern below
+#include "i_printf.h"
+#include "m_argv.h"
+#include "z_zone.h"  // pu_tag for the session-start seam
+
+void D_DoomMain(void);
+
+static jmp_buf exit_env;
+static int exit_env_valid;
+static pthread_t session_thread;
+
+// Previous SIGTERM disposition, saved/restored around each session (static:
+// locals don't reliably survive the longjmp back into WoofIOS_Run's frame).
+static struct sigaction previous_sigterm;
+
+// Touch-control shim state (Plan 3; see the block comment further down).
+// Declared here, ahead of WoofIOS_Run, because the unwind path below must
+// reset them across sessions -- same stale-global hazard as the statics
+// documented in WOOF_UPSTREAM.md's Task 10 section, extended to this
+// module by Plan 3 Task 1's fix round 1.
+static SDL_JoystickID touch_joystick_id;
+static SDL_Joystick *touch_joystick;
+static int touch_event_count;
+static float touch_turn_accum;
+
+// Per-control write counts behind touch_event_count (issue #48): which SDL
+// button or axis each write went to, so a test can attribute an input to
+// the control that drove it rather than to "some input". Counted at the
+// write sites below and reset with touch_event_count at session start.
+#define TOUCH_BUTTON_SLOTS 32
+#define TOUCH_AXIS_SLOTS 8
+static int touch_button_writes[TOUCH_BUTTON_SLOTS];
+static int touch_axis_writes[TOUCH_AXIS_SLOTS];
+static int touch_turn_writes;
+// Keys injected by WoofIOS_InjectKey (issue #113: the automap's pan and
+// zoom are held keys), counted per Doom key code the same way.
+#define TOUCH_KEY_SLOTS 256
+static int touch_key_writes[TOUCH_KEY_SLOTS];
+
+// Lazily-opened gamepad-layer view of touch_joystick, used only by
+// WoofIOS_DebugTriggerValue (test telemetry) to read back the value Woof's
+// gamepad API reports, as opposed to the raw joystick axis the overlay
+// writes. SDL ref-counts the underlying joystick per instance ID (see
+// SDL_OpenJoystick), so opening this alongside touch_joystick is safe and
+// closing it independently does not invalidate touch_joystick.
+static SDL_Gamepad *touch_gamepad;
+
+void WoofIOS_ExitUnwind(int rc)
+{
+    if (exit_env_valid)
+    {
+        // longjmp may only unwind the stack of the thread that called
+        // setjmp. I_Error is occasionally reachable from helper threads
+        // (e.g. sound callbacks); jumping from one of those into the main
+        // thread's frame is undefined behavior that would corrupt both
+        // stacks. Fail hard and diagnosably instead.
+        if (!pthread_equal(pthread_self(), session_thread))
+        {
+            abort();
+        }
+        exit_env_valid = 0;
+        // setjmp cannot distinguish 0, so shift non-negative codes up by 1.
+        longjmp(exit_env, rc >= 0 ? rc + 1 : rc);
+    }
+    // Not running under WoofIOS_Run (should not happen on iOS).
+    exit(rc);
+}
+
+void WoofIOS_RequestQuit(void)
+{
+    SDL_Event event = {0};
+    event.type = SDL_EVENT_QUIT;
+    SDL_PushEvent(&event);
+}
+
+// --- Session-entry state (issue #268) ---
+//
+// What WoofIOS_Run hands D_DoomMain: values a fresh process has before its
+// first session, captured after every per-session reset above has run. Kept
+// apart from the session-start string (captured later, at the game loop)
+// because these are rewritten during init, so only the entry point can see
+// whether the previous session's values were still there.
+static char session_entry_state[384];
+
+static void WoofIOS_DebugSessionEntryCheckpoint(void)
+{
+    extern void AM_DebugSessionEntry(char *buf, size_t len);
+    extern int ST_DebugMessageLeft(void);
+    extern int ST_DebugStatusbarSet(void);
+    extern int G_DebugRewindCount(void);
+    extern int I_DebugStaleGamepad(void);
+    extern int I_DebugRumbleGamepadSet(void);
+    extern int I_DebugVideoTextureSet(void);
+    extern boolean skipblstart;
+    extern int R_DebugColormapsSet(void);
+    extern unsigned DEH_DebugTablesHash(void);
+    extern int DEH_DebugStringCount(void);
+    extern int DEH_DebugFileCount(void);
+    extern int M_DebugCheatsChanged(void);
+    extern int DEH_DebugPartimesChanged(void);
+    extern int D_DebugDemoLoopsChanged(void);
+    extern int P_DebugDirtyLevelCount(void);
+    extern int G_DebugRestoreCompPending(void);
+    extern int G_DebugPlayerCheats(void);
+    char am[96];
+    AM_DebugSessionEntry(am, sizeof(am));
+    snprintf(session_entry_state, sizeof(session_entry_state),
+             "%s msg=%d sbar=%d rewind=%d pad=%d rumble=%d tex=%d cmap=%d skipbl=%d"
+             " dehtab=%08x dehstr=%d dehfiles=%d cheats=%d pars=%d dloop=%d"
+             " dirtylv=%d compres=%d pcheats=%d",
+             am, ST_DebugMessageLeft(), ST_DebugStatusbarSet(),
+             G_DebugRewindCount(), I_DebugStaleGamepad(), I_DebugRumbleGamepadSet(),
+             I_DebugVideoTextureSet(), R_DebugColormapsSet(), skipblstart,
+             DEH_DebugTablesHash(), DEH_DebugStringCount(), DEH_DebugFileCount(),
+             M_DebugCheatsChanged(), DEH_DebugPartimesChanged(), D_DebugDemoLoopsChanged(),
+             P_DebugDirtyLevelCount(), G_DebugRestoreCompPending(), G_DebugPlayerCheats());
+}
+
+// Debug/test telemetry only: "pcheats=<flags>", the console player's cheat
+// flags as they stand right now. Read after a session that typed a cheat,
+// it shows the cheat took (issue #304); the statics outlive the session, so
+// this is also what the next session would inherit without
+// G_ResetSessionPlayers. ContentView appends it to the zone line.
+const char *WoofIOS_DebugPlayerCheatsNow(void)
+{
+    extern int G_DebugPlayerCheats(void);
+    static char buf[24];
+    snprintf(buf, sizeof(buf), "pcheats=%d", G_DebugPlayerCheats());
+    return buf;
+}
+
+const char *WoofIOS_DebugSessionEntryState(void)
+{
+    return session_entry_state;
+}
+
+const char *WoofIOS_DebugLevelStateNow(void)
+{
+    extern int P_DebugDirtyLevelCount(void);
+    extern int G_DebugRestoreCompPending(void);
+    static char buf[48];
+    snprintf(buf, sizeof(buf), "now dirtylv=%d compres=%d", P_DebugDirtyLevelCount(),
+             G_DebugRestoreCompPending());
+    return buf;
+}
+
+const char *WoofIOS_DebugDehNow(void)
+{
+    extern unsigned DEH_DebugTablesHash(void);
+    extern int DEH_DebugFileCount(void);
+    extern int M_DebugCheatsChanged(void);
+    extern int DEH_DebugPartimesChanged(void);
+    static char buf[96];
+    snprintf(buf, sizeof(buf), "now dehtab=%08x dehfiles=%d cheats=%d pars=%d",
+             DEH_DebugTablesHash(), DEH_DebugFileCount(), M_DebugCheatsChanged(),
+             DEH_DebugPartimesChanged());
+    return buf;
+}
+
+const char *WoofIOS_DebugAutomapBounds(void)
+{
+    extern void AM_DebugBounds(char *buf, size_t len);
+    static char buf[64];
+    AM_DebugBounds(buf, sizeof(buf));
+    return buf;
+}
+
+int WoofIOS_Run(int argc, char **argv)
+{
+    // Because the host app's main() is SwiftUI's synthesized entry point
+    // rather than SDL_main, SDL never saw the readiness registration its
+    // SDL_main shim normally performs; SDL_Init would otherwise refuse
+    // with "Application didn't initialize properly, did you include
+    // SDL_main.h...". This is SDL3's documented escape hatch for
+    // embedding it in a host-owned app. Safe to call more than once
+    // (idempotent flag set), which matters since WoofIOS_Run may run
+    // again for a later session.
+    SDL_SetMainReady();
+
+    // Allow every interface orientation for the SDL-owned game window
+    // (Plan 4 Task 7b, all-orientations + iPadOS windowed multitasking).
+    // Without this hint, UIKit_GetSupportedOrientations
+    // (Vendor/src/SDL/src/video/uikit/SDL_uikitwindow.m) falls back to the
+    // window's aspect ratio -- Woof's window is wider than tall, so every
+    // session forced the interface to landscape and device rotation was
+    // ignored. SDL intersects this hint with the app's Info.plist
+    // UISupportedInterfaceOrientations (and strips upside-down on iPhone
+    // itself), so the plist remains the source of truth for what the app
+    // as a whole allows.
+    SDL_SetHint(SDL_HINT_ORIENTATIONS,
+                "Portrait PortraitUpsideDown LandscapeLeft LandscapeRight");
+
+    // Ignore SIGTERM for the duration of the session. SDL's default signal
+    // handling (SDL_quit.c) turns SIGTERM into SDL_EVENT_QUIT -- a desktop
+    // convention with no counterpart on iOS, where apps are never asked to
+    // quit via SIGTERM (the OS uses lifecycle callbacks and SIGKILL).
+    // Observed concretely: the XCUITest harness (xcodebuild, verified via a
+    // SA_SIGINFO probe: si_pid = xcodebuild's pid, si_code = SI_USER)
+    // delivers a stray SIGTERM to the app-under-test moments after the
+    // second engine session's SDL window appears, which SDL converted to a
+    // quit and silently ended the session ~2 s in, exit code 0 -- a "dead"
+    // second session masquerading as a clean run (Task 10, fix round 1).
+    // Installing SIG_IGN *before* SDL_Init also keeps SDL from installing
+    // its own converter: SDL_EventSignal_Init only claims a signal whose
+    // disposition is SIG_DFL. Explicit in-app quits are unaffected (they
+    // are pushed directly as SDL_EVENT_QUIT by WoofIOS_RequestQuit or the
+    // in-game menu). The previous disposition is restored on unwind so
+    // process teardown outside a session (e.g. the test harness's normal
+    // end-of-test terminate) behaves normally.
+    struct sigaction ignore_term;
+    memset(&ignore_term, 0, sizeof(ignore_term));
+    sigemptyset(&ignore_term.sa_mask);
+    ignore_term.sa_handler = SIG_IGN;
+    sigaction(SIGTERM, &ignore_term, &previous_sigterm);
+
+    int code = setjmp(exit_env);
+    if (code != 0)
+    {
+        sigaction(SIGTERM, &previous_sigterm, NULL);
+
+        // The session that just unwound already tore down every open
+        // gamepad/joystick -- including our virtual one -- via Woof's own
+        // I_ShutdownGamepad (i_input.c:411-415, `SDL_QuitSubSystem(SDL_INIT_GAMEPAD)`),
+        // registered as an I_AtExit handler (i_input.c:486) that runs as
+        // part of I_SafeExit's normal exit sequence, before it ever
+        // unwinds back here. SDL_QuitSubSystem(GAMEPAD) itself cascades
+        // into SDL_QuitSubSystem(JOYSTICK) too ("game controller implies
+        // joystick", Vendor/src/SDL/src/SDL.c:614-619). So these statics
+        // are stale/dangling now, not merely "detached" -- same
+        // stale-global hazard as the module statics in WOOF_UPSTREAM.md's
+        // Task 10 section. Reset them so the next session's
+        // WoofIOS_AttachTouchGamepad attaches fresh instead of trusting a
+        // pointer from a torn-down subsystem.
+        touch_joystick = NULL;
+        touch_joystick_id = 0;
+        touch_turn_accum = 0.0f;
+        // Same dangling-pointer hazard as touch_joystick above: the same
+        // I_ShutdownGamepad-driven teardown already freed every open
+        // gamepad along with every joystick, so touch_gamepad is stale,
+        // not merely detached.
+        touch_gamepad = NULL;
+
+        return code > 0 ? code - 1 : code;
+    }
+    exit_env_valid = 1;
+    session_thread = pthread_self();
+
+    // Drop any error text accumulated by a previous session in this
+    // process (see I_ResetErrorMessages in i_system.c).
+    extern void I_ResetErrorMessages(void);
+    I_ResetErrorMessages();
+
+    // Put mn_menu.c's menu tables back the way the compiler initialised them
+    // before D_DoomMain() edits them for this session's gamemode (issue #253;
+    // see MN_ResetMenuTables for why this cannot live in M_Init).
+    extern void MN_ResetMenuTables(void);
+    MN_ResetMenuTables();
+
+    // The rest of what the writable-globals diff showed a session inheriting
+    // from the one before it (issue #266; docs/engine-session-globals.md).
+    // The DSDHacked translate maps reset in their own DSDH_*Init instead.
+    extern void D_ResetSessionState(void);
+    D_ResetSessionState();
+    extern void DEH_ResetColorStrings(void);
+    DEH_ResetColorStrings();
+    // Everything DEHACKED patches in place that no DSDH_*Init rebuilds:
+    // weapons, ammo, misc values, cheats, par times, string replacements,
+    // the default demo loops and the -deh file list (issue #270).
+    extern void DEH_ResetSession(void);
+    DEH_ResetSession();
+    // players[]: G_PlayerReborn preserves cheats and the visitedlevels pointer
+    // through its memset, so the previous game's god mode would be on at the
+    // start of this one (issue #304, from a tester).
+    extern void G_ResetSessionPlayers(void);
+    G_ResetSessionPlayers();
+    extern void S_ResetSessionMusic(void);
+    S_ResetSessionMusic();
+
+    // Automap, HUD, rewind and renderer state the next session read before
+    // rewriting it (issue #268). The SDL objects (gamepad, rumble, texture)
+    // are cleared where the previous session destroyed them instead.
+    extern void AM_ResetSessionState(void);
+    AM_ResetSessionState();
+    extern void ST_ResetSessionMessages(void);
+    ST_ResetSessionMessages();
+    extern void ST_ResetSessionStatusbar(void);
+    ST_ResetSessionStatusbar();
+    extern void ST_ResetSbarDefFonts(void);
+    ST_ResetSbarDefFonts();
+    extern void HU_ResetSessionCrosshair(void);
+    HU_ResetSessionCrosshair();
+    extern void P_ResetSessionDirtyLevels(void);
+    P_ResetSessionDirtyLevels();
+    extern void G_ResetSessionCompatibility(void);
+    G_ResetSessionCompatibility();
+    extern void G_ResetRewind(boolean force);
+    G_ResetRewind(true);
+    extern void R_ResetSessionColormaps(void);
+    R_ResetSessionColormaps();
+    // Set only by P_SetSkipBlockStart when a map's own blockmap is loaded; a
+    // map whose blockmap is built instead inherited the last session's.
+    extern boolean skipblstart;
+    skipblstart = false;
+
+    // Debug counter for the HUD's btn= field; per session, like the rest.
+    extern void I_DebugResetGamepadCounters(void);
+    I_DebugResetGamepadCounters();
+    extern void S_DebugResetMusicStarted(void);
+    S_DebugResetMusicStarted();
+
+    // Same fresh-session hygiene for the touch shim's event counter: it
+    // backs WoofIOS_DebugTouchEventCount(), which the app reads *after* a
+    // session ends, so the reset must happen here at session start -- not
+    // in the unwind branch above, which runs before that post-session read
+    // and would zero out the count the ended session just produced.
+    touch_event_count = 0;
+    {
+        extern void G_ResetAutoUseSession(void); // g_game.c
+        G_ResetAutoUseSession();
+    }
+    memset(touch_button_writes, 0, sizeof(touch_button_writes));
+    memset(touch_axis_writes, 0, sizeof(touch_axis_writes));
+    memset(touch_key_writes, 0, sizeof(touch_key_writes));
+    touch_turn_writes = 0;
+
+    WoofIOS_DebugSessionEntryCheckpoint();
+
+    myargc = argc;
+    myargv = argv;
+
+    setlocale(LC_TIME, "");
+    I_Printf(VB_ALWAYS, "%s (iOS)\n", PROJECT_STRING);
+
+    D_DoomMain();
+
+    // D_DoomMain never returns; quits funnel through I_SafeExit -> unwind.
+    return 0;
+}
+
+// --- Touch-control shim (Plan 3) ---
+//
+// The native overlay creates a single virtual SDL gamepad shaped like a
+// standard controller (SDL_JOYSTICK_TYPE_GAMEPAD, full axis/button counts,
+// no explicit button_mask/axis_mask -- SDL's virtual-joystick driver fills
+// both in from naxes/nbuttons when they're left zero, covering every
+// SDL_GAMEPAD_BUTTON_*/SDL_GAMEPAD_AXIS_* index 1:1). Woof! then picks it up
+// through its normal SDL_EVENT_GAMEPAD_ADDED handling -- see Step 3's
+// verification in Engine/WOOF_UPSTREAM.md / the commit body for the exact
+// code path -- so the overlay never touches Woof!'s input tables directly;
+// it just drives the gamepad Woof! already knows how to read (respecting
+// the user's own gamepad bindings).
+//
+// Turn is different: there is no SDL event path from a pushed
+// SDL_EVENT_MOUSE_MOTION into Woof!'s mouse handling. I_ReadMouse polls
+// SDL_GetRelativeMouseState() once per tic, which reads SDL's internal
+// accumulator that only SDL_SendMouseMotion (not part of the public API)
+// updates, and i_video.c's ProcessEvent has no motion case to relay a
+// pushed event into that accumulator either. So turn is delivered through
+// a shim-owned accumulator instead: WoofIOS_InjectRelativeTurn adds to
+// touch_turn_accum, and a small WOOF_IOS-guarded hook added to
+// I_ReadMouse (documented as an i_input.c patch in WOOF_UPSTREAM.md)
+// drains it via WoofIOS_ConsumeTouchTurn every tic.
+
+bool WoofIOS_AttachTouchGamepad(void)
+{
+    if (touch_joystick)
+    {
+        return true;
+    }
+    if (!SDL_WasInit(SDL_INIT_JOYSTICK))
+    {
+        return false; // engine hasn't initialized input yet; caller retries
+    }
+
+    SDL_VirtualJoystickDesc desc;
+    SDL_INIT_INTERFACE(&desc);
+    desc.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+    desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
+    desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+    desc.name = "Waddle Touch Controls";
+
+    touch_joystick_id = SDL_AttachVirtualJoystick(&desc);
+    if (touch_joystick_id == 0)
+    {
+        return false;
+    }
+    touch_joystick = SDL_OpenJoystick(touch_joystick_id);
+    if (!touch_joystick)
+    {
+        SDL_DetachVirtualJoystick(touch_joystick_id);
+        touch_joystick_id = 0;
+        return false;
+    }
+
+    // A virtual joystick's axes default to 0 on attach. Under the
+    // full-range trigger mapping (see WoofIOS_SetTouchTrigger), a raw axis
+    // of 0 reads as ~50% pulled at the gamepad layer -- both triggers would
+    // start every session already above trigger_threshold (i_gamepad.c),
+    // an instant latent autofire before any touch. Initialize both to
+    // released up front.
+    SDL_SetJoystickVirtualAxis(touch_joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER,
+                               SDL_JOYSTICK_AXIS_MIN);
+    SDL_SetJoystickVirtualAxis(touch_joystick, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER,
+                               SDL_JOYSTICK_AXIS_MIN);
+
+    // Open the debug-telemetry gamepad view now rather than waiting for
+    // WoofIOS_DebugTriggerValue's first call. Empirically, a freshly opened
+    // SDL_Gamepad's very first SDL_GetGamepadAxis read after an axis change
+    // can observe a stale value (observed returning 0 immediately after a
+    // write that should read back ~0.5) -- opening it here, well before any
+    // FIRE press/release, means the first *measurement* is never also the
+    // first *open*, so telemetry reflects reality instead of this
+    // early-access artifact.
+    touch_gamepad = SDL_OpenGamepad(touch_joystick_id);
+    return true;
+}
+
+void WoofIOS_DetachTouchGamepad(void)
+{
+    if (!touch_joystick)
+    {
+        return;
+    }
+    if (!SDL_WasInit(SDL_INIT_JOYSTICK))
+    {
+        // The joystick subsystem has already torn down (e.g. mid-quit,
+        // via the exit handlers I_SafeExit runs before unwinding back to
+        // WoofIOS_Run) and freed every open joystick/gamepad along with
+        // it. touch_joystick/touch_gamepad are dangling pointers at this
+        // point; closing or detaching through them would be a
+        // use-after-free. Just drop our references -- WoofIOS_Run's
+        // unwind path resets them too, but a caller may invoke this
+        // directly before that happens.
+        touch_joystick = NULL;
+        touch_joystick_id = 0;
+        touch_gamepad = NULL;
+        return;
+    }
+    // Defensive: unreachable in the current production call graph. The
+    // only caller (TouchGamepad.detach(), via OverlayPresenter.end()) only
+    // ever runs after WoofIOS_Run has returned, by which point
+    // I_ShutdownGamepad has already torn the subsystem down (see the
+    // WoofIOS_Run unwind branch above) -- so SDL_WasInit(SDL_INIT_JOYSTICK)
+    // is always false by the time we'd get here today, and this branch
+    // never executes. Kept for a caller that might one day detach while a
+    // session is still fully live.
+    if (touch_gamepad)
+    {
+        // Ref-counted alongside touch_joystick (see the touch_gamepad
+        // declaration above); closing this first just drops the debug
+        // telemetry's own reference, it does not close touch_joystick.
+        SDL_CloseGamepad(touch_gamepad);
+        touch_gamepad = NULL;
+    }
+    SDL_CloseJoystick(touch_joystick);
+    SDL_DetachVirtualJoystick(touch_joystick_id);
+    touch_joystick = NULL;
+    touch_joystick_id = 0;
+}
+
+void WoofIOS_SetTouchAxis(int sdl_axis, float value)
+{
+    if (!touch_joystick)
+    {
+        return;
+    }
+    if (value > 1.0f) value = 1.0f;
+    if (value < -1.0f) value = -1.0f;
+    SDL_SetJoystickVirtualAxis(touch_joystick, sdl_axis,
+                               (Sint16)(value * 32767.0f));
+    touch_event_count++;
+    if (sdl_axis >= 0 && sdl_axis < TOUCH_AXIS_SLOTS)
+    {
+        touch_axis_writes[sdl_axis]++;
+    }
+}
+
+void WoofIOS_SetTouchButton(int sdl_button, bool down)
+{
+    if (!touch_joystick)
+    {
+        return;
+    }
+    SDL_SetJoystickVirtualButton(touch_joystick, sdl_button, down);
+    touch_event_count++;
+    if (sdl_button >= 0 && sdl_button < TOUCH_BUTTON_SLOTS)
+    {
+        touch_button_writes[sdl_button]++;
+    }
+}
+
+// Fix round (user device-testing): FIRE autofired forever after a single
+// press, working only once as a menu-select. Root cause: Woof!'s default
+// gamepad bindings read FIRE through the *gamepad* layer's RIGHT_TRIGGER,
+// but the virtual joystick's auto-generated mapping exposes both trigger
+// inputs as FULL-RANGE axes -- plain "a4"/"a5", no "+" half-axis prefix.
+// VIRTUAL_JoystickGetGamepadMapping sets each trigger's mapping .kind to
+// EMappingKind_Axis without setting a half_axis_positive/negative flag
+// (Vendor/src/SDL/src/joystick/virtual/SDL_virtualjoystick.c:953-961), and
+// the mapping-string serializer only emits a "+"/"-" prefix when one of
+// those flags is set (Vendor/src/SDL/src/joystick/SDL_gamepad.c:2285-2290)
+// -- so the generated input mapping is a bare "a5", full-range. SDL then
+// linearly maps that full raw range (SDL_JOYSTICK_AXIS_MIN..MAX) onto the
+// trigger's gamepad-axis output range (0..SDL_JOYSTICK_AXIS_MAX): a raw
+// axis of 0 (what WoofIOS_SetTouchAxis's `down ? 1.0 : 0.0` wrote on
+// release) reads back as ~50% pulled at the gamepad layer -- permanently
+// above trigger_threshold (i_gamepad.c), which is exactly what
+// TriggerToButton (i_input.c) polls to synthesize the FIRE button event.
+// Released must therefore write the raw axis all the way to
+// SDL_JOYSTICK_AXIS_MIN (maps to gamepad-axis 0); pressed writes
+// SDL_JOYSTICK_AXIS_MAX (maps to gamepad-axis max). Digital press/release
+// only -- there is no partial-pull touch gesture to preserve here.
+void WoofIOS_SetTouchTrigger(int sdl_axis, bool down)
+{
+    if (!touch_joystick)
+    {
+        return;
+    }
+    SDL_SetJoystickVirtualAxis(touch_joystick, sdl_axis,
+                               down ? SDL_JOYSTICK_AXIS_MAX : SDL_JOYSTICK_AXIS_MIN);
+    touch_event_count++;
+    if (sdl_axis >= 0 && sdl_axis < TOUCH_AXIS_SLOTS)
+    {
+        touch_axis_writes[sdl_axis]++;
+    }
+}
+
+void WoofIOS_InjectRelativeTurn(float dx_points)
+{
+    touch_turn_accum += dx_points;
+    touch_event_count++;
+    touch_turn_writes++;
+}
+
+int WoofIOS_DebugTouchButtonWrites(int sdl_button)
+{
+    if (sdl_button < 0 || sdl_button >= TOUCH_BUTTON_SLOTS)
+    {
+        return 0;
+    }
+    return touch_button_writes[sdl_button];
+}
+
+int WoofIOS_DebugTouchAxisWrites(int sdl_axis)
+{
+    if (sdl_axis < 0 || sdl_axis >= TOUCH_AXIS_SLOTS)
+    {
+        return 0;
+    }
+    return touch_axis_writes[sdl_axis];
+}
+
+int WoofIOS_DebugTouchTurnWrites(void)
+{
+    return touch_turn_writes;
+}
+
+int WoofIOS_DebugTouchKeyWrites(int key)
+{
+    if (key < 0 || key >= TOUCH_KEY_SLOTS)
+    {
+        return 0;
+    }
+    return touch_key_writes[key];
+}
+
+// A held key from the overlay's automap gestures (issue #113): the automap
+// pans and zooms while its bound keys are down (AM_Responder reads
+// M_InputActivated/Deactivated for the arrows, '=' and '-'), so unlike
+// WoofIOS_InjectChar this posts one edge at a time and the caller owns the
+// pairing. No text-context gate: these are not typed characters.
+void WoofIOS_InjectKey(int key, bool down)
+{
+    event_t ev = {0};
+    ev.type = down ? ev_keydown : ev_keyup;
+    ev.data1.i = key;
+    D_PostEvent(&ev);
+    if (key >= 0 && key < TOUCH_KEY_SLOTS)
+    {
+        touch_key_writes[key]++;
+    }
+}
+
+void WoofIOS_SetAutoUse(bool enabled)
+{
+    extern void G_SetAutoUse(boolean enabled); // g_game.c
+    G_SetAutoUse(enabled);
+}
+
+const char *WoofIOS_DebugAutoUseState(void)
+{
+    extern void G_DebugAutoUseCounts(int *enabled, int *presses); // g_game.c
+    static char buf[48];
+    int enabled, presses;
+    G_DebugAutoUseCounts(&enabled, &presses);
+    snprintf(buf, sizeof(buf), "autoUse: enabled=%d presses=%d", enabled, presses);
+    return buf;
+}
+
+bool WoofIOS_IsAutomapActive(void)
+{
+    extern boolean automapactive; // am_map.h
+    return automapactive;
+}
+
+const char *WoofIOS_DebugTouchWrites(void)
+{
+    static char buf[256];
+    int n = snprintf(buf, sizeof(buf), "touchWrites:");
+    for (int b = 0; b < TOUCH_BUTTON_SLOTS && n < (int)sizeof(buf); b++)
+    {
+        if (touch_button_writes[b])
+        {
+            n += snprintf(buf + n, sizeof(buf) - n, " b%d:%d", b, touch_button_writes[b]);
+        }
+    }
+    for (int a = 0; a < TOUCH_AXIS_SLOTS && n < (int)sizeof(buf); a++)
+    {
+        if (touch_axis_writes[a])
+        {
+            n += snprintf(buf + n, sizeof(buf) - n, " a%d:%d", a, touch_axis_writes[a]);
+        }
+    }
+    for (int k = 0; k < TOUCH_KEY_SLOTS && n < (int)sizeof(buf); k++)
+    {
+        if (touch_key_writes[k])
+        {
+            n += snprintf(buf + n, sizeof(buf) - n, " k%d:%d", k, touch_key_writes[k]);
+        }
+    }
+    if (n < (int)sizeof(buf))
+    {
+        snprintf(buf + n, sizeof(buf) - n, " turn:%d", touch_turn_writes);
+    }
+    return buf;
+}
+
+float WoofIOS_ConsumeTouchTurn(void)
+{
+    float value = touch_turn_accum;
+    touch_turn_accum = 0.0f;
+    return value;
+}
+
+void *WoofIOS_GetUIWindowPointer(void)
+{
+    int count = 0;
+    SDL_Window **windows = SDL_GetWindows(&count);
+    void *result = NULL;
+    if (windows && count > 0)
+    {
+        result = SDL_GetPointerProperty(SDL_GetWindowProperties(windows[0]),
+                                        SDL_PROP_WINDOW_UIKIT_WINDOW_POINTER,
+                                        NULL);
+    }
+    SDL_free(windows);
+    return result;
+}
+
+// Fix round (device testing): MAP's gameplay default is correct
+// (GAMEPAD_NORTH, see the TouchButton doc comment in TouchGamepad.swift /
+// the wiring audit in TouchOverlayView.swift), but NORTH is *also*
+// input_menu_clear's default binding (m_input.c:624-628) -- see the audit
+// block's second table for the menu-context collision this causes with
+// USE (SOUTH = gamepad_confirm, m_input.c:564,576): in the Load/Save menu,
+// MENU_CLEAR on a populated slot arms a delete confirmation
+// (`delete_verify`, mn_menu.c:3368-3378, gated on AnyLoadSaveMenu() +
+// AllowDeleteSaveGame()), and a subsequent MENU_ENTER (USE) confirms
+// M_DeleteGame (mn_menu.c:2806-2814) -- two overlay taps silently delete a
+// save. Rather than rebind MAP away from its correct gameplay default,
+// the overlay (TouchOverlayView) polls this to hide/disable the automap
+// button whenever a menu is on screen. `menuactive` (doomstat.h:251,
+// defined mn_menu.c:104) is only true while an actual menu screen -- main
+// menu, options, Load/Save, etc. -- is overlaying the game; the title/demo
+// state does not set it.
+extern boolean menuactive;
+
+bool WoofIOS_IsMenuActive(void)
+{
+    return menuactive != 0;
+}
+
+// --- Soft-keyboard text injection (see woof_ios.h) ---
+// Post synthesized events directly onto the engine queue via D_PostEvent,
+// bypassing SDL text input entirely. Cheats read ev_keydown.data2
+// (m_cheat.c's M_FindCheats); the menu save-name field reads ev_text.data1
+// plus the KEY_BACKSPACE/KEY_ENTER keydowns (mn_menu.c). D_ProcessEvents
+// runs M_InputTrackEvent then the responder chain on each queued event, so
+// a KEY_ENTER keydown activates input_menu_enter -> MENU_ENTER exactly as a
+// real key would (m_input.c M_InputActivated matches ev_keydown.data1).
+// Main-thread-only, same as the touch functions.
+extern gamestate_t gamestate; // doomstat.h
+extern int paused;            // doomstat.h
+boolean MN_SaveStringEntering(void); // mn_menu.c (saveStringEnter is static)
+
+WoofIOS_TextInputContext WoofIOS_GetTextInputContext(void)
+{
+    if (MN_SaveStringEntering())
+    {
+        return WOOF_TEXT_CTX_SAVENAME;
+    }
+    if (gamestate == GS_LEVEL && !menuactive && !paused)
+    {
+        return WOOF_TEXT_CTX_GAMEPLAY;
+    }
+    return WOOF_TEXT_CTX_NONE;
+}
+
+void WoofIOS_InjectChar(char c)
+{
+    // Belt-and-suspenders gate: keyboard visibility is reconciled by a 0.25s
+    // poll, so a keystroke can land in the poll window after the engine has
+    // left a text context. Drop it here (synchronous, authoritative) so a
+    // stray letter can't reach an ordinary menu.
+    if (WoofIOS_GetTextInputContext() == WOOF_TEXT_CTX_NONE)
+    {
+        return;
+    }
+
+    int lower = tolower((unsigned char)c);
+
+    event_t key = {0};
+    key.type = ev_keydown;
+    key.data1.i = lower; // Doom key id; letters == lowercase ASCII
+    key.data2.i = lower; // cheat matcher reads data2 (lowercase ASCII)
+    D_PostEvent(&key);
+
+    event_t text = {0};
+    text.type = ev_text;
+    text.data1.i = (unsigned char)c; // save-name reads data1; menu uppercases
+    D_PostEvent(&text);
+
+    // Release immediately: an ev_keydown that no responder consumes (every
+    // non-final cheat letter -- M_FindCheats returns 0 until a full sequence
+    // matches) otherwise latches gamekeydown[data1] in G_Responder (g_game.c),
+    // and letters like w/a/s/d and digits are bound to movement/weapon
+    // actions, so the player would move forever. The paired keyup clears it
+    // in the same event batch (processed before the next ticcmd is built).
+    event_t up = {0};
+    up.type = ev_keyup;
+    up.data1.i = lower;
+    D_PostEvent(&up);
+}
+
+void WoofIOS_InjectBackspace(void)
+{
+    // Backspace only means anything in save-name entry; drop it elsewhere so it
+    // can't trigger MENU_BACKSPACE navigation if the keyboard outlives the
+    // context by a poll tick (see WoofIOS_InjectChar).
+    if (WoofIOS_GetTextInputContext() != WOOF_TEXT_CTX_SAVENAME)
+    {
+        return;
+    }
+
+    event_t down = {0};
+    down.type = ev_keydown;
+    down.data1.i = KEY_BACKSPACE; // mn_menu save-name reads ch (= data1)
+    D_PostEvent(&down);
+
+    event_t up = {0};
+    up.type = ev_keyup;
+    up.data1.i = KEY_BACKSPACE; // pair the release (see WoofIOS_InjectChar)
+    D_PostEvent(&up);
+}
+
+void WoofIOS_InjectMenuConfirm(void)
+{
+    // Confirm (Enter) only means "commit save name"; drop it elsewhere so it
+    // can't activate a menu item if the context changed under the poll.
+    if (WoofIOS_GetTextInputContext() != WOOF_TEXT_CTX_SAVENAME)
+    {
+        return;
+    }
+
+    event_t down = {0};
+    down.type = ev_keydown;
+    down.data1.i = KEY_ENTER; // input_menu_enter -> MENU_ENTER commits the save
+    D_PostEvent(&down);
+
+    event_t up = {0};
+    up.type = ev_keyup;
+    up.data1.i = KEY_ENTER; // pair the release (see WoofIOS_InjectChar)
+    D_PostEvent(&up);
+}
+
+int WoofIOS_DebugTouchEventCount(void)
+{
+    return touch_event_count;
+}
+
+const char *WoofIOS_LastErrorMessage(void)
+{
+    // Declared locally rather than in i_system.h, same as the
+    // I_ResetErrorMessages extern in WoofIOS_Run above — both live in
+    // i_system.c's WOOF_IOS-only patch block.
+    extern const char *I_GetErrorMessage(void);
+    return I_GetErrorMessage();
+}
+
+// --- Writable-globals diff (Scripts/globals-diff.py) ---
+//
+// Everything below D_DoomMain was written for one run per process, so any
+// file-scope static it writes during init can outlive a session here and be
+// inherited by the next one (WOOF_UPSTREAM.md, "Task 10"; issue #253 is the
+// seventh instance). Rather than find each one from a crash, this compares
+// the bytes of every writable data section between two checkpoints taken at
+// the same point of two sessions: whatever differs between two sessions of
+// the SAME game is a candidate. It looks at the whole image the engine is
+// linked into (the Debug dylib or the app binary), so SDL, OpenAL and Swift
+// statics show up too; the script filters to Engine/woof/ by default.
+//
+// The snapshot buffers are heap, but the table holding their pointers and
+// the checkpoint counter live in these very sections, so the counter always
+// appears in the diff. That is the mechanism's own liveness check.
+static struct
+{
+    const char *segment;
+    const char *section;
+    uint8_t *snapshot;
+    unsigned long size;
+} globals_sections[] = {
+    {"__DATA",       "__data"  },
+    {"__DATA",       "__bss"   },
+    {"__DATA",       "__common"},
+    {"__DATA_DIRTY", "__data"  },
+    {"__DATA_DIRTY", "__bss"   },
+    {"__DATA_DIRTY", "__common"},
+};
+static int globals_checkpoints;
+
+#define GLOBALDIFF_HEX_BYTES 16
+#define GLOBALDIFF_MAX_RANGES 20000
+
+static void HexBytes(char *out, const uint8_t *bytes, unsigned long len)
+{
+    unsigned long n = len < GLOBALDIFF_HEX_BYTES ? len : GLOBALDIFF_HEX_BYTES;
+    for (unsigned long i = 0; i < n; i++)
+    {
+        sprintf(out + 2 * i, "%02x", bytes[i]);
+    }
+    out[2 * n] = '\0';
+}
+
+void WoofIOS_DebugGlobalsCheckpoint(void)
+{
+    if (!getenv("WADDLE_DEBUG_GLOBALS_DIFF"))
+    {
+        return;
+    }
+
+    Dl_info info;
+    if (!dladdr((void *)WoofIOS_Run, &info) || !info.dli_fbase)
+    {
+        I_Printf(VB_WARNING, "GLOBALDIFF: dladdr could not find the engine's image");
+        return;
+    }
+    const struct mach_header_64 *header = info.dli_fbase;
+    intptr_t slide = 0;
+    for (uint32_t i = 0; i < _dyld_image_count(); i++)
+    {
+        if (_dyld_get_image_header(i) == (const struct mach_header *)header)
+        {
+            slide = _dyld_get_image_vmaddr_slide(i);
+            break;
+        }
+    }
+
+    globals_checkpoints++;
+    if (globals_checkpoints == 1)
+    {
+        I_Printf(VB_ALWAYS, "GLOBALDIFF-IMAGE %s slide=0x%lx", info.dli_fname,
+                 (unsigned long)slide);
+    }
+
+    int ranges = 0;
+    for (size_t s = 0; s < arrlen(globals_sections); s++)
+    {
+        unsigned long size = 0;
+        uint8_t *data = getsectiondata(header, globals_sections[s].segment,
+                                       globals_sections[s].section, &size);
+        if (!data || !size)
+        {
+            continue;
+        }
+
+        uint8_t *snapshot = globals_sections[s].snapshot;
+        if (snapshot && globals_sections[s].size == size)
+        {
+            for (unsigned long i = 0; i < size;)
+            {
+                if (data[i] == snapshot[i])
+                {
+                    i++;
+                    continue;
+                }
+                unsigned long start = i;
+                while (i < size && data[i] != snapshot[i])
+                {
+                    i++;
+                }
+                if (++ranges > GLOBALDIFF_MAX_RANGES)
+                {
+                    continue;
+                }
+                char old_hex[2 * GLOBALDIFF_HEX_BYTES + 1];
+                char new_hex[2 * GLOBALDIFF_HEX_BYTES + 1];
+                HexBytes(old_hex, snapshot + start, i - start);
+                HexBytes(new_hex, data + start, i - start);
+                I_Printf(VB_ALWAYS, "GLOBALDIFF %s,%s unslid=0x%lx len=%lu old=%s new=%s",
+                         globals_sections[s].segment, globals_sections[s].section,
+                         (unsigned long)((uintptr_t)(data + start) - slide),
+                         i - start, old_hex, new_hex);
+            }
+        }
+        else
+        {
+            uint8_t *fresh = malloc(size);
+            if (!fresh)
+            {
+                I_Printf(VB_WARNING, "GLOBALDIFF: could not allocate %lu bytes for %s,%s",
+                         size, globals_sections[s].segment, globals_sections[s].section);
+                continue;
+            }
+            free(snapshot);
+            snapshot = fresh;
+            globals_sections[s].snapshot = snapshot;
+            globals_sections[s].size = size;
+        }
+        memcpy(snapshot, data, size);
+    }
+    if (globals_checkpoints > 1)
+    {
+        I_Printf(VB_ALWAYS, "GLOBALDIFF-END checkpoint=%d ranges=%d%s", globals_checkpoints,
+                 ranges, ranges > GLOBALDIFF_MAX_RANGES ? " (truncated)" : "");
+    }
+}
+
+void WoofIOS_SelectTouchGamepad(void)
+{
+    extern void I_SelectGamepad(SDL_JoystickID instance_id);
+    if (touch_joystick_id)
+    {
+        I_SelectGamepad(touch_joystick_id);
+    }
+}
+
+void WoofIOS_SelectPhysicalGamepad(void)
+{
+    extern void I_SelectGamepad(SDL_JoystickID instance_id);
+    int count = 0;
+    SDL_JoystickID *ids = SDL_GetGamepads(&count);
+    for (int i = 0; i < count; i++)
+    {
+        if (ids[i] != touch_joystick_id)
+        {
+            I_SelectGamepad(ids[i]);
+            break;
+        }
+    }
+    SDL_free(ids);
+}
+
+const char *WoofIOS_DebugInputState(void)
+{
+    // All four live in i_input.c's and mn_menu.c's WOOF_IOS blocks; declared
+    // here rather than in a header, same as the other debug accessors.
+    extern const char *I_DebugGamepadName(void);
+    extern SDL_JoystickID I_DebugGamepadID(void);
+    extern int I_DebugGamepadCount(void);
+    extern const char *I_DebugGamepadNames(void);
+    extern int I_DebugGamepadButtonEvents(void);
+    extern int I_DebugLeftStickY(void);
+    extern int I_DebugLeftStickYPeak(void);
+    extern int I_DebugAxisButtonDowns(void);
+    extern int MN_DebugMenuCursor(void);
+    extern int MN_DebugMenuMoves(void);
+
+    static char buf[320];
+    const char *name = I_DebugGamepadName();
+    SDL_JoystickID id = I_DebugGamepadID();
+    const char *kind = !name ? "none"
+                       : (touch_joystick_id && id == touch_joystick_id) ? "virtual"
+                       : "foreign";
+    int cursor = MN_DebugMenuCursor();
+    // ly is the engine's read of the left stick's Y axis, and vly the raw
+    // value the overlay wrote to its virtual pad: equal while the engine
+    // holds our pad, and the pair says whether a drag reached the engine.
+    int vly = touch_joystick ? SDL_GetJoystickAxis(touch_joystick, SDL_GAMEPAD_AXIS_LEFTY) : 0;
+    if (cursor < 0)
+    {
+        snprintf(buf, sizeof(buf), "pad=%s %s pads=%d%s btn=%d ly=%d lypk=%d vly=%d ab=%d mv=%d menu=off",
+                 name ? name : "none", kind, I_DebugGamepadCount(), I_DebugGamepadNames(),
+                 I_DebugGamepadButtonEvents(), I_DebugLeftStickY(), I_DebugLeftStickYPeak(), vly,
+                 I_DebugAxisButtonDowns(), MN_DebugMenuMoves());
+    }
+    else
+    {
+        snprintf(buf, sizeof(buf), "pad=%s %s pads=%d%s btn=%d ly=%d lypk=%d vly=%d ab=%d mv=%d menu=%d",
+                 name ? name : "none", kind, I_DebugGamepadCount(), I_DebugGamepadNames(),
+                 I_DebugGamepadButtonEvents(), I_DebugLeftStickY(), I_DebugLeftStickYPeak(), vly,
+                 I_DebugAxisButtonDowns(), MN_DebugMenuMoves(), cursor);
+    }
+    return buf;
+}
+
+// --- Session-start state (issue #266) ---
+//
+// The values the writable-globals diff found a session inheriting from the
+// one before it, read at the same point as that diff's checkpoint: after
+// D_DoomMain's init and the first tic, before the first frame. Captured
+// there rather than read on demand, because after the session they hold the
+// session's END state, which is what the next one would inherit, not what
+// this one started with. WaddleUITests/SessionStartStateTests compares the
+// string across sessions of the same game.
+static char session_start_state[256];
+// Kept apart from the string: it differs between games, and the string is
+// compared exactly (here and by .revyl/tests/session-start-state.yaml).
+static int session_start_zone_kb;
+static int session_start_lumps_kb;
+
+void WoofIOS_DebugSessionStartCheckpoint(void)
+{
+    extern const char *D_DebugSessionState(void);
+    extern int DEH_DebugColorCount(void);
+    extern int ST_DebugFaceCount(void);
+    extern int S_DebugMusicStarted(void);
+    extern int M_DebugArenaReservedMB(void);
+    extern int G_DebugCompDatabaseSize(void);
+    extern int Z_DebugUnownedKB(pu_tag tag);
+    extern int Z_DebugOwnedKB(pu_tag tag);
+    extern int M_DebugStringDefaultsLive(void);
+    extern int num_states, num_mobj_types, num_sfx, num_sprites;
+    snprintf(session_start_state, sizeof(session_start_state),
+             "%s states=%d mobj=%d sfx=%d spr=%d colors=%d faces=%d music=%d"
+             " arenas=%d compdb=%d cfgstr=%d",
+             D_DebugSessionState(), num_states, num_mobj_types, num_sfx,
+             num_sprites, DEH_DebugColorCount(),
+             ST_DebugFaceCount(), S_DebugMusicStarted(), M_DebugArenaReservedMB(),
+             G_DebugCompDatabaseSize(), M_DebugStringDefaultsLive());
+    session_start_zone_kb = Z_DebugUnownedKB(PU_STATIC);
+    session_start_lumps_kb = Z_DebugOwnedKB(PU_STATIC) + Z_DebugOwnedKB(PU_CACHE);
+}
+
+const char *WoofIOS_DebugSessionStartState(void)
+{
+    return session_start_state;
+}
+
+int WoofIOS_DebugSessionStartZoneKB(void)
+{
+    return session_start_zone_kb;
+}
+
+int WoofIOS_DebugSessionStartLumpsKB(void)
+{
+    return session_start_lumps_kb;
+}
+
+extern gamestate_t gamestate; // doomstat.h
+extern boolean demoplayback;  // doomstat.h
+
+const char *WoofIOS_DebugGameState(void)
+{
+    extern int startloadgame; // d_main.c: -loadgame's argument, -1 without
+    extern int leveltime;     // doomstat.h
+    static char buf[48];
+    const char *state;
+    switch (gamestate)
+    {
+        // A demo's level is not the player's: the title's demo loop reaches
+        // GS_LEVEL within seconds, and a failed -loadgame falls back to it.
+        case GS_LEVEL:        state = demoplayback ? "demo" : "level"; break;
+        case GS_INTERMISSION: state = "inter";  break;
+        case GS_FINALE:       state = "finale"; break;
+        case GS_DEMOSCREEN:   state = "title";  break;
+        default:              state = "none";   break;
+    }
+    snprintf(buf, sizeof(buf), "gs=%s load=%d lt=%d", state, startloadgame,
+             gamestate == GS_LEVEL ? leveltime : 0);
+    return buf;
+}
+
+const char *WoofIOS_DebugWindowState(void)
+{
+    extern void I_DebugWindowSize(int *w, int *h); // i_video.c
+    static char buf[32];
+    int w, h;
+    I_DebugWindowSize(&w, &h);
+    snprintf(buf, sizeof(buf), "win=%dx%d", w, h);
+    return buf;
+}
+
+const char *WoofIOS_DebugBackgroundState(void)
+{
+    extern void G_DebugBackgroundCounts(int *saves, int *pauses,
+                                        int *saved_leveltime);
+    static char buf[64];
+    int saves, pauses, saved_leveltime;
+    G_DebugBackgroundCounts(&saves, &pauses, &saved_leveltime);
+    snprintf(buf, sizeof(buf), "bgsave=%d bgpause=%d bglt=%d", saves, pauses,
+             saved_leveltime);
+    return buf;
+}
+
+const char *WoofIOS_DebugZipWadBuffers(void)
+{
+    extern void W_ZIP_DebugWadBuffers(int *live, int *total);
+    static char buf[48];
+    int live, total;
+    W_ZIP_DebugWadBuffers(&live, &total);
+    snprintf(buf, sizeof(buf), "zipwads=%d/%d", live, total);
+    return buf;
+}
+
+const char *WoofIOS_DebugMenuGeometry(void)
+{
+    // Lives in mn_menu.c's WOOF_IOS block; declared here rather than in a
+    // header, same as I_ResetErrorMessages above.
+    extern const char *MN_DebugMenuGeometry(void);
+    return MN_DebugMenuGeometry();
+}
+
+float WoofIOS_DebugTriggerValue(void)
+{
+    if (!touch_joystick || touch_joystick_id == 0)
+    {
+        return -1.0f;
+    }
+    if (!touch_gamepad)
+    {
+        // Lazily open a gamepad-layer view of the same instance;
+        // ref-counted alongside touch_joystick, see the declaration above.
+        touch_gamepad = SDL_OpenGamepad(touch_joystick_id);
+        if (!touch_gamepad)
+        {
+            return -1.0f;
+        }
+    }
+    Sint16 raw = SDL_GetGamepadAxis(touch_gamepad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
+    return (float)raw / (float)SDL_JOYSTICK_AXIS_MAX;
+}

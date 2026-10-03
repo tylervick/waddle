@@ -26,6 +26,18 @@ static hashmap_t *translate;
 
 void DSDH_SoundsInit(void)
 {
+#ifdef WOOF_IOS
+    // A later session in the same process must not inherit this session's
+    // DSDHacked numbering: the translate map would hand back the old
+    // indices without growing S_sfx, which starts over below, so they
+    // would point past its end (issue #266: num_sfx went from 811 to
+    // 700 between two sessions of one game).
+    if (translate)
+    {
+        hashmap_free(translate);
+        translate = NULL;
+    }
+#endif
     num_sfx = NUMSFX;
     max_sfx_number = NUMSFX - 1;
 

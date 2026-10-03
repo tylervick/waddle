@@ -170,6 +170,15 @@ static void LoadFacePatches(void)
 {
     char lump[9] = {0};
 
+#ifdef WOOF_IOS
+    // Runs once per session here, and appends: a later session in the same
+    // process kept the previous game's faces at the indices the status bar
+    // draws, with its own appended after them (issue #266). The patches are
+    // zone memory, left alone as upstream leaves them.
+    array_free(facepatches);
+    array_free(facebackpatches);
+#endif
+
     int count;
 
     for (count = 0; count < ST_NUMPAINFACES; ++count)
@@ -225,6 +234,14 @@ static void LoadFacePatches(void)
         array_push(facebackpatches, V_CachePatchName(lump, PU_STATIC));
     }
 }
+
+#ifdef WOOF_IOS
+// Debug seam for WoofIOS_DebugSessionStartState (woof_ios.c).
+int ST_DebugFaceCount(void)
+{
+    return array_size(facepatches);
+}
+#endif
 
 static boolean CheckWidgetState(widgetstate_t state)
 {
@@ -1338,9 +1355,17 @@ static void UpdateElem(sbarelem_t *elem, player_t *player)
     }
 }
 
+#ifdef WOOF_IOS
+// ST_UpdateStatusBar's memory of the bar it last showed, hoisted so
+// ST_ResetSessionStatusbar can restart it (issue #269).
+static int oldbarindex = -1;
+#endif
+
 void ST_UpdateStatusBar(void)
 {
+#ifndef WOOF_IOS
     static int oldbarindex = -1;
+#endif
 
     int barindex = MAX(screenblocks - 10, 0);
 
@@ -2692,3 +2717,21 @@ void ST_BindSTSVariables(void)
 // Lee's Jan 19 sources
 //
 //----------------------------------------------------------------------------
+
+#ifdef WOOF_IOS
+// Called from WoofIOS_Run before every D_DoomMain() (issue #268):
+// ST_SetSTHeight reads statusbar from I_InitGraphics, before ST_UpdateStatusBar
+// points it into this session's sbardef, so it read the previous session's.
+// NULL is what a fresh process has there, and ST_SetSTHeight handles it.
+void ST_ResetSessionStatusbar(void)
+{
+    statusbar = NULL;
+    oldbarindex = -1; // so the first bar of the session re-picks its elements
+}
+
+// Debug seam for WoofIOS_DebugSessionEntryState (woof_ios.c).
+int ST_DebugStatusbarSet(void)
+{
+    return statusbar != NULL;
+}
+#endif

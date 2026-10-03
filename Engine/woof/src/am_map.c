@@ -823,10 +823,20 @@ static void EnsureAmDef(void)
 // re-init on a level change, otherwise just a screen-size refresh. Each
 // view keeps its own lastlevel/lastepisode cache so they can't affect each other.
 //
+#ifdef WOOF_IOS
+// StartView's and AM_ApplyColors' memory, hoisted to file scope so
+// AM_ResetSessionState() can reset it (issue #268).
+static int lastlevel[NUM_AM_VIEWS]   = { -1, -1 };
+static int lastepisode[NUM_AM_VIEWS] = { -1, -1 };
+static boolean first_time = true;
+#endif
+
 static void StartView(am_view_id_t id)
 {
+#ifndef WOOF_IOS
     static int lastlevel[NUM_AM_VIEWS]   = { -1, -1 };
     static int lastepisode[NUM_AM_VIEWS] = { -1, -1 };
+#endif
 
     am_viewstate_t *am = &am_view[id];
 
@@ -2771,7 +2781,9 @@ static struct
 
 void AM_ApplyColors(boolean force)
 {
+#ifndef WOOF_IOS
     static boolean first_time = true;
+#endif
 
     if (!first_time && !force)
     {
@@ -2976,3 +2988,60 @@ void AM_BindAutomapVariables(void)
 //
 //
 //----------------------------------------------------------------------------
+
+#ifdef WOOF_IOS
+#include <stdio.h>
+#include <stdlib.h>
+
+// Called from WoofIOS_Run before every D_DoomMain() (issue #268). Each of
+// these outlived the previous session:
+// - lastlevel/lastepisode (one pair per view since upstream's minimap):
+//   StartView skips AM_LevelInit while they match the current map, so another
+//   game's map with the same number (Phase 2 MAP01 after Phase 1 E1M1) kept
+//   the previous map's bounds and zoom limits.
+// - stopped: left false by a session that quit with the automap started, so
+//   the next AM_Start ran AM_Stop and re-tagged the previous session's
+//   marknums patches.
+// - first_time: AM_ApplyColors did nothing after the first session, so a
+//   later game's PLAYPAL never reached the automap colours.
+// - amdef: parsed once per process from whichever AMAPDEF the first game
+//   had.
+void AM_ResetSessionState(void)
+{
+    for (int i = 0; i < NUM_AM_VIEWS; i++)
+    {
+        lastlevel[i] = -1;
+        lastepisode[i] = -1;
+    }
+    stopped = true;
+    automapactive = false;
+    memset(marknums, 0, sizeof(marknums));
+    first_time = true;
+    if (amdef)
+    {
+        array_free(amdef->player);
+        array_free(amdef->player_cheat);
+        array_free(amdef->thing);
+        array_free(amdef->key);
+        free(amdef);
+        amdef = NULL;
+    }
+}
+
+// Debug seam for WoofIOS_DebugSessionEntryState (woof_ios.c).
+void AM_DebugSessionEntry(char *buf, size_t len)
+{
+    snprintf(buf, len, "amlvl=%d/%d amstop=%d amdef=%d amcol=%d",
+             lastlevel[AM_VIEW_FULL], lastepisode[AM_VIEW_FULL], stopped,
+             amdef != NULL, first_time);
+}
+
+// Debug seam for WoofIOS_DebugAutomapBounds (woof_ios.c): the map bounds
+// AM_LevelInit last computed, in map units.
+void AM_DebugBounds(char *buf, size_t len)
+{
+    snprintf(buf, len, "ambox=%d,%d,%d,%d", min_x >> FRACBITS, min_y >> FRACBITS,
+             max_x >> FRACBITS, max_y >> FRACBITS);
+}
+#endif
+

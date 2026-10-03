@@ -122,8 +122,45 @@ void M_BindInput(const char *name, int input_id, const char *help)
     array_push(defaults, item);
 }
 
+static char *defaultfile;
+static boolean defaults_loaded = false; // killough 10/98
+
+#ifdef WOOF_IOS
+// Debug seam for WoofIOS_DebugSessionStartState (issue #39): string-default
+// blocks M_LoadDefaults and M_ParseOption have strdup'd and not yet freed.
+// Counted at the allocation and free sites themselves, never reset, so a
+// session that orphans the previous session's blocks shows it as growth.
+static int live_string_defaults;
+
+int M_DebugStringDefaultsLive(void)
+{
+    return live_string_defaults;
+}
+#endif
+
 void M_InitConfig(void)
 {
+#ifdef WOOF_IOS
+    // A second engine session in the same process calls M_InitConfig()
+    // again. This registration is one-time, process-lifetime metadata --
+    // the bound addresses are this process's static globals throughout its
+    // life, so nothing needs re-binding -- and repeating it would corrupt
+    // `defaults`, a realloc-backed array (m_array.h): re-registering
+    // duplicates every entry and invalidates the hash-chain pointers
+    // M_LookupDefault() already built (array_push() may move the buffer).
+    // Worse, MN_InitDefaults() (mn_setup.c) permanently overwrites each
+    // setup_menu_t's var.name with a var.def pointer into *this* array via
+    // a union -- rebuilding the array out from under that would leave
+    // those entries dangling. The caller's (idempotent) M_LoadDefaults()
+    // still runs every session to re-apply the saved config.
+    static boolean initialized;
+    if (initialized)
+    {
+        return;
+    }
+    initialized = true;
+#endif
+
     BIND_BOOL(config_help, true,
       "Show help strings about each variable in the config file");
 
@@ -162,9 +199,6 @@ void M_InitConfig(void)
     default_t last_entry = {NULL};
     array_push(defaults, last_entry);
 }
-
-static char *defaultfile;
-static boolean defaults_loaded = false; // killough 10/98
 
 // killough 11/98: hash function for name lookup
 static unsigned default_hash(const char *name)
@@ -519,10 +553,24 @@ boolean M_ParseOption(const char *p, boolean wad)
         }
         else
         {
+#ifdef WOOF_IOS
+            // Same rule as M_LoadDefaults: free only the block this file
+            // recorded, never whatever *location.s points at now.
+            if (dp->loaded_string)
+            {
+                free(dp->loaded_string);
+                live_string_defaults--;
+            }
+#else
             free(*dp->location.s); // Free old value
+#endif
         }
 
         *dp->location.s = strdup(strparm + 1); // Change default value
+#ifdef WOOF_IOS
+        dp->loaded_string = *dp->location.s;
+        live_string_defaults++;
+#endif
 
         if (dp->current.s) // Current value
         {
@@ -691,7 +739,27 @@ void M_LoadDefaults(void)
     {
         if (dp->type == string)
         {
+#ifdef WOOF_IOS
+            // Upstream runs this once per process; on iOS it runs every
+            // session, and each run orphaned the previous one's blocks.
+            // Free the block this file allocated, not *location.s: by now
+            // the engine may have pointed the variable somewhere it does not
+            // own -- I_SetMidiPlayer leaves midi_player_string on a music
+            // module's device-list entry, I_InitMusic's migration on a
+            // literal. NULL on the first call, so that one frees nothing.
+            // A WAD-modified default's orig_default.string is a different
+            // block and stays live: M_SaveDefaults may still write it.
+            if (dp->loaded_string)
+            {
+                free(dp->loaded_string);
+                live_string_defaults--;
+            }
+#endif
             *dp->location.s = strdup(dp->defaultvalue.string);
+#ifdef WOOF_IOS
+            dp->loaded_string = *dp->location.s;
+            live_string_defaults++;
+#endif
         }
         else if (dp->type == number)
         {

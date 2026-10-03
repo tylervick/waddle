@@ -33,6 +33,13 @@
 #include <shellapi.h>
 #endif
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+#if !defined(TARGET_OS_IPHONE)
+#define TARGET_OS_IPHONE 0
+#endif
+
 void TXT_SetWindowAction(txt_window_t *window,
                          txt_horiz_align_t position, 
                          TXT_UNCAST_ARG(action))
@@ -525,6 +532,14 @@ void TXT_SetWindowHelpURL(txt_window_t *window, const char *help_url)
 void TXT_OpenURL(const char *url)
 {
     ShellExecute(NULL, "open", url, NULL, NULL, SW_SHOWNORMAL);
+}
+
+#elif TARGET_OS_IPHONE
+
+// No system()/external processes on iOS; opening URLs is up to the host app.
+void TXT_OpenURL(const char *url)
+{
+    fprintf(stderr, "TXT_OpenURL: not supported on iOS: %s\n", url);
 }
 
 #else

@@ -414,6 +414,22 @@ static void R_InitTextureMapping(void)
 void R_InitLightTables (void)
 {
   // killough 4/4/98: dynamic colormaps
+#ifdef WOOF_IOS
+  // The previous session's (issue #269). Each table is a row-pointer array
+  // over one block, and row 0 is that block's start.
+  if (zlightoffset)
+  {
+    Z_Free(zlightoffset[0]);
+    Z_Free(zlightoffset);
+    zlightoffset = NULL;
+  }
+  if (scalelightoffset)
+  {
+    Z_Free(scalelightoffset[0]);
+    Z_Free(scalelightoffset);
+    scalelightoffset = NULL;
+  }
+#endif
 
   zlightoffset = Z_Malloc(sizeof(*zlightoffset) * LIGHTLEVELS, PU_STATIC, NULL);
 

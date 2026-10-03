@@ -213,3 +213,14 @@ void HU_DrawCrosshair(void)
                               crosshair.cr);
     }
 }
+
+#ifdef WOOF_IOS
+// Called from WoofIOS_Run before every D_DoomMain() (issue #269). The patch is
+// a lump W_Close frees; HU_StartCrosshair rewrites it from ST_Start, but
+// ST_Start returns early without an sbardef, and HU_DrawCrosshair would then
+// draw the previous session's freed patch.
+void HU_ResetSessionCrosshair(void)
+{
+    crosshair.patch = NULL;
+}
+#endif
