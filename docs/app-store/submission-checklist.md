@@ -209,6 +209,12 @@ gh workflow run app-store-listing.yml --ref main -f build=<N>
 gh workflow run app-store-listing.yml --ref main -f build=<N> -f apply=true
 ```
 
+A version that does not exist yet on App Store Connect is created by the
+same workflow with `-f create=true`: the version, its en-US localization and
+its App Review detail with the reviewer contact copied from the newest
+existing version. The dry run only says what it would create; with
+`apply=true` it creates and then writes the listing in the same run.
+
 - [ ] **Listing text + build:** the two runs above. Update
       `listing/whats-new.txt` for the release first.
 

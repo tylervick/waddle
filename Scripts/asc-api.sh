@@ -123,6 +123,31 @@ elif r is not None:
 ' "$1"
 }
 
+# Whether the iOS version named by $VERSION exists: prints its id, or nothing.
+# Leaves the version list in $WORK/versions.json like the resolver below.
+asc_version_id_if_any() {
+    local resp
+    resp="$(api GET "$API/v1/apps/$APP_ID/appStoreVersions?filter%5Bplatform%5D=IOS&limit=50")" \
+        || die "could not list the app's versions"
+    printf '%s' "$resp" > "$WORK/versions.json"
+    json "[v['id'] for v in d['data'] if v['attributes']['versionString'] == env['VERSION']]" < "$WORK/versions.json" \
+        || die "could not read the version list"
+}
+
+# Creates the iOS version $VERSION on the app and prints its id. The body is
+# built by json.dumps from the environment; nothing is spliced by hand.
+asc_create_version() {
+    local body resp
+    body="$(python3 -c '
+import json, os
+print(json.dumps({"data": {"type": "appStoreVersions",
+    "attributes": {"platform": "IOS", "versionString": os.environ["VERSION"]},
+    "relationships": {"app": {"data": {"type": "apps", "id": os.environ["ASC_APP_ID"]}}}}}))')" \
+        || die "could not build the version body"
+    resp="$(api POST "$API/v1/appStoreVersions" "$body")" || die "App Store Connect refused to create version $VERSION"
+    printf '%s' "$resp" | json "d['data']['id']" || die "created version $VERSION but could not read its id"
+}
+
 # Resolves the iOS version named by $VERSION into VERSION_ID and VERSION_STATE
 # (both exported), leaving the app's version list in $WORK/versions.json, and
 # dies unless the version is editable. PURPOSE names what the caller wants to

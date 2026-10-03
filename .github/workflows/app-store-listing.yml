@@ -29,6 +29,11 @@ on:
         type: string
         required: false
         default: ''
+      create:
+        description: Create the version on App Store Connect if it does not exist (with apply; a dry run only says so)
+        type: boolean
+        required: false
+        default: false
 
 # Shares the screenshots workflow's group: both write the same version, and a
 # listing write racing a screenshot swap is nothing anyone needs.
@@ -73,11 +78,13 @@ jobs:
           APPLY: ${{ inputs.apply }}
           VERSION: ${{ inputs.version }}
           BUILD: ${{ inputs.build }}
+          CREATE: ${{ inputs.create }}
         run: |
           # The tee below must not swallow the script's exit status.
           set -o pipefail
           set --
           if [ "$APPLY" = "true" ]; then set -- "$@" --apply; fi
+          if [ "$CREATE" = "true" ]; then set -- "$@" --create; fi
           if [ -n "$VERSION" ]; then set -- "$@" --version "$VERSION"; fi
           if [ -n "$BUILD" ]; then set -- "$@" --build "$BUILD"; fi
           Scripts/update-store-listing.sh "$@" | tee "$RUNNER_TEMP/listing.log"
