@@ -1,7 +1,9 @@
-Games are simpler: every map set you import is now its own game on your shelf, already paired with the right base game. No presets to build.
+A new look, and more ways to play.
 
-- One page per game. Tap a game to rename it, change its base game, add and reorder mods and patches, set compatibility and touch layout, and manage its saves - all in place.
-- Add games straight from the shelf. Storage and hidden games now live in Settings.
-- Importing tells you what each file became: a game, an add-on, or a map set that still needs a base game.
-- Starting another game in the same session now starts clean: no missing menu entries or episodes, no silent title music, no stray screen wipe.
-- Quick taps on the on-screen buttons are no longer dropped.
+- Fresh design throughout: the shelf and every game page are built around each game's own title art, and lay out properly in landscape on iPhone and iPad.
+- Move the on-screen buttons where your thumbs want them: Settings › Control Feel › Edit Layout.
+- Walk into doors and switches to use them. Auto-use is on for touch play and steps aside when a controller or keyboard is connected.
+- Pan the automap with a drag and zoom it with a pinch.
+- Swipe home mid-level and the game pauses and saves itself, so the shelf can offer to continue it later.
+- VoiceOver can operate the game controls directly.
+- Fixes: cheats no longer carry into the next game, Quit Game works every time, and an error after a failed launch can be dismissed.

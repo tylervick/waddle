@@ -8,7 +8,7 @@ Bring your own WADs. Import WAD files you own from the Files app, iCloud Drive, 
 
 Every map set is a game. Import a megawad and it lands on your shelf as its own game, already paired with the right base game. Add-ons and DeHackEd patches attach to any game from its page, where you also set the load order and compatibility level (vanilla, Boom, MBF, MBF21 - or auto) and find its saves, which are kept per game.
 
-Play your way. Touch controls with two schemes (classic twin-stick and modern drag-to-turn) and adjustable feel - plus full support for game controllers and hardware keyboards.
+Play your way. Touch controls with two schemes (classic twin-stick and modern drag-to-turn), adjustable feel, and buttons you can drag wherever your thumbs want them - plus full support for game controllers and hardware keyboards. Walk into doors and switches to use them, and pan and zoom the automap by touch.
 
 Open source. Waddle is free software under the GPL-3.0; the engine it descends from is GPL-2.0-or-later. Source code for the entire app is available on GitHub.
 
