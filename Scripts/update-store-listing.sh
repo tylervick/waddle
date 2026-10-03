@@ -106,22 +106,42 @@ asc_token
 # output as "missing" and create on the strength of a refusal
 # (docs/learnings/command-substitution-discards-callee-state.md). Capture
 # through a file so the refusal reaches set -e.
-EXISTING_ID=""
 if [ "$CREATE" = 1 ]; then
     asc_version_id_if_any > "$WORK/existing-id"
     EXISTING_ID="$(cat "$WORK/existing-id")"
-fi
-if [ "$CREATE" = 1 ] && [ -z "$EXISTING_ID" ]; then
-    # The newest existing version is where the reviewer contact comes from.
-    # Sorted as version numbers, not as text: 1.10 is newer than 1.9.
-    donor="$(json "max(d['data'], key=lambda v: [int(x) for x in v['attributes']['versionString'].split('.')])['id'] if d['data'] else ''" \
+    # Each piece is ENSURED, not created: App Store Connect makes the
+    # primary-locale localization itself when a version is created (the
+    # first real run got HTTP 409 creating it a second time), and a run that
+    # died part-way leaves a version with some pieces. So the version, the
+    # localization and the App Review detail are each checked and made only
+    # if absent, and a re-run against any partial state completes it.
+    #
+    # The donor for the review contact is the newest version other than this
+    # one. Sorted as version numbers, not as text: 1.10 is newer than 1.9.
+    donor="$(json "max([v for v in d['data'] if v['attributes']['versionString'] != env['VERSION']], key=lambda v: [int(x) for x in v['attributes']['versionString'].split('.')], default={'id': ''})['id']" \
         < "$WORK/versions.json")" || die "could not read the version list"
-    [ -n "$donor" ] || die "the app has no version to copy App Review contact details from; create $VERSION in App Store Connect"
-    # Read the donor and build the review-detail attributes BEFORE creating
-    # anything: a donor without a contact refuses with nothing half-made.
-    api GET "$API/v1/appStoreVersions/$donor/appStoreReviewDetail" > "$WORK/donor-review.json" \
-        || die "could not read version $donor's App Review detail"
-    review_attrs="$(python3 - "$WORK/donor-review.json" <<'PY'
+    want_version=0; want_loc=0; want_review=0
+    [ -n "$EXISTING_ID" ] || want_version=1
+    if [ -n "$EXISTING_ID" ]; then
+        loc="$(asc_localization_id "$EXISTING_ID")" || die "could not list version $VERSION's localizations"
+        [ -n "$loc" ] || want_loc=1
+        api GET "$API/v1/appStoreVersions/$EXISTING_ID/appStoreReviewDetail" > "$WORK/review-probe.json" \
+            || die "could not read version $VERSION's App Review detail"
+        rid="$(json "(d.get('data') or {}).get('id')" < "$WORK/review-probe.json")" || die "could not read version $VERSION's App Review detail"
+        [ -n "$rid" ] || want_review=1
+    else
+        # A fresh version gets its primary localization from App Store
+        # Connect; the review detail it does not get. Both are re-checked
+        # after the create rather than assumed.
+        want_loc=1; want_review=1
+    fi
+    if [ "$want_review" = 1 ]; then
+        [ -n "$donor" ] || die "the app has no other version to copy App Review contact details from; fill in App Review Information in App Store Connect"
+        # Read the donor BEFORE creating anything: a donor without a contact
+        # refuses with nothing half-made.
+        api GET "$API/v1/appStoreVersions/$donor/appStoreReviewDetail" > "$WORK/donor-review.json" \
+            || die "could not read version $donor's App Review detail"
+        review_attrs="$(python3 - "$WORK/donor-review.json" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1], encoding="utf-8"))
 src = (d.get("data") or {}).get("attributes") or {}
@@ -133,30 +153,48 @@ if not attrs.get("contactEmail"):
 print(json.dumps(attrs))
 PY
 )" || die "version $donor has no App Review contact details to copy; fill in App Review Information in App Store Connect once, then re-run"
-    if [ "$APPLY" = 0 ]; then
-        echo "would create: iOS version $VERSION, its $LOCALE localization, and its App Review detail with the contact copied from version $donor"
-        echo "dry run: nothing created. Re-run with --apply --create to create it and write the listing."
-        exit 0
     fi
-    NEW_ID="$(asc_create_version)"
-    echo "created: version $VERSION ($NEW_ID)"
-    body="$(NEW_ID="$NEW_ID" python3 -c '
+    if [ "$want_version$want_loc$want_review" != 000 ]; then
+        if [ "$APPLY" = 0 ]; then
+            [ "$want_version" = 0 ] || echo "would create: iOS version $VERSION"
+            [ "$want_loc" = 0 ] || echo "would create: its $LOCALE localization, unless App Store Connect makes it with the version"
+            [ "$want_review" = 0 ] || echo "would create: its App Review detail with the contact copied from version $donor"
+            echo "dry run: nothing created. Re-run with --apply --create to create what is missing and write the listing."
+            exit 0
+        fi
+        if [ "$want_version" = 1 ]; then
+            EXISTING_ID="$(asc_create_version)"
+            echo "created: version $VERSION ($EXISTING_ID)"
+            # Re-check what the create provisioned rather than assuming.
+            loc="$(asc_localization_id "$EXISTING_ID")" || die "could not list version $VERSION's localizations"
+            [ -z "$loc" ] || { want_loc=0; echo "ok - $LOCALE localization: made with the version"; }
+            api GET "$API/v1/appStoreVersions/$EXISTING_ID/appStoreReviewDetail" > "$WORK/review-probe.json" \
+                || die "could not read version $VERSION's App Review detail"
+            rid="$(json "(d.get('data') or {}).get('id')" < "$WORK/review-probe.json")" || die "could not read version $VERSION's App Review detail"
+            [ -z "$rid" ] || { want_review=0; echo "ok - App Review detail: made with the version"; }
+        fi
+        if [ "$want_loc" = 1 ]; then
+            body="$(NEW_ID="$EXISTING_ID" python3 -c '
 import json, os
 print(json.dumps({"data": {"type": "appStoreVersionLocalizations",
     "attributes": {"locale": os.environ["LOCALE"]},
     "relationships": {"appStoreVersion": {"data": {"type": "appStoreVersions", "id": os.environ["NEW_ID"]}}}}}))')" \
-        || die "could not build the localization body"
-    api POST "$API/v1/appStoreVersionLocalizations" "$body" > /dev/null \
-        || die "App Store Connect refused to create the $LOCALE localization"
-    echo "created: $LOCALE localization"
-    body="$(NEW_ID="$NEW_ID" REVIEW_ATTRS="$review_attrs" python3 -c '
+                || die "could not build the localization body"
+            api POST "$API/v1/appStoreVersionLocalizations" "$body" > /dev/null \
+                || die "App Store Connect refused to create the $LOCALE localization"
+            echo "created: $LOCALE localization"
+        fi
+        if [ "$want_review" = 1 ]; then
+            body="$(NEW_ID="$EXISTING_ID" REVIEW_ATTRS="$review_attrs" python3 -c '
 import json, os
 print(json.dumps({"data": {"type": "appStoreReviewDetails", "attributes": json.loads(os.environ["REVIEW_ATTRS"]),
     "relationships": {"appStoreVersion": {"data": {"type": "appStoreVersions", "id": os.environ["NEW_ID"]}}}}}))')" \
-        || die "could not build the App Review detail body"
-    api POST "$API/v1/appStoreReviewDetails" "$body" > /dev/null \
-        || die "App Store Connect refused to create the App Review detail"
-    echo "created: App Review detail (contact copied from version $donor)"
+                || die "could not build the App Review detail body"
+            api POST "$API/v1/appStoreReviewDetails" "$body" > /dev/null \
+                || die "App Store Connect refused to create the App Review detail"
+            echo "created: App Review detail (contact copied from version $donor)"
+        fi
+    fi
 fi
 asc_resolve_editable_version listing
 
