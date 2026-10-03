@@ -137,6 +137,7 @@ jobs:
           # Hermetic too, with a stateful stub so the read-back is exercised.
           # Guards app-store-listing.yml, which overwrites the store's text.
           Scripts/test-update-store-listing.sh
+          Scripts/test-submit-for-review.sh
           # Decides whether a merge to main ships a TestFlight build at all
           # (the `testflight` job below calls testflight.yml, whose gate runs
           # it). Hermetic: throwaway git repos in a temp dir, with a ceiling

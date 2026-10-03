@@ -99,6 +99,14 @@ api() {
     done
     case "$code" in
         2??) if [ -f "$out" ]; then cat "$out"; fi; return 0 ;;
+        # A relationship that is simply not set answers 404, and for the
+        # two licence-agreement reads that IS the expected answer. Only a
+        # caller that says so (ACCEPT_404=1) gets an empty success for it.
+        404) if [ "${ACCEPT_404:-}" = 1 ]; then return 0; fi
+             echo "error: $method $url -> HTTP $code" >&2
+             if [ -f "$out" ]; then cat "$out" >&2; fi
+             echo >&2
+             return 1 ;;
         *) echo "error: $method $url -> HTTP $code" >&2
            if [ -f "$out" ]; then cat "$out" >&2; fi
            echo >&2

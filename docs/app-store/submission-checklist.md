@@ -307,7 +307,19 @@ existing version. The dry run only says what it would create; with
     because the EULA is the one GPL question this gate used to omit, and an
     empty field left by decision has to be distinguishable from one nobody
     got to. Basis, comparables, and the accepted residual risk: §14.
-- [ ] Submit for review.
+- [ ] Submit for review — the **App Store submit** workflow. Dry run first:
+      it re-reads the build, the content-rights answer, both licence fields
+      (the §14 check above, scripted) and whether an open submission already
+      exists, and prints what it would submit. Then apply:
+
+      ```sh
+      gh workflow run app-store-submit.yml --ref main
+      gh workflow run app-store-submit.yml --ref main -f apply=true
+      ```
+
+      It creates the review submission, adds the version, marks it submitted,
+      and reads the state back (`WAITING_FOR_REVIEW`). What it cannot check
+      stays above: the corresponding source on `main`, and App Privacy.
 
 ## Known limitations (for the record, no action needed)
 
