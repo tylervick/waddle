@@ -315,4 +315,18 @@ setup; run --create
 echo "$OUT" | grep -q "description: differs" || fail "did not go on to diff the listing: $OUT"
 pass "--create on an existing version is the ordinary run"
 
+# 19. A paginated version list makes "missing" an incomplete answer: refuse
+#     rather than create on the strength of one page.
+missing
+python3 - "$TMP/w/fix/versions.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); d["links"] = {"next": "https://api.appstoreconnect.apple.com/v1/apps/APP/appStoreVersions?cursor=x"}
+json.dump(d, open(sys.argv[1], "w"))
+PY
+run --create --apply --version 1.3
+[ "$RC" != 0 ] || fail "created a version from a partial version list"
+[ "$(mutations)" = 0 ] || fail "wrote on a partial list: $(cat "$TMP/w/calls.log")"
+echo "$OUT" | grep -q "more than 50 iOS versions" || fail "wrong refusal: $OUT"
+pass "a paginated version list refuses rather than creating"
+
 echo "All update-store-listing tests passed."

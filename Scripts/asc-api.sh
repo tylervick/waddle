@@ -125,11 +125,20 @@ elif r is not None:
 
 # Whether the iOS version named by $VERSION exists: prints its id, or nothing.
 # Leaves the version list in $WORK/versions.json like the resolver below.
+#
+# "Nothing" is an answer a caller may act on by creating the version, so it
+# has to be a complete one: one page holds 50 versions, and an app with more
+# than that gets a refusal here rather than a "missing" that was only
+# unseen. App Store Connect would refuse a duplicate string anyway, but a
+# decision built on a partial list should not be reachable.
 asc_version_id_if_any() {
-    local resp
+    local resp more
     resp="$(api GET "$API/v1/apps/$APP_ID/appStoreVersions?filter%5Bplatform%5D=IOS&limit=50")" \
         || die "could not list the app's versions"
     printf '%s' "$resp" > "$WORK/versions.json"
+    more="$(json "(d.get('links') or {}).get('next') or ''" < "$WORK/versions.json")" \
+        || die "could not read the version list"
+    [ -z "$more" ] || die "the app has more than 50 iOS versions; this check reads one page and will not call one missing"
     json "[v['id'] for v in d['data'] if v['attributes']['versionString'] == env['VERSION']]" < "$WORK/versions.json" \
         || die "could not read the version list"
 }
