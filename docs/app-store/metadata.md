@@ -570,7 +570,8 @@ Apple's standard EULA limits use to devices the user owns or controls and
 restricts redistribution. GPL-2.0 §6 says a distributor "may not impose any
 further restrictions on the recipients' exercise of the rights granted herein."
 That tension is real, and it is not one this repo can engineer around: the
-engine is Woof! master `798acebd`, GPL-2.0 held by its own contributors, so
+engine is Woof! master (`1462fadc` since 2026-10-03), GPL-2.0 held by its own
+contributors, so
 relicensing is not an option available to us.
 
 ### Why the standard EULA anyway

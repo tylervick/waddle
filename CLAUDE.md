@@ -16,8 +16,9 @@ An iOS port of the Woof! Doom engine. See `README.md` for build instructions and
 
 ## Engine invariants
 
-- The Woof pin is master `798acebd`. Upstream has no SDL3 release tag, so
-  SDL2-era tags such as `woof_15.3.0` must never be used.
+- The Woof pin is master `1462fadc` (16.0.0). Upstream has no SDL3 release
+  tag, so SDL2-era tags such as `woof_15.3.0` must never be used. Moving the
+  pin follows `Engine/WOOF_UPSTREAM.md`, never a bare `Scripts/vendor-woof.sh`.
 - The engine save flag is `-save`, not `-savedir`.
 - `woof.pk3` lives at the app bundle root; IWADs live in `GameData/`, whose
   folder reference must never be renamed to "Resources".
