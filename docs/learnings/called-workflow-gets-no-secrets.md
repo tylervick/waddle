@@ -10,14 +10,25 @@ security: SecKeychainItemImport: One or more parameters passed to a function wer
 ```
 
 That is what `security import` says about a `.p12` decoded from an empty
-string. `BUILD_CERTIFICATE_BASE64`, `P12_PASSWORD`, the provisioning profile
-and the App Store Connect key are all repository secrets, and a reusable
-workflow invoked with `uses:` does **not** see the caller's secrets unless
-the calling job carries `secrets: inherit` (or passes them one by one under
-`secrets:`). The `workflow_dispatch` and `schedule` paths run `testflight.yml`
-directly, with the secrets in scope, which is why the dispatch the day before
-signed and uploaded fine and why the gap was invisible until a real merge
-took the new path.
+string. A reusable workflow invoked with `uses:` does **not** see the
+caller's repository or organization secrets unless the calling job carries
+`secrets: inherit` (or passes them one by one under `secrets:`). The
+`workflow_dispatch` and `schedule` paths run `testflight.yml` directly, with
+the secrets in scope, which is why the dispatch the day before signed and
+uploaded fine and why the gap was invisible until a real merge took the new
+path.
+
+Where the signing values live matters, and the failure is itself the
+evidence. The called `testflight` job declares `environment: app-store`, and
+GitHub's reusable-workflows documentation says that when the called job
+names an environment, *that environment's* secrets are used -- the caller
+cannot pass environment secrets at all, because `on.workflow_call` has no
+`environment` keyword. So if `BUILD_CERTIFICATE_BASE64` and the rest were
+secrets of the `app-store` environment, the called job would have had them
+with or without `secrets: inherit`, and the run would have signed. It did
+not, so they are repository secrets, and `secrets: inherit` is the line that
+reaches them. If they are ever moved into the environment, the job's own
+`environment:` covers them and `inherit` becomes harmless.
 
 Two things made it slow to read. The step's own error is a Security
 framework message with no mention of an empty input, and `gh run view
