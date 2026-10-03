@@ -329,4 +329,20 @@ run --create --apply --version 1.3
 echo "$OUT" | grep -q "more than 50 iOS versions" || fail "wrong refusal: $OUT"
 pass "a paginated version list refuses rather than creating"
 
+# 20. The create must not depend on the ASC_APP_ID override: the workflow
+#     never sets it and the id is resolved in asc-api.sh. The first real run
+#     died on exactly this with every other case green, because `run` sets
+#     the override. Same fixture as 16, with the override unset; the stub
+#     accepts any app id in the URL, so what is pinned is that the body is
+#     built at all and names the resolved id.
+missing
+set +e
+OUT="$(env PATH="$TMP/w/bin:/usr/bin:/bin" ASC_JWT="$TMP/w/jwt" LISTING_DIR="$TMP/w/listing" \
+    API_RETRY_MAX_SLEEP=0 GITHUB_ACTIONS= "$SCRIPT" --version 1.3 --create --apply 2>&1)"
+RC=$?
+set -e
+[ "$RC" = 0 ] || fail "create without ASC_APP_ID exited $RC: $OUT"
+grep -A1 '^POST .*/v1/appStoreVersions$' "$TMP/w/calls.log" | grep -q '"id": "6792905089"' || fail "version body does not carry the resolved app id: $(grep -A1 '^POST .*/v1/appStoreVersions$' "$TMP/w/calls.log")"
+pass "--create builds the version body from the resolved app id, not the override"
+
 echo "All update-store-listing tests passed."
