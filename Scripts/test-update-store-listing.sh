@@ -345,4 +345,40 @@ set -e
 grep -A1 '^POST .*/v1/appStoreVersions$' "$TMP/w/calls.log" | grep -q '"id": "6792905089"' || fail "version body does not carry the resolved app id: $(grep -A1 '^POST .*/v1/appStoreVersions$' "$TMP/w/calls.log")"
 pass "--create builds the version body from the resolved app id, not the override"
 
+# 21. Each piece is ensured, not created: a version that exists but lacks
+#     its localization and review detail (a run that died part-way, or the
+#     409 App Store Connect gives for creating the localization it made
+#     itself) gets only the missing pieces, no second version.
+setup
+echo '{"data":[]}' > "$TMP/w/fix/locs.json"
+echo '{"data":null}' > "$TMP/w/fix/review.json"
+run --create --apply
+[ "$RC" = 0 ] || fail "completing a partial version exited $RC: $OUT"
+! grep -q '^POST .*/v1/appStoreVersions$' "$TMP/w/calls.log" || fail "created a second version"
+grep -q '^POST .*/v1/appStoreVersionLocalizations$' "$TMP/w/calls.log" || fail "missing localization not created"
+grep -A1 '^POST .*/v1/appStoreReviewDetails$' "$TMP/w/calls.log" | grep -q '"contactEmail": "dev@example.invalid"' || fail "missing review detail not copied from the donor"
+grep -q '^PATCH .*/appStoreVersionLocalizations/L12' "$TMP/w/calls.log" || fail "listing not written after completing the version"
+pass "--create completes a partial version without making a second one"
+
+# 22. A localization App Store Connect makes with the version is not created
+#     again: the stub provisions it on the version POST, and no localization
+#     POST follows.
+missing
+python3 - "$TMP/w/bin/curl" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+s = s.replace('    reply(201, {"data": {"type": "appStoreVersions", "id": "V12", "attributes": attrs}})',
+              '    json.dump({"data": [{"id": "L12", "attributes": {"locale": "en-US"}}]}, open(F + "/locs.json", "w", encoding="utf-8"))\n'
+              '    json.dump({"data": {"type": "appStoreVersionLocalizations", "id": "L12", "attributes": {"locale": "en-US", "description": "", "whatsNew": "", "promotionalText": "", "keywords": ""}}}, open(F + "/loc.json", "w", encoding="utf-8"))\n'
+              '    reply(201, {"data": {"type": "appStoreVersions", "id": "V12", "attributes": attrs}})')
+open(p, "w").write(s)
+PY
+run --create --apply --version 1.3
+[ "$RC" = 0 ] || fail "create with a provisioned localization exited $RC: $OUT"
+grep -q '^POST .*/v1/appStoreVersions$' "$TMP/w/calls.log" || fail "version not created"
+! grep -q '^POST .*/v1/appStoreVersionLocalizations$' "$TMP/w/calls.log" || fail "created the localization App Store Connect had already made"
+echo "$OUT" | grep -q "localization: made with the version" || fail "did not report the provisioned localization: $OUT"
+grep -q '^POST .*/v1/appStoreReviewDetails$' "$TMP/w/calls.log" || fail "review detail not created"
+pass "a localization made with the version is not created again"
+
 echo "All update-store-listing tests passed."
