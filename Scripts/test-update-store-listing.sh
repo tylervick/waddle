@@ -324,7 +324,7 @@ d = json.load(open(sys.argv[1])); d["links"] = {"next": "https://api.appstorecon
 json.dump(d, open(sys.argv[1], "w"))
 PY
 run --create --apply --version 1.3
-[ "$RC" != 0 ] || fail "created a version from a partial version list"
+[ "$RC" != 0 ] || fail "created a version from a partial version list: $OUT"
 [ "$(mutations)" = 0 ] || fail "wrote on a partial list: $(cat "$TMP/w/calls.log")"
 echo "$OUT" | grep -q "more than 50 iOS versions" || fail "wrong refusal: $OUT"
 pass "a paginated version list refuses rather than creating"

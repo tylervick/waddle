@@ -101,7 +101,17 @@ echo "ok - local files: 5 fields, each within Apple's limit"
 # ---- read what is there ---------------------------------------------------
 
 asc_token
-if [ "$CREATE" = 1 ] && [ -z "$(asc_version_id_if_any)" ]; then
+# Not `$(asc_version_id_if_any)` in the condition: a `die` inside a command
+# substitution ends only that subshell, and the caller would read the empty
+# output as "missing" and create on the strength of a refusal
+# (docs/learnings/command-substitution-discards-callee-state.md). Capture
+# through a file so the refusal reaches set -e.
+EXISTING_ID=""
+if [ "$CREATE" = 1 ]; then
+    asc_version_id_if_any > "$WORK/existing-id"
+    EXISTING_ID="$(cat "$WORK/existing-id")"
+fi
+if [ "$CREATE" = 1 ] && [ -z "$EXISTING_ID" ]; then
     # The newest existing version is where the reviewer contact comes from.
     # Sorted as version numbers, not as text: 1.10 is newer than 1.9.
     donor="$(json "max(d['data'], key=lambda v: [int(x) for x in v['attributes']['versionString'].split('.')])['id'] if d['data'] else ''" \
