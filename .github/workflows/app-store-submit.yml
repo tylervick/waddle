@@ -1,0 +1,71 @@
+name: App Store submit
+
+# Submits one App Store version for App Review via Scripts/submit-for-review.sh.
+# Dry run by default: it re-reads the gates the submission checklist's §5
+# asks a human to confirm (build selected, content rights answered, both
+# licence fields empty, no open submission) and prints what it would submit.
+# Tick `apply` to submit. Manual dispatch only, by design: nothing in this
+# repository submits on a merge.
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Submit for review (unticked = dry run, checks only)
+        type: boolean
+        required: false
+        default: false
+      version:
+        description: App Store version, e.g. 1.3 (default = MARKETING_VERSION in App/project.yml)
+        type: string
+        required: false
+        default: ''
+
+concurrency:
+  group: app-store-screenshots
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    name: Submit
+    runs-on: ubuntu-latest
+    environment: app-store
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install the App Store Connect API key
+        env:
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          umask 077
+          printf '%s' "$ASC_PRIVATE_KEY" | /usr/bin/base64 --decode > "$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
+      - name: Submit for review (or dry run)
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_PATH: ${{ runner.temp }}/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
+          APPLY: ${{ inputs.apply }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -o pipefail
+          set --
+          if [ "$APPLY" = "true" ]; then set -- "$@" --apply; fi
+          if [ -n "$VERSION" ]; then set -- "$@" --version "$VERSION"; fi
+          Scripts/submit-for-review.sh "$@" | tee "$RUNNER_TEMP/submit.log"
+          {
+            echo "## App Store submit"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/submit.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove the API key
+        if: always()
+        run: rm -f "$RUNNER_TEMP"/AuthKey_*.p8
