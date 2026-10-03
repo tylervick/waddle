@@ -38,6 +38,10 @@ JSON
  "promotionalText":"Promo text.","keywords":"doom,wad","locale":"en-US"}}}
 JSON
     echo '{"data":{"type":"appStoreReviewDetails","id":"R12","attributes":{"notes":"Notes for the reviewer."}}}' > "$F/review.json"
+    cat > "$F/donor-review.json" <<'JSON'
+{"data":{"type":"appStoreReviewDetails","id":"R11","attributes":{"contactFirstName":"Tyler","contactLastName":"Vick",
+ "contactPhone":"+1 555 0100","contactEmail":"dev@example.invalid","demoAccountRequired":false,"notes":"Old notes."}}}
+JSON
     cat > "$F/builds.json" <<'JSON'
 {"data":[{"id":"B264","attributes":{"version":"264","processingState":"VALID","expired":false}}]}
 JSON
@@ -89,6 +93,26 @@ if method == "PATCH" and p == "/v1/appStoreVersionLocalizations/L12":
     merge(F + "/loc.json", json.loads(body)["data"]["attributes"]); reply(200, path=F + "/loc.json")
 if method == "PATCH" and p == "/v1/appStoreReviewDetails/R12":
     merge(F + "/review.json", json.loads(body)["data"]["attributes"]); reply(200, path=F + "/review.json")
+if method == "GET" and p == "/v1/appStoreVersions/V11/appStoreReviewDetail": reply(200, path=F + "/donor-review.json")
+if method == "POST" and p == "/v1/appStoreVersions":
+    # The stub "creates" by giving the new version the ids every other
+    # handler already answers for (V12 / L12 / R12), so the run continues
+    # through the same read-diff-write path a pre-existing version takes.
+    attrs = json.loads(body)["data"]["attributes"]
+    vs = json.load(open(F + "/versions.json", encoding="utf-8"))
+    vs["data"].insert(0, {"id": "V12", "attributes": {"versionString": attrs["versionString"], "appVersionState": "PREPARE_FOR_SUBMISSION"}})
+    json.dump(vs, open(F + "/versions.json", "w", encoding="utf-8"))
+    reply(201, {"data": {"type": "appStoreVersions", "id": "V12", "attributes": attrs}})
+if method == "POST" and p == "/v1/appStoreVersionLocalizations":
+    attrs = json.loads(body)["data"]["attributes"]
+    json.dump({"data": [{"id": "L12", "attributes": {"locale": attrs["locale"]}}]}, open(F + "/locs.json", "w", encoding="utf-8"))
+    json.dump({"data": {"type": "appStoreVersionLocalizations", "id": "L12", "attributes": dict(attrs, description="", whatsNew="", promotionalText="", keywords="")}},
+              open(F + "/loc.json", "w", encoding="utf-8"))
+    reply(201, {"data": {"type": "appStoreVersionLocalizations", "id": "L12", "attributes": attrs}})
+if method == "POST" and p == "/v1/appStoreReviewDetails":
+    attrs = json.loads(body)["data"]["attributes"]
+    json.dump({"data": {"type": "appStoreReviewDetails", "id": "R12", "attributes": attrs}}, open(F + "/review.json", "w", encoding="utf-8"))
+    reply(201, {"data": {"type": "appStoreReviewDetails", "id": "R12", "attributes": attrs}})
 if method == "PATCH" and p == "/v1/appStoreVersions/V12/relationships/build":
     bid = json.loads(body)["data"]["id"]
     b = [x for x in json.load(open(F + "/builds.json"))["data"] if x["id"] == bid][0]
@@ -241,5 +265,68 @@ PY
 run
 echo "$OUT" | grep -q "ok - description: unchanged" || fail "CRLF counted as a difference: $OUT"
 pass "CRLF line endings compare equal"
+
+# 15. --create on a version that is missing: the dry run says what it would
+#     create -- version, localization, review detail copied from the newest
+#     existing version -- and creates nothing.
+missing() { # 1.3 absent: only 1.1 exists; the stub's ids hold no localization or review detail yet
+    setup
+    echo '{"data":[{"id":"V11","attributes":{"versionString":"1.1","appVersionState":"READY_FOR_DISTRIBUTION"}}]}' > "$TMP/w/fix/versions.json"
+    echo '{"data":[]}' > "$TMP/w/fix/locs.json"
+    echo '{"data":null}' > "$TMP/w/fix/review.json"
+}
+missing; run --create --version 1.3
+[ "$RC" = 0 ] || fail "create dry run exited $RC: $OUT"
+[ "$(mutations)" = 0 ] || fail "create dry run wrote: $(cat "$TMP/w/calls.log")"
+echo "$OUT" | grep -q "would create: iOS version 1.3" || fail "dry run did not say what it would create: $OUT"
+echo "$OUT" | grep -q "copied from version V11" || fail "dry run did not name the donor: $OUT"
+pass "--create dry run says what it would create and creates nothing"
+
+# 16. --create --apply creates the version, its en-US localization and an
+#     App Review detail carrying the donor's contact, then writes the listing
+#     as usual -- one run from nothing to a version with text.
+missing; run --create --apply --version 1.3
+[ "$RC" = 0 ] || fail "create apply exited $RC: $OUT"
+grep -q '^POST .*/v1/appStoreVersions$' "$TMP/w/calls.log" || fail "version not created"
+grep -A1 '^POST .*/v1/appStoreVersions$' "$TMP/w/calls.log" | grep -q '"versionString": "1.3"' || fail "wrong version string posted"
+grep -A1 '^POST .*/v1/appStoreVersions$' "$TMP/w/calls.log" | grep -q '"id": "APP"' || fail "version not related to the app"
+grep -q '^POST .*/v1/appStoreVersionLocalizations$' "$TMP/w/calls.log" || fail "localization not created"
+grep -A1 '^POST .*/v1/appStoreReviewDetails$' "$TMP/w/calls.log" | grep -q '"contactEmail": "dev@example.invalid"' || fail "donor contact not copied"
+grep -A1 '^POST .*/v1/appStoreReviewDetails$' "$TMP/w/calls.log" | grep -q '"id": "V12"' || fail "review detail not related to the new version"
+grep -q '^PATCH .*/appStoreVersionLocalizations/L12' "$TMP/w/calls.log" || fail "listing text not written after creating"
+[ "$(field description)" = "$(printf 'The new description.\n\nSecond paragraph.')" ] || fail "description not written to the new version"
+echo "$OUT" | grep -q "created: version 1.3" || fail "creation not reported: $OUT"
+pass "--create --apply creates version, localization and review detail, then writes the listing"
+
+# 17. The donor is read before anything is created: a donor with no contact
+#     refuses with nothing half-made.
+missing; echo '{"data":{"type":"appStoreReviewDetails","id":"R11","attributes":{"notes":"Old notes."}}}' > "$TMP/w/fix/donor-review.json"
+run --create --apply --version 1.3
+[ "$RC" != 0 ] || fail "created a version from a donor with no contact details"
+[ "$(mutations)" = 0 ] || fail "half-created: $(cat "$TMP/w/calls.log")"
+echo "$OUT" | grep -q "no App Review contact details to copy" || fail "wrong refusal: $OUT"
+pass "a donor without contact details refuses before any write"
+
+# 18. --create on a version that exists creates nothing and behaves as the
+#     ordinary run.
+setup; run --create
+[ "$RC" = 0 ] || fail "create on an existing version exited $RC: $OUT"
+! grep -q '^POST ' "$TMP/w/calls.log" || fail "posted for an existing version"
+echo "$OUT" | grep -q "description: differs" || fail "did not go on to diff the listing: $OUT"
+pass "--create on an existing version is the ordinary run"
+
+# 19. A paginated version list makes "missing" an incomplete answer: refuse
+#     rather than create on the strength of one page.
+missing
+python3 - "$TMP/w/fix/versions.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); d["links"] = {"next": "https://api.appstoreconnect.apple.com/v1/apps/APP/appStoreVersions?cursor=x"}
+json.dump(d, open(sys.argv[1], "w"))
+PY
+run --create --apply --version 1.3
+[ "$RC" != 0 ] || fail "created a version from a partial version list: $OUT"
+[ "$(mutations)" = 0 ] || fail "wrote on a partial list: $(cat "$TMP/w/calls.log")"
+echo "$OUT" | grep -q "more than 50 iOS versions" || fail "wrong refusal: $OUT"
+pass "a paginated version list refuses rather than creating"
 
 echo "All update-store-listing tests passed."
