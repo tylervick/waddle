@@ -147,11 +147,15 @@ asc_version_id_if_any() {
 # built by json.dumps from the environment; nothing is spliced by hand.
 asc_create_version() {
     local body resp
-    body="$(python3 -c '
+    # APP_ID, not ASC_APP_ID: the env var is an optional override and the
+    # resolved id is this script's variable. The first real run died here
+    # ("could not build the version body") because the override was unset
+    # in the workflow and only the test suite had set it.
+    body="$(APP_ID="$APP_ID" python3 -c '
 import json, os
 print(json.dumps({"data": {"type": "appStoreVersions",
     "attributes": {"platform": "IOS", "versionString": os.environ["VERSION"]},
-    "relationships": {"app": {"data": {"type": "apps", "id": os.environ["ASC_APP_ID"]}}}}}))')" \
+    "relationships": {"app": {"data": {"type": "apps", "id": os.environ["APP_ID"]}}}}}))')" \
         || die "could not build the version body"
     resp="$(api POST "$API/v1/appStoreVersions" "$body")" || die "App Store Connect refused to create version $VERSION"
     printf '%s' "$resp" | json "d['data']['id']" || die "created version $VERSION but could not read its id"
