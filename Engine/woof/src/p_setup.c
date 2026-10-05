@@ -91,6 +91,41 @@ static const char *const bmap_format_names[] = {
 
 map_t map = {0};
 
+#ifdef WOOF_IOS
+// The node and blockmap formats of the last level this session set up, so a
+// UI test can prove a fixture actually took the compressed-nodes or rebuilt-
+// blockmap path (issue #79's cc1d13e9 and 42470994) rather than merely not
+// crashing. -1 until a level loads; reset per session from WoofIOS_Run.
+static int last_bsp_format = -1;
+static int last_bmap_format = -1;
+
+void P_ResetSessionLevelFormats(void)
+{
+  last_bsp_format = -1;
+  last_bmap_format = -1;
+}
+
+// Debug seams for WoofIOS_DebugLevelStateNow (woof_ios.c): "none" before any
+// level, else the names P_SetupLevel logs ("ZNOD", "DoomBSP", ...). The
+// blockmap name is upstream's suffix without its "+" ("BoomBlockmap" for one
+// the engine built, "XBM1"), and "lump" where upstream prints nothing, i.e. a
+// vanilla BLOCKMAP lump was used as found.
+const char *P_DebugLastBSPFormatName(void)
+{
+  return last_bsp_format < 0 ? "none" : bsp_format_names[last_bsp_format];
+}
+
+const char *P_DebugLastBlockmapFormatName(void)
+{
+  if (last_bmap_format < 0)
+  {
+    return "none";
+  }
+  const char *name = bmap_format_names[last_bmap_format];
+  return *name == '+' ? name + 1 : (*name ? name : "lump");
+}
+#endif
+
 //
 // MAP related Lookup tables.
 // Store VERTEXES, LINEDEFS, SIDEDEFS, etc.
@@ -1355,6 +1390,11 @@ void P_SetupLevel(int episode, int map_num, skill_t skill, boolean from_savegame
     bmap_format_names[map.bmap_format],
     map.reject_built ? "+Reject" : "",
     G_GetCurrentComplevelName());
+
+#ifdef WOOF_IOS
+  last_bsp_format = map.bsp_format;
+  last_bmap_format = map.bmap_format;
+#endif
 
 #ifdef WOOF_IOS
   // Test-only: with WADDLE_DEBUG_ARCHIVE_LEVEL set, archive this level's

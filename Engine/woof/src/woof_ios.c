@@ -172,9 +172,14 @@ const char *WoofIOS_DebugLevelStateNow(void)
 {
     extern int P_DebugDirtyLevelCount(void);
     extern int G_DebugRestoreCompPending(void);
-    static char buf[48];
-    snprintf(buf, sizeof(buf), "now dirtylv=%d compres=%d", P_DebugDirtyLevelCount(),
-             G_DebugRestoreCompPending());
+    extern const char *P_DebugLastBSPFormatName(void);
+    extern const char *P_DebugLastBlockmapFormatName(void);
+    static char buf[96];
+    // nodes= and bmap= name the last level's node and blockmap formats (issue
+    // #79: CompressedNodesTests reads them); "none" before a level loads.
+    snprintf(buf, sizeof(buf), "now dirtylv=%d compres=%d nodes=%s bmap=%s",
+             P_DebugDirtyLevelCount(), G_DebugRestoreCompPending(),
+             P_DebugLastBSPFormatName(), P_DebugLastBlockmapFormatName());
     return buf;
 }
 
@@ -325,6 +330,8 @@ int WoofIOS_Run(int argc, char **argv)
     HU_ResetSessionCrosshair();
     extern void P_ResetSessionDirtyLevels(void);
     P_ResetSessionDirtyLevels();
+    extern void P_ResetSessionLevelFormats(void);
+    P_ResetSessionLevelFormats();
     extern void G_ResetSessionCompatibility(void);
     G_ResetSessionCompatibility();
     extern void G_ResetRewind(boolean force);
