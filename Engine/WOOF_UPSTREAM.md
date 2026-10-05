@@ -678,6 +678,18 @@ only ever runs once):
     JSON since #2737; the app reads only a save's file name, never its contents
     (`App/Sources/Library/EngineSaveSlot.swift`).
 
+- `third-party/miniz/miniz.c`, `third-party/miniz/miniz.h` -- miniz 3.1.2
+  dropped over the 3.1.1 upstream Woof still vendors (issue #79, step 4).
+  Woof's copy was byte-identical to the 3.1.1 release, so this is the
+  upstream 3.1.2 release unmodified: a guard against a `code_len == 0`
+  infinite loop in `tinfl_decompress`, an overflow check on the zip central
+  directory offset, and parameter validation in the PNG writer. miniz parses
+  every zip and pk3 the user imports and inflates every compressed-nodes map,
+  so it is the untrusted-input surface; `Scripts/check-deps-current.sh` reads
+  `MZ_VERSION` from the header and reports it current. Drop this patch when a
+  Woof pin carries 3.1.2 or later (the file will then be identical and the
+  re-vendor merge resolves it on its own).
+
 Related (not upstream files): `Scripts/build-engine.sh` passes
 `-DCMAKE_FIND_ROOT_PATH="$OUT/$platform"` in addition to
 `-DCMAKE_PREFIX_PATH`. When `CMAKE_SYSTEM_NAME=iOS`, CMake restricts
