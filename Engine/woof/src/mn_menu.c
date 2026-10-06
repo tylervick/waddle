@@ -2324,6 +2324,52 @@ int MN_DebugMenuMoves(void)
     return menu_moves;
 }
 
+// Touch menus (iOS): a pointer press while a Y/N prompt or the Load/Save
+// delete confirmation is up is turned into 'y' by M_Responder (a mouse
+// button is input_menu_enter, and MENU_ENTER becomes ch = 'y' in the
+// messageToPrint branch; delete_verify accepts MENU_ENTER outright), so the
+// host drops presses while this is true and answers through the letters
+// instead (WoofIOS_InjectMenuAnswer). See
+// docs/learnings/menu-click-answers-prompt-yes.md.
+boolean MN_MenuMessageShowing(void)
+{
+    return menuactive && (messageToPrint || delete_verify);
+}
+
+// Debug/test telemetry (WoofIOS_DebugMenuState): which menu table is
+// current, by name, so a UI test can say "Load Game opened".
+const char *MN_DebugCurrentMenuName(void)
+{
+    if (!menuactive) return "off";
+    if (messageToPrint) return "msg";
+    if (setup_active) return "setup";
+    if (currentMenu == &MainDef) return "main";
+    if (currentMenu == &LoadDef) return "load";
+    if (currentMenu == &SaveDef) return "save";
+    if (currentMenu == &EpiDef) return "epi";
+    if (currentMenu == &NewDef) return "skill";
+    if (currentMenu == &SetupDef) return "options";
+    return "other";
+}
+
+// Debug/test telemetry (WoofIOS_DebugMenuState): centre of item `index` of
+// the current big-font menu in menu space (video.deltaw folded in, as
+// MN_PointInsideRect expects). False for the setup screens, prompts, and
+// out-of-range indices. Rects are set as the menu draws, so this is only
+// meaningful after the menu has been on screen for a frame.
+boolean MN_DebugMenuItemCenter(int index, float *x, float *y)
+{
+    if (!menuactive || setup_active || messageToPrint || !currentMenu
+        || index < 0 || index >= currentMenu->numitems)
+    {
+        return false;
+    }
+    mrect_t *rect = &currentMenu->menuitems[index].rect;
+    *x = rect->x + video.deltaw + rect->w / 2.0f;
+    *y = rect->y + rect->h / 2.0f;
+    return true;
+}
+
 const char *MN_DebugMenuGeometry(void)
 {
     static char buf[64];
