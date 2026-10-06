@@ -35,3 +35,34 @@ open('freedoom-e1m1.wad','wb').write(out)
 PY
 zdbsp -z -r -t -o App/UITests/Fixtures/freedoom-e1m1-znod.wad freedoom-e1m1.wad
 ```
+
+## `suspend-waddle-1.3.dsg`
+
+A background-suspend save written by Waddle 1.3 (commit `d943691`, App Store
+build 277) on Freedoom Phase 1 E1M1, skill 1, a few seconds into the level.
+It is the save format every release through 1.3 wrote: binary, stamped
+`Woof 16.0.0` at offset 24, with the body in the keyframe layout of the
+development snapshot those releases vendored (Woof master `798acebd`). Woof
+16.0.0 final, vendored since PR #328, writes JSON instead and its legacy
+loader recognises nothing newer than `Woof 15.0.0`, so this file is what an
+upgrading player's save looks like to the current engine. Nothing loads it
+yet; it is here so the fix for that has a real file to prove itself against.
+
+SHA-256 `2025093b9f8699435c103a005c08fd8e265061c960d58dcce119bcda16386d9f`,
+171481 bytes. The only path it embeds is the string `freedoom1.wad`.
+
+Regenerate (needs an engine build matching `d943691`; the engine inputs are
+unchanged between `d943691` and any pre-#328 commit, so a `Vendor/out` built
+there passes `Scripts/check-engine-fresh.sh`):
+
+```sh
+git worktree add --detach ../waddle-1.3 d943691 && cd ../waddle-1.3
+# provide Vendor/out, App/Resources/GameData and woof.pk3, then:
+(cd App && xcodegen generate)
+xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing:WaddleUITests/BackgroundSuspendTests/testBackgroundingALiveLevelOpensTheMenuAndWritesASave test
+# the save is left in the app's data container:
+find ~/Library/Developer/CoreSimulator/Devices/<udid>/data/Containers/Data/Application \
+  -name suspend.dsg
+```
