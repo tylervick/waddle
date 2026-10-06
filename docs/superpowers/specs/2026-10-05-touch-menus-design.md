@@ -131,16 +131,26 @@ touch means while a menu is up, so the rule is unit-testable without UIKit:
 
 ```swift
 struct MenuTouchRouter {
-    enum Began { case pointer, ignore }
-    func began(menuActive: Bool, pointerOwned: Bool) -> Began
-    enum Ended { case release, none }
-    func ended(wasPointer: Bool) -> Ended
+    static let tapSlop: CGFloat            // 10 pt
+    enum Began { case pointer, pending, ignore, passThrough }
+    func began(menuActive: Bool, trackRoute: TouchTrackRoute,
+               nearButton: Bool, pointerOwned: Bool) -> Began
+    func pendingBecameStick(from: CGPoint, to: CGPoint) -> Bool
+    enum Ended { case tap, none }
+    func ended(pendingFrom: CGPoint, at: CGPoint) -> Ended
 }
 ```
 
-`began` returns `.pointer` only when a menu is up and no finger already owns
-the pointer. Everything else is `.ignore`, including while the soft keyboard
-is active (that guard already runs first in `touchesBegan`).
+Outside the stick column (`TouchTrackRouter`'s left 40%) a menu touch is
+`.pointer` unless a finger already owns the pointer or the touch is a
+near-miss on a button. Inside the stick column it is `.pending`: the stick
+navigates menus through the virtual pad today (`DebugHUDInputTelemetryTests`
+and the Revyl menu-input-telemetry test drag it with the main menu open), so
+a pending touch that travels past `tapSlop` becomes the stick exactly as
+before, and one that lifts in place is a tap (position, press, release
+posted together on lift). With no menu up the router answers
+`.passThrough` and the stick/turn routing applies. The soft-keyboard guard
+already runs before any of this in `touchesBegan`.
 
 **`App/Sources/Touch/TouchGamepad.swift`** wraps the shim calls the way it
 wraps the others: `menuPointer(at:)`, `menuTap(down:)`,
@@ -150,14 +160,16 @@ wraps the others: `menuPointer(at:)`, `menuTap(down:)`,
 
 - A `menuTouch: UITouch?` alongside `stickTouch` and `turnTouch`.
 - `touchesBegan`: after the keyboard guard, read `WoofIOS_IsMenuActive()`
-  once for the batch. For each touch the router says `.pointer` for: store
-  it, post the pointer, then the press. Touches the router ignores while a
-  menu is up never reach the stick/turn router, so a menu tap can no longer
-  steer the player.
+  once for the batch. `.pointer`: store the touch, post the pointer, then
+  the press. `.pending`: remember the touch and where it landed.
+  `.ignore`: nothing. Only `.passThrough` reaches the stick/turn routing,
+  so a menu tap outside the stick column can no longer steer the player.
 - `touchesMoved`: the pointer finger re-posts its position (hover follows the
-  finger; sliders drag).
+  finger; sliders drag). A pending finger that travels past the slop starts
+  the stick at the point it landed, as `touchesBegan` would have.
 - `touchesEnded`/`Cancelled`: the pointer finger posts the release and is
-  forgotten.
+  forgotten. A pending finger that lifts in place posts position, press and
+  release together.
 - The 0.25 s policy timer (`startMenuPolicyTimer`) additionally drops
   `menuTouch` if the menu closed under the finger (posting the release), and
   shows or hides the prompt buttons below.
@@ -170,13 +182,16 @@ wraps the others: `menuPointer(at:)`, `menuTap(down:)`,
 **Prompt buttons.** Two `OverlayButton`s, titled "Yes" and "No", with
 accessibility identifiers `promptYesButton` and `promptNoButton`, hidden
 unless `WoofIOS_IsMenuMessageShowing()` is true. They call
-`answerPrompt(yes:)` on press. `TouchOverlayControl` gains `.promptYes` and
-`.promptNo`; `TouchOverlayLayout.frame(for:)` places them side by side,
-centred horizontally in the usable area's bottom band, above the safe-area
-inset, the same diameter as USE, with the standard gap. The layout test suite
-pins that both frames lie inside the usable area and overlap no other
-control's frame at every width the runtime enumerates (the pattern from
-`LiveDeviceOverlayLayoutTests`). While the buttons are visible, MAP stays
+`answerPrompt(yes:)` on press. They are deliberately *not* `TouchOverlayControl` cases: that enum is
+`CaseIterable` and drives the layout editor, which must not offer to move a
+transient button. Instead `TouchOverlayLayout.promptButtonFrames()` returns
+the pair, side by side in the *top* band, centred between MAP and ≡, No on
+the left and Yes on the right, USE's diameter. The top band rather than the
+bottom one because USE's default centre is 160 pt in from the right edge,
+which in portrait is where a centred bottom pair would land. The layout
+test suite pins that both frames lie inside the usable area, sit below the
+HUD reserve, and overlap no control's default frame across the phone, iPad
+and tiny-window bounds. While the buttons are visible, MAP stays
 hidden as it is today for any menu.
 
 The existing fallback remains: USE answers yes (`gamepad_confirm` is
@@ -209,11 +224,15 @@ The existing fallback remains: USE answers yes (`gamepad_confirm` is
 
 ## Testing
 
-- **Unit (`WaddleTests`)**: `MenuTouchRouterTests` for the began/ended
-  rules; `TouchOverlayLayoutTests` additions for the prompt buttons' frames.
+- **Unit (`WaddleTests`)**: `MenuTouchRouterTests` for the began/pending/
+  ended rules; `TouchOverlayLayoutTests` additions for the prompt buttons'
+  frames.
 - **UI (`WaddleUITests`)**: `TouchMenuTests`, modelled on the probe:
   1. open the main menu with ≡, read `tgt=`, tap "Load Game" once, assert
-     `cm=load`;
+     `cm=load`; tap "Options" inside the stick column and assert it opened
+     on the lift; drag the stick with the menu up and assert `mv=` grew and
+     nothing was tapped; tap the empty space above "New Game" and assert
+     nothing changed;
   2. tap "Quit", assert `msg=1`, tap the middle of the screen, assert `msg=1`
      and `md=` incremented;
   3. tap `promptNoButton`, assert `msg=0` and `cm=off` (answering a prompt
