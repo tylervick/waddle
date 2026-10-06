@@ -651,3 +651,147 @@ Deliberately not listed: the virtual-pad selection and controller hand-off
 fixes (`e13fd2a`, `0244905`). The first only bit under automation's phantom
 controller, and the second fixed a regression the first introduced within this
 same release, so neither was ever broken for a player on 1.1.
+
+## 16. Accessibility Nutrition Label — DRAFT, nothing submitted
+
+**Drafted answer (2026-10-05, issue #217): claim none of the nine features, on
+either device family.** Not yet through the user gate, and nothing has been
+entered in App Store Connect: `GET /v1/apps/6792905089/accessibilityDeclarations`
+returned an empty `data` array when measured 2026-08-28 and again on
+2026-10-05, and this section does not change that. Whether to publish an explicit "supports none" declaration or
+leave the label undeclared is the owner's call; Apple shows the section on the
+product page either way ("If you don't provide this information for a device,
+the section will still appear on your product page and show that you haven't
+indicated support yet. This section will also indicate if your app supports
+none of these accessibility features.").
+
+Zero claims is the measured answer, not a placeholder. The shell has real,
+tested accessibility work behind it (#216, #215, the contrast tests), and it is
+recorded below so it is not re-derived. It is not enough, because of the one
+rule every feature is judged by.
+
+### The rule, and why the game surface decides it
+
+Apple's overview: "To indicate support for an accessibility feature in the
+Accessibility Nutrition Labels, users must be able to complete all of the
+common tasks of your app using that feature." And: "Common tasks consist of the
+primary functionality that you expect users to perform in your app, plus
+functionality that's fundamental to using an app in general: first launch
+experience, login, purchase, and settings." And: "Pay extra attention to custom
+elements, since they are less likely than standard elements to have
+accommodations for accessible experiences."
+
+Waddle's common tasks are: first launch and the shelf, importing a WAD, the
+game page, Settings (Control Feel, the touch layout editor), and **playing the
+game**. The first four are SwiftUI. The last is the app's primary
+functionality, and its menus, HUD messages, status bar, automap and
+intermission screens are pixels the engine draws into an SDL surface, under a
+UIKit touch overlay. No system accessibility setting reaches that surface:
+`App/Sources` and `Engine/woof/src` contain no read of Reduce Motion,
+Differentiate Without Colour, Increase Contrast or the content size category
+on the engine's behalf (grep at `afc80e5`, 2026-10-05; neither
+`EngineSession.swift` nor anything under `App/Sources/Touch` reads a text
+size). So a feature the shell supports is still not a feature the app supports
+until the game supports it too.
+
+Bundled Freedoom is shipped content, not "third-party or user-generated
+content" in Apple's sense (same split as §8, "Shipped content vs. imported
+content"), so the third-party exclusions do not excuse the game surface.
+
+### Answers
+
+Three verdicts, per #217 ("An answer with no corresponding observation ... is
+not verified and must not be submitted"). **Claim** needs an observation: a
+test that pins the behaviour, or a recorded simulator or device run.
+**Do not claim — not supported** names what shows it. **Do not claim —
+unobserved** means plausibly supported in part, with nothing in the repo
+observing it. Attribute names are the App Store Connect API's
+`accessibilityDeclarations` attributes; the same answers apply to `IPHONE` and
+`IPAD` (`TARGETED_DEVICE_FAMILY` is `1,2`).
+
+| Feature (attribute) | Verdict | Apple's criterion applied | What the answer rests on |
+|---|---|---|---|
+| VoiceOver (`supportsVoiceover`) | **Do not claim — not supported** | "Make sure users can complete all of the common tasks of your app using only VoiceOver, without sighted assistance." "VoiceOver should be able to speak all visible text in your app, and all text entry methods should be operable by VoiceOver users." "proficient testing of your app using VoiceOver is necessary on all devices your app supports." | Engine-drawn text (menus, HUD messages, status bar) has no accessibility representation: the only `accessibilityLabel`s in `App/Sources` are on shell views and `OverlayButton`. The overlay half is real but unobserved: `OverlayButtonAccessibilityTraitTests` pins `[.button, .allowsDirectInteraction]` (#215, PR #302, merged 2026-10-01), yet `docs/learnings/voiceover-direct-interaction-for-game-controls.md` still ends at "What the device run must record" with nothing appended, and the three VoiceOver boxes in `docs/manual-testing.md` are unticked. The trait was decided from Apple's documentation; no device has confirmed it. |
+| Voice Control (`supportsVoiceControl`) | **Do not claim — not supported** | "Users should be able to complete all of the common tasks, actions, and functions of your app using only Voice Control, without touching the display." "Using only their voice, users should be able to activate all tappable or clickable elements on the screen." | The stick and turn areas are not accessibility elements (same learning file, last paragraph), so "Show names" and "Show numbers" have nothing to offer for movement, and play needs held and simultaneous input. Engine menus are pixels. No Voice Control run of any screen, shell included, is recorded anywhere in the repo. |
+| Larger Text (`supportsLargerText`) | **Do not claim — not supported** | "You can indicate that your app supports Larger Text if users can enlarge text to at least 200% or the maximum font size for the system." "Body text in the primary iPhone, iPad, and Mac views should increase in size without affecting readability through overlapping layouts or severe truncation." "Don't rely on system-provided assistive technology like Zoom or Hover Text to claim support for Larger Text." | The primary view is the game, and its text does not follow the setting: nothing passes the content size category to the engine, and overlay button labels are sized from the button (`.systemFont(ofSize: diameter * 0.28)`, `TouchOverlayView.swift`). The shell half **is** observed (#216, PR #221, merged 2026-09-17): `AccessibilityTextSizeLayoutTests` (e.g. `testWelcomeCardLeavesTheTileRowTappableAtEveryAccessibilitySize`, `testSideBySideKeepsTheFirstRowTappableAtEveryAccessibilitySize`, `testDetailControlsStayReachableAtEveryAccessibilitySize`) and `ShelfHeroLayoutTests.testAccessibilitySizesKeepOneColumnOnEverySupportedPhone`, via `Theme.gridMinimumTileWidth(for:)`. Two measured trades from the #217 comment of 2026-09-16 would have to be weighed against "severe truncation" before any future claim: the welcome card drops its description, and landscape at accessibility sizes spends the grid's peek to keep the art's 96 pt floor. |
+| Dark Interface (`supportsDarkInterface`) | **Do not claim — unobserved** | "You may indicate support if your app is dark by default for all common tasks, excluding any third-party or user-generated content." "the goal isn't only to make the interface dark, but to keep it that way. Even temporary flashes of bright content may cause discomfort or a difficult user experience." | The shell is dark-only and pinned: `ContentView` applies `.preferredColorScheme(.dark)`, and `ThemeContrastTests`' colorset loader fails any token that gains a second (light) appearance. The game surface has never been evaluated, and the source argues against assuming: full-screen pain/pickup/powerup palette flashes default to on (`palette_changes = PAL_CHANGE_ON`, `st_stuff.c`) and the invulnerability colormap defaults to `INVUL_MBF` (`r_main.c`). Nobody has recorded what those, or a bright map, put on screen. |
+| Differentiate Without Color Alone (`supportsDifferentiateWithoutColorAlone`) | **Do not claim — unobserved** | "You may indicate your app supports Differentiate Without Color Alone if the common tasks of your app don't rely on color as the only way to convey information." | Never audited, shell or game. Doom's keys and locked doors are red/blue/yellow and the automap colours lines by type; whether Freedoom's sprites, the status bar's key slots and the engine's text messages give a second cue in every case has not been looked at. Nothing reads the system setting. |
+| Sufficient Contrast (`supportsSufficientContrast`) | **Do not claim — unobserved** | "You may indicate your app supports Sufficient Contrast if the user interface for your common tasks, including text, buttons, and other controls, meets general contrast guidelines by default — usually 4.5 to 1 for most text elements." For custom frameworks: "provide users with a choice of multiple color schemes that meet contrast minimums." | The shell's tokens are pinned at 4.5:1 by `ThemeContrastTests` (`testColouredTextClearsAAOnBothSurfaces`, `testBlackLabelClearsAAOnTheLightFills`, `testThemeOnAccentIsBlack`; PR #305, merged 2026-10-01). Nothing measures the in-game controls: overlay labels are white at 0.7 alpha on a white 0.12-alpha fill with a 0.35-alpha border, over whatever frame the game is drawing, so their ratio is a property of the scene, not a constant. Nothing measures the engine's own text either, and there is no alternative colour scheme and no Increase Contrast handling. |
+| Reduced Motion (`supportsReducedMotion`) | **Do not claim — not supported** | "Once your app no longer displays problematic motion triggers to users whose setting indicates a need or preference for reduced motion, you may indicate that it supports Reduced Motion." Triggers named include "multi-axis motion, multi-speed motion, spinning, or vortex effects" and "any other ongoing motion". | Nothing reads the setting (grep above). The engine's defaults are the melt wipe (`screen_melt` → `wipe_Melt`, `d_main.c`) and 100% view bob (`view_bobbing_pct` = 4, `g_game.c`) over a first-person view. Woof has the switches ("Screen wipe effect", "View Bob", "Pain/Pickup/Powerup flashes" in `mn_setup.c`), but the player has to find them in the engine's own menu; the system preference changes nothing. |
+| Captions (`supportsCaptions`) | **Do not claim — not supported** | "You may say that your app supports Captions if it provides captions for video played through your app, including game interstitials and audible dialogue. You may also indicate support for Captions if your app provides text transcripts of audio-only content, such as music lyrics or spoken dialogue in podcasts." | The app provides no captions or transcripts of anything: no captioning facility in `App/Sources` or `Engine/woof/src` (grep for subtitle/caption, 2026-10-05), and game sound carries information (monsters, doors, pickups) with no text equivalent. The criterion is permissive, and nothing here meets it. |
+| Audio Descriptions (`supportsAudioDescriptions`) | **Do not claim — not supported** | "You may say that your app supports Audio Descriptions if it provides narrated descriptions of relevant on-screen content for video played in your app, including game interstitials and audible dialogue." "opening sequences, game interstitials, and cut scenes should be described, even if they're not delivered in a standard video player." | No narration exists anywhere in the app. The engine does present time-based visual content of the kind the criterion names (title and demo loop, intermission and finale screens, `f_finale.c`), all undescribed. |
+
+Engine paths are relative to `Engine/woof/src` at the `1462fadc` pin; a
+re-vendor can move the defaults, so re-read them rather than trusting this
+table.
+
+### What would change these answers
+
+- **Dark Interface is the nearest.** It needs one recorded run of bundled
+  Freedoom (simulator is enough) that captures the title screen, a pickup
+  flash, a pain flash, an invulnerability pickup, an outdoor map and an
+  intermission, written up under `docs/learnings/`, and then a judgement
+  against "temporary flashes of bright content". If the flashes are the
+  only failure, shipping `palette_changes` as Reduced or Off by default is an
+  engine-config change, not a rewrite.
+- **Sufficient Contrast** needs the overlay measured against a worst-case
+  bright frame (3:1 is Apple's "commonly recommended" floor for non-text
+  controls, 4.5:1 for the labels) and the engine's menu and status-bar text
+  measured at all. An overlay that draws its own dark backing would make the
+  ratio a constant that a test can pin, in the manner of `ThemeContrastTests`.
+- **Differentiate Without Color Alone** needs a run with Settings →
+  Accessibility → Display & Text Size → Color Filters → Grayscale: the shell
+  end to end, then a Freedoom map with keyed doors and the automap open,
+  recording each place colour is the only cue.
+- **Reduced Motion** needs the app to read `UIAccessibility.isReduceMotionEnabled`
+  and start the engine with the wipe off and view bob at zero, with a test
+  pinning the mapping. That still leaves the first-person view itself, which
+  is the judgement call to make then, not now.
+- **Larger Text** needs the game's own text to scale, which the engine has no
+  path for today. The shell evidence is already in place for that day.
+- **VoiceOver** has two gates, and the device run is the smaller one. Run the
+  three checks the learning file lists on a physical device and append the
+  result; that confirms the overlay. A claim additionally needs the engine's
+  menus and HUD to be spoken, which is new engine-side work.
+- **Voice Control** needs the same engine-surface work plus a recorded Voice
+  Control pass of the shell, and an answer for held, simultaneous input.
+- **Captions and Audio Descriptions** change only if the app grows a
+  captioning or narration feature.
+- **Any claim is per device family.** The #217 comment of 2026-09-16
+  describes #216's height budgets as covering "every supported phone plus both
+  landscape viewports"; before an `IPAD` record claims anything, check that
+  the observation behind it was made at an iPad size.
+- **Apple's criteria move.** They were read on 2026-10-05; re-read them before
+  changing an answer.
+
+### Verification
+
+Before and after anything is entered, read the declaration back; per
+`docs/learnings/`, a 201 is not proof the intended state landed:
+
+```bash
+export ASC_KEY_ID=... ASC_ISSUER_ID=... ASC_KEY_PATH=...
+JWT=$(Scripts/asc-jwt.sh)
+curl -sS -H "Authorization: Bearer $JWT" \
+  "https://api.appstoreconnect.apple.com/v1/apps/6792905089/accessibilityDeclarations"
+```
+
+Expected today: an empty `data` array. If the owner publishes a declaration,
+every `supports*` attribute on both the `IPHONE` and the `IPAD` record must
+match the table above; a `true` with no observation behind it in this section
+is the metadata violation #217 exists to prevent.
+
+**Sources** (fetched 2026-10-05; every quotation above was checked verbatim
+against the served page): [Overview of Accessibility Nutrition
+Labels](https://developer.apple.com/help/app-store-connect/manage-app-accessibility/overview-of-accessibility-nutrition-labels) ·
+[VoiceOver](https://developer.apple.com/help/app-store-connect/manage-app-accessibility/voiceover-evaluation-criteria) ·
+[Voice Control](https://developer.apple.com/help/app-store-connect/manage-app-accessibility/voice-control-evaluation-criteria) ·
+[Larger Text](https://developer.apple.com/help/app-store-connect/manage-app-accessibility/larger-text-evaluation-criteria) ·
+[Dark Interface](https://developer.apple.com/help/app-store-connect/manage-app-accessibility/dark-interface-evaluation-criteria) ·
+[Differentiate Without Color Alone](https://developer.apple.com/help/app-store-connect/manage-app-accessibility/differentiate-without-color-alone-evaluation-criteria) ·
+[Sufficient Contrast](https://developer.apple.com/help/app-store-connect/manage-app-accessibility/sufficient-contrast-evaluation-criteria) ·
+[Reduced Motion](https://developer.apple.com/help/app-store-connect/manage-app-accessibility/reduced-motion-evaluation-criteria) ·
+[Captions](https://developer.apple.com/help/app-store-connect/manage-app-accessibility/captions-evaluation-criteria) ·
+[Audio Descriptions](https://developer.apple.com/help/app-store-connect/manage-app-accessibility/audio-descriptions-evaluation-criteria) ·
+[`AccessibilityDeclaration`](https://developer.apple.com/documentation/appstoreconnectapi/accessibilitydeclaration)
+(attribute and `deviceFamily` names).
