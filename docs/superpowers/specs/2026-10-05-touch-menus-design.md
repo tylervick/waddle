@@ -173,11 +173,12 @@ wraps the others: `menuPointer(at:)`, `menuTap(down:)`,
 - The 0.25 s policy timer (`startMenuPolicyTimer`) additionally drops
   `menuTouch` if the menu closed under the finger (posting the release), and
   shows or hides the prompt buttons below.
-- Attract mode: a touch that begins while `WoofIOS_IsAttractMode()` is true
-  and ends within a tap's travel (reuse the automap gesture's idle threshold)
-  posts a paired `KEY_ESCAPE` through `WoofIOS_InjectKey`, which
-  `MN_Responder`'s `!menuactive` branch turns into "open the main menu". A
-  drag in attract mode still goes to the sticks as today.
+- Attract mode: a free-area touch that begins while `WoofIOS_IsAttractMode()`
+  is true is routed to the stick or turn exactly as during play (a press
+  still engages the stick, which `TouchControlsTests` measures on the title
+  screen), and if it lifts within `MenuTouchRouter.tapSlop` it also posts a
+  paired `KEY_ESCAPE` through `WoofIOS_InjectKey`, which `MN_Responder`'s
+  `!menuactive` branch turns into "open the main menu".
 
 **Prompt buttons.** Two `OverlayButton`s, titled "Yes" and "No", with
 accessibility identifiers `promptYesButton` and `promptNoButton`, hidden
