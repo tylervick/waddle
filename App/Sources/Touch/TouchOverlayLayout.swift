@@ -209,4 +209,33 @@ struct TouchOverlayLayout {
         return CGRect(x: center.x - diameter / 2, y: center.y - diameter / 2,
                       width: diameter, height: diameter)
     }
+
+    /// Diameter of the Yes/No prompt buttons at scale 1.0: USE's, since
+    /// they answer the same kind of one-shot question USE confirms.
+    static let promptButtonBaseDiameter: CGFloat = 64
+
+    /// Where the Yes/No buttons go while the engine shows a Y/N prompt:
+    /// side by side in the top band, centred between MAP and ≡, No on the
+    /// left and Yes on the right as iOS orders them. The top band rather
+    /// than the bottom one because USE's default centre is 160 pt in from
+    /// the right edge, which in portrait is exactly where a centred bottom
+    /// pair would sit. Not a `TouchOverlayControl`: they are transient, and
+    /// the layout editor must not offer to move them.
+    func promptButtonFrames() -> PromptButtonFrames {
+        let s = scale
+        let diameter = Self.promptButtonBaseDiameter * s
+        let y = topRowY + 36 * s
+        let mid = usable.midX
+        func frame(centeredAt x: CGFloat) -> CGRect {
+            CGRect(x: x - diameter / 2, y: y - diameter / 2, width: diameter, height: diameter)
+        }
+        return PromptButtonFrames(no: frame(centeredAt: mid - 40 * s),
+                                  yes: frame(centeredAt: mid + 40 * s))
+    }
+}
+
+/// The two prompt-button frames, in overlay coordinates.
+struct PromptButtonFrames: Equatable {
+    let no: CGRect
+    let yes: CGRect
 }

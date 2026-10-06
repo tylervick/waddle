@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 @testable import Waddle
 
@@ -253,6 +254,70 @@ final class TouchOverlayLayoutGeometryTests: XCTestCase {
         for control in TouchOverlayControl.allCases {
             XCTAssertTrue(usable.contains(l.frame(for: control)),
                           "\(control.rawValue) is under a safe-area inset")
+        }
+    }
+}
+
+/// The Yes/No buttons that answer an engine prompt ("Quit?", "Load game?",
+/// delete this save?). They sit in the top band between MAP and ≡, not the
+/// bottom band: in portrait USE's default centre is 160 pt in from the
+/// right edge, which is where a centred bottom pair would land.
+final class TouchOverlayLayoutPromptButtonTests: XCTestCase {
+    private let allBounds: [CGRect] = [
+        Bounds.iPhone17ProPortrait, Bounds.iPhone17ProLandscape, Bounds.iPhone16eLandscape,
+        Bounds.iPadPro13Landscape, Bounds.iPadPro13Portrait, Bounds.iPadPro11Landscape,
+        Bounds.tinyWindow,
+    ]
+
+    private func layouts(_ bounds: CGRect) -> [(TouchOverlayLayout, CGRect)] {
+        let insets = UIEdgeInsets(top: 59, left: 0, bottom: 34, right: 0)
+        return [
+            (TouchOverlayLayout(bounds: bounds, safeAreaInsets: .zero, hudReserve: 0), bounds),
+            (TouchOverlayLayout(bounds: bounds, safeAreaInsets: insets, hudReserve: 60),
+             bounds.inset(by: insets)),
+        ]
+    }
+
+    func testPromptButtonsStayInsideTheUsableRect() {
+        for bounds in allBounds {
+            for (layout, usable) in layouts(bounds) {
+                let frames = layout.promptButtonFrames()
+                XCTAssertTrue(usable.contains(frames.no), "No outside usable at \(bounds)")
+                XCTAssertTrue(usable.contains(frames.yes), "Yes outside usable at \(bounds)")
+            }
+        }
+    }
+
+    func testPromptButtonsSitBelowTheHUDReserve() {
+        for bounds in allBounds {
+            let layout = TouchOverlayLayout(bounds: bounds, safeAreaInsets: .zero, hudReserve: 60)
+            XCTAssertGreaterThanOrEqual(layout.promptButtonFrames().no.minY, 60, "\(bounds)")
+        }
+    }
+
+    func testYesIsRightOfNoAndTheyDoNotTouch() {
+        for bounds in allBounds {
+            for (layout, _) in layouts(bounds) {
+                let frames = layout.promptButtonFrames()
+                XCTAssertGreaterThan(frames.yes.minX, frames.no.maxX, "\(bounds)")
+                XCTAssertEqual(frames.yes.midY, frames.no.midY, accuracy: 0.001)
+                XCTAssertEqual(frames.yes.width,
+                               TouchOverlayLayout.promptButtonBaseDiameter * layout.scale,
+                               accuracy: 0.001)
+            }
+        }
+    }
+
+    func testPromptButtonsOverlapNoDefaultControl() {
+        for bounds in allBounds {
+            for (layout, _) in layouts(bounds) {
+                let frames = layout.promptButtonFrames()
+                for control in TouchOverlayControl.allCases {
+                    let other = layout.defaultFrame(for: control)
+                    XCTAssertFalse(other.intersects(frames.no), "No overlaps \(control) at \(bounds)")
+                    XCTAssertFalse(other.intersects(frames.yes), "Yes overlaps \(control) at \(bounds)")
+                }
+            }
         }
     }
 }
