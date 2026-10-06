@@ -545,9 +545,11 @@ struct ShelfView: View {
     private func startProfileSessionIfRequested() {
         guard !ProfileHarness.started,
               let request = ProfileHarness.request(
-                  environment: ProcessInfo.processInfo.environment),
-              let game = ((try? library.shelfGames()) ?? [])
-                  .first(where: { $0.name == request.gameName })
+                  environment: ProcessInfo.processInfo.environment)
+        else { return }
+        let games = (try? library.games()) ?? []
+        guard let game = games.first(where: { $0.isBaseGame && $0.name == request.gameName })
+            ?? games.first(where: { $0.name == request.gameName })
         else { return }
         ProfileHarness.started = true
         let main = CFRunLoopGetMain()
