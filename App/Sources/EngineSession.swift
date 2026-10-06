@@ -166,6 +166,15 @@ enum EngineSession {
             }
         }
         #endif
+        #if DEBUG || WADDLE_PROFILE_HARNESS
+        // Profiling only (issue #246; see ProfileHarness for why this one
+        // seam is not DEBUG-only): the demo Scripts/profile-session.sh asked
+        // for. The app exits when that session ends, so there is no later
+        // session in the launch for this to leak into.
+        effectiveArguments += ProfileHarness
+            .request(environment: ProcessInfo.processInfo.environment)?
+            .engineArguments ?? []
+        #endif
 
         var argv: [UnsafeMutablePointer<CChar>?] = effectiveArguments.map { strdup($0) }
         defer { argv.forEach { free($0) } }
