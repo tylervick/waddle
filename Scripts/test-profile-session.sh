@@ -73,7 +73,9 @@ case "$1 $2 ${3:-}" in
     done
     # Non-zero on purpose: a target that ends itself makes xctrace do this.
     exit 54 ;;
-  "xctrace export "*) exit 0 ;;
+  "xctrace export "*)
+    [ -z "${STUB_EXPORT_FAIL:-}" ] || exit 1
+    exit 0 ;;
 esac
 echo "stub xcrun: unhandled args: $*" >&2; exit 64
 EOF
@@ -92,11 +94,12 @@ chmod +x "$TMP/bin/xcrun" "$TMP/bin/xcodebuild"
 # Runs the script; leaves its status in RC and its output in $TMP/out.
 run() {
   : > "$CALLS"
-  rm -rf "$REPO/build" "$TMP/o"
+  rm -rf "$REPO/build"
+  if [ "${REUSE_OUTPUT:-}" != 1 ]; then rm -rf "$TMP/o"; fi
   RC=0
   env PATH="$TMP/bin:/usr/bin:/bin" CALLS="$CALLS" STUB_REPO="$REPO" \
       STUB_DEVICES="${DEVICES:-$TMP/both.json}" STUB_DEVICECTL_FAIL="${DEVICECTL_FAIL:-}" \
-      STUB_NO_TRACE="${NO_TRACE:-}" \
+      STUB_NO_TRACE="${NO_TRACE:-}" STUB_EXPORT_FAIL="${EXPORT_FAIL:-}" \
       "$REPO/Scripts/profile-session.sh" --output-dir "$TMP/o" "$@" > "$TMP/out" 2>&1 || RC=$?
 }
 refused() {  # label, expected message; nothing may have been built or recorded
@@ -184,6 +187,33 @@ pass "--template, --runs and --mode reach xctrace and the record"
 NO_TRACE=1 run
 [ "$RC" -ne 0 ] && grep -q "left no trace" "$TMP/out" || fail "a missing trace was not an error"
 pass "a run with no trace fails"
+
+# 12b. A reused directory must not make a failed recording look successful.
+seed_stale_output() {
+  for n in 1 2; do
+    mkdir -p "$TMP/o/run-$n.trace"
+    touch "$TMP/o/run-$n.trace/stale"
+    echo stale > "$TMP/o/run-$n.toc.xml"
+  done
+}
+seed_stale_output
+REUSE_OUTPUT=1 NO_TRACE=1 run
+[ "$RC" -ne 0 ] && grep -q "run 1 left no trace" "$TMP/out" \
+  || fail "a stale trace masked a failed recording"
+[ ! -e "$TMP/o/run-1.trace" ] && [ ! -e "$TMP/o/run-1.toc.xml" ] \
+  || fail "failed recording left stale output"
+pass "a stale trace cannot satisfy a new recording"
+
+# 12c. Every run clears its old trace and TOC, even if TOC export fails.
+seed_stale_output
+REUSE_OUTPUT=1 EXPORT_FAIL=1 run
+[ "$RC" -eq 0 ] || { cat "$TMP/out" >&2; fail "reused output run exited $RC"; }
+for n in 1 2; do
+  [ -d "$TMP/o/run-$n.trace" ] && [ ! -e "$TMP/o/run-$n.trace/stale" ] \
+    || fail "run $n did not replace its stale trace"
+  [ ! -e "$TMP/o/run-$n.toc.xml" ] || fail "run $n left a stale table of contents"
+done
+pass "each recording replaces stale output, including when TOC export fails"
 
 # 13. Plumbing mode: same pipeline, simulator build, stamped three ways.
 run --simulator-plumbing-check --device "$SIM"

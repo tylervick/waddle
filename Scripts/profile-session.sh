@@ -313,6 +313,8 @@ fi
 n=1
 while [ "$n" -le "$RUNS" ]; do
   trace="$OUT/run-$n.trace"
+  # Only output from this recording may satisfy the trace check below.
+  rm -rf "$trace" "$OUT/run-$n.toc.xml"
   echo "profile-session: run $n of $RUNS -- recording (limit $TIME_LIMIT)"
   started="$(date +%s)"
   status=0
