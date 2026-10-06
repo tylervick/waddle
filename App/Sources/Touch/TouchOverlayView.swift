@@ -19,6 +19,15 @@ final class TouchOverlayView: UIView {
     // device-scaled `layout.stickRadius`, on every touch-begin.
     private var stickModel = TouchStickModel(center: .zero, radius: 60)
     private var turnTouch: UITouch?
+    /// The finger driving the engine menu's pointer (`MenuTouchRouter`).
+    private var menuTouch: UITouch?
+    /// A finger that landed in the stick column while a menu was up, and
+    /// where: the stick if it travels, a tap if it lifts in place.
+    private var pendingMenuTouch: (touch: UITouch, start: CGPoint)?
+    private let menuRouter = MenuTouchRouter()
+    /// Answer an engine Y/N prompt; shown only while one is on screen.
+    private let promptNoButton: OverlayButton
+    private let promptYesButton: OverlayButton
     private var turnModel = TouchStickModel(center: .zero, radius: 60)
     private var lastTurnX: CGFloat = 0
 
@@ -58,10 +67,27 @@ final class TouchOverlayView: UIView {
         self.debugHUDEnabled = debugHUDEnabled
         self.layoutOverrides = layoutOverrides
         self.keyboard = TouchKeyboard(injector: gamepad)
+        // Created here and never added to `buttons`: they are not a
+        // `TouchOverlayControl` (the layout editor must not offer them), and
+        // they answer on the press, not the release, because a prompt needs
+        // one keystroke and OverlayPressTiming's held release is for the pad.
+        let answer = { (yes: Bool) -> (Bool) -> Void in
+            { down in if down { gamepad.answerPrompt(yes: yes) } }
+        }
+        promptNoButton = OverlayButton(title: "No", size: TouchOverlayLayout.promptButtonBaseDiameter,
+                                       onPress: answer(false))
+        promptNoButton.accessibilityIdentifier = "promptNoButton"
+        promptYesButton = OverlayButton(title: "Yes", size: TouchOverlayLayout.promptButtonBaseDiameter,
+                                        onPress: answer(true))
+        promptYesButton.accessibilityIdentifier = "promptYesButton"
         super.init(frame: .zero)
         backgroundColor = .clear
         isMultipleTouchEnabled = true
         accessibilityIdentifier = "touchOverlay"
+        for button in [promptNoButton, promptYesButton] {
+            button.isHidden = true
+            addSubview(button)
+        }
 
         for layer in [stickBase, stickKnob, turnBase, turnKnob] {
             layer.fillColor = UIColor.white.withAlphaComponent(0.12).cgColor
@@ -244,6 +270,8 @@ final class TouchOverlayView: UIView {
             self?.updateAutomapAvailability()
             self?.updateKeyboardForContext()
             self?.dropAutomapGestureIfMapClosed()
+            self?.updatePromptButtons()
+            self?.dropMenuTouchesIfMenuClosed()
         }
         RunLoop.main.add(timer, forMode: .common)
         menuPolicyTimer = timer
@@ -263,6 +291,27 @@ final class TouchOverlayView: UIView {
     private func updateAutomapAvailability() {
         let hideForMenu = WoofIOS_IsMenuActive()
         buttons.first { $0.accessibilityIdentifier == "automapButton" }?.isHidden = hideForMenu
+    }
+
+    /// The Yes/No pair appears with an engine prompt and leaves with it.
+    /// The engine side also gates the answer itself, so a press that lands
+    /// in the poll's 0.25 s window after the prompt closed is dropped there.
+    private func updatePromptButtons() {
+        let showing = gamepad.isMenuMessageShowing
+        promptNoButton.isHidden = !showing
+        promptYesButton.isHidden = !showing
+    }
+
+    /// A menu can close under a finger (the tapped item closed it, or the
+    /// app was backgrounded). Forget the finger; the engine side posts the
+    /// release for a press that was posted, so nothing stays held.
+    private func dropMenuTouchesIfMenuClosed() {
+        guard !WoofIOS_IsMenuActive() else { return }
+        if menuTouch != nil {
+            menuTouch = nil
+            gamepad.menuTap(down: false)
+        }
+        pendingMenuTouch = nil
     }
 
     // MARK: Soft keyboard (four-finger tap; see design spec)
@@ -370,16 +419,19 @@ final class TouchOverlayView: UIView {
         // sees of this overlay's input (WoofIOS_DebugInputState): which
         // gamepad it has open and whether that is our virtual pad, button
         // events it has processed, and the menu cursor.
-        // DebugHUDInputTelemetryTests parses that last segment; a Revyl
-        // device run reads it off a screenshot.
+        // DebugHUDInputTelemetryTests parses that segment; a Revyl
+        // device run reads it off a screenshot. Last, the touch-menu state
+        // (WoofIOS_DebugMenuState: current menu, prompt flag, pointer
+        // counters, item centres), which TouchMenuTests reads.
         debugHUDLabel?.text = String(
-            format: "build %@ (%@) · %@ · events %d · trigger %.2f · turn %.2f · dz %.2f · move %.2f\n%@ · %@ · %@",
+            format: "build %@ (%@) · %@ · events %d · trigger %.2f · turn %.2f · dz %.2f · move %.2f\n%@ · %@ · %@ · %@",
             BuildInfo.commit, BuildInfo.branch, scheme == .classic ? "classic" : "modern",
             WoofIOS_DebugTouchEventCount(), trigger,
             tuning.turnSpeed, tuning.stickDeadZone, tuning.moveSensitivity,
             String(cString: WoofIOS_DebugWindowState()),
             String(cString: WoofIOS_DebugGameState()),
-            String(cString: WoofIOS_DebugInputState()))
+            String(cString: WoofIOS_DebugInputState()),
+            String(cString: WoofIOS_DebugMenuState()))
         // The line count can change with the text (a longer pad name, a
         // menu item), and the frame and the buttons below it follow it.
         if let debugHUDLabel, debugHUDLabel.frame.height != debugHUDStripHeight {
@@ -462,6 +514,9 @@ final class TouchOverlayView: UIView {
                   let control = TouchOverlayControl(rawValue: id) else { continue }
             button.frame = layout.frame(for: control)
         }
+        let prompt = layout.promptButtonFrames()
+        promptNoButton.frame = prompt.no
+        promptYesButton.frame = prompt.yes
     }
 
     /// Live routing decision for the current geometry. Recomputed per
@@ -496,8 +551,29 @@ final class TouchOverlayView: UIView {
         // touch instead.
         let router = trackRouter
         let automapUp = WoofIOS_IsAutomapActive()
+        let menuUp = WoofIOS_IsMenuActive()
         for touch in touches {
             let point = touch.location(in: self)
+            let route = router.route(point, stickTracking: stickTouch != nil,
+                                     turnTracking: turnTouch != nil)
+            switch menuRouter.began(menuActive: menuUp, trackRoute: route,
+                                    nearButton: router.isNearButton(point),
+                                    pointerOwned: menuTouch != nil) {
+            case .pointer:
+                // Position first, then the press: the engine checks a press
+                // against the item the latest position highlighted.
+                menuTouch = touch
+                gamepad.menuPointer(at: point)
+                gamepad.menuTap(down: true)
+                continue
+            case .pending:
+                pendingMenuTouch = (touch, point)
+                continue
+            case .ignore:
+                continue
+            case .passThrough:
+                break
+            }
             if automapUp {
                 // Buttons keep their near-miss cushion; everything else is
                 // the map's. Up to two fingers: a third is ignored.
@@ -506,15 +582,9 @@ final class TouchOverlayView: UIView {
                 automapLastPoints.append(point)
                 continue
             }
-            switch router.route(point,
-                                stickTracking: stickTouch != nil,
-                                turnTracking: turnTouch != nil) {
+            switch route {
             case .stick:
-                stickTouch = touch
-                stickModel = TouchStickModel(center: point, radius: layout.stickRadius,
-                                             deadZone: CGFloat(tuning.stickDeadZone))
-                drawStick(at: point)
-                stickEngagedMarker.isHidden = false
+                beginStick(touch, at: point)
             case .turn:
                 turnTouch = touch
                 lastTurnX = point.x
@@ -528,6 +598,16 @@ final class TouchOverlayView: UIView {
         }
     }
 
+    /// Start the movement stick under `touch` at `point`: on touch-down in
+    /// the stick column, or when a pending menu touch travels far enough.
+    private func beginStick(_ touch: UITouch, at point: CGPoint) {
+        stickTouch = touch
+        stickModel = TouchStickModel(center: point, radius: layout.stickRadius,
+                                     deadZone: CGFloat(tuning.stickDeadZone))
+        drawStick(at: point)
+        stickEngagedMarker.isHidden = false
+    }
+
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         if keyboardActive { return }
         if !automapTouches.isEmpty, touches.contains(where: { automapTouches.contains($0) }) {
@@ -536,7 +616,17 @@ final class TouchOverlayView: UIView {
         }
         for touch in touches {
             let point = touch.location(in: self)
-            if touch == stickTouch {
+            if touch == menuTouch {
+                gamepad.menuPointer(at: point)
+            } else if let pending = pendingMenuTouch, touch == pending.touch {
+                if menuRouter.pendingBecameStick(from: pending.start, to: point) {
+                    pendingMenuTouch = nil
+                    beginStick(touch, at: pending.start)
+                    let axes = stickModel.axes(for: point)
+                    gamepad.setMovement(x: axes.x, y: axes.y, scheme: scheme)
+                    moveKnob(stickKnob, to: stickModel.knobPosition(for: point))
+                }
+            } else if touch == stickTouch {
                 let axes = stickModel.axes(for: point)
                 gamepad.setMovement(x: axes.x, y: axes.y, scheme: scheme)
                 moveKnob(stickKnob, to: stickModel.knobPosition(for: point))
@@ -569,7 +659,18 @@ final class TouchOverlayView: UIView {
             if automapTouches.count < 2 { holdAutomapKeys([]) } // a lifted finger ends the gesture
         }
         for touch in touches {
-            if touch == stickTouch {
+            if touch == menuTouch {
+                menuTouch = nil
+                gamepad.menuTap(down: false)
+            } else if let pending = pendingMenuTouch, touch == pending.touch {
+                pendingMenuTouch = nil
+                let point = touch.location(in: self)
+                if menuRouter.ended(pendingFrom: pending.start, at: point) == .tap {
+                    gamepad.menuPointer(at: point)
+                    gamepad.menuTap(down: true)
+                    gamepad.menuTap(down: false)
+                }
+            } else if touch == stickTouch {
                 stickTouch = nil
                 gamepad.setMovement(x: 0, y: 0, scheme: scheme)
                 stickBase.isHidden = true
