@@ -657,8 +657,8 @@ same release, so neither was ever broken for a player on 1.1.
 **Drafted answer (2026-10-05, issue #217): claim none of the nine features, on
 either device family.** Not yet through the user gate, and nothing has been
 entered in App Store Connect: `GET /v1/apps/6792905089/accessibilityDeclarations`
-returned an empty `data` array when measured 2026-08-28, and this section does
-not change that. Whether to publish an explicit "supports none" declaration or
+returned an empty `data` array when measured 2026-08-28 and again on
+2026-10-05, and this section does not change that. Whether to publish an explicit "supports none" declaration or
 leave the label undeclared is the owner's call; Apple shows the section on the
 product page either way ("If you don't provide this information for a device,
 the section will still appear on your product page and show that you haven't
