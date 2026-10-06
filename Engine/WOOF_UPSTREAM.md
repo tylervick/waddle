@@ -615,6 +615,24 @@ only ever runs once):
   Injected keys are counted per code in `touchWrites` (`k<code>:<n>`), which
   `TouchControlsTests.testAutomapDragPansAndPinchZooms` reads.
 
+- `src/i_video.c`, `src/mn_menu.c`, `src/woof_ios.c` / `src/woof_ios.h` --
+  touch-driven menus. Upstream's menus already take an absolute pointer
+  (`ev_mouse_state` + `ev_mouseb_down/up`; `MouseResponder`,
+  `CursorPosition`), fed on desktop from `SDL_GetMouseState` in
+  `UpdateMouseMenu`. The overlay consumes every touch, so nothing fed one on
+  iOS. `I_MenuPointFromWindow` maps a window point onto menu space with
+  `UpdateMouseMenu`'s own math; `WoofIOS_InjectMenuPointer` and
+  `WoofIOS_InjectMenuTap` post the position and the left-button press/release
+  through `D_PostEvent`, position first (a press is checked against the item
+  the most recent position highlighted). `MN_MenuMessageShowing` exposes
+  `messageToPrint || delete_verify`: a press there is answered "yes" by
+  `M_Responder`, so the shim drops it and `WoofIOS_InjectMenuAnswer` types
+  'y' or 'n' from the overlay's Yes/No buttons instead
+  (`docs/learnings/menu-click-answers-prompt-yes.md`).
+  `WoofIOS_DebugMenuState` (current menu name, prompt flag, counters, item
+  centres as window points via `I_WindowPointFromMenu`) is the HUD segment
+  `TouchMenuTests` reads.
+
 - `src/i_video.c`, `src/g_game.c`, `src/g_game.h`, `src/d_main.c` -- the app's
   lifecycle reaches the engine (issue #111). SDL's iOS layer observes UIKit's
   resign-active and did-enter-background notifications itself and turns them
