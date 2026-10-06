@@ -26,6 +26,26 @@ paste; `docs/app-store/screenshots/` holds the images;
       --accept-visibility-change-consequences`. Do this BEFORE submitting
       for review — App Review may open the links.
 
+- [ ] **`RELEASE_TAG_TOKEN`** in the `app-store` environment. The release
+      pushes its `build-<N>` tag with this, not with the job token, because
+      the job token may not create a tag on a commit whose workflow files
+      differ from `main`'s head, and an on-merge release tags a commit `main`
+      moves past while the archive runs (build 277 was uploaded and could not
+      be tagged). Mint it at GitHub → Settings → Developer settings →
+      Fine-grained personal access tokens: repository access **only this
+      repository**; permissions **Contents: Read and write** and
+      **Workflows: Read and write** (Metadata read is implied); the longest
+      expiry offered. Then:
+
+      ```sh
+      gh secret set RELEASE_TAG_TOKEN --env app-store
+      ```
+
+      The release checks the token before archiving and warns in the run
+      log when it is within 30 days of expiry; GitHub also emails before
+      expiry. A release that fails at "Check the tag-push token" uploaded
+      nothing: mint a replacement, set it, and dispatch again.
+
 ## 1. Create the App Store Connect app record
 
 - [ ] App Store Connect → My Apps → **+** → New App:
@@ -62,6 +82,8 @@ adds a build to a group.
 **Build numbers** are the newest `build-*` tag plus one, whichever path runs,
 so the merge path and the dispatch path count on one sequence. Two merges in
 quick succession release one after the other on a shared concurrency group.
+The tag is pushed with `RELEASE_TAG_TOKEN` (section 0), which the release
+proves present and unexpired before it archives.
 
 **Manual dispatch** (Actions › TestFlight › Run workflow on `main`) is still
 how you release *on demand*, and it is never gated: it ships whether or not
