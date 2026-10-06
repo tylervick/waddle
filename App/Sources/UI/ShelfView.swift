@@ -153,7 +153,12 @@ struct ShelfView: View {
             Text([alert.engineMessage, alert.hint].compactMap { $0 }
                 .joined(separator: "\n\n"))
         }
-        .onAppear(perform: refresh)
+        .onAppear {
+            refresh()
+            #if DEBUG || WADDLE_PROFILE_HARNESS
+            startProfileSessionIfRequested()
+            #endif
+        }
         .onReceive(NotificationCenter.default.publisher(for: .libraryDidChange)) { _ in refresh() }
     }
 
@@ -529,6 +534,34 @@ struct ShelfView: View {
         }
         CFRunLoopWakeUp(main)
     }
+
+    #if DEBUG || WADDLE_PROFILE_HARNESS
+    /// Profiling only (issue #246, see `ProfileHarness`): starts the game the
+    /// launch environment names, once, without a tap, and ends the process
+    /// when that session exits cleanly -- which is what stops
+    /// `xctrace record --launch`, so a trace holds the demo and no idle
+    /// launcher after it. A session that failed leaves the app, and its
+    /// error alert, on screen instead.
+    private func startProfileSessionIfRequested() {
+        guard !ProfileHarness.started,
+              let request = ProfileHarness.request(
+                  environment: ProcessInfo.processInfo.environment)
+        else { return }
+        let games = (try? library.games()) ?? []
+        guard let game = games.first(where: { $0.isBaseGame && $0.name == request.gameName })
+            ?? games.first(where: { $0.name == request.gameName })
+        else { return }
+        ProfileHarness.started = true
+        let main = CFRunLoopGetMain()
+        CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) {
+            MainActor.assumeIsolated {
+                startSession(game, mode: .newGame)
+                if lastExitCode == 0 { exit(0) }
+            }
+        }
+        CFRunLoopWakeUp(main)
+    }
+    #endif
 
     private func startSession(_ game: Game, mode: LaunchMode) {
         lastExitCode = nil
