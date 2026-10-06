@@ -28,8 +28,8 @@ overlay to remain visible even when input devices are connected.
       spread zooms in and a pinch zooms out; lifting a finger mid-drag does
       not leave the map drifting
 - [ ] Weapon prev/next cycles; MAP toggles automap (previously silently did
-      nothing — was wired to an unbound button); ≡ opens the menu and
-      the stick + FIRE/USE navigate it
+      nothing — was wired to an unbound button); ≡ opens the menu;
+      tapping an item opens it, and the stick + FIRE/USE still navigate it
 - [ ] MAP is hidden/unresponsive whenever a menu is on screen (options,
       Load/Save, etc.), and reappears the instant the menu closes — MAP's
       correct gameplay button (NORTH) doubles as `input_menu_clear` in
@@ -39,6 +39,13 @@ overlay to remain visible even when input devices are connected.
       Specifically: open Load or Save with a populated slot, confirm MAP
       does nothing (no delete-confirmation state, slot list unchanged),
       then back out to gameplay and confirm MAP toggles the automap again
+- [ ] Menus by touch: tap Load Game on the main menu and the Load menu
+      opens on that one tap; in Options → General, drag the mouse
+      sensitivity slider with a finger and the value follows; in Save Game
+      tap an empty slot and the keyboard comes up for the name; delete a
+      save and answer the confirmation with the on-screen No, then Yes;
+      choose Quit and confirm that a tap anywhere on the prompt does nothing
+      while Yes/No answer it
 - [ ] Overlay hides/shows when a controller connects/disconnects mid-session
 - [ ] Cheats do not carry into the next game: type iddqd (four-finger tap for
       the keyboard) in one game, quit to the shelf, start a different game;
