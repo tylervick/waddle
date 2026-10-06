@@ -631,7 +631,9 @@ only ever runs once):
   (`docs/learnings/menu-click-answers-prompt-yes.md`).
   `WoofIOS_DebugMenuState` (current menu name, prompt flag, counters, item
   centres as window points via `I_WindowPointFromMenu`) is the HUD segment
-  `TouchMenuTests` reads.
+  `TouchMenuTests` reads. `WoofIOS_IsAttractMode` (title or demo, no menu)
+  lets the overlay open the menu on a tap by injecting a paired
+  `KEY_ESCAPE`.
 
 - `src/i_video.c`, `src/g_game.c`, `src/g_game.h`, `src/d_main.c` -- the app's
   lifecycle reaches the engine (issue #111). SDL's iOS layer observes UIKit's

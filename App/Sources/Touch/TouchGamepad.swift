@@ -175,4 +175,13 @@ extension TouchGamepad: TextInjecting {
 
     /// True while the engine shows a Y/N prompt or a delete confirmation.
     var isMenuMessageShowing: Bool { WoofIOS_IsMenuMessageShowing() }
+
+    /// Title screen or demo with no menu up.
+    var isAttractMode: Bool { WoofIOS_IsAttractMode() }
+
+    /// Open the engine menu from the title or a demo: KEY_ESCAPE, paired.
+    func openMenu() {
+        WoofIOS_InjectKey(27, true)  // KEY_ESCAPE (doomkeys.h)
+        WoofIOS_InjectKey(27, false)
+    }
 }

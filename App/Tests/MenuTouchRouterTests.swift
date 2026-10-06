@@ -51,4 +51,11 @@ final class MenuTouchRouterTests: XCTestCase {
         XCTAssertEqual(router.ended(pendingFrom: start, at: CGPoint(x: 84, y: 597)), .tap)
         XCTAssertEqual(router.ended(pendingFrom: start, at: CGPoint(x: 80, y: 640)), .none)
     }
+
+    func testAttractTapCandidateIsAFreeAreaTouchWithNoMenu() {
+        XCTAssertTrue(router.isAttractTapCandidate(menuActive: false, attractMode: true, nearButton: false))
+        XCTAssertFalse(router.isAttractTapCandidate(menuActive: false, attractMode: true, nearButton: true))
+        XCTAssertFalse(router.isAttractTapCandidate(menuActive: true, attractMode: false, nearButton: false))
+        XCTAssertFalse(router.isAttractTapCandidate(menuActive: false, attractMode: false, nearButton: false))
+    }
 }
