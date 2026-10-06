@@ -39,6 +39,14 @@ struct MenuTouchRouter {
         return pointerOwned ? .ignore : .pointer
     }
 
+    /// Attract mode (title screen or demo, no menu): the stick/turn routing
+    /// applies exactly as during play, so a press still engages the stick,
+    /// and on top of that a lift in place opens the menu, console style.
+    /// True when this touch is such a candidate.
+    func isAttractTapCandidate(menuActive: Bool, attractMode: Bool, nearButton: Bool) -> Bool {
+        !menuActive && attractMode && !nearButton
+    }
+
     func pendingBecameStick(from start: CGPoint, to point: CGPoint) -> Bool {
         hypot(point.x - start.x, point.y - start.y) > Self.tapSlop
     }

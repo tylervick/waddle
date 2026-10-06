@@ -35,6 +35,12 @@ final class TouchMenuTests: XCTestCase {
         XCTAssertEqual(booted["cm"], "off", "no menu on the title screen: \(lastSeenStrip)")
         XCTAssertFalse(app.buttons["promptYesButton"].exists, "Yes must be hidden with no prompt up")
 
+        // Title screen: a tap on the game opens the main menu.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        let opened = waitForHUD(hud, timeout: 5) { $0["cm"] == "main" }
+        XCTAssertEqual(opened["cm"], "main", "a title-screen tap should open the menu: \(lastSeenStrip)")
+        closeMenus(app, hud)
+
         // A pointer tap outside the stick column opens the item under it.
         app.buttons["menuButton"].tap()
         var main = waitForHUD(hud, timeout: 10) { $0["cm"] == "main" }

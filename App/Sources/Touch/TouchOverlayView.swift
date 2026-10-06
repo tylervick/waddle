@@ -24,6 +24,10 @@ final class TouchOverlayView: UIView {
     /// A finger that landed in the stick column while a menu was up, and
     /// where: the stick if it travels, a tap if it lifts in place.
     private var pendingMenuTouch: (touch: UITouch, start: CGPoint)?
+    /// A free-area finger that landed in attract mode (title or demo, no
+    /// menu). It is routed to the stick or turn as usual; if it lifts in
+    /// place it also opens the menu.
+    private var attractTapTouch: (touch: UITouch, start: CGPoint)?
     private let menuRouter = MenuTouchRouter()
     /// Answer an engine Y/N prompt; shown only while one is on screen.
     private let promptNoButton: OverlayButton
@@ -306,6 +310,7 @@ final class TouchOverlayView: UIView {
     /// app was backgrounded). Forget the finger; the engine side posts the
     /// release for a press that was posted, so nothing stays held.
     private func dropMenuTouchesIfMenuClosed() {
+        if !gamepad.isAttractMode { attractTapTouch = nil }
         guard !WoofIOS_IsMenuActive() else { return }
         if menuTouch != nil {
             menuTouch = nil
@@ -552,12 +557,14 @@ final class TouchOverlayView: UIView {
         let router = trackRouter
         let automapUp = WoofIOS_IsAutomapActive()
         let menuUp = WoofIOS_IsMenuActive()
+        let attract = gamepad.isAttractMode
         for touch in touches {
             let point = touch.location(in: self)
             let route = router.route(point, stickTracking: stickTouch != nil,
                                      turnTracking: turnTouch != nil)
+            let nearButton = router.isNearButton(point)
             switch menuRouter.began(menuActive: menuUp, trackRoute: route,
-                                    nearButton: router.isNearButton(point),
+                                    nearButton: nearButton,
                                     pointerOwned: menuTouch != nil) {
             case .pointer:
                 // Position first, then the press: the engine checks a press
@@ -573,6 +580,10 @@ final class TouchOverlayView: UIView {
                 continue
             case .passThrough:
                 break
+            }
+            if menuRouter.isAttractTapCandidate(menuActive: menuUp, attractMode: attract,
+                                                nearButton: nearButton) {
+                attractTapTouch = (touch, point)
             }
             if automapUp {
                 // Buttons keep their near-miss cushion; everything else is
@@ -659,6 +670,15 @@ final class TouchOverlayView: UIView {
             if automapTouches.count < 2 { holdAutomapKeys([]) } // a lifted finger ends the gesture
         }
         for touch in touches {
+            if let candidate = attractTapTouch, touch == candidate.touch {
+                // Not an `else`: the same finger may also be the stick or
+                // the turn, and those release below as usual.
+                attractTapTouch = nil
+                if menuRouter.ended(pendingFrom: candidate.start, at: touch.location(in: self)) == .tap,
+                   gamepad.isAttractMode {
+                    gamepad.openMenu()
+                }
+            }
             if touch == menuTouch {
                 menuTouch = nil
                 gamepad.menuTap(down: false)

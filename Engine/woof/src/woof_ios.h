@@ -306,6 +306,10 @@ void WoofIOS_InjectMenuAnswer(bool yes);
 // delete confirmation is up, so the overlay can show its Yes/No buttons.
 bool WoofIOS_IsMenuMessageShowing(void);
 
+// True on the title screen or during a demo while no menu is up, so the
+// overlay can open the menu on a tap (console "press any button").
+bool WoofIOS_IsAttractMode(void);
+
 // Debug/test telemetry only, its own debug-HUD segment:
 //   "cm=<off|msg|setup|main|load|save|epi|skill|options|other> msg=<0|1>
 //    mp=<pointer writes> mt=<press+release writes> md=<presses dropped>

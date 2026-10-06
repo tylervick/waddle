@@ -926,6 +926,14 @@ bool WoofIOS_IsMenuMessageShowing(void)
     return MN_MenuMessageShowing() != 0;
 }
 
+// Title screen or a demo, with no menu up: a tap there opens the menu
+// (MN_Responder's !menuactive branch treats KEY_ESCAPE as "open").
+bool WoofIOS_IsAttractMode(void)
+{
+    extern boolean demoplayback; // doomstat.h
+    return !menuactive && (gamestate == GS_DEMOSCREEN || demoplayback);
+}
+
 const char *WoofIOS_DebugMenuState(void)
 {
     extern const char *MN_DebugCurrentMenuName(void);
