@@ -782,5 +782,8 @@ schedule is this repository's own (issue #79):
   longer applies either way. Freedoom: `FREEDOOM_VERSION` in
   `Scripts/fetch-freedoom.sh`, SHA-256 verified. The libraries under
   `third-party/`: only with the Woof pin, except where this file records a
-  local drop-in (miniz, above). Every bump invalidates the engine fingerprint,
-  so `Scripts/build-engine.sh` must be re-run and CI builds cold.
+  local drop-in (miniz, above). Every bump except Freedoom's invalidates the
+  engine fingerprint, so `Scripts/build-engine.sh` must be re-run and CI
+  builds cold; `Scripts/engine-fingerprint.sh` hashes `Engine/woof`, the two
+  build scripts and `Scripts/patches/`, and nothing Freedoom touches, so a
+  Freedoom bump needs only `Scripts/fetch-freedoom.sh` again.
