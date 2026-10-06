@@ -196,8 +196,9 @@ images move together with the slot names in
   the SDL3-based tree (currently `1462fadc`, which reports itself as
   "Woof 16.0.0"). The `woof_15.3.0` tag is the older SDL2-era tree and does
   not build against this project's SDL3-only iOS dependencies. See
-  `Engine/WOOF_UPSTREAM.md` for the exact commit, provenance, and the full
-  iOS patch set carried on top of it.
+  `Engine/WOOF_UPSTREAM.md` for the exact commit, provenance, the full iOS
+  patch set carried on top of it, and when every native pin gets looked at
+  (weekly, by the cold-build workflow; see "When the pins get looked at").
 - **`woof.pk3` is staged at the app bundle root**
   (`App/Resources/woof.pk3`), *not* under `GameData/` — Woof! locates it via
   `SDL_GetBasePath()`, which resolves to the bundle root on iOS, and there

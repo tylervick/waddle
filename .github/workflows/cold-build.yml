@@ -82,6 +82,33 @@ jobs:
             echo "$p $(wc -c < "$p") bytes"
           done
 
+      # Issue #79's cadence. Renovate covers none of the native pins (Woof,
+      # SDL, OpenAL Soft, SONiVOX, the libsndfile stack, Freedoom, and the
+      # libraries Woof vendors), so they are looked at once a week, here,
+      # because this is the job that already rebuilds every one of them from
+      # source. The script reports; it does not gate -- a pin a month behind is
+      # not a broken build -- but a pin it cannot determine fails the step, so a
+      # query that quietly stopped working is never read as "current".
+      # Engine/WOOF_UPSTREAM.md says how each pin moves and when to look sooner.
+      - name: Report dependency pin staleness
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if out="$(Scripts/check-deps-current.sh 2>&1)"; then rc=0; else rc=$?; fi
+          printf '%s\n' "$out"
+          {
+            echo "### Dependency pins"
+            echo
+            echo "Weekly staleness report (issue #79). Reports only; see"
+            echo "\`Engine/WOOF_UPSTREAM.md\` for how each pin moves."
+            echo
+            echo '```'
+            printf '%s\n' "$out"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+
       - name: Summary
         if: always()
         run: |
