@@ -290,7 +290,9 @@ Freedoom Phase 1+2 are bundled as base games.
 ## Controls
 
 - **Touch:** left side of the screen is a floating movement stick. On-screen
-  buttons: FIRE, USE, weapon prev/next, automap (MAP), and menu (≡). Walking
+  buttons: FIRE, USE, weapon prev/next, automap (MAP), and menu (≡). In the
+  engine's menus, tap an item to choose it and drag a slider to set it; a
+  Y/N prompt shows Yes/No buttons. Walking
   at a door or a switch presses USE for you (auto-use, once per line, as the
   predecessor apps did); the USE button still works for anything else. While
   the automap is up, a one-finger drag pans it and a two-finger pinch zooms

@@ -1663,6 +1663,41 @@ void I_DebugWindowSize(int *w, int *h)
     }
 }
 
+// Touch menus: the overlay's touch, in the SDL window's own coordinate
+// space (UIKit points), mapped onto the menu's unscaled video space with
+// exactly the math UpdateMouseMenu applies to SDL_GetMouseState, so the
+// pointer the overlay posts lands where the finger is. False before the
+// window exists.
+boolean I_MenuPointFromWindow(float x, float y, float *out_x, float *out_y)
+{
+    if (!screen || !renderer)
+    {
+        return false;
+    }
+    SDL_FRect mouse_rect;
+    SDL_GetRenderLogicalPresentationRect(renderer, &mouse_rect);
+    const float scale = SDL_GetWindowPixelDensity(screen);
+    *out_x = clampf((x * scale - mouse_rect.x) / mouse_rect.w, 0.0f, 1.0f) * video.unscaledw;
+    *out_y = clampf((y * scale - mouse_rect.y) / mouse_rect.h, 0.0f, 1.0f) * SCREENHEIGHT;
+    return true;
+}
+
+// The inverse, for the debug HUD: a menu-space point as the window point a
+// UI test can tap (WoofIOS_DebugMenuState's tgt= field).
+boolean I_WindowPointFromMenu(float mx, float my, float *out_x, float *out_y)
+{
+    if (!screen || !renderer)
+    {
+        return false;
+    }
+    SDL_FRect mouse_rect;
+    SDL_GetRenderLogicalPresentationRect(renderer, &mouse_rect);
+    const float scale = SDL_GetWindowPixelDensity(screen);
+    *out_x = (mx / video.unscaledw * mouse_rect.w + mouse_rect.x) / scale;
+    *out_y = (my / SCREENHEIGHT * mouse_rect.h + mouse_rect.y) / scale;
+    return true;
+}
+
 // The app is leaving the screen (issue #111). SDL raises these from UIKit's
 // resign-active and did-enter-background notifications, but it never queues
 // them: SDL_SendAppEvent hands SDL_EVENT_WILL_ENTER_BACKGROUND and

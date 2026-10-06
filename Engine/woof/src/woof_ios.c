@@ -66,6 +66,11 @@ static float touch_turn_accum;
 static int touch_button_writes[TOUCH_BUTTON_SLOTS];
 static int touch_axis_writes[TOUCH_AXIS_SLOTS];
 static int touch_turn_writes;
+// Touch-menu counters (WoofIOS_DebugMenuState) and the held press.
+static int touch_menu_pointer_writes;
+static int touch_menu_tap_writes;
+static int touch_menu_tap_dropped;
+static bool touch_menu_tap_held;
 // Keys injected by WoofIOS_InjectKey (issue #113: the automap's pan and
 // zoom are held keys), counted per Doom key code the same way.
 #define TOUCH_KEY_SLOTS 256
@@ -363,6 +368,10 @@ int WoofIOS_Run(int argc, char **argv)
     memset(touch_axis_writes, 0, sizeof(touch_axis_writes));
     memset(touch_key_writes, 0, sizeof(touch_key_writes));
     touch_turn_writes = 0;
+    touch_menu_pointer_writes = 0;
+    touch_menu_tap_writes = 0;
+    touch_menu_tap_dropped = 0;
+    touch_menu_tap_held = false;
 
     WoofIOS_DebugSessionEntryCheckpoint();
 
@@ -822,6 +831,123 @@ void WoofIOS_InjectMenuConfirm(void)
     up.type = ev_keyup;
     up.data1.i = KEY_ENTER; // pair the release (see WoofIOS_InjectChar)
     D_PostEvent(&up);
+}
+
+// --- Touch menus: a touch as the menu's pointer (see woof_ios.h) ---
+// Woof's menus already take an absolute pointer: mn_menu.c highlights the
+// item under an ev_mouse_state and activates it on an ev_mouseb_down
+// (MouseResponder/CursorPosition; MOUSE_BUTTON_LEFT is input_menu_enter by
+// default). Nothing fed one on iOS because the overlay consumes every touch
+// before SDL's touch-to-mouse synthesis sees it. These post the same events
+// the SDL mouse path would. The host posts position BEFORE the press: a
+// press is checked against the item highlighted by the most recent
+// position, so the other order lands on the previously highlighted item.
+
+void WoofIOS_InjectMenuPointer(float x_points, float y_points)
+{
+    extern boolean I_MenuPointFromWindow(float, float, float *, float *);
+    float mx, my;
+    if (!menuactive || !I_MenuPointFromWindow(x_points, y_points, &mx, &my))
+    {
+        return;
+    }
+    event_t ev = {0};
+    ev.type = ev_mouse_state;
+    ev.data1.i = 0; // not EV_RESIZE_VIEWPORT
+    ev.data2.f = mx;
+    ev.data3.f = my;
+    D_PostEvent(&ev);
+    touch_menu_pointer_writes++;
+    touch_event_count++;
+}
+
+bool WoofIOS_InjectMenuTap(bool down)
+{
+    extern boolean MN_MenuMessageShowing(void);
+    if (down)
+    {
+        // A press on a Y/N prompt or a delete confirmation is "yes"
+        // (docs/learnings/menu-click-answers-prompt-yes.md); the overlay's
+        // Yes/No buttons are the only way to answer those.
+        if (!menuactive || MN_MenuMessageShowing())
+        {
+            touch_menu_tap_dropped++;
+            return false;
+        }
+        touch_menu_tap_held = true;
+    }
+    else
+    {
+        // Always release a press that was posted, even if the item it
+        // activated closed the menu: G_Responder clears the button, and a
+        // button left held would otherwise fire on the first tic of play.
+        if (!touch_menu_tap_held)
+        {
+            return false;
+        }
+        touch_menu_tap_held = false;
+    }
+    event_t ev = {0};
+    ev.type = down ? ev_mouseb_down : ev_mouseb_up;
+    ev.data1.i = MOUSE_BUTTON_LEFT;
+    ev.data2.i = down ? 1 : 0; // click count, read only by G_Responder
+    D_PostEvent(&ev);
+    touch_menu_tap_writes++;
+    touch_event_count++;
+    return true;
+}
+
+void WoofIOS_InjectMenuAnswer(bool yes)
+{
+    extern boolean MN_MenuMessageShowing(void);
+    // Synchronous gate, like WoofIOS_InjectMenuConfirm: the overlay shows
+    // the Yes/No buttons from a 0.25 s poll, so a press can land after the
+    // prompt has gone, and a stray 'y' or 'n' in an ordinary menu is a
+    // hotkey.
+    if (!MN_MenuMessageShowing())
+    {
+        return;
+    }
+    int key = yes ? 'y' : 'n'; // the message responder and delete_verify read these
+    event_t down = {0};
+    down.type = ev_keydown;
+    down.data1.i = key;
+    D_PostEvent(&down);
+    event_t up = {0};
+    up.type = ev_keyup;
+    up.data1.i = key;
+    D_PostEvent(&up);
+    touch_event_count++;
+}
+
+bool WoofIOS_IsMenuMessageShowing(void)
+{
+    extern boolean MN_MenuMessageShowing(void);
+    return MN_MenuMessageShowing() != 0;
+}
+
+const char *WoofIOS_DebugMenuState(void)
+{
+    extern const char *MN_DebugCurrentMenuName(void);
+    extern boolean MN_MenuMessageShowing(void);
+    extern boolean MN_DebugMenuItemCenter(int, float *, float *);
+    extern boolean I_WindowPointFromMenu(float, float, float *, float *);
+
+    static char buf[256];
+    size_t len = snprintf(buf, sizeof(buf), "cm=%s msg=%d mp=%d mt=%d md=%d tgt=",
+                          MN_DebugCurrentMenuName(), MN_MenuMessageShowing() ? 1 : 0,
+                          touch_menu_pointer_writes, touch_menu_tap_writes,
+                          touch_menu_tap_dropped);
+    for (int i = 0; i < 12 && len < sizeof(buf) - 16; i++)
+    {
+        float mx, my, wx, wy;
+        if (!MN_DebugMenuItemCenter(i, &mx, &my) || !I_WindowPointFromMenu(mx, my, &wx, &wy))
+        {
+            break;
+        }
+        len += snprintf(buf + len, sizeof(buf) - len, "%s%d,%d", i ? "|" : "", (int)wx, (int)wy);
+    }
+    return buf;
 }
 
 int WoofIOS_DebugTouchEventCount(void)

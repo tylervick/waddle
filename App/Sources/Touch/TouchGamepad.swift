@@ -151,4 +151,28 @@ extension TouchGamepad: TextInjecting {
         if ctx == WOOF_TEXT_CTX_SAVENAME { return .saveName }
         return .none
     }
+
+    // MARK: Engine menus by touch
+
+    /// Move the engine menu's pointer to `point` in overlay coordinates
+    /// (the overlay fills SDL's window, so these are window points).
+    func menuPointer(at point: CGPoint) {
+        WoofIOS_InjectMenuPointer(Float(point.x), Float(point.y))
+    }
+
+    /// Press or release the pointer as menu-enter. Post the position first.
+    /// A press during a Y/N prompt is dropped by the engine side (it would
+    /// answer "yes"); `answerPrompt(yes:)` is how prompts are answered.
+    @discardableResult
+    func menuTap(down: Bool) -> Bool {
+        WoofIOS_InjectMenuTap(down)
+    }
+
+    /// Answer the Y/N prompt or delete confirmation on screen.
+    func answerPrompt(yes: Bool) {
+        WoofIOS_InjectMenuAnswer(yes)
+    }
+
+    /// True while the engine shows a Y/N prompt or a delete confirmation.
+    var isMenuMessageShowing: Bool { WoofIOS_IsMenuMessageShowing() }
 }

@@ -281,4 +281,38 @@ void WoofIOS_InjectBackspace(void);
 // field (input_menu_enter -> MENU_ENTER). Harmless during gameplay.
 void WoofIOS_InjectMenuConfirm(void);
 
+// --- Touch menus: a touch as the engine menu's pointer ---
+// Woof's menus take an absolute pointer; the overlay feeds one from touches
+// through these. Main-thread-only, same contract as the touch-control
+// functions above.
+
+// Move the menu pointer to a point in the SDL window's coordinate space
+// (UIKit points, as the overlay reads a touch). Posts ev_mouse_state; no-op
+// when no menu is up or before the window exists. Post this BEFORE a press.
+void WoofIOS_InjectMenuPointer(float x_points, float y_points);
+
+// Press (`down`) or release the pointer as the left mouse button, which is
+// menu-enter. A press is dropped, returning false, when no menu is up or
+// while a Y/N prompt or a save-delete confirmation is showing (a click
+// there answers "yes"). A release is posted whenever a press was, even if
+// the menu has since closed, so the button never stays held.
+bool WoofIOS_InjectMenuTap(bool down);
+
+// Answer the Y/N prompt or save-delete confirmation on screen: a paired
+// keydown/keyup of 'y' or 'n'. Dropped unless one is showing.
+void WoofIOS_InjectMenuAnswer(bool yes);
+
+// True while a Y/N prompt ("Quit?", "Load game?", ...) or the Load/Save
+// delete confirmation is up, so the overlay can show its Yes/No buttons.
+bool WoofIOS_IsMenuMessageShowing(void);
+
+// Debug/test telemetry only, its own debug-HUD segment:
+//   "cm=<off|msg|setup|main|load|save|epi|skill|options|other> msg=<0|1>
+//    mp=<pointer writes> mt=<press+release writes> md=<presses dropped>
+//    tgt=<x,y|x,y|...>"
+// where tgt lists the current big-font menu's item centres as window
+// points, so a UI test taps real screen positions. Counters reset at
+// session start.
+const char *WoofIOS_DebugMenuState(void);
+
 #endif
