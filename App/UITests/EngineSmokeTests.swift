@@ -16,8 +16,15 @@ final class EngineSmokeTests: XCTestCase {
             let play = app.buttons["playFreedoom1"]
             XCTAssertTrue(play.waitForExistence(timeout: 10),
                           "cycle \(cycle): launcher not visible")
-            play.tap()
+            // Stamp BEFORE the tap. XCUIElement.tap() returns only once the
+            // app has gone idle again, and starting an engine session keeps the
+            // main thread busy (SDL window, Metal pipeline), so on a slow
+            // runner the return can trail the tap by seconds. A stamp taken
+            // after it undercounts the session and fails the lower bound
+            // below with exit 0 and a healthy engine (8.3 s for a 10 s window,
+            // main run 37287887037). Every other suite stamps before the tap.
             let tappedAt = Date()
+            play.tap()
 
             // Any exit label from the previous cycle must first vanish (the
             // app clears it when a session starts, and the engine's window
