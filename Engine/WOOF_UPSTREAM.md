@@ -760,3 +760,27 @@ files touched on both sides) produced five textual conflicts this way. See
    suite links the framework but never starts a second session, which is where
    most of the patch set lives. Then update this file's pin and patch notes,
    `CLAUDE.md`, `README.md` and `docs/learnings/woof-engine-pin.md`.
+
+## When the pins get looked at
+
+Renovate covers none of the native pins (`renovate.json` says so), so the
+schedule is this repository's own (issue #79):
+
+- **Weekly, automatically.** `.github/workflows/cold-build.yml` runs
+  `Scripts/check-deps-current.sh` every Monday, after rebuilding every
+  dependency from source, and writes the report to the job summary. It
+  reports; it does not gate. A pin it cannot determine fails the step, so a
+  broken query is never read as "current".
+- **Immediately, by hand,** on any upstream fix touching WAD, zip/pk3 or map
+  parsing in Woof or miniz: that is the untrusted-input surface
+  (`App/Sources/Library/LoadoutArguments.swift` hands imported files straight
+  to the engine). Woof's commit log and miniz's `ChangeLog.md` are where such
+  fixes show; `cc1d13e9`, `42470994` and miniz 3.1.2 were all of this kind.
+- **How each pin moves.** Woof: the procedure above. SDL, OpenAL Soft, SONiVOX
+  and the libsndfile stack: edit the tag in `Scripts/build-deps.sh`; any local
+  fix lives in `Scripts/patches/<dep>/` and the build refuses a patch that no
+  longer applies either way. Freedoom: `FREEDOOM_VERSION` in
+  `Scripts/fetch-freedoom.sh`, SHA-256 verified. The libraries under
+  `third-party/`: only with the Woof pin, except where this file records a
+  local drop-in (miniz, above). Every bump invalidates the engine fingerprint,
+  so `Scripts/build-engine.sh` must be re-run and CI builds cold.
