@@ -113,6 +113,10 @@ jobs:
           # is how the first on-merge TestFlight release ran with every
           # secret empty.
           Scripts/test-check-called-workflow-secrets.sh
+          # Hermetic fixtures plus one live case: refuses testflight.yml
+          # pushing with the job token, which cannot create a tag once main's
+          # workflow files have moved past the tagged commit (build 277).
+          Scripts/test-check-release-tag-token.sh
           # Both hermetic: test-asc-jwt.sh generates its own throwaway EC key
           # and never reads the real App Store Connect key; test-whats-to-test.sh
           # stubs git, curl and the token minter and never reaches the network.
@@ -714,11 +718,13 @@ jobs:
   testflight:
     needs: build-and-test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    # contents: write for the build-N tag the called workflow pushes; the
-    # caller's grant is the ceiling of what the called workflow may hold, and
-    # the workflow-level `contents: read` above would otherwise be it.
+    # Read only: the called workflow pushes its build-N tag with
+    # RELEASE_TAG_TOKEN rather than the job token (see testflight.yml's
+    # permissions note), so nothing in it needs more than the workflow-level
+    # grant. Stated anyway, because the caller's grant is the ceiling of what
+    # the called workflow may hold and that ceiling should be visible here.
     permissions:
-      contents: write
+      contents: read
     # The same group testflight.yml declares, because a called workflow's own
     # concurrency is not guaranteed to apply. Two merges in quick succession
     # release one after the other; a dispatch waits for a merge in flight,

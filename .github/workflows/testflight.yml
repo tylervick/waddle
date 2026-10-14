@@ -169,13 +169,18 @@ jobs:
     # copy of this file, so any in-file "main only" check is one a branch can
     # simply delete.
     environment: app-store
-    # Declared on the JOB, not the workflow: written at workflow level it
-    # would grant write access to every job added here later, which is not
-    # what the comment claims or what this needs. contents: write exists for
-    # the "Tag the shipped build" step's `git push origin build-<N>` and
-    # nothing else -- every other step here only reads.
+    # Read only, on purpose. The one write this job performs -- pushing the
+    # build-<N> tag -- does NOT use the job token: GitHub refuses to let the
+    # job token create a ref whose workflow files differ from main's head,
+    # and an on-merge release tags a commit that main routinely moves past
+    # while the archive runs (build 277 was uploaded and then could not be
+    # tagged for exactly that reason). The tag is pushed with
+    # RELEASE_TAG_TOKEN, a fine-grained token with the `workflows` scope the
+    # job token cannot hold; see "Check the tag-push token" below.
+    # Scripts/check-release-tag-token.sh refuses a `contents: write` here,
+    # since the only thing it could be for is a regression to that push.
     permissions:
-      contents: write
+      contents: read
     steps:
       # fetch-depth: 0 (all history, all branches/tags), not the default
       # shallow depth-1 clone: Scripts/whats-to-test.sh anchors its changelog
@@ -186,9 +191,16 @@ jobs:
       # run that quietly ships the wrong notes. Same reasoning as ci.yml's
       # fetch-depth: 0 for `git merge-base`; this repo's history is small
       # enough that the unshallow fetch costs well under a second.
+      #
+      # persist-credentials: false because nothing here pushes with the job
+      # token any more (see the permissions note above): the tag push below
+      # supplies its own credential through GIT_ASKPASS, and a job token left
+      # in .git/config would be exactly the credential a regression to
+      # `git push` with it would silently pick up.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # Fails in seconds. Without it a bad value costs a ~25 minute build
       # before App Store Connect rejects it.
@@ -221,6 +233,57 @@ jobs:
           fi
           echo "value=$N" >> "$GITHUB_OUTPUT"
           echo "Build number: $N (newest tag: ${NEWEST:-none})"
+
+      # Also fails in seconds, for the same reason. The tag push is the LAST
+      # step that can fail after the upload has consumed a build number, and
+      # a missing or expired token is its most likely cause once the
+      # workflow-files rule is out of the way. Proving the token here --
+      # present, unexpired, and able to read this repository -- costs one
+      # HTTPS request before the macOS runner does any real work. A fine-
+      # grained token's expiry comes back in a response header, so the step
+      # also warns when it is within 30 days; GitHub's own expiry email is
+      # the other reminder. Skipped on a dry run, which never tags.
+      - name: Check the tag-push token
+        if: ${{ inputs.validate_only != true }}
+        env:
+          RELEASE_TAG_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ -z "$RELEASE_TAG_TOKEN" ]; then
+            echo "::error::RELEASE_TAG_TOKEN is not set in the app-store environment."
+            echo "::error::The build-<N> tag push needs it (a fine-grained token with"
+            echo "::error::Contents and Workflows read/write on this repository); see"
+            echo "::error::docs/app-store/submission-checklist.md, section 0."
+            exit 1
+          fi
+          HDRS="$RUNNER_TEMP/tag-token-headers"
+          # -f turns an HTTP error into a non-zero status; -o /dev/null keeps
+          # the repository JSON out of the log; -D keeps the headers, which is
+          # where the expiry is.
+          if ! curl -sSf -o /dev/null -D "$HDRS" \
+               -H "Authorization: Bearer $RELEASE_TAG_TOKEN" \
+               -H "Accept: application/vnd.github+json" \
+               "https://api.github.com/repos/$REPO"; then
+            echo "::error::RELEASE_TAG_TOKEN cannot read $REPO: it is expired, revoked,"
+            echo "::error::or scoped to another repository. Mint a new one per"
+            echo "::error::docs/app-store/submission-checklist.md, section 0, and set it"
+            echo "::error::in the app-store environment. Nothing has been uploaded."
+            rm -f "$HDRS"
+            exit 1
+          fi
+          EXP="$(tr -d '\r' < "$HDRS" | awk -F': ' 'tolower($1) == "github-authentication-token-expiration" { print $2 }')"
+          rm -f "$HDRS"
+          if [ -n "$EXP" ]; then
+            echo "Tag-push token expires: $EXP"
+            # The header reads "YYYY-MM-DD HH:MM:SS UTC"; the date part
+            # compares as text. BSD date: -v+30d is "30 days from now".
+            SOON="$(date -u -v+30d +%Y-%m-%d)"
+            if [ "${EXP%% *}" \< "$SOON" ]; then
+              echo "::warning::RELEASE_TAG_TOKEN expires on ${EXP%% *}, within 30 days. Mint its replacement now (docs/app-store/submission-checklist.md, section 0) so a release does not fail at the tag step after its upload."
+            fi
+          else
+            echo "Tag-push token: valid (no expiry header; a classic token or an App token)"
+          fi
 
       - uses: ./.github/actions/setup-waddle-build
         with:
@@ -335,15 +398,32 @@ jobs:
       # NEXT release anchors on the previous or bootstrap tag and silently
       # re-lists changes already shipped, so it fails loudly for the same
       # reason the notes step does.
+      #
+      # Pushed with RELEASE_TAG_TOKEN through GIT_ASKPASS, never with the job
+      # token and never in a URL: the askpass script answers git's username
+      # and password prompts from the environment, so the token appears in
+      # no command line and no remote URL that an error message could echo.
+      # GIT_TERMINAL_PROMPT=0 makes a missing answer fail instead of hang.
       - name: Tag the shipped build
         if: ${{ inputs.validate_only != true }}
         env:
           N: ${{ steps.buildnum.outputs.value }}
+          RELEASE_TAG_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN }}
         run: |
-          if ! git tag "build-$N" || ! git push origin "build-$N"; then
+          ASKPASS="$RUNNER_TEMP/tag-askpass.sh"
+          umask 077
+          printf '%s\n' '#!/bin/sh' \
+            'case "$1" in *sername*) echo x-access-token ;; *) echo "$RELEASE_TAG_TOKEN" ;; esac' > "$ASKPASS"
+          chmod 700 "$ASKPASS"
+          if ! git tag "build-$N" \
+             || ! GIT_ASKPASS="$ASKPASS" GIT_TERMINAL_PROMPT=0 git push origin "build-$N"; then
+            rm -f "$ASKPASS"
             echo "::error::Build $N IS UPLOADED and the release did NOT fail --"
             echo "::error::only the build-$N tag could not be recorded (a"
-            echo "::error::tag-protection ruleset or a transient push failure)."
+            echo "::error::revoked RELEASE_TAG_TOKEN, a tag-protection ruleset, or a"
+            echo "::error::transient push failure; the job token is NOT used here,"
+            echo "::error::so 'without workflows permission' means the token lost"
+            echo "::error::its Workflows scope)."
             echo "::error::Re-running this workflow will NOT fix this: with the"
             echo "::error::tag missing, a retry derives the same build number"
             echo "::error::from the previous tag and is rejected at upload, since"
@@ -357,6 +437,7 @@ jobs:
             echo "::error::docs/learnings/git-fixtures-inherit-signing-config.md)"
             exit 1
           fi
+          rm -f "$ASKPASS"
 
       # Notes are metadata: a failure here does NOT mean the release failed.
       # It fails the job anyway, loudly, because a silent warning is how the
@@ -440,6 +521,7 @@ jobs:
         run: |
           security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true
           rm -f "$RUNNER_TEMP"/AuthKey_*.p8 "$RUNNER_TEMP"/cert.p12 "$RUNNER_TEMP"/profile.mobileprovision
+          rm -f "$RUNNER_TEMP"/tag-askpass.sh "$RUNNER_TEMP"/tag-token-headers
           if [ -n "${PROFILE_UUID:-}" ]; then
             rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" \
                   "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
