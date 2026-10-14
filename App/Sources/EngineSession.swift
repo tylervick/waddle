@@ -61,6 +61,15 @@ enum EngineSession {
 
     /// Boots the engine with a full argv (starting with "woof") and returns
     /// the engine exit code. Build argv with LaunchArguments.
+    ///
+    /// Blocks the main thread until the session ends, using `scheme` for the
+    /// touch controls. In DEBUG or WADDLE_PROFILE_HARNESS builds, a valid
+    /// `ProfileHarness` request appends demo playback arguments to argv.
+    /// Returns `ExitCode.reentrant` if a session is already running;
+    /// otherwise, 0 indicates a clean exit and a negative code an engine error.
+    /// Sets `lastErrorMessage` on failure and clears it on a clean exit.
+    /// Starting a session with an argv that does not begin with "woof"
+    /// triggers a precondition failure.
     @discardableResult
     static func play(arguments: [String],
                      scheme: TouchControlScheme = TouchControlScheme.current()) -> Int32 {
@@ -165,6 +174,15 @@ enum EngineSession {
                 effectiveArguments += ["-file", url.path]
             }
         }
+        #endif
+        #if DEBUG || WADDLE_PROFILE_HARNESS
+        // Profiling only (issue #246; see ProfileHarness for why this one
+        // seam is not DEBUG-only): the demo Scripts/profile-session.sh asked
+        // for. The app exits when that session ends, so there is no later
+        // session in the launch for this to leak into.
+        effectiveArguments += ProfileHarness
+            .request(environment: ProcessInfo.processInfo.environment)?
+            .engineArguments ?? []
         #endif
 
         var argv: [UnsafeMutablePointer<CChar>?] = effectiveArguments.map { strdup($0) }
