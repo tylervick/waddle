@@ -38,7 +38,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 DEVICE="" TEMPLATE="" RUNS=2 WAD="freedoom2.wad" DEMO="demo1" MODE="playdemo"
 TIME_LIMIT="" OUT="" PLUMBING=0
+# Prints the introductory usage text to stdout.
 usage() { sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; }
+# Prints the required first message and any continuation lines to stderr,
+# then exits the script with status 1.
 die() { echo "error: $1" >&2; shift; for l in "$@"; do echo "       $l" >&2; done; exit 1; }
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -87,8 +90,10 @@ trap 'rm -rf "$TMP"' EXIT
 
 # Reads the demo lump's own header, so the map in conditions.json is the one
 # the WAD actually plays rather than one somebody typed. Prints five lines:
-# map, skill, tics, seconds, lump sha256 ("unknown" where the format does not
-# say). Exits 3 when the WAD has no such lump.
+# map, skill, tics, seconds at 35 Hz, lump sha256 ("unknown" where the format
+# does not say). Reads WAD_PATH, DEMO and WAD; the last matching lump wins,
+# ignoring case. Exits 3 when the WAD has no such lump; read and parse errors
+# return a nonzero status. The caller converts either failure to script exit 1.
 demo_facts() {
   python3 - "$WAD_PATH" "$DEMO" "$WAD" <<'PY'
 import hashlib, struct, sys
@@ -150,6 +155,12 @@ if xcrun devicectl list devices --json-output "$TMP/devices.json" > "$TMP/device
   cat "$TMP/devicectl.log" >&2
   die "xcrun devicectl could not list devices; refusing to guess at one."
 fi
+# Reads $TMP/devices.json and prints a selection status: ok, none, many or
+# notfound. DEVICE matches a UDID, identifier or name exactly; when empty,
+# selects only physical devices reported as connected or paired. An ok status
+# is followed by seven lines: UDID, reality, name, model, product, OS version
+# and OS build. Other statuses are followed by matching device summaries.
+# Read or parse errors return a nonzero status; the caller exits the script.
 pick_device() {
   python3 - "$TMP/devices.json" "$DEVICE" <<'PY'
 import json, sys
@@ -229,6 +240,9 @@ mkdir -p "$OUT"
 
 # conditions.json is written before the first run and again after the last,
 # so a session that dies half way still says what it was recording.
+# Overwrites $OUT/conditions.json with the current profiling conditions and
+# runs from $TMP/runs.tsv, whose wall times are in seconds. Read, conversion
+# or write errors return a nonzero status and stop the script.
 write_conditions() {
   # Values travel as environment, not interpolated into the program: a device
   # name is whatever its owner typed, quotes and backslashes included.
