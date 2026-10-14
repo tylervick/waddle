@@ -28,6 +28,13 @@ enum ProfileHarness {
     /// The request the launch environment asks for, or nil. Anything
     /// malformed is nil rather than a guess: a profile of the wrong workload
     /// is worse than a launcher that visibly did nothing.
+    ///
+    /// Requires a nonempty `WADDLE_PROFILE_GAME` and a `WADDLE_PROFILE_DEMO`
+    /// of 1–8 ASCII letters, digits, or underscores. `WADDLE_PROFILE_MODE`
+    /// defaults to `playdemo` only when absent; otherwise it must be
+    /// `playdemo` or `timedemo`. Preserves the game and demo names and includes
+    /// `-nogui` in the returned arguments to suppress engine message boxes.
+    /// Does not check whether the named game or demo exists.
     static func request(environment: [String: String]) -> Request? {
         guard let game = environment["WADDLE_PROFILE_GAME"], !game.isEmpty,
               let demo = environment["WADDLE_PROFILE_DEMO"], isLumpName(demo)

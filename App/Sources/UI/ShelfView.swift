@@ -542,6 +542,12 @@ struct ShelfView: View {
     /// `xctrace record --launch`, so a trace holds the demo and no idle
     /// launcher after it. A session that failed leaves the app, and its
     /// error alert, on screen instead.
+    ///
+    /// Matches the title exactly across the full library, including hidden
+    /// games, preferring a base game. An invalid request, missing game, or
+    /// library read error returns without starting a session. A match is
+    /// scheduled on the main run loop and consumes this launch's one attempt,
+    /// even if starting or running the session fails.
     private func startProfileSessionIfRequested() {
         guard !ProfileHarness.started,
               let request = ProfileHarness.request(
