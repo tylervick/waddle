@@ -370,7 +370,7 @@ jobs:
 
       # BEFORE the upload, so a failed upload does not discard the build.
       - name: Upload IPA artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: Waddle-${{ steps.buildnum.outputs.value }}-ipa
           path: Vendor/archive/export/*.ipa
@@ -484,7 +484,7 @@ jobs:
       # secret masking -- on a public repo they are publicly downloadable.
       - name: Upload distribution logs
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: xcdistributionlogs
           path: ${{ runner.temp }}/distlogs
