@@ -108,6 +108,7 @@ jobs:
           Scripts/test-globals-diff.sh
           Scripts/test-check-eas-bank.sh
           Scripts/test-check-eas-realtime.sh
+          Scripts/test-profile-session.sh
           # Hermetic fixtures plus one live case: refuses a job that calls a
           # reusable workflow reading secrets without passing it any, which
           # is how the first on-merge TestFlight release ran with every
