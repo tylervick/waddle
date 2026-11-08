@@ -35,7 +35,14 @@ in_tools=0
 lineno=0
 while IFS= read -r line || [ -n "$line" ]; do
   lineno=$((lineno + 1))
-  case "$line" in
+  # TOML allows leading whitespace before a key or a table header, and a
+  # comment anywhere; compare the trimmed, uncommented text so neither
+  # indentation nor a `# url = ...` remark changes the verdict.
+  trimmed="${line#"${line%%[![:space:]]*}"}"
+  case "$trimmed" in
+    \#*) continue ;;
+  esac
+  case "$trimmed" in
     # Any table header decides whether the lines after it belong to [tools].
     # `[tools]` and `[tools."name"]`/`[tools.name]` do; `[tasks.x]`, `[env]`
     # and the rest do not.
@@ -43,20 +50,25 @@ while IFS= read -r line || [ -n "$line" ]; do
     \[*) in_tools=0 ;;
   esac
   if [ "$in_tools" -eq 1 ]; then
-    case "$line" in
+    case "$trimmed" in
       # The backend in the table name: [tools."http:blink"]
       \[tools.\"http:*|\[tools.http:*)
-        echo "error: $CONFIG:$lineno: tool pinned through the http backend: $line" >&2
+        echo "error: $CONFIG:$lineno: tool pinned through the http backend: $trimmed" >&2
         status=1 ;;
-      # The backend in an inline key: "http:blink" = "0.1.3"
+      # The backend in a key, as a plain pin or an inline table:
+      # "http:blink" = "0.1.3", or "http:blink" = { version = "1", url = "..." }
       \"http:*|http:*)
-        echo "error: $CONFIG:$lineno: tool pinned through the http backend: $line" >&2
-        status=1 ;;
-      # A download URL of any shape under [tools]: platforms.x.url = "..."
-      *url\ =*|*url=*)
-        echo "error: $CONFIG:$lineno: tool carries its own download URL: $line" >&2
+        echo "error: $CONFIG:$lineno: tool pinned through the http backend: $trimmed" >&2
         status=1 ;;
     esac
+    # A download URL of any shape under [tools]: `platforms.x.url = "..."`,
+    # `url  =` with any spacing, or `url =` inside an inline table. Checked
+    # separately from the key patterns so an inline-table pin is reported
+    # for both reasons, and a URL under a non-http table for this one.
+    if printf '%s\n' "$trimmed" | grep -Eq '(^|[[:space:]{,.])url[[:space:]]*='; then
+      echo "error: $CONFIG:$lineno: tool carries its own download URL: $trimmed" >&2
+      status=1
+    fi
   fi
 done < "$CONFIG"
 

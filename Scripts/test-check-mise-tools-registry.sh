@@ -70,6 +70,31 @@ grep -q 'url.toml:4: tool carries its own download URL' "$TMP/err" \
   || fail "URL not named: $(cat "$TMP/err")"
 pass "a download URL under any tools table is refused"
 
+# 4b. TOML the first cut missed: an indented key, an inline table, and
+#     `url  =` with extra spacing are all valid ways to write the same pin.
+cat > "$TMP/inline-table.toml" <<'EOF'
+[tools]
+  cmake = "4.4.5"
+  "http:blink" = { version = "0.1.3", url  = "https://vendor.invalid/blink.gz" }
+EOF
+if run "$TMP/inline-table.toml"; then fail "indented inline-table http pin was accepted"; fi
+grep -q 'inline-table.toml:3: tool pinned through the http backend' "$TMP/err" \
+  || fail "inline-table key not named: $(cat "$TMP/err")"
+grep -q 'inline-table.toml:3: tool carries its own download URL' "$TMP/err" \
+  || fail "inline-table url not named: $(cat "$TMP/err")"
+pass "an indented inline-table pin with spaced 'url  =' is refused on both counts"
+
+# 4c. A comment under [tools] that happens to mention a URL is prose, not a
+#     pin, and must not fail the check.
+cat > "$TMP/comment.toml" <<'EOF'
+[tools]
+# The old pin had url = "https://vendor.invalid/x" here; see the learning.
+cmake = "4.4.5"
+    # indented remark: url = still not a pin
+EOF
+run "$TMP/comment.toml" || fail "a comment mentioning a URL was refused: $(cat "$TMP/err")"
+pass "comments under [tools] are ignored"
+
 # 5. A missing config fails closed with exit 2, not a quiet pass.
 set +e
 MISE_TOOLS_CONFIG="$TMP/absent.toml" "$CHECK" > /dev/null 2> "$TMP/err"

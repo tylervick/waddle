@@ -18,7 +18,9 @@ green, so the break was invisible until an unrelated cmake bump changed the
 hash. The graphghan repo had excluded the tool on runners with
 `MISE_DISABLE_TOOLS` from the start, and the same pin cost it nothing.
 
-Two rules follow, and the check enforces both mechanically:
+Two rules follow. The check enforces the first mechanically; the second is
+a judgement it cannot make, so it is for the reviewer of any `[tools]`
+change:
 
 - A tool in `[tools]` must come from a registry the build already trusts
   (the mise registry, or an `aqua:`/`ubi:`/`github:` pin served from GitHub).
