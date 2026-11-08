@@ -108,6 +108,10 @@ jobs:
           Scripts/test-globals-diff.sh
           Scripts/test-check-eas-bank.sh
           Scripts/test-check-eas-realtime.sh
+          # Hermetic fixtures plus one live case: refuses a vendor-hosted tool
+          # pin in mise.toml, which is how a dead CDN took CI down for weeks
+          # (the Blink pin, PR #331 and the #330 merge run).
+          Scripts/test-check-mise-tools-registry.sh
           # Hermetic fixtures plus one live case: refuses a job that calls a
           # reusable workflow reading secrets without passing it any, which
           # is how the first on-merge TestFlight release ran with every
