@@ -18,7 +18,19 @@
     "",
     "config:best-practices enables digest pinning, so the first run opens a",
     "'Pin dependencies' PR that SHA-pins every action with a trailing",
-    "# vX.Y.Z comment -- that PR is what closes issue #16."
+    "# vX.Y.Z comment -- that PR is what closes issue #16.",
+    "",
+    "Automerge. Low-risk updates merge themselves once the pull request's",
+    "checks are green: minor and patch releases, digest and pin moves, and",
+    "lock-file maintenance. Majors stay a human decision. Renovate does the",
+    "merge itself rather than GitHub's auto-merge (platformAutomerge is off),",
+    "because main's ruleset names no required status checks, and GitHub's",
+    "auto-merge waits only for REQUIRED checks -- with none, it would merge",
+    "the moment the PR opened, CI red or not. Renovate instead waits for",
+    "every check on the branch to pass before merging, which is the gate we",
+    "actually want. The three-day minimumReleaseAge on those updates is the",
+    "supply-chain hedge: a release pulled or re-tagged within days of",
+    "publication never reaches main unattended."
   ],
   "extends": [
     "config:best-practices",
@@ -26,6 +38,7 @@
   ],
   "labels": ["dependencies"],
   "schedule": ["before 9am on monday"],
+  "platformAutomerge": false,
   "ignorePaths": [
     "Engine/woof/**"
   ],
@@ -53,6 +66,20 @@
       ],
       "matchDepTypes": ["github-runner"],
       "enabled": false
+    },
+    {
+      "description": [
+        "Low-risk updates merge themselves when green. Minor and patch",
+        "releases of the actions, the mise tools and ZIPFoundation, digest",
+        "and pin moves (what config:best-practices' digest pinning produces),",
+        "and lock-file maintenance. A green run here means the engine built,",
+        "the unit suites passed and every Scripts/test-*.sh suite ran, which",
+        "is the same evidence a human merge rests on. Majors are excluded by",
+        "omission and keep needing a review."
+      ],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest", "pinDigest", "lockFileMaintenance"],
+      "automerge": true,
+      "minimumReleaseAge": "3 days"
     }
   ]
 }
