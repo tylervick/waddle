@@ -45,8 +45,10 @@ It is the save format every release through 1.3 wrote: binary, stamped
 development snapshot those releases vendored (Woof master `798acebd`). Woof
 16.0.0 final, vendored since PR #328, writes JSON instead and its legacy
 loader recognises nothing newer than `Woof 15.0.0`, so this file is what an
-upgrading player's save looks like to the current engine. Nothing loads it
-yet; it is here so the fix for that has a real file to prove itself against.
+upgrading player's save looks like to the current engine. `LegacySaveLoadTests`
+installs it as Freedoom Phase 1's suspend save through the
+`WADDLE_TEST_SUSPEND_SAVE` seam and resumes it through Continue; the engine
+reads it as `saveg_waddle13` (`Engine/woof/src/kf_legacy.c`, issue #339).
 
 SHA-256 `2025093b9f8699435c103a005c08fd8e265061c960d58dcce119bcda16386d9f`,
 171481 bytes. The only path it embeds is the string `freedoom1.wad`.

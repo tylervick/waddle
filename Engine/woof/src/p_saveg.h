@@ -191,6 +191,11 @@ typedef enum
   saveg_woof600,
   saveg_woof1300,
   saveg_woof1500,
+  // [Waddle] The binary format stamped "Woof 16.0.0" that Waddle releases
+  // through 1.3 wrote from the Woof master 798acebd snapshot (issue #339).
+  // Upstream never shipped it; its body is the keyframe layout read by
+  // kf_legacy.c. New saves are JSON (saveg_current).
+  saveg_waddle13,
   saveg_current, // saveg_woof1600
 } saveg_compat_t;
 

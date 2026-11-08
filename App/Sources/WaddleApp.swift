@@ -91,6 +91,17 @@ struct WaddleApp: App {
             if ProcessInfo.processInfo.environment["WADDLE_SEED_CONTINUE_SAVE"] != nil {
                 try? library.seedContinueSaveForCapture()
             }
+            // Test-only seam (issue #339): WADDLE_TEST_SUSPEND_SAVE is a save
+            // file, raw-deflate compressed and base64 encoded (a 1.3 save is
+            // 171 KB; the launch environment is not the place for that), to
+            // install as Freedoom Phase 1's suspend save before the shelf is
+            // built. Same WADDLE_* family as the seams above; never set in
+            // production.
+            if let encoded = ProcessInfo.processInfo.environment["WADDLE_TEST_SUSPEND_SAVE"],
+               let compressed = Data(base64Encoded: encoded),
+               let bytes = try? (compressed as NSData).decompressed(using: .zlib) as Data {
+                try? library.seedSuspendSaveForTest(bytes)
+            }
             #endif
 
             self.container = container

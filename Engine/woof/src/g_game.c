@@ -2125,6 +2125,9 @@ static const char *saveg_versions[] =
     [saveg_woof600] = "Woof 6.0.0",
     [saveg_woof1300] = "Woof 13.0.0",
     [saveg_woof1500] = "Woof 15.0.0",
+    // [Waddle] issue #339: the binary stamp Waddle 1.0-1.3 wrote (see
+    // p_saveg.h). Recognised for loading only; saving stays JSON.
+    [saveg_waddle13] = "Woof 16.0.0",
 };
 
 static char *savename = NULL;
@@ -2586,6 +2589,18 @@ void G_DebugBackgroundCounts(int *saves, int *pauses, int *saved_leveltime)
 
 static byte *LoadCustomSkillOptions(byte *opt_p)
 {
+    // [Waddle] issue #339: the 798acebd snapshot wrote five custom-skill
+    // bytes after the options block; the upstream binary formats did not.
+    if (saveg_compat == saveg_waddle13)
+    {
+        pistolstart = *opt_p++;
+        coopspawns = *opt_p++;
+        halfplayerdamage = *opt_p++;
+        doubleammo = *opt_p++;
+        aggromonsters = *opt_p++;
+        return opt_p;
+    }
+
     // Woof! < 16.0.0 (binary savegame format) had no custom skill options
     pistolstart = clpistolstart;
     coopspawns = clcoopspawns;
@@ -2749,11 +2764,28 @@ static boolean DoLoadGameBinary()
       }
   }
 
-  // killough 2/22/98: Friendly savegame version difference message
-  if (!forced_loadgame && saveg_compat == saveg_indetermined)
+  // [Waddle] issue #339: a stamp this table does not know cannot be parsed,
+  // forced or not. saveg_indetermined is -1, so the demo_version byte below
+  // would be skipped and every later field read one byte off; G_ReadOptions
+  // then finds a non-zero beta_emulation and I_Errors the session. Refuse
+  // instead of offering the "Are you sure?" prompt, whose "yes" could only
+  // end there. For a command-line load this falls back to the title screen,
+  // as G_LoadGameErr does.
+  if (saveg_compat == saveg_indetermined)
     {
-      const char *msg = "Different Savegame Version!!!\n\nAre you sure?";
-      G_LoadGameErr(msg);
+      char stamp[VERSIONSIZE + 1] = {0};
+      memcpy(stamp, save_p, VERSIONSIZE);
+      I_Printf(VB_WARNING, "DoLoadGameBinary: unknown savegame version \"%s\"",
+               stamp);
+      Z_Free(savebuffer);
+      savebuffer = save_p = NULL;
+      displaymsg("Unknown savegame version");
+      if (command_loadgame)
+        {
+          G_CheckDemoStatus();
+          D_StartTitle();
+          gamestate = GS_DEMOSCREEN;
+        }
       return false;
     }
 
@@ -2841,6 +2873,16 @@ static boolean DoLoadGameBinary()
 
   // killough 11/98: load revenant tracer state
   boom_basetic = gametic - (int) *save_p++;
+
+  if (saveg_compat == saveg_waddle13)
+  {
+    // [Waddle] issue #339: the snapshot's binary keyframe body.
+    P_MapStart();
+    P_UnArchiveKeyframeBinary();
+    P_MapEnd();
+  }
+  else
+  {
   // dearchive all the modifications
   P_MapStart();
   P_UnArchivePlayers();
@@ -2850,6 +2892,7 @@ static boolean DoLoadGameBinary()
   P_UnArchiveRNG();    // killough 1/18/98: load RNG information
   P_UnArchiveMap();    // killough 1/22/98: load automap information
   P_MapEnd();
+  }
 
   if (saveg_read8() != 0xe6)
     I_Error ("Bad savegame");

@@ -176,6 +176,23 @@ Current patches:
   to upstream's existing DUMMY MIDI backend (music via the OpenAL/opl
   paths is unaffected).
 
+- `src/kf_legacy.c` (new), `src/p_keyframe.h`, `src/p_saveg.h`,
+  `src/g_game.c`, `src/CMakeLists.txt` — issue #339: Waddle 1.0-1.3 shipped
+  the 798acebd snapshot, whose saves were BINARY keyframes stamped
+  `"Woof 16.0.0"`; 16.0.0 final writes JSON under the same stamp and its
+  legacy table stops at 15.0.0, so every pre-1.4 save was unloadable.
+  `saveg_waddle13` names that format in `saveg_compat_t`, `g_game.c` lists
+  the stamp, reads the snapshot's five custom-skill bytes and calls
+  `P_UnArchiveKeyframeBinary()` (kf_legacy.c: the snapshot's kf_file.c read
+  half, static, with the removed `player_t` weapon-switch enums consumed
+  and `mobj_t.tint` defaulted to `NO_INDEX`). `DoLoadGameBinary` also
+  refuses an unknown stamp outright instead of offering the forced-load
+  prompt, since a forced parse of `saveg_indetermined` skips the
+  `demo_version` byte and I_Errors in `G_ReadOptions`. Saving is unchanged
+  (JSON). When re-vendoring: kf_legacy.c has no upstream counterpart and
+  must survive the merge untouched; re-check the `saveg_compat_t` enum
+  order and the `saveg_versions[]` entry.
+
 ### Task 10: quit/relaunch stale-global fixes
 
 `WoofIOS_Run` may run more than once in the same process (Task 9's
