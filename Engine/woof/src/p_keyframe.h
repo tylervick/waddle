@@ -31,4 +31,8 @@ void P_FreeKeyframe(keyframe_t *keyframe);
 void P_ArchiveKeyframe(json_mut_doc_t *doc, json_mut_t *root_mut);
 void P_UnArchiveKeyframe(json_t *root);
 
+// [Waddle] Reads the binary keyframe body of a saveg_waddle13 save from
+// save_p (kf_legacy.c, issue #339).
+void P_UnArchiveKeyframeBinary(void);
+
 #endif

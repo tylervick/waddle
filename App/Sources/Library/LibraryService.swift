@@ -668,6 +668,20 @@ final class LibraryService {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try Data().write(to: dir.appendingPathComponent(EngineSaveSlot.autoSaveFilename))
     }
+
+    /// Test-only seam (issue #339): installs `bytes` as Freedoom Phase 1's
+    /// suspend save and marks that game played, so the shelf offers Continue
+    /// on it and tapping the hero launches `-loadgame 254` against exactly
+    /// this file. `LegacySaveLoadTests` hands it a save written by Waddle 1.3,
+    /// which is how a player's upgrade is reproduced without a 1.3 build.
+    func seedSuspendSaveForTest(_ bytes: Data) throws {
+        guard let wad = try wadByFilename("freedoom1.wad", bundled: true),
+              let game = try game(id: wad.id) else { return }
+        let dir = Self.savesDirectory(forGameID: game.id)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try bytes.write(to: dir.appendingPathComponent(EngineSaveSlot.suspendSaveFilename))
+        try markPlayed(game)
+    }
     #endif
 
     nonisolated static func savesDirectory(forGameID id: UUID) -> URL {

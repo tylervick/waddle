@@ -92,6 +92,7 @@ set(WOOF_SOURCES
     i_video.c              i_video.h
     info.c                 info.h
     kf_file.c
+    kf_legacy.c
     kf_memory.c
     m_arena.c              m_arena.h
     m_argv.c               m_argv.h
