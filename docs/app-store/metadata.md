@@ -643,6 +643,23 @@ weighing it.
 Required on every update. The current version's text is `listing/whats-new.txt`;
 replace it for each release. Older versions are recorded below.
 
+### 1.3
+
+Shipped 2026-10-03 (build 277). The text as submitted, moved here when 1.4
+replaced it in `listing/whats-new.txt`:
+
+```
+A new look, and more ways to play.
+
+- Fresh design throughout: the shelf and every game page are built around each game's own title art, and lay out properly in landscape on iPhone and iPad.
+- Move the on-screen buttons where your thumbs want them: Settings › Control Feel › Edit Layout.
+- Walk into doors and switches to use them. Auto-use is on for touch play and steps aside when a controller or keyboard is connected.
+- Pan the automap with a drag and zoom it with a pinch.
+- Swipe home mid-level and the game pauses and saves itself, so the shelf can offer to continue it later.
+- VoiceOver can operate the game controls directly.
+- Fixes: cheats no longer carry into the next game, Quit Game works every time, and an error after a failed launch can be dismissed.
+```
+
 ### 1.2
 
 **Canonical text: [`listing/whats-new.txt`](listing/whats-new.txt).** Written 2026-09-23; build 264 added the session-state engine fix (#272), so the main-menu bullet became "Starting another game in the same session now starts clean", which covers the menu fix and the silent-music and stray-wipe ones with it.

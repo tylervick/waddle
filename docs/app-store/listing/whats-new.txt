@@ -1,9 +1,6 @@
-A new look, and more ways to play.
+Tap the menus, and a newer engine underneath.
 
-- Fresh design throughout: the shelf and every game page are built around each game's own title art, and lay out properly in landscape on iPhone and iPad.
-- Move the on-screen buttons where your thumbs want them: Settings › Control Feel › Edit Layout.
-- Walk into doors and switches to use them. Auto-use is on for touch play and steps aside when a controller or keyboard is connected.
-- Pan the automap with a drag and zoom it with a pinch.
-- Swipe home mid-level and the game pauses and saves itself, so the shelf can offer to continue it later.
-- VoiceOver can operate the game controls directly.
-- Fixes: cheats no longer carry into the next game, Quit Game works every time, and an error after a failed launch can be dismissed.
+- The in-game menus answer to touch: tap an item to choose it, drag a slider to set it, and answer a yes/no prompt with on-screen buttons. Tap the title screen to open the menu.
+- Woof! engine updated to 16.0.0, with its latest fixes and compatibility work. Maps built with compressed nodes now load.
+- Saves made with earlier versions of Waddle still load.
+- Updated audio and platform libraries.
