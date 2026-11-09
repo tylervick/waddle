@@ -54,3 +54,10 @@ the `did*` flags, and `Documents/Saves`; relaunch once more.
   duplicate game, both Freedoom rows, the hidden flag, last-played date,
   touch override and save all preserved; Continue hero rendered; second
   launch clean; `didMigrateToGames`/`didAdoptOrphanMapSets` set.
+- **Result C** (main `d35d04c`, the 1.4 line, → this branch rebased onto it,
+  2026-11-08): after a 37-commit rebase, the same procedure with a played
+  base game carrying a suspend save, a renamed base game and a hidden one.
+  `ZLOADOUT` and the three `ZWADFILE` columns gone; every `ZGAME` row,
+  flag and last-played date byte-identical before and after; the save's
+  SHA-256 unchanged; all three `did*` flags still set; two launches, no
+  crash.
