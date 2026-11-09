@@ -22,12 +22,12 @@ permissions:
   contents: read
 
 env:
-  XCODE_VERSION: "26.2"
+  XCODE_VERSION: "27.1"
 
 jobs:
   cold-build:
     name: Build deps and engine from source
-    runs-on: macos-26
+    runs-on: xcode-27
     # A cold build is ~9 minutes measured; 60 is headroom for a slow runner,
     # not a figure derived from it.
     timeout-minutes: 60

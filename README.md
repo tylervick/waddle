@@ -194,7 +194,7 @@ images move together with the slot names in
 
 ## Continuous integration
 
-Two workflows cover the test path, both on GitHub-hosted `macos-26` runners
+Two workflows cover the test path, both on GitHub-hosted `xcode-27` runners
 with the Xcode and simulator versions pinned in each workflow's `env:` block:
 
 | Workflow | Runs when | What it does |

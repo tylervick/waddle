@@ -50,7 +50,7 @@ on:
       device:
         description: Simulator device name
         required: false
-        default: "iPhone 17 Pro"
+        default: "iPhone 18 Pro"
       only_testing:
         description: >-
           Optional -only-testing filter, e.g. WaddleUITests/EngineSmokeTests.
@@ -69,20 +69,23 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  XCODE_VERSION: "26.2"
-  SIMULATOR_OS: "26.2"
+  XCODE_VERSION: "27.1"
+  # 27.0, not 27.1, and iPhone 18 Pro, not 17 Pro: both for the reasons given
+  # beside the same two pins in ci.yml. The 27.1 simulator runtime runs only
+  # iPhone Duo, and the xcode-27 image ships no iPhone 17 Pro.
+  SIMULATOR_OS: "27.0"
   # The fallback for every trigger that is not workflow_dispatch. `inputs` is
   # populated ONLY for dispatch (and workflow_call); on a `push` run the whole
   # context is empty, so `inputs.device` is "". Without this, DESTINATION built
   # to `platform=iOS Simulator,name=,OS=26.2` and the job failed on a malformed
   # destination -- a failure that looks like a broken test suite and is not one.
   # The dispatch input keeps its own default so the form still shows a value.
-  SIMULATOR_DEVICE: "iPhone 17 Pro"
+  SIMULATOR_DEVICE: "iPhone 18 Pro"
 
 jobs:
   ui-tests:
     name: UI tests
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

@@ -73,7 +73,7 @@ concurrency:
   queue: max
 
 env:
-  XCODE_VERSION: "26.2"
+  XCODE_VERSION: "27.1"
   # Only for a repository that has never shipped, before any build-* tag
   # exists: that one build is OFFSET + run number. Every later build is the
   # newest tag plus one. The run number is NOT usable here in general: inside
@@ -161,7 +161,7 @@ jobs:
     name: Archive and upload
     needs: gate
     if: ${{ needs.gate.outputs.ship == 'true' }}
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 90
     # The App Store Connect key and the signing material are secrets of the
     # `app-store` environment, which only `main` may deploy to. That is what
