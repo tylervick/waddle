@@ -24,6 +24,7 @@ export GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
 REPO="$TMP/repo"
 mkdir -p "$REPO/Scripts" "$REPO/App/Waddle.xcodeproj" "$REPO/App/Resources/GameData" "$TMP/bin"
 cp "$ROOT/Scripts/profile-session.sh" "$REPO/Scripts/"
+printf 'settings:\n  base:\n    DEVELOPMENT_TEAM: STUBTEAM1\n' > "$REPO/App/project.yml"
 # The guard's verdict is a file the cases flip; its own suite tests the guard.
 cat > "$REPO/Scripts/check-engine-fresh.sh" <<'EOF'
 #!/bin/bash
@@ -171,7 +172,7 @@ run --signing development
 [ "$RC" -eq 0 ] || { cat "$TMP/out" >&2; fail "--signing development exited $RC"; }
 build="$(grep '^xcodebuild' "$CALLS")"
 for want in "-configuration Release" "CODE_SIGN_STYLE=Automatic" "CODE_SIGN_IDENTITY=Apple Development" \
-            "PROVISIONING_PROFILE_SPECIFIER="; do
+            "PROVISIONING_PROFILE_SPECIFIER=" "DEVELOPMENT_TEAM=STUBTEAM1"; do
   case "$build" in *"$want"*) ;; *) fail "development build command lacks: $want" ;; esac
 done
 [ "$(json signing)" = "development" ] || fail "conditions.json signing is '$(json signing)', wanted development"

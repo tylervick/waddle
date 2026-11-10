@@ -320,9 +320,14 @@ if [ "$PLUMBING" = 0 ]; then SIGNING=(-allowProvisioningUpdates); fi
 if [ "$SIGNING_MODE" = development ]; then
   # Same Release binary, the Mac's own development identity: automatic
   # signing with the project's team, and the manual profile name cleared so
-  # xcodebuild does not go looking for the App Store one.
+  # xcodebuild does not go looking for the App Store one. The team is passed
+  # explicitly because a command-line CODE_SIGN_STYLE reaches every target,
+  # including the ZIPFoundation package product, which has no team of its own
+  # and otherwise fails with "requires a development team".
+  TEAM="$(sed -n 's/^ *DEVELOPMENT_TEAM: *\([A-Z0-9]*\).*/\1/p' "$ROOT/App/project.yml" | head -1)"
+  [ -n "$TEAM" ] || die "--signing development needs DEVELOPMENT_TEAM in App/project.yml."
   SIGNING+=(CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="Apple Development"
-            PROVISIONING_PROFILE_SPECIFIER=)
+            PROVISIONING_PROFILE_SPECIFIER= DEVELOPMENT_TEAM="$TEAM")
 fi
 if xcodebuild -project "$ROOT/App/Waddle.xcodeproj" -scheme Waddle \
      -configuration Release -destination "id=$UDID" -derivedDataPath "$DERIVED" \
