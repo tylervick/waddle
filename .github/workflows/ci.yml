@@ -294,6 +294,22 @@ jobs:
           # its lookup trustworthy.
           udid="$(Scripts/ensure-ipad-simulator.sh "$SIMULATOR_OS")"
           Scripts/check-simulator-available.sh "$SIMULATOR_DEVICE_IPAD" "$SIMULATOR_OS"
+          # The iPhone Duo is pre-created by the runner image under the 27.1
+          # runtime, so it is only checked, not ensured. If an image ever
+          # drops it, this fails by name with the device list in the log,
+          # and the fix is an ensure script like the iPad's.
+          #
+          # BEFORE the iPad boot below, not after it. `simctl list` waits on
+          # CoreSimulator while a device is doing its first boot: on run
+          # 42849345701 this check sat directly after that boot and returned
+          # exactly three minutes later, which the job then spent idle.
+          #
+          # And the Duo is NOT booted here, unlike the iPad. Run 42835006870
+          # booted it early as well, and the hosted runner "lost communication
+          # with the server" 73 minutes into the iPhone leg, with three
+          # simulators up. The Duo boots in its own step, after the other two
+          # are shut down.
+          Scripts/check-simulator-available.sh "$SIMULATOR_DEVICE_DUO" "$SIMULATOR_OS_DUO"
           # Start the iPad booting HERE rather than leaving it to its own test
           # step. A simulator created seconds ago has never booted, and on run
           # 31980014093 that first boot was ~87s of the iPad leg's 2m43s --
@@ -306,17 +322,6 @@ jobs:
           # the iPad step runs, exactly as it did before this line existed.
           # This is an optimisation, not a precondition.
           xcrun simctl boot "$udid" || true
-          # The iPhone Duo is pre-created by the runner image under the 27.1
-          # runtime, so it is only checked, not ensured. If an image ever
-          # drops it, this fails by name with the device list in the log,
-          # and the fix is an ensure script like the iPad's.
-          #
-          # Deliberately NOT booted here, unlike the iPad. Run 42835006870
-          # booted it early as well: this step took 3m35s where it takes 8s,
-          # and with three simulators up the runner then "lost communication
-          # with the server" 73 minutes into the iPhone leg. The Duo boots in
-          # its own step, after the other two are shut down.
-          Scripts/check-simulator-available.sh "$SIMULATOR_DEVICE_DUO" "$SIMULATOR_OS_DUO"
 
       # -only-testing:WaddleTests is REQUIRED, not a tuning choice: the
       # Waddle scheme's test action also includes WaddleUITests, which boot
