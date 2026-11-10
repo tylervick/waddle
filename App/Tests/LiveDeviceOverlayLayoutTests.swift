@@ -39,6 +39,15 @@ final class LiveDeviceOverlayLayoutTests: XCTestCase {
     ///
     /// - iPhone 17 Pro, 402x874 -> min(1.0, 1.0) = 1.0
     /// - iPad Pro 13-inch (M4), 1032x1376 -> min(2.567, 1.574) = 1.574
+    /// - iPhone Duo, closed, 466x678 -> min(1.159, 0.776) = 0.776
+    /// - iPhone Duo, open, 669x951 -> min(1.664, 1.088) = 1.088
+    ///
+    /// The Duo has two rows because it has two displays, and which one the
+    /// scene is on depends on whether the device is folded. A simulator boots
+    /// closed, which is the pose CI gets (nothing Apple ships opens it from a
+    /// command line; `docs/learnings/iphone-duo-simulator-traps.md`), but
+    /// both are pinned so a leg that somehow ran open would still be held to
+    /// an exact figure rather than falling through to the unpinned bands.
     private struct PinnedDestination {
         let name: String
         let shortSide: CGFloat
@@ -49,7 +58,18 @@ final class LiveDeviceOverlayLayoutTests: XCTestCase {
     private static let pinnedDestinations: [PinnedDestination] = [
         PinnedDestination(name: "iPhone 17 Pro", shortSide: 402, idiom: .phone, scale: 1.0),
         PinnedDestination(name: "iPad Pro 13-inch (M4)", shortSide: 1032, idiom: .pad, scale: 1.574),
+        PinnedDestination(name: "iPhone Duo (closed)", shortSide: 466, idiom: .phone, scale: 0.776),
+        PinnedDestination(name: "iPhone Duo (open)", shortSide: 669, idiom: .phone, scale: 1.088),
     ]
+
+    /// Whether the suite is running on an iPhone Duo simulator, from the name
+    /// CoreSimulator gives the process. The Duo leg exists to assert Duo
+    /// figures, so on that device an unpinned screen is a failure, not a
+    /// fallback: a leg that quietly took the generic phone band would report
+    /// coverage it did not provide.
+    private static var isIPhoneDuo: Bool {
+        (ProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"] ?? "").contains("Duo")
+    }
 
     /// Bands for a destination this repo does not pin — a developer running
     /// the suite on some other simulator. They are deliberately disjoint,
@@ -110,6 +130,9 @@ final class LiveDeviceOverlayLayoutTests: XCTestCase {
             // Not a destination this repo pins. Still assert the thing that
             // must be true of every device rather than skipping, which would
             // let an unfamiliar simulator report coverage it did not provide.
+            XCTAssertFalse(Self.isIPhoneDuo,
+                           "an iPhone Duo presented a screen of \(bounds.size), which is neither "
+                           + "of its two displays (466x678 closed, 669x951 open)")
             switch idiom {
             case .pad:
                 XCTAssertGreaterThanOrEqual(
@@ -174,6 +197,38 @@ final class LiveDeviceOverlayLayoutTests: XCTestCase {
             XCTAssertLessThanOrEqual(layout.frame(for: control).maxY, floor + 0.001,
                                      "\(control.rawValue) intrudes on the status bar reserve "
                                      + "(\(layout.statusBarReserve)pt) — \(context)")
+        }
+    }
+
+    /// Issue #351, against live geometry: the bottom cluster clear of Doom's
+    /// status bar where the engine will draw it, not where the window ends.
+    ///
+    /// `TouchOverlayLayoutStatusBarTests` proves this for rects and zero
+    /// insets someone typed. Here the window and its safe-area insets are the
+    /// ones the system reports, which on a closed iPhone Duo include the
+    /// status column down one side, and the picture is the one a session
+    /// starts with (`predictedPictureRect`). This is the case that fails on
+    /// the Duo leg alone if the layout goes back to assuming the bar is at
+    /// the bottom of the window; on a phone in portrait the cluster is far
+    /// below the picture either way.
+    func testLiveWindowKeepsTheBottomClusterOffTheStatusBar() throws {
+        let window = try liveWindow()
+        let bounds = window.bounds
+        let insets = window.safeAreaInsets
+        let picture = TouchOverlayLayout.predictedPictureRect(in: bounds)
+        let layout = TouchOverlayLayout(bounds: bounds, safeAreaInsets: insets, hudReserve: 0,
+                                        pictureRect: picture)
+        let barHeight = picture.height * 32 / 200
+        let bar = CGRect(x: picture.minX, y: picture.maxY - barHeight,
+                         width: picture.width, height: barHeight)
+        let context = "window \(bounds), insets \(insets), picture \(picture), scale \(layout.scale)"
+
+        for control in [TouchOverlayControl.fire, .use, .weaponPrev, .weaponNext] {
+            let frame = layout.frame(for: control)
+            XCTAssertFalse(TouchOverlayLayout.overlaps(frame, bar),
+                           "\(control.rawValue) at \(frame) is on the status bar \(bar) — \(context)")
+            XCTAssertTrue(bounds.inset(by: insets).contains(frame),
+                          "\(control.rawValue) at \(frame) left the safe area — \(context)")
         }
     }
 

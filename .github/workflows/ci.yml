@@ -39,7 +39,7 @@ env:
   # (actions/runner-images#15000: every other type is "Incompatible device"),
   # so the pre-Duo devices this suite runs on live on the 27.0 runtime. The
   # binary is still built against the 27.1 SDK; only the simulator OS differs.
-  # A Duo leg, when one is added, pins 27.1 on its own.
+  # The Duo leg pins 27.1 on its own, in SIMULATOR_OS_DUO below.
   SIMULATOR_OS: "27.0"
   # The xcode-27 image pre-creates the iPhone 18 lineup and no iPhone 17 Pro.
   # The two have the same screen -- a simulator screenshot of each is
@@ -53,6 +53,14 @@ env:
   # disagree, check-simulator-available.sh below fails the job by name
   # rather than testing whatever else was lying around.
   SIMULATOR_DEVICE_IPAD: "iPad Pro 13-inch (M4)"
+  # The third destination (issue #359). It is the one device the iOS 27.1
+  # runtime supports, so it carries its own OS pin rather than SIMULATOR_OS.
+  # The simulator boots closed, and nothing Apple ships opens it from a
+  # command line (docs/learnings/iphone-duo-simulator-traps.md), so this leg
+  # is the closed pose: a 466x678 pt window with a status column down one
+  # side. The open pose has no CI coverage.
+  SIMULATOR_DEVICE_DUO: "iPhone Duo"
+  SIMULATOR_OS_DUO: "27.1"
 
 jobs:
   build-and-test:
@@ -286,6 +294,22 @@ jobs:
           # its lookup trustworthy.
           udid="$(Scripts/ensure-ipad-simulator.sh "$SIMULATOR_OS")"
           Scripts/check-simulator-available.sh "$SIMULATOR_DEVICE_IPAD" "$SIMULATOR_OS"
+          # The iPhone Duo is pre-created by the runner image under the 27.1
+          # runtime, so it is only checked, not ensured. If an image ever
+          # drops it, this fails by name with the device list in the log,
+          # and the fix is an ensure script like the iPad's.
+          #
+          # BEFORE the iPad boot below, not after it. `simctl list` waits on
+          # CoreSimulator while a device is doing its first boot: on run
+          # 42849345701 this check sat directly after that boot and returned
+          # exactly three minutes later, which the job then spent idle.
+          #
+          # And the Duo is NOT booted here, unlike the iPad. Run 42835006870
+          # booted it early as well, and the hosted runner "lost communication
+          # with the server" 73 minutes into the iPhone leg, with three
+          # simulators up. The Duo boots in its own step, after the other two
+          # are shut down.
+          Scripts/check-simulator-available.sh "$SIMULATOR_DEVICE_DUO" "$SIMULATOR_OS_DUO"
           # Start the iPad booting HERE rather than leaving it to its own test
           # step. A simulator created seconds ago has never booted, and on run
           # 31980014093 that first boot was ~87s of the iPad leg's 2m43s --
@@ -353,6 +377,38 @@ jobs:
             -resultBundlePath TestResults-ipad.xcresult \
             test
 
+      # The third destination: an iPhone Duo, closed (issue #359). Same
+      # products as the two legs above, so no recompile; -only-testing for the
+      # same reason as theirs.
+      #
+      # What makes this leg able to fail on its own is, again,
+      # App/Tests/LiveDeviceOverlayLayoutTests.swift: it pins the Duo's
+      # displays to exact overlay scales, fails rather than falling back to
+      # the generic phone band when the device is a Duo, and checks the
+      # bottom cluster against Doom's status bar with the safe-area insets
+      # this window really has. That last one is issue #351's regression
+      # check, and it is the Duo's shape that makes it bite: with the layout
+      # reverted to assuming the bar is at the window's bottom, it fails here
+      # and passes on the phone.
+      #
+      # The cost is in the pull request that added this step, measured on the
+      # runner. If it grows, the fallback is the same as the iPad's: move the
+      # leg to `push: main`, do not delete it.
+      - name: Run unit tests (iPhone Duo)
+        env:
+          DESTINATION: platform=iOS Simulator,name=${{ env.SIMULATOR_DEVICE_DUO }},OS=${{ env.SIMULATOR_OS_DUO }}
+        run: |
+          # One simulator at a time from here: the iPhone and iPad legs are
+          # done, and a third booted beside them is what starved the runner
+          # on run 42835006870. Non-fatal: with nothing booted, `shutdown
+          # all` has nothing to do and the leg runs as it would have.
+          xcrun simctl shutdown all || true
+          xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
+            -destination "$DESTINATION" \
+            -only-testing:WaddleTests \
+            -resultBundlePath TestResults-duo.xcresult \
+            test
+
       # The loop's leading signal: does the test shipped with this change
       # actually fail without the change? Prints a greppable marker the same
       # way check-simulator-available.sh does.
@@ -399,8 +455,9 @@ jobs:
           path: |
             TestResults.xcresult
             TestResults-ipad.xcresult
-          # A failing iPhone leg ends the job before the iPad leg runs, so one
-          # of these two legitimately does not exist on that path. Without
+            TestResults-duo.xcresult
+          # A failing leg ends the job before the legs after it run, so some
+          # of these legitimately do not exist on that path. Without
           # this, that normal case annotates the run with a warning about a
           # missing artifact.
           if-no-files-found: ignore
