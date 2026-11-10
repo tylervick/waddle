@@ -90,3 +90,18 @@ half-open with no crash, and the window followed each time: `win=951x669`,
 `466x678`, `951x669`, `669x951`, and `678x466` closed in landscape. SDL
 3.4.18 with the patch in `Scripts/patches/SDL/` needed nothing further for
 this, on the simulator.
+
+## What CI can and cannot cover
+
+`ci.yml` runs the unit suite on an iPhone Duo as a third destination, on the
+27.1 runtime. A simulator boots closed and nothing opens it without a
+third-party tool, so that leg is the closed pose only: a 466x678 pt window
+with the status column down one side. The open display has no CI coverage.
+
+A leg on a new device proves nothing unless something can fail there and
+nowhere else. `App/Tests/LiveDeviceOverlayLayoutTests.swift` is that
+something: it pins both of the Duo's displays to exact overlay scales, fails
+on a Duo that presents any other screen instead of falling back to the
+generic phone band, and checks the bottom cluster against the status bar with
+the window's real safe-area insets. Add a row there, not just a destination,
+when a device is added.
