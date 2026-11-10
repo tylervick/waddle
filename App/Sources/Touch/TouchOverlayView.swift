@@ -271,6 +271,7 @@ final class TouchOverlayView: UIView {
     /// the instant WoofIOS_IsMenuActive() reports the menu closed.
     private func startMenuPolicyTimer() {
         let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+            self?.updatePictureRect()
             self?.updateAutomapAvailability()
             self?.updateKeyboardForContext()
             self?.dropAutomapGestureIfMapClosed()
@@ -279,6 +280,7 @@ final class TouchOverlayView: UIView {
         }
         RunLoop.main.add(timer, forMode: .common)
         menuPolicyTimer = timer
+        updatePictureRect()
         updateAutomapAvailability()
     }
 
@@ -497,7 +499,46 @@ final class TouchOverlayView: UIView {
     private var layout: TouchOverlayLayout {
         TouchOverlayLayout(bounds: bounds, safeAreaInsets: safeAreaInsets,
                            hudReserve: debugHUDEnabled ? debugHUDStripHeight : 0,
-                           overrides: layoutOverrides)
+                           overrides: layoutOverrides,
+                           pictureRect: enginePictureRect
+                               ?? TouchOverlayLayout.predictedPictureRect(in: bounds))
+    }
+
+    /// Where the engine says it is drawing the game, in this view's
+    /// coordinates; `nil` until it has a window and renderer. The layout
+    /// finds Doom's status bar inside it (issue #351). Until the engine
+    /// answers, the layout uses the same prediction the layout editor does,
+    /// so the cluster does not jump a quarter of a second into a session.
+    private var enginePictureRect: CGRect?
+
+    /// The picture moves when the window does (rotation, an iPhone Duo
+    /// folding, an iPadOS window drag) and nothing notifies the overlay, so
+    /// this rides the menu-policy poll. A change relays the controls out.
+    private func updatePictureRect() {
+        var x: Float = 0, y: Float = 0, w: Float = 0, h: Float = 0
+        var reported: CGRect?
+        if WoofIOS_GetPictureRect(&x, &y, &w, &h) {
+            // The engine reports SDL-window points; the overlay is a subview
+            // of that window, so `from: nil` is the same space.
+            reported = convert(CGRect(x: CGFloat(x), y: CGFloat(y),
+                                      width: CGFloat(w), height: CGFloat(h)), from: nil)
+        }
+        if !Self.sameRect(reported, enginePictureRect) {
+            enginePictureRect = reported
+            setNeedsLayout()
+        }
+    }
+
+    /// Equal to within half a point: the engine's rect comes through a
+    /// float division, and a sub-pixel wobble must not relayout every poll.
+    private static func sameRect(_ a: CGRect?, _ b: CGRect?) -> Bool {
+        switch (a, b) {
+        case (nil, nil): return true
+        case let (a?, b?):
+            return abs(a.minX - b.minX) < 0.5 && abs(a.minY - b.minY) < 0.5
+                && abs(a.width - b.width) < 0.5 && abs(a.height - b.height) < 0.5
+        default: return false
+        }
     }
 
     override func layoutSubviews() {
