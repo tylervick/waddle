@@ -58,7 +58,7 @@ SIMCTL_CHILD_WADDLE_FORCE_TOUCH_OVERLAY=1 \
 The debug HUD's `win=WxH` field then reads the engine's own window size in
 each pose.
 
-## Four ways XCUITest misleads on the Duo
+## Five ways XCUITest misleads on the Duo
 
 1. **Synthesized drags do nothing while the device is open.** Taps land;
    swipes and `press(forDuration:thenDragTo:)` do not. The control was Apple's
@@ -77,6 +77,11 @@ each pose.
    vertically in the status column, where the back button carries the
    identifier `BackButton` and no label, so a test that taps a button named
    for the previous screen finds nothing.
+5. **`XCUIScreen.main.screenshot()` is always the outer display.** On an open
+   device it returns 1398x2034 px of a screen that is switched off, and the
+   test still passes. A capture of what the player sees has to come from the
+   host (`xcrun simctl io <udid> screenshot`, which follows the active
+   display), taken while the test holds the screen still.
 
 ## What the engine did
 
