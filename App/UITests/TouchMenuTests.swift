@@ -169,7 +169,7 @@ final class TouchMenuTests: XCTestCase {
     private var lastSeenStrip = ""
     @MainActor
     private func lastStrip(_ hud: XCUIElement) -> String {
-        if hud.exists { lastSeenStrip = hud.label }
+        if let strip = labelIfPresent(hud) { lastSeenStrip = strip }
         return lastSeenStrip
     }
 

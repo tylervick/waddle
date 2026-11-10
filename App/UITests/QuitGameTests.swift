@@ -103,6 +103,7 @@ final class QuitGameTests: XCTestCase {
         XCTAssertLessThan(elapsed, 40, "\(name): the session ended, but \(elapsed)s after Quit; that is not the quit")
     }
 
+    @MainActor
     private func waitForHUD(_ hud: XCUIElement, timeout: TimeInterval,
                             until condition: ([String: String]) -> Bool) -> [String: String] {
         let deadline = Date().addingTimeInterval(timeout)
@@ -115,8 +116,9 @@ final class QuitGameTests: XCTestCase {
     }
 
     private var lastSeenStrip = ""
+    @MainActor
     private func lastStrip(_ hud: XCUIElement) -> String {
-        if hud.exists { lastSeenStrip = hud.label }
+        if let strip = labelIfPresent(hud) { lastSeenStrip = strip }
         return lastSeenStrip
     }
 
