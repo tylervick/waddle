@@ -13,12 +13,21 @@ build:
                 # remote build with no app_id is rejected before the runner
                 # ever executes build_commands. A local build may omit it.
                 app_id: "8d5b0635-f1df-4a9f-8978-366771843c12"
-                # Matches XCODE_VERSION in ci.yml, cold-build.yml and
+                # Meant to match XCODE_VERSION in ci.yml, cold-build.yml and
                 # testflight.yml, so the runner compiles with the same Xcode
                 # the project is already built and shipped with. Revyl's
                 # default image is ios-macos-26-xcode-26.5; pinning keeps the
                 # two in step, and a bump belongs here and in those workflows
                 # together.
+                #
+                # KNOWN TO TRAIL since 2026-11-09: the workflows moved to
+                # Xcode 27.1 and this did not, because no Revyl image key for
+                # Xcode 27 could be confirmed (the CLI has no image listing
+                # and the docs name none). A guessed key fails the remote
+                # build, so it stays on the last key known to work. It only
+                # governs `revyl build --remote`; CI builds on the GitHub
+                # runner and uploads the artifact. Move it when Revyl
+                # publishes a 27.1 key.
                 image: ios-macos-26-xcode-26.2
                 # build-deps.sh clones and compiles SDL3, OpenAL Soft,
                 # sonivox, ogg, vorbis, sndfile, FLAC and opus from source for

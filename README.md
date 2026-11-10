@@ -194,7 +194,7 @@ images move together with the slot names in
 
 ## Continuous integration
 
-Two workflows cover the test path, both on GitHub-hosted `macos-26` runners
+Two workflows cover the test path, both on GitHub-hosted `xcode-27` runners
 with the Xcode and simulator versions pinned in each workflow's `env:` block:
 
 | Workflow | Runs when | What it does |
@@ -215,7 +215,7 @@ CI — it runs the whole scheme, UI tests included.
 in the simulator is the slow, flake-prone half of the suite and is kept off
 the pull-request path. It takes two inputs:
 
-- `device` — simulator device name. Default `iPhone 17 Pro`.
+- `device` — simulator device name. Default `iPhone 18 Pro`.
 - `only_testing` — an optional `-only-testing` filter, e.g.
   `WaddleUITests/EngineSmokeTests`. Leave it blank to run all of
   `WaddleUITests`.

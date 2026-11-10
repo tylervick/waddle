@@ -55,11 +55,11 @@
     },
     {
       "description": [
-        "Leave `runs-on: macos-26` alone. Renovate reads it as a",
-        "github-runners dep and would offer macos-27 on its own, but the",
-        "runner image is pinned in lockstep with XCODE_VERSION /",
+        "Leave `runs-on: xcode-27` alone. Renovate reads a runner label as",
+        "a github-runners dep and would offer a newer one on its own, but",
+        "the runner image is pinned in lockstep with XCODE_VERSION /",
         "SIMULATOR_OS, which Renovate cannot see. A runner-only bump lands",
-        "on an image that may not ship Xcode 26.2, and setup-waddle-build",
+        "on an image that may not ship Xcode 27.1, and setup-waddle-build",
         "hard-fails when the requested Xcode is absent -- so the PR could",
         "never go green on its own. Moving runner images is a coupled,",
         "human decision; drop this rule if that stops being true."

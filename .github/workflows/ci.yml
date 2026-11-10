@@ -21,7 +21,7 @@ concurrency:
 env:
   # Toolchain pins live here so a bump is a one-line edit. XCODE_VERSION also
   # feeds both cache keys inside the setup action.
-  XCODE_VERSION: "26.2"
+  XCODE_VERSION: "27.1"
   # Pinned for the same reason as the others: the installer resolves "latest"
   # from GitHub releases, so an unpinned CLI changes under the job without a
   # commit. This is the version the recipe was proven against.
@@ -34,8 +34,18 @@ env:
   # run in a job that also holds REVYL_API_KEY. Bump the version and this
   # digest together; a mismatch fails the job before anything credentialed.
   REVYL_CLI_SHA256: "455e2a8a247dfa808e5598a84668c097f7f5ec4efb8a00d1c2e3c3bac39287cc"
-  SIMULATOR_OS: "26.2"
-  SIMULATOR_DEVICE: "iPhone 17 Pro"
+  # Deliberately NOT the same number as XCODE_VERSION. The iOS 27.1 simulator
+  # runtime Xcode 27.1 downloads supports exactly one device type, iPhone Duo
+  # (actions/runner-images#15000: every other type is "Incompatible device"),
+  # so the pre-Duo devices this suite runs on live on the 27.0 runtime. The
+  # binary is still built against the 27.1 SDK; only the simulator OS differs.
+  # A Duo leg, when one is added, pins 27.1 on its own.
+  SIMULATOR_OS: "27.0"
+  # The xcode-27 image pre-creates the iPhone 18 lineup and no iPhone 17 Pro.
+  # The two have the same screen -- a simulator screenshot of each is
+  # 1206x2622 px, measured 2026-11-09 on the iOS 27.0 runtime -- so the
+  # 402x874 pt figures the layout tests cite for the 17 Pro hold here.
+  SIMULATOR_DEVICE: "iPhone 18 Pro"
   # The app ships universal (App/project.yml sets TARGETED_DEVICE_FAMILY
   # "1,2"), so the unit suite runs on an iPad too. This name must stay in
   # step with Scripts/ensure-ipad-simulator.sh, which owns the matching
@@ -47,7 +57,7 @@ env:
 jobs:
   build-and-test:
     name: Build + unit tests
-    runs-on: macos-26
+    runs-on: xcode-27
     # Measured on a hosted runner: cold (no cache) 8m37s, warm (cache hit)
     # 4m14s -- setup alone drops from 3m59s to 12s. 90 minutes is deliberate
     # headroom well beyond either figure, not a number derived from them.
@@ -494,7 +504,7 @@ jobs:
       && github.event.pull_request.draft == false
       && github.event.pull_request.head.repo.full_name == github.repository
       && needs.changed-paths.outputs.app == 'true'
-    runs-on: macos-26
+    runs-on: xcode-27
     # Headroom, not a measurement: the upload step itself was measured at 2m40s
     # and 1m11s (see below) and setup at 12s warm / 3m59s cold in the job above.
     # 45 minutes is far beyond any of those and is here to stop a wedged runner
@@ -658,7 +668,7 @@ jobs:
     name: Revyl current build
     needs: build-and-test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
