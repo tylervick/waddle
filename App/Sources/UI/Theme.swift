@@ -117,6 +117,41 @@ enum Theme {
         size.isAccessibilitySize ? 320 : 150
     }
 
+    /// The content width from which the shelf's grid is on a wide window, and
+    /// the tile floor it uses there (issue #353).
+    ///
+    /// The 150 pt floor above is derived from the narrowest phone, where it
+    /// buys a second column. On a wide window the same floor only buys *more*
+    /// columns of phone-sized tiles: an open iPhone Duo has 835 pt of content
+    /// and got five tiles of 151 pt, too narrow for "Freedoom Phase 1" (which
+    /// needs 168) with more than half the row empty. At 190 it gets four tiles
+    /// of 194 pt and the titles fit at full size.
+    ///
+    /// ## Why the threshold is 610
+    ///
+    /// Not because any device is 610 wide. It is the width at which both
+    /// floors resolve to the same three columns — (610 + 20) / (150 + 20) and
+    /// (610 + 20) / (190 + 20) both round down to 3 — so crossing it changes
+    /// no layout. A threshold of 600 would drop a 600 pt window from three
+    /// columns to two tiles of 290 pt, and a window being dragged across it
+    /// would jump. `WideGridLayoutTests` pins that there is no jump.
+    ///
+    /// Everything this repo has measured below 610 keeps the phone floor:
+    /// every phone, and the closed Duo in both orientations (344 and 562 pt).
+    static let wideGridContentWidth: CGFloat = 610
+    static let wideGridMinimumTileWidth: CGFloat = 190
+
+    /// The adaptive grid's minimum tile width for the width the grid actually
+    /// has. `contentWidth` is the shelf's measured content width; zero, which
+    /// is "not measured yet", takes the phone floor. Accessibility sizes keep
+    /// their own, larger floor at every width.
+    static func gridMinimumTileWidth(for size: DynamicTypeSize, contentWidth: CGFloat) -> CGFloat {
+        guard !size.isAccessibilitySize, contentWidth >= wideGridContentWidth else {
+            return gridMinimumTileWidth(for: size)
+        }
+        return wideGridMinimumTileWidth
+    }
+
     /// The type roles (design-system spec §2). SF with Dynamic Type, no custom
     /// fonts (spec §5). A screen picks a role, never a text style, so two
     /// screens that mean the same thing set it the same way.

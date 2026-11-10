@@ -61,6 +61,11 @@ struct PlayableTileView: View {
                 .font(Theme.Typography.tileTitle)
                 .foregroundStyle(.white)
                 .lineLimit(1)
+                // Shrink a little before truncating: two games whose names
+                // differ only in their last character must not read the same
+                // (issue #353). Still one line, so the scrim's height and its
+                // ceiling are untouched.
+                .minimumScaleFactor(PlayableTileLayout.titleMinimumScaleFactor)
             if let subtitle {
                 Text(subtitle)
                     .font(Theme.Typography.caption)

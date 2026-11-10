@@ -35,6 +35,20 @@ enum PlayableTileLayout {
     /// Gap between the title and the optional subtitle beneath it.
     static let titleSubtitleSpacing: CGFloat = 2
 
+    /// How far the title may shrink to stay on its one line before it
+    /// truncates (issue #353).
+    ///
+    /// The title is 17 pt semibold and the tile gives it its width less the
+    /// two side paddings. "Freedoom Phase 2" is 147.6 pt wide, so it needs a
+    /// 168 pt tile; a closed iPhone Duo's are 162 pt and the 360 pt phones'
+    /// are 154 pt, where both bundled games read "Freedoom Phas…" and could
+    /// not be told apart. Those need 0.96 and 0.91 of full size. 0.85 covers
+    /// both with room for a slightly longer name, and at 17 pt it is 14.5 pt
+    /// type: still a title. A genuinely long name ("Freedoom Phase 2 +
+    /// SCYTHE" is 233 pt) truncates as before, which the view's own comment
+    /// accepts.
+    static let titleMinimumScaleFactor: CGFloat = 0.85
+
     /// The ceiling the scrim has to stay under: at most this share of the
     /// tile's height at one title line.
     ///
