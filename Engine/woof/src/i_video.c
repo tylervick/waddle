@@ -1698,6 +1698,37 @@ boolean I_WindowPointFromMenu(float mx, float my, float *out_x, float *out_y)
     return true;
 }
 
+// Overlay layout (issue 351): where the game picture is, in the SDL window's
+// own coordinate space (UIKit points). It is the logical presentation rect
+// the two functions above already map through, so it is the letterboxed or
+// pillarboxed picture as drawn, whatever aspect the session settled on. The
+// overlay needs it to find Doom's status bar, which is the bottom 32 of the
+// picture's 200 rows and is only at the bottom of the window when the
+// picture fills it. False, leaving the outputs untouched, before the window
+// and renderer exist or while the rect is empty.
+boolean I_PictureRectInWindow(float *x, float *y, float *w, float *h)
+{
+    if (!screen || !renderer)
+    {
+        return false;
+    }
+    SDL_FRect rect;
+    if (!SDL_GetRenderLogicalPresentationRect(renderer, &rect))
+    {
+        return false;
+    }
+    const float scale = SDL_GetWindowPixelDensity(screen);
+    if (scale <= 0.0f || rect.w <= 0.0f || rect.h <= 0.0f)
+    {
+        return false;
+    }
+    *x = rect.x / scale;
+    *y = rect.y / scale;
+    *w = rect.w / scale;
+    *h = rect.h / scale;
+    return true;
+}
+
 // The app is leaving the screen (issue #111). SDL raises these from UIKit's
 // resign-active and did-enter-background notifications, but it never queues
 // them: SDL_SendAppEvent hands SDL_EVENT_WILL_ENTER_BACKGROUND and

@@ -652,6 +652,17 @@ only ever runs once):
   lets the overlay open the menu on a tap by injecting a paired
   `KEY_ESCAPE`.
 
+- `src/i_video.c`, `src/woof_ios.c` / `src/woof_ios.h` -- the picture's rect
+  for the overlay's layout (issue 351). `I_PictureRectInWindow` returns
+  `SDL_GetRenderLogicalPresentationRect` divided by the window's pixel
+  density, which is the letterboxed picture in the window's own points: the
+  same rect `I_MenuPointFromWindow` maps through, read rather than
+  re-derived, because the session's aspect is settled at start and does not
+  follow a later window shape (a session started on an open iPhone Duo keeps
+  1.42:1 after the fold). `WoofIOS_GetPictureRect` hands it to
+  `TouchOverlayView`, which finds Doom's status bar as the bottom 32/200 of
+  it. Read-only; nothing in the engine's behaviour changes.
+
 - `src/i_video.c`, `src/g_game.c`, `src/g_game.h`, `src/d_main.c` -- the app's
   lifecycle reaches the engine (issue #111). SDL's iOS layer observes UIKit's
   resign-active and did-enter-background notifications itself and turns them

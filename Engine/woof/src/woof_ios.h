@@ -319,4 +319,15 @@ bool WoofIOS_IsAttractMode(void);
 // session start.
 const char *WoofIOS_DebugMenuState(void);
 
+// --- Overlay layout: where the picture is ---
+// The rectangle the engine is drawing the game into, in the SDL window's
+// coordinate space (UIKit points, the space the overlay lays out in). The
+// picture only fills the window when their shapes agree; otherwise it is
+// letterboxed or pillarboxed, and Doom's status bar (the bottom 32 of the
+// picture's 200 rows) sits inside the window rather than along its bottom
+// edge. Returns false, leaving the outputs untouched, before the window and
+// renderer exist. Main-thread-only, same contract as the touch-control
+// functions above.
+bool WoofIOS_GetPictureRect(float *x, float *y, float *w, float *h);
+
 #endif
