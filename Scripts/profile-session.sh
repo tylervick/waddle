@@ -13,6 +13,14 @@
 #   Scripts/profile-session.sh                      # the attached iPhone
 #   Scripts/profile-session.sh --template 'Time Profiler' --runs 3
 #   Scripts/profile-session.sh --simulator-plumbing-check --device <sim UDID>
+#   Scripts/profile-session.sh --signing development    # no Distribution identity here
+#
+# --signing: the Release configuration is pinned to the App Store distribution
+# profile (App/project.yml), which lives on the CI runner and nowhere else.
+# `development` builds the same Release binary signed with the Mac's Apple
+# Development identity through automatic signing. The code is identical and
+# the signature is not part of a frame time, but it is recorded in
+# conditions.json as "signing" so a trace never has to be guessed at.
 #
 # The workload is a demo lump out of a bundled Freedoom IWAD, played back
 # through App/Sources/ProfileHarness.swift: recorded input driving a
@@ -37,7 +45,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 DEVICE="" TEMPLATE="" RUNS=2 WAD="freedoom2.wad" DEMO="demo1" MODE="playdemo"
-TIME_LIMIT="" OUT="" PLUMBING=0
+TIME_LIMIT="" OUT="" PLUMBING=0 SIGNING_MODE="distribution"
 # Prints the introductory usage text to stdout.
 usage() { sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; }
 # Prints the required first message and any continuation lines to stderr,
@@ -46,18 +54,23 @@ die() { echo "error: $1" >&2; shift; for l in "$@"; do echo "       $l" >&2; don
 while [ $# -gt 0 ]; do
   case "$1" in
     --simulator-plumbing-check) PLUMBING=1; shift ;;
-    --device|--template|--runs|--wad|--demo|--mode|--time-limit|--output-dir)
+    --device|--template|--runs|--wad|--demo|--mode|--time-limit|--output-dir|--signing)
       [ $# -ge 2 ] || die "$1 needs a value."
       case "$1" in
         --device) DEVICE="$2" ;; --template) TEMPLATE="$2" ;; --runs) RUNS="$2" ;;
         --wad) WAD="$2" ;; --demo) DEMO="$2" ;; --mode) MODE="$2" ;;
         --time-limit) TIME_LIMIT="$2" ;; --output-dir) OUT="$2" ;;
+        --signing) SIGNING_MODE="$2" ;;
       esac
       shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown argument: $1" "see: Scripts/profile-session.sh --help" ;;
   esac
 done
+case "$SIGNING_MODE" in
+  distribution|development) ;;
+  *) die "--signing takes 'distribution' (the project's Release profile) or 'development'." ;;
+esac
 
 case "$RUNS" in ''|*[!0-9]*) die "--runs must be a number, got '$RUNS'." ;; esac
 if [ "$RUNS" -lt 2 ]; then
@@ -252,7 +265,7 @@ write_conditions() {
   P_DIRTY="$DIRTY" P_FP="$ENGINE_FP" P_WAD="$WAD" P_WAD_SHA="$WAD_SHA" \
   P_GAME="$GAME" P_DEMO="$DEMO" P_DEMO_SHA="$DEMO_SHA" P_MODE="$MODE" P_MAP="$MAP" \
   P_SKILL="$SKILL" P_TICS="$TICS" P_SECONDS="$DEMO_SECONDS" P_LIMIT="$TIME_LIMIT" \
-  P_RUNS="$RUNS" P_NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  P_RUNS="$RUNS" P_NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)" P_SIGNING="$SIGNING_MODE" \
   python3 - "$OUT/conditions.json" "$TMP/runs.tsv" <<'PY'
 import json, os, sys
 e = os.environ
@@ -267,6 +280,7 @@ json.dump({
     "recorded_utc": e["P_NOW"],
     "template": e["P_TEMPLATE"],
     "configuration": "Release",
+    "signing": e["P_SIGNING"],
     "device": {"name": e["P_NAME"], "model": e["P_MODEL"],
                "product_type": e["P_PRODUCT"], "reality": e["P_REALITY"],
                "os_version": e["P_OS"], "os_build": e["P_BUILD"], "udid": e["P_UDID"]},
@@ -303,6 +317,13 @@ echo "profile-session: app $COMMIT, output $OUT"
 DERIVED="$ROOT/build/profile-session"
 SIGNING=()
 if [ "$PLUMBING" = 0 ]; then SIGNING=(-allowProvisioningUpdates); fi
+if [ "$SIGNING_MODE" = development ]; then
+  # Same Release binary, the Mac's own development identity: automatic
+  # signing with the project's team, and the manual profile name cleared so
+  # xcodebuild does not go looking for the App Store one.
+  SIGNING+=(CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="Apple Development"
+            PROVISIONING_PROFILE_SPECIFIER=)
+fi
 if xcodebuild -project "$ROOT/App/Waddle.xcodeproj" -scheme Waddle \
      -configuration Release -destination "id=$UDID" -derivedDataPath "$DERIVED" \
      ${SIGNING[@]+"${SIGNING[@]}"} \

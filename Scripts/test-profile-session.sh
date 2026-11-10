@@ -161,6 +161,26 @@ grep -q "xctrace record --template Processor Trace --device $PHONE --time-limit 
   || { cat "$CALLS" >&2; fail "the record command line is not the expected one"; }
 pass "a device run builds Release, installs, and records twice"
 
+# 9b. --signing development: the same Release build, signed with the Mac's
+#     development identity instead of the App Store profile, and said so.
+#     The unknown value goes first and the default run last, so case 10 reads
+#     the conditions.json of an ordinary device run.
+run --signing adhoc
+refused "an unknown --signing value is refused" "signing takes .distribution."
+run --signing development
+[ "$RC" -eq 0 ] || { cat "$TMP/out" >&2; fail "--signing development exited $RC"; }
+build="$(grep '^xcodebuild' "$CALLS")"
+for want in "-configuration Release" "CODE_SIGN_STYLE=Automatic" "CODE_SIGN_IDENTITY=Apple Development" \
+            "PROVISIONING_PROFILE_SPECIFIER="; do
+  case "$build" in *"$want"*) ;; *) fail "development build command lacks: $want" ;; esac
+done
+[ "$(json signing)" = "development" ] || fail "conditions.json signing is '$(json signing)', wanted development"
+run
+[ "$RC" -eq 0 ] || { cat "$TMP/out" >&2; fail "default run after --signing exited $RC"; }
+case "$(grep '^xcodebuild' "$CALLS")" in *CODE_SIGN_STYLE*) fail "the default build overrides signing" ;; esac
+[ "$(json signing)" = "distribution" ] || fail "conditions.json signing default is '$(json signing)', wanted distribution"
+pass "--signing development swaps in automatic development signing and is recorded"
+
 # 10. Every condition the issue lists is in conditions.json, read back from
 #     the device and the WAD rather than echoed from the command line.
 for pair in "measurement=True" "template=Processor Trace" "configuration=Release" \
