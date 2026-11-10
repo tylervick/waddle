@@ -25,12 +25,20 @@ struct ContentView: View {
         // window, so the sheet form is what a panel becomes when an iPhone
         // Duo is folded with it open: nothing is lost, and unfolding brings
         // the column back.
-        .inspector(isPresented: Bindable(panelModel).isPresented) {
+        .inspector(isPresented: Binding(
+            get: { panelModel.isPresented },
+            set: { panelModel.systemSetPresented($0) }
+        )) {
             ShelfPanelView(model: panelModel, library: library)
                 .inspectorColumnWidth(min: 320, ideal: 376, max: 420)
         }
-        .onChange(of: horizontalSizeClass, initial: true) { _, sizeClass in
+        .onChange(of: horizontalSizeClass, initial: true) { old, sizeClass in
             panelModel.windowIsRegularWidth = sizeClass == .regular
+            // Unfolding an iPhone Duo with nothing open leaves an empty
+            // column up; see `dismissStrayColumn`.
+            if old == .compact, sizeClass == .regular {
+                panelModel.dismissStrayColumn()
+            }
         }
         .overlay(alignment: .bottom) {
             if let notice = ImportNotices.shared.current {

@@ -40,28 +40,69 @@ enum ShelfPanel: Equatable {
 @MainActor
 @Observable
 final class ShelfPanelModel {
-    /// What the panel shows. Kept when the panel closes, and separate from
-    /// `isPresented`, on purpose: when an iPhone Duo folds or unfolds, the
-    /// inspector is torn down as a column and put back as a sheet (or the
-    /// reverse), and SwiftUI writes `false` and then `true` to its binding
-    /// on the way. Deriving presentation from this being non-nil lost the
-    /// panel on the first fold, because the `false` cleared it and the
-    /// `true` had nothing to show (seen on the simulator, 2026-11-10).
+    /// What the panel shows, or nil when nothing is open.
+    ///
+    /// Separate from `isPresented` on purpose. When an iPhone Duo folds or
+    /// unfolds, the inspector is torn down as a column and put back as a
+    /// sheet (or the reverse), and SwiftUI writes `false` and then `true` to
+    /// its binding on the way. Deriving presentation from this being non-nil
+    /// lost the panel on the first fold, because the `false` cleared it and
+    /// the `true` had nothing to show (seen on the simulator, 2026-11-10).
+    /// So a `false` from the system hides the panel and keeps this; only
+    /// closing it through `panel = nil` forgets it.
     private(set) var content: ShelfPanel?
 
-    /// Whether the inspector is up. Bound to it directly.
-    var isPresented = false
+    /// Whether the inspector is up. Read by its binding; written only
+    /// through `panel` and `systemSetPresented`.
+    private(set) var isPresented = false
 
     /// What is open right now, or nil. Setting it opens or closes the panel.
     var panel: ShelfPanel? {
         get { isPresented ? content : nil }
         set {
-            if let newValue {
-                content = newValue
-                isPresented = true
-            } else {
-                isPresented = false
-            }
+            content = newValue
+            isPresented = newValue != nil
+        }
+    }
+
+    /// The inspector's own writes to its binding.
+    ///
+    /// These cannot be taken at their word. On a regular-width window
+    /// SwiftUI writes `true` here a moment after launch with nothing open:
+    /// measured on an iPad and a landscape iPhone 17 Pro Max, 2026-11-10,
+    /// where accepting it put an empty column beside the shelf. So `true`
+    /// is honoured only when there is something to show, which is exactly
+    /// the fold case above; with nothing open it is refused.
+    func systemSetPresented(_ presented: Bool) {
+        isPresented = presented && content != nil
+    }
+
+    /// Closes a column the system put up by itself.
+    ///
+    /// Refusing the write is enough at launch and on a phone's rotation.
+    /// It is not enough when an iPhone Duo is unfolded with nothing open:
+    /// the window goes from compact to regular width, SwiftUI shows an
+    /// empty column regardless, and it does not look at the binding again
+    /// to find it false (seen on the simulator, 2026-11-10). It only takes
+    /// the column down for a change it can see, so this gives it one:
+    /// presented for a frame, then not, with animations off.
+    ///
+    /// Called by `ContentView` when the window becomes regular width. Does
+    /// nothing when there is something to show, which is the unfold with a
+    /// panel open, where the column is wanted.
+    func dismissStrayColumn() {
+        guard content == nil else { return }
+        Task { @MainActor in
+            var quiet = Transaction()
+            quiet.disablesAnimations = true
+            // Let SwiftUI finish its own transition first: bounced in the
+            // same frame, the two writes cancel out and nothing happens.
+            try? await Task.sleep(for: .milliseconds(120))
+            guard self.content == nil else { return }
+            withTransaction(quiet) { self.isPresented = true }
+            try? await Task.sleep(for: .milliseconds(60))
+            guard self.content == nil else { return }
+            withTransaction(quiet) { self.isPresented = false }
         }
     }
 
