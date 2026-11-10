@@ -392,7 +392,8 @@ struct ShelfView: View {
                             gridPeek: ShelfHeroLayout.gridPeek(
                                 contentWidth: heroContentWidth,
                                 tileMinimumWidth: tileMinimumWidth,
-                                gridSpacing: gridSpacing)))
+                                gridSpacing: gridSpacing,
+                                contentPadding: contentPadding)))
                         heroCaption(game)
                     }
                 case .sideBySide:

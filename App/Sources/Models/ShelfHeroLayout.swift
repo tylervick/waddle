@@ -330,7 +330,8 @@ enum ShelfHeroLayout {
         return min(natural, max(room, minimumArtHeight))
     }
 
-    /// How much of the first tile row the stacked hero leaves above the fold.
+    /// How much room the stacked hero leaves beneath its caption for the
+    /// first tile row.
     ///
     /// On anything phone-sized this is `minimumGridPeek`, unchanged. On a
     /// wide window (`Theme.wideGridContentWidth`) it is the whole row: the
@@ -338,13 +339,20 @@ enum ShelfHeroLayout {
     /// and a hero sized for a 120 pt peek put the row's bottom edge, which is
     /// where its title is, under the fold on an open iPhone Duo. A wide
     /// window has the height to show the row whole, so it does.
+    ///
+    /// "Whole" has to count the shelf's top inset as well. The viewport
+    /// `artHeight` budgets against starts above that inset, so a reserve of
+    /// the row's height alone ends the row `contentPadding` below the fold;
+    /// the phone's peek never promised a whole row, so it was never owed
+    /// that, and stays as it is.
     static func gridPeek(contentWidth: CGFloat,
                          tileMinimumWidth: CGFloat,
-                         gridSpacing: CGFloat) -> CGFloat {
+                         gridSpacing: CGFloat,
+                         contentPadding: CGFloat) -> CGFloat {
         guard contentWidth >= Theme.wideGridContentWidth else { return minimumGridPeek }
         let rowHeight = gridColumnWidth(contentWidth: contentWidth,
                                         minimum: tileMinimumWidth,
                                         spacing: gridSpacing) / Theme.tileAspectRatio
-        return max(minimumGridPeek, rowHeight)
+        return max(minimumGridPeek, rowHeight + contentPadding)
     }
 }

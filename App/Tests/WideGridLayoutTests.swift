@@ -186,23 +186,33 @@ final class WideGridLayoutTests: XCTestCase {
         // capped at 343 pt there with the 120 pt peek, 60 pt of caption and
         // 32 pt of section spacing, so the viewport is 555 pt.
         let viewport: CGFloat = 555
+        let padding: CGFloat = 16 // the shelf's inset, above the hero
         let caption = ShelfHeroLayout.defaultCaptionHeight
         let minimum = Theme.gridMinimumTileWidth(for: .large, contentWidth: Content.duoOpen)
         let rowHeight = tileWidth(Content.duoOpen) / Theme.tileAspectRatio
 
-        let peek = ShelfHeroLayout.gridPeek(contentWidth: Content.duoOpen,
-                                            tileMinimumWidth: minimum, gridSpacing: Self.spacing)
-        XCTAssertEqual(peek, rowHeight, accuracy: 0.001)
+        let peek = ShelfHeroLayout.gridPeek(contentWidth: Content.duoOpen, tileMinimumWidth: minimum,
+                                            gridSpacing: Self.spacing, contentPadding: padding)
+        XCTAssertEqual(peek, rowHeight + padding, accuracy: 0.001)
 
+        // Where the row's bottom edge lands, from the top of the viewport:
+        // the inset, the art, the caption, the gap, then the row itself.
+        func rowBottom(artHeight: CGFloat) -> CGFloat {
+            padding + artHeight + caption + ShelfHeroLayout.sectionSpacing + rowHeight
+        }
         let art = ShelfHeroLayout.artHeight(contentWidth: Content.duoOpen, viewportHeight: viewport,
                                             captionHeight: caption, gridPeek: peek)
-        XCTAssertLessThanOrEqual(art + caption + ShelfHeroLayout.sectionSpacing + rowHeight, viewport + 0.001,
+        XCTAssertLessThanOrEqual(rowBottom(artHeight: art), viewport + 0.001,
                                  "the first tile row ends below the fold")
 
-        // The discrimination: with the phone's peek the same row does not fit.
+        // The discrimination: with the phone's peek the same row does not fit,
+        // and neither does it with the row's height reserved but not the inset.
         let old = ShelfHeroLayout.artHeight(contentWidth: Content.duoOpen, viewportHeight: viewport,
                                             captionHeight: caption)
-        XCTAssertGreaterThan(old + caption + ShelfHeroLayout.sectionSpacing + rowHeight, viewport)
+        XCTAssertGreaterThan(rowBottom(artHeight: old), viewport)
+        let rowOnly = ShelfHeroLayout.artHeight(contentWidth: Content.duoOpen, viewportHeight: viewport,
+                                                captionHeight: caption, gridPeek: rowHeight)
+        XCTAssertGreaterThan(rowBottom(artHeight: rowOnly), viewport)
     }
 
     /// Phone-sized windows keep the peek, and so the hero, they have today.
@@ -212,7 +222,8 @@ final class WideGridLayoutTests: XCTestCase {
             XCTAssertEqual(ShelfHeroLayout.gridPeek(
                 contentWidth: content,
                 tileMinimumWidth: Theme.gridMinimumTileWidth(for: .large, contentWidth: content),
-                gridSpacing: Self.spacing), ShelfHeroLayout.minimumGridPeek, "peek moved at \(content)")
+                gridSpacing: Self.spacing, contentPadding: 16),
+                           ShelfHeroLayout.minimumGridPeek, "peek moved at \(content)")
         }
     }
 
