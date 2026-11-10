@@ -16,12 +16,24 @@ final class MenuStateAcrossSessionsTests: XCTestCase {
 
     private let autoquitSeconds = 16.0
 
+    /// Every case here addresses the Freedoom tiles on the shelf, so each
+    /// starts from a wiped store (issue #355). Without that, a game an
+    /// earlier class left with a resumable save is the shelf's Continue hero
+    /// and has no tile: `LegacySaveLoadTests` runs immediately before this
+    /// class and installs exactly such a save for Freedoom Phase 1, which
+    /// made `playFreedoom1` vanish for the two cases that tap it.
+    private func launchOnACleanShelf(_ environment: [String: String] = [:]) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
+        for (key, value) in environment { app.launchEnvironment[key] = value }
+        app.launch()
+        return app
+    }
+
     @MainActor
     func testMenuScreensAcrossPhase1Phase2Phase2Phase1() throws {
-        let app = XCUIApplication()
-        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
-        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
-        app.launch()
+        let app = launchOnACleanShelf(["WADDLE_FORCE_TOUCH_OVERLAY": "1"])
         XCTAssertTrue(app.navigationBars["Waddle"].waitForExistence(timeout: 90),
                       "launcher UI never appeared")
         let ok = app.alerts.buttons["OK"]
@@ -47,9 +59,7 @@ final class MenuStateAcrossSessionsTests: XCTestCase {
     /// simulator and attaches what the tap produced each time.
     @MainActor
     func testSdlTouchOpensMenuOnSecondSession() throws {
-        let app = XCUIApplication()
-        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
-        app.launch()
+        let app = launchOnACleanShelf()
         XCTAssertTrue(app.navigationBars["Waddle"].waitForExistence(timeout: 90),
                       "launcher UI never appeared")
         let ok = app.alerts.buttons["OK"]
@@ -138,11 +148,8 @@ final class MenuStateAcrossSessionsTests: XCTestCase {
     /// after session 4 reads main=4 / epi=2 instead of main=6 / epi=4.
     @MainActor
     func testMenuTablesAreRestoredForEachSession() throws {
-        let app = XCUIApplication()
-        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
-        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
-        app.launchEnvironment["WADDLE_DEBUG_MENU_GEOMETRY"] = "1"
-        app.launch()
+        let app = launchOnACleanShelf(["WADDLE_FORCE_TOUCH_OVERLAY": "1",
+                                       "WADDLE_DEBUG_MENU_GEOMETRY": "1"])
         XCTAssertTrue(app.navigationBars["Waddle"].waitForExistence(timeout: 90),
                       "launcher UI never appeared")
         let ok = app.alerts.buttons["OK"]
