@@ -72,19 +72,22 @@ final class TouchLayoutEditorCanvas: UIView {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    /// Live geometry for the current bounds, exactly as the session computes
-    /// it (no debug-HUD reserve: the editor has no strip).
+    /// Live geometry for the current bounds, as the session computes it (no
+    /// debug-HUD reserve: the editor has no strip). There is no engine here
+    /// to ask where the picture is, so the editor uses the layout's own
+    /// prediction, which is also what a session starts from.
     private var layout: TouchOverlayLayout {
         TouchOverlayLayout(bounds: bounds, safeAreaInsets: safeAreaInsets, hudReserve: 0,
-                           overrides: overrides)
+                           overrides: overrides,
+                           pictureRect: TouchOverlayLayout.predictedPictureRect(in: bounds))
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         let layout = self.layout
-        let usable = bounds.inset(by: safeAreaInsets)
-        statusBarBand.frame = CGRect(x: usable.minX, y: usable.maxY - layout.statusBarReserve,
-                                     width: usable.width, height: layout.statusBarReserve)
+        // Where the bar will be drawn, not the window's bottom edge: in a
+        // letterboxed window those are different places (issue #351).
+        statusBarBand.frame = layout.statusBarBand
         statusBarLabel.frame = statusBarBand.bounds
         for (control, button) in buttons {
             button.frame = layout.frame(for: control)

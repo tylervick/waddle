@@ -1255,6 +1255,12 @@ const char *WoofIOS_DebugGameState(void)
     return buf;
 }
 
+bool WoofIOS_GetPictureRect(float *x, float *y, float *w, float *h)
+{
+    extern boolean I_PictureRectInWindow(float *, float *, float *, float *);
+    return I_PictureRectInWindow(x, y, w, h);
+}
+
 const char *WoofIOS_DebugWindowState(void)
 {
     extern void I_DebugWindowSize(int *w, int *h); // i_video.c

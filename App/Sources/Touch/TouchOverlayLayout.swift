@@ -58,19 +58,18 @@ struct TouchOverlayLayout {
     static let minScale: CGFloat = 0.5
     static let maxScale: CGFloat = 1.75
 
-    /// Fraction of the short side kept clear at the bottom for Doom's own
-    /// status bar (ammo/health/face/armor). Doom draws it 32 rows tall in a
-    /// 200-row frame — 16%. The predecessor reserved a near-identical band
-    /// (`BOTTOM = 320 - 44` = 13.75%, DOOM-iOS `hud.c:91`).
+    /// Doom's status bar (ammo/health/face/armor) as a fraction of the
+    /// picture's height: it is drawn 32 rows tall in a 200-row frame — 16%.
+    /// The predecessor reserved a near-identical band (`BOTTOM = 320 - 44` =
+    /// 13.75%, DOOM-iOS `hud.c:91`).
     ///
-    /// Deliberately the *short* side, not `bounds.height`: in landscape the
-    /// game fills the window and 16% of height is the real bar, while in
-    /// portrait the game letterboxes and 16% of a tall window would reserve
-    /// far more than the bar occupies. Exactly locating the bar needs the
-    /// engine's letterboxed viewport rect, and there is no `WoofIOS_` call
-    /// that exposes it (see `Engine/woof/src/woof_ios.h`) — this
-    /// approximation is why FIRE no longer sits on top of the bar, and a
-    /// viewport API would let it become exact.
+    /// Used two ways. Without a picture rect it is a fraction of the *short*
+    /// side, reserved along the window's bottom edge: in landscape the game
+    /// fills the window and that is the real bar, and it is the arrangement
+    /// every phone layout was tuned against. With a picture rect
+    /// (`WoofIOS_GetPictureRect`) it is the bottom 16% of the picture the
+    /// engine is actually drawing, wherever in the window that is — see
+    /// `statusBarBand`.
     static let statusBarFraction: CGFloat = 0.16
 
     /// Multiplier applied to every size and offset. 1.0 on the reference
@@ -85,8 +84,15 @@ struct TouchOverlayLayout {
     /// reference device.
     let knobRadius: CGFloat
 
-    /// Height of the band kept clear at the bottom for Doom's status bar.
+    /// Height of the band kept clear along the window's bottom edge when
+    /// the bar is assumed to be there: `statusBarFraction` of the short side.
     let statusBarReserve: CGFloat
+
+    /// Where Doom's status bar is, in overlay coordinates: the bottom 16% of
+    /// the picture when the layout was given one, and otherwise the
+    /// window-bottom reserve. The bottom cluster's default frames never
+    /// overlap it.
+    let statusBarBand: CGRect
 
     /// The player's own positions (issue #115): per-control offsets from
     /// the default center in reference points, applied by `frame(for:)` and
@@ -97,8 +103,11 @@ struct TouchOverlayLayout {
     private let topRowY: CGFloat
     private let bottomLimit: CGFloat
 
+    /// - Parameter pictureRect: the rect the engine is drawing the game
+    ///   into, in overlay coordinates, when it is known. `nil` keeps the
+    ///   window-bottom reserve and nothing else.
     init(bounds: CGRect, safeAreaInsets: UIEdgeInsets, hudReserve: CGFloat,
-         overrides: TouchOverlayLayoutOverrides = .none) {
+         overrides: TouchOverlayLayoutOverrides = .none, pictureRect: CGRect? = nil) {
         let usable = bounds.inset(by: safeAreaInsets)
 
         // Short/long rather than width/height: a rotation must not resize
@@ -120,7 +129,109 @@ struct TouchOverlayLayout {
         self.knobRadius = 26 * scale
         self.statusBarReserve = short * Self.statusBarFraction
         self.topRowY = usable.minY + hudReserve
-        self.bottomLimit = usable.maxY - statusBarReserve
+
+        let windowLimit = usable.maxY - statusBarReserve
+        if let picture = pictureRect, picture.width > 0, picture.height > 0 {
+            let bandHeight = picture.height * Self.statusBarFraction
+            let band = CGRect(x: picture.minX, y: picture.maxY - bandHeight,
+                              width: picture.width, height: bandHeight)
+            self.statusBarBand = band
+            self.bottomLimit = Self.bottomLimit(clearing: band, windowLimit: windowLimit,
+                                                usable: usable, scale: scale)
+        } else {
+            self.statusBarBand = CGRect(x: usable.minX, y: windowLimit,
+                                        width: usable.width, height: statusBarReserve)
+            self.bottomLimit = windowLimit
+        }
+    }
+
+    /// Gap left between the picture's bottom edge and the cluster when the
+    /// cluster moves below the picture, at scale 1.0.
+    static let pictureClearance: CGFloat = 8
+
+    /// How far the bottom cluster reaches above its limit line at scale 1.0:
+    /// the weapon pair's centre (116) plus its radius (24).
+    static let bottomClusterBaseHeight: CGFloat = 140
+
+    /// The line FIRE and USE stand on, given where the status bar really is.
+    ///
+    /// The window-bottom line is kept whenever the cluster it produces is
+    /// already clear of the bar. That is every phone in both orientations and
+    /// any window the picture fills, so none of those layouts move: with a
+    /// tall letterbox the cluster sits well below the picture, and with the
+    /// picture filling the window the reserve is the bar.
+    ///
+    /// It is not clear in a letterboxed window close to square. An iPhone
+    /// Duo's two portrait poses and an iPad in portrait put the picture's
+    /// bottom edge inside the cluster, and the weapon pair lands on the bar
+    /// (issue 351). Then the cluster goes wholly below the picture if the
+    /// window has the room, which keeps it out of the game entirely, and
+    /// otherwise wholly above the bar, over the 3D view, which is where it
+    /// sits whenever the picture fills the window.
+    private static func bottomLimit(clearing band: CGRect, windowLimit: CGFloat,
+                                    usable: CGRect, scale: CGFloat) -> CGFloat {
+        let collides = bottomCluster.contains { control in
+            overlaps(clusterFrame(for: control, right: usable.maxX,
+                                  bottomLimit: windowLimit, scale: scale), band)
+        }
+        guard collides else { return windowLimit }
+        let below = band.maxY + (pictureClearance + bottomClusterBaseHeight) * scale
+        return below <= usable.maxY ? below : band.minY
+    }
+
+    /// Overlap by more than a hundredth of a point. Rects that only share an
+    /// edge do not count: FIRE stands exactly on the bar's top edge whenever
+    /// the picture fills the window, and the two sides of that comparison
+    /// are computed by different routes, so an exact test would call a
+    /// rounding difference in the last bit a collision.
+    static func overlaps(_ a: CGRect, _ b: CGRect) -> Bool {
+        let slack: CGFloat = 0.01
+        return a.minX < b.maxX - slack && b.minX < a.maxX - slack
+            && a.minY < b.maxY - slack && b.minY < a.maxY - slack
+    }
+
+    /// The picture rect to assume before the engine reports one, and in the
+    /// layout editor, which has no session: the window's own shape clamped
+    /// to the aspects the engine renders (4:3 up to 3.6:1, `i_video.c`
+    /// `CurrentAspectRatio`), fitted and centred as SDL's letterbox does.
+    /// A live session can differ — its aspect is fixed when it starts — which
+    /// is why the session asks the engine instead.
+    static func predictedPictureRect(in bounds: CGRect) -> CGRect {
+        guard bounds.width > 0, bounds.height > 0 else { return bounds }
+        let aspect = Swift.min(Swift.max(bounds.width / bounds.height, 4.0 / 3.0), 3.6)
+        var size = CGSize(width: bounds.width, height: bounds.width / aspect)
+        if size.height > bounds.height {
+            size = CGSize(width: bounds.height * aspect, height: bounds.height)
+        }
+        return CGRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2,
+                      width: size.width, height: size.height)
+    }
+
+    /// The controls that stand on `bottomLimit`.
+    private static let bottomCluster: [TouchOverlayControl] = [.fire, .use, .weaponPrev, .weaponNext]
+
+    /// A bottom-cluster control's default frame for a given limit line.
+    /// `defaultFrame(for:)` and the status-bar check both go through this, so
+    /// the check measures the frames that would actually be drawn.
+    private static func clusterFrame(for control: TouchOverlayControl, right: CGFloat,
+                                     bottomLimit: CGFloat, scale s: CGFloat) -> CGRect {
+        let center: CGPoint
+        switch control {
+        case .fire:
+            // Sits on the reserve line: its own radius up from `bottomLimit`.
+            center = CGPoint(x: right - 70 * s, y: bottomLimit - 42 * s)
+        case .use:
+            center = CGPoint(x: right - 160 * s, y: bottomLimit - 32 * s)
+        case .weaponNext:
+            center = CGPoint(x: right - 46 * s, y: bottomLimit - 116 * s)
+        case .weaponPrev:
+            center = CGPoint(x: right - 102 * s, y: bottomLimit - 116 * s)
+        case .automap, .menu:
+            preconditionFailure("\(control) is not in the bottom cluster")
+        }
+        let diameter = control.baseDiameter * s
+        return CGRect(x: center.x - diameter / 2, y: center.y - diameter / 2,
+                      width: diameter, height: diameter)
     }
 
     /// Where `control` belongs, in overlay coordinates: its default frame,
@@ -186,26 +297,18 @@ struct TouchOverlayLayout {
     /// clusters keep their shape and spacing at every size.
     func defaultFrame(for control: TouchOverlayControl) -> CGRect {
         let s = scale
-        let diameter = control.baseDiameter * s
-        let left = usable.minX, right = usable.maxX
-
         let center: CGPoint
         switch control {
-        case .fire:
-            // Sits on the reserve line: its own radius up from `bottomLimit`.
-            center = CGPoint(x: right - 70 * s, y: bottomLimit - 42 * s)
-        case .use:
-            center = CGPoint(x: right - 160 * s, y: bottomLimit - 32 * s)
-        case .weaponNext:
-            center = CGPoint(x: right - 46 * s, y: bottomLimit - 116 * s)
-        case .weaponPrev:
-            center = CGPoint(x: right - 102 * s, y: bottomLimit - 116 * s)
+        case .fire, .use, .weaponNext, .weaponPrev:
+            return Self.clusterFrame(for: control, right: usable.maxX,
+                                     bottomLimit: bottomLimit, scale: s)
         case .automap:
-            center = CGPoint(x: left + 40 * s, y: topRowY + 32 * s)
+            center = CGPoint(x: usable.minX + 40 * s, y: topRowY + 32 * s)
         case .menu:
-            center = CGPoint(x: right - 40 * s, y: topRowY + 32 * s)
+            center = CGPoint(x: usable.maxX - 40 * s, y: topRowY + 32 * s)
         }
 
+        let diameter = control.baseDiameter * s
         return CGRect(x: center.x - diameter / 2, y: center.y - diameter / 2,
                       width: diameter, height: diameter)
     }
