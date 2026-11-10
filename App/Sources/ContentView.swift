@@ -5,6 +5,11 @@ struct ContentView: View {
     let library: LibraryService
     let importer: ImportService
     @State private var lastExitCode: Int32?
+    /// The shelf's panel (issue #372). Owned here because the inspector that
+    /// shows it has to sit outside the shelf's `NavigationStack`; see
+    /// `ShelfPanelModel`.
+    @State private var panelModel = ShelfPanelModel()
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
         // One stack, one screen: the shelf is the app's home, and management is
@@ -12,7 +17,20 @@ struct ContentView: View {
         // two-tab `TabView` and its iOS 26 tab-bar identifier workaround are
         // gone with it — nothing addresses a tab bar any more.
         NavigationStack {
-            ShelfView(library: library, importer: importer, lastExitCode: $lastExitCode)
+            ShelfView(library: library, importer: importer, lastExitCode: $lastExitCode,
+                      panelModel: panelModel)
+        }
+        // A trailing column beside the shelf on a regular-width window, and a
+        // sheet on a compact one. The shelf only opens it on a regular-width
+        // window, so the sheet form is what a panel becomes when an iPhone
+        // Duo is folded with it open: nothing is lost, and unfolding brings
+        // the column back.
+        .inspector(isPresented: Bindable(panelModel).isPresented) {
+            ShelfPanelView(model: panelModel, library: library)
+                .inspectorColumnWidth(min: 320, ideal: 376, max: 420)
+        }
+        .onChange(of: horizontalSizeClass, initial: true) { _, sizeClass in
+            panelModel.windowIsRegularWidth = sizeClass == .regular
         }
         .overlay(alignment: .bottom) {
             if let notice = ImportNotices.shared.current {

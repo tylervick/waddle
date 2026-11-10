@@ -13,6 +13,10 @@ struct ShelfView: View {
     let library: LibraryService
     let importer: ImportService
     @Binding var lastExitCode: Int32?
+    /// Where Details and Settings open on a regular-width window (issue
+    /// #372). The inspector itself is `ContentView`'s; this view decides
+    /// what goes in it and lends it `play` and `refresh`.
+    let panelModel: ShelfPanelModel
 
     @State private var items: [Game] = []
     /// What the top zone shows: the welcome card, a Continue hero, or nothing.
@@ -137,6 +141,34 @@ struct ShelfView: View {
         .sheet(isPresented: $showPlayerSettings, onDismiss: refresh) {
             PlayerSettingsView(library: library)
         }
+        // The panel's content is built at the root, but starting a session
+        // and reloading the shelf are this view's. Closing the panel
+        // refreshes for the same reason dismissing the Settings sheet does:
+        // Files and Hidden Games under it can change what the shelf shows.
+        .onAppear {
+            panelModel.play = { play($0, mode: $1) }
+            panelModel.changed = { refresh() }
+        }
+        .onChange(of: panelModel.panel) { _, panel in
+            if panel == nil { refresh() }
+        }
+        #if DEBUG
+        // Test-only seam, same WADDLE_* family as the others: opens the
+        // panel at launch so a capture can show it without a gesture. On an
+        // open iPhone Duo nothing synthetic can long-press a tile to reach
+        // Details (`docs/learnings/iphone-duo-simulator-traps.md`).
+        // `settings`, or a game's name. Never set in production.
+        .task {
+            guard let wanted = ProcessInfo.processInfo.environment["WADDLE_OPEN_PANEL"] else { return }
+            try? await Task.sleep(for: .milliseconds(800))
+            guard panelModel.opensInPanel else { return }
+            if wanted == "settings" {
+                panelModel.panel = .settings
+            } else if let game = items.first(where: { $0.name == wanted }) {
+                panelModel.panel = .game(game)
+            }
+        }
+        #endif
         // The welcome card's Add Your Games opens the same importer the
         // toolbar's Add button and the ghost tile do, down to the accepted
         // types (spec §4).
@@ -149,7 +181,7 @@ struct ShelfView: View {
                 .accessibilityIdentifier("continueAction")
             Button("New Game") { play(item, mode: .newGame) }
                 .accessibilityIdentifier("newGameAction")
-            Button("Details") { pageGame = item }
+            Button("Details") { openDetails(item) }
                 .accessibilityIdentifier("detailsAction")
         }
         .alert(errorAlert?.title ?? "", isPresented: Binding(
@@ -188,7 +220,7 @@ struct ShelfView: View {
         }
         ToolbarItem(placement: .navigationBarLeading) {
             Button {
-                showPlayerSettings = true
+                openSettings()
             } label: {
                 Label("Settings", systemImage: "gearshape")
             }
@@ -206,6 +238,27 @@ struct ShelfView: View {
             // The one import door (spec §3.4): the welcome card and the ghost
             // tile call the same importer.
             .accessibilityIdentifier("importButton")
+        }
+    }
+
+    /// A game's page: beside the library on a regular-width window, pushed
+    /// on a compact one (issue #372). What a tap on a tile does is the same
+    /// everywhere; this is only where Details lands.
+    private func openDetails(_ game: Game) {
+        if panelModel.opensInPanel {
+            panelModel.panel = .game(game)
+        } else {
+            pageGame = game
+        }
+    }
+
+    /// Settings: the same panel on a regular-width window, the sheet on a
+    /// compact one.
+    private func openSettings() {
+        if panelModel.opensInPanel {
+            panelModel.panel = .settings
+        } else {
+            showPlayerSettings = true
         }
     }
 
@@ -550,10 +603,18 @@ struct ShelfView: View {
             switch Shelf.tapAction(for: game, hasResumableSave: hasResumableSave) {
             case .actionSheet: actionItem = game
             case .launchNewGame: play(game, mode: .newGame)
-            case .openPage: pageGame = game
+            case .openPage: openDetails(game)
             }
         } label: {
             PlayableTileView(game: game, library: library)
+                // The tile whose page is open beside the library wears the
+                // accent, so the panel reads as belonging to something.
+                .overlay {
+                    if panelModel.panel?.gameID == game.id {
+                        RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
+                            .strokeBorder(Color.appAccent, lineWidth: 2)
+                    }
+                }
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(accessibilityID(for: game))
@@ -578,7 +639,7 @@ struct ShelfView: View {
         }
         Button("New Game") { play(game, mode: .newGame) }
             .disabled(game.baseID == nil)
-        Button("Details") { pageGame = game }
+        Button("Details") { openDetails(game) }
         if game.isBaseGame {
             Button("Hide from Shelf", role: .destructive) {
                 try? library.hide(game)

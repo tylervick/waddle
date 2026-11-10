@@ -13,6 +13,10 @@ import SwiftUI
 /// carries its own stack and Done button — see the comment on its row.
 struct PlayerSettingsView: View {
     let library: LibraryService
+    /// Set when Settings is the shelf's panel rather than a sheet (issue
+    /// #372): an inspector column is not something `dismiss` closes, so the
+    /// panel's owner says how. Nil keeps the sheet's own dismissal.
+    var onDone: (() -> Void)?
 
     @AppStorage(TouchControlScheme.userDefaultsKey) private var touchScheme: TouchControlScheme = .defaultScheme
     @AppStorage(debugHUDUserDefaultsKey) private var debugHUD: Bool = false
@@ -78,7 +82,7 @@ struct PlayerSettingsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    Button("Done") { if let onDone { onDone() } else { dismiss() } }
                 }
             }
             .sheet(isPresented: $showControlFeel) {
