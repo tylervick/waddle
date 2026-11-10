@@ -13,6 +13,10 @@ struct ShelfView: View {
     let library: LibraryService
     let importer: ImportService
     @Binding var lastExitCode: Int32?
+    /// Where Details and Settings open on a regular-width window (issue
+    /// #372). The inspector itself is `ContentView`'s; this view decides
+    /// what goes in it and lends it `play` and `refresh`.
+    let panelModel: ShelfPanelModel
 
     @State private var items: [Game] = []
     /// What the top zone shows: the welcome card, a Continue hero, or nothing.
@@ -137,6 +141,34 @@ struct ShelfView: View {
         .sheet(isPresented: $showPlayerSettings, onDismiss: refresh) {
             PlayerSettingsView(library: library)
         }
+        // The panel's content is built at the root, but starting a session
+        // and reloading the shelf are this view's. Closing the panel
+        // refreshes for the same reason dismissing the Settings sheet does:
+        // Files and Hidden Games under it can change what the shelf shows.
+        .onAppear {
+            panelModel.play = { play($0, mode: $1) }
+            panelModel.changed = { refresh() }
+        }
+        .onChange(of: panelModel.panel) { _, panel in
+            if panel == nil { refresh() }
+        }
+        #if DEBUG
+        // Test-only seam, same WADDLE_* family as the others: opens the
+        // panel at launch so a capture can show it without a gesture. On an
+        // open iPhone Duo nothing synthetic can long-press a tile to reach
+        // Details (`docs/learnings/iphone-duo-simulator-traps.md`).
+        // `settings`, or a game's name. Never set in production.
+        .task {
+            guard let wanted = ProcessInfo.processInfo.environment["WADDLE_OPEN_PANEL"] else { return }
+            try? await Task.sleep(for: .milliseconds(800))
+            guard panelModel.opensInPanel else { return }
+            if wanted == "settings" {
+                panelModel.panel = .settings
+            } else if let game = items.first(where: { $0.name == wanted }) {
+                panelModel.panel = .game(game)
+            }
+        }
+        #endif
         // The welcome card's Add Your Games opens the same importer the
         // toolbar's Add button and the ghost tile do, down to the accepted
         // types (spec §4).
@@ -149,7 +181,7 @@ struct ShelfView: View {
                 .accessibilityIdentifier("continueAction")
             Button("New Game") { play(item, mode: .newGame) }
                 .accessibilityIdentifier("newGameAction")
-            Button("Details") { pageGame = item }
+            Button("Details") { openDetails(item) }
                 .accessibilityIdentifier("detailsAction")
         }
         .alert(errorAlert?.title ?? "", isPresented: Binding(
@@ -188,7 +220,7 @@ struct ShelfView: View {
         }
         ToolbarItem(placement: .navigationBarLeading) {
             Button {
-                showPlayerSettings = true
+                openSettings()
             } label: {
                 Label("Settings", systemImage: "gearshape")
             }
@@ -206,6 +238,27 @@ struct ShelfView: View {
             // The one import door (spec §3.4): the welcome card and the ghost
             // tile call the same importer.
             .accessibilityIdentifier("importButton")
+        }
+    }
+
+    /// A game's page: beside the library on a regular-width window, pushed
+    /// on a compact one (issue #372). What a tap on a tile does is the same
+    /// everywhere; this is only where Details lands.
+    private func openDetails(_ game: Game) {
+        if panelModel.opensInPanel {
+            panelModel.panel = .game(game)
+        } else {
+            pageGame = game
+        }
+    }
+
+    /// Settings: the same panel on a regular-width window, the sheet on a
+    /// compact one.
+    private func openSettings() {
+        if panelModel.opensInPanel {
+            panelModel.panel = .settings
+        } else {
+            showPlayerSettings = true
         }
     }
 
@@ -375,44 +428,117 @@ struct ShelfView: View {
     /// — and this hero's own caption — below the fold. `ShelfHeroLayout` owns
     /// that arithmetic and is where it is tested.
     private func hero(for game: Game) -> some View {
-        Button {
-            play(game, mode: .continueNewest)
-        } label: {
-            // Art over caption, or beside it on a landscape phone (design-
-            // system spec §9), where the stacked art was on its 96 pt floor
-            // at the default text size.
-            Group {
-                switch ShelfHeroLayout.arrangement(compactHeight: compactHeight) {
-                case .stacked:
+        Group {
+            switch heroArrangement {
+            case .stacked:
+                // One button, art over caption: a tap anywhere resumes.
+                Button {
+                    play(game, mode: .continueNewest)
+                } label: {
                     VStack(alignment: .leading, spacing: heroCaptionSpacing) {
-                        heroArt(game, height: ShelfHeroLayout.artHeight(
-                            contentWidth: heroContentWidth,
-                            viewportHeight: viewportHeight,
-                            captionHeight: heroCaptionHeight,
-                            gridPeek: ShelfHeroLayout.gridPeek(
-                                contentWidth: heroContentWidth,
-                                tileMinimumWidth: tileMinimumWidth,
-                                gridSpacing: gridSpacing,
-                                contentPadding: contentPadding)))
+                        heroArt(game, height: stackedHeroArtHeight)
                         heroCaption(game)
                     }
-                case .sideBySide:
-                    HStack(alignment: .top, spacing: ShelfHeroLayout.sideBySideSpacing) {
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("continueHero")
+                .accessibilityLabel("Continue \(TileAccessibility.label(for: game))")
+            case .sideBySide:
+                // Art beside its caption: a landscape phone (design-system
+                // spec §9), where stacked art was on its 96 pt floor, and a
+                // wide window, where it was a banner it could not fill
+                // (issue #371). The row beside the art has room for the two
+                // actions as buttons, so they are buttons.
+                HStack(alignment: .top, spacing: ShelfHeroLayout.sideBySideSpacing) {
+                    Button {
+                        play(game, mode: .continueNewest)
+                    } label: {
                         heroArt(game, height: ShelfHeroLayout.sideBySideArtHeight(
                             contentWidth: heroContentWidth, viewportHeight: viewportHeight))
                             .frame(width: ShelfHeroLayout.sideBySideArtWidth(
                                 contentWidth: heroContentWidth, viewportHeight: viewportHeight))
-                        heroCaption(game)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    .buttonStyle(.plain)
+                    // The art is a second, larger target for the Continue
+                    // button beside it. VoiceOver gets the button, not both.
+                    .accessibilityHidden(true)
+                    sideBySideHeroCaption(game)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .buttonStyle(.plain)
+        .contextMenu { contextMenuItems(for: game) }
+    }
+
+    /// Where the hero puts its art for the window it is in. `ShelfHeroLayout`
+    /// owns the rule and is where it is tested.
+    private var heroArrangement: ShelfHeroLayout.Arrangement {
+        ShelfHeroLayout.arrangement(compactHeight: compactHeight,
+                                    contentWidth: heroContentWidth,
+                                    stackedArtHeight: stackedHeroArtHeight)
+    }
+
+    /// The art's height when it sits over its caption, capped against the
+    /// viewport so the first tile row stays above the fold.
+    private var stackedHeroArtHeight: CGFloat {
+        ShelfHeroLayout.artHeight(
+            contentWidth: heroContentWidth,
+            viewportHeight: viewportHeight,
+            captionHeight: heroCaptionHeight,
+            gridPeek: ShelfHeroLayout.gridPeek(
+                contentWidth: heroContentWidth,
+                tileMinimumWidth: tileMinimumWidth,
+                gridSpacing: gridSpacing,
+                contentPadding: contentPadding))
+    }
+
+    /// The caption beside the art: title, when it was last played, and the
+    /// two things to do with it. The same buttons, in the same styles, as the
+    /// game page's (design-system spec §3): Continue is the primary action
+    /// and wears the accent, New Game sits next to it.
+    private func sideBySideHeroCaption(_ game: Game) -> some View {
+        VStack(alignment: .leading, spacing: heroCaptionSpacing) {
+            Text(game.name).font(Theme.Typography.heroTitle)
+            if let played = game.lastPlayed {
+                Text("Last played \(played, format: .relative(presentation: .named))")
+                    .font(Theme.Typography.secondary)
+                    .foregroundStyle(Color.appSecondaryText)
+            }
+            // In a row where the caption is wide enough for both at their
+            // natural width, stacked where it is not. The closed Duo in
+            // landscape leaves 279 pt beside the art, three short of the row,
+            // and squeezing the pair in broke "Continue" across two lines.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: Theme.Spacing.md) { heroButtons(game) }
+                VStack(spacing: Theme.Spacing.sm) { heroButtons(game) }
+            }
+            .padding(.top, Theme.Spacing.sm)
+        }
+    }
+
+    /// Continue and New Game, for whichever stack `sideBySideHeroCaption`
+    /// has room for. Labels stay on one line: a button that wraps is the
+    /// signal that the other arrangement should have been chosen.
+    @ViewBuilder
+    private func heroButtons(_ game: Game) -> some View {
+        Button {
+            play(game, mode: .continueNewest)
+        } label: {
+            Label("Continue", systemImage: "clock.arrow.circlepath").lineLimit(1)
+        }
+        .buttonStyle(.waddlePrimary)
+        .disabled(game.baseID == nil)
         .accessibilityIdentifier("continueHero")
         .accessibilityLabel("Continue \(TileAccessibility.label(for: game))")
-        .contextMenu { contextMenuItems(for: game) }
+        Button {
+            play(game, mode: .newGame)
+        } label: {
+            Label("New Game", systemImage: "play.fill").lineLimit(1)
+        }
+        .buttonStyle(.waddleSecondary)
+        .disabled(game.baseID == nil)
+        .accessibilityIdentifier("heroNewGameButton")
     }
 
     private func heroArt(_ game: Game, height: CGFloat) -> some View {
@@ -477,10 +603,18 @@ struct ShelfView: View {
             switch Shelf.tapAction(for: game, hasResumableSave: hasResumableSave) {
             case .actionSheet: actionItem = game
             case .launchNewGame: play(game, mode: .newGame)
-            case .openPage: pageGame = game
+            case .openPage: openDetails(game)
             }
         } label: {
             PlayableTileView(game: game, library: library)
+                // The tile whose page is open beside the library wears the
+                // accent, so the panel reads as belonging to something.
+                .overlay {
+                    if panelModel.panel?.gameID == game.id {
+                        RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
+                            .strokeBorder(Color.appAccent, lineWidth: 2)
+                    }
+                }
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(accessibilityID(for: game))
@@ -505,7 +639,7 @@ struct ShelfView: View {
         }
         Button("New Game") { play(game, mode: .newGame) }
             .disabled(game.baseID == nil)
-        Button("Details") { pageGame = game }
+        Button("Details") { openDetails(game) }
         if game.isBaseGame {
             Button("Hide from Shelf", role: .destructive) {
                 try? library.hide(game)

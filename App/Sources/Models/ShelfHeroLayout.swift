@@ -73,6 +73,38 @@ enum ShelfHeroLayout {
         compactHeight ? .sideBySide : .stacked
     }
 
+    /// Below this share of the row's width, stacked art is a banner it cannot
+    /// fill: the height cap has shrunk it, its 1.6:1 shape has shrunk its
+    /// width with it, and the rest of the row is a blurred fill.
+    ///
+    /// 0.7 because the two cases it has to tell apart sit well to either side
+    /// of it. An open iPhone Duo's capped art fills 58% of the row. A 13-inch
+    /// iPad in landscape, whose stacked hero `ShelfHeroLayoutTests` records as
+    /// a decision ("capped but still dominant"), fills 78%.
+    static let minimumStackedArtFill: CGFloat = 0.7
+
+    /// The hero's arrangement for the window it is actually in (issue #371).
+    ///
+    /// Compact height is side by side, as above. So is a wide window whose
+    /// stacked art would be a pillarboxed banner: `stackedArtHeight` is what
+    /// `artHeight` returns there, and if that much art, at its own shape,
+    /// covers less than `minimumStackedArtFill` of the row, the row is better
+    /// spent putting the art beside its caption. An open iPhone Duo is the
+    /// case this exists for: 835 pt of row, 302 pt of art height, 483 pt of
+    /// art.
+    ///
+    /// Only ever on a wide window (`Theme.wideGridContentWidth`). A phone in
+    /// portrait fills its row whatever the cap does to it, and must not flip
+    /// to a cramped side-by-side because a small viewport shrank the art.
+    static func arrangement(compactHeight: Bool,
+                            contentWidth: CGFloat,
+                            stackedArtHeight: CGFloat) -> Arrangement {
+        if compactHeight { return .sideBySide }
+        guard contentWidth >= Theme.wideGridContentWidth else { return .stacked }
+        let fill = stackedArtHeight * Theme.heroAspectRatio / contentWidth
+        return fill < minimumStackedArtFill ? .sideBySide : .stacked
+    }
+
     /// The zone break, by height class: the 32 pt that gives a portrait
     /// screen its rhythm is a tenth of a landscape phone's viewport, so there
     /// the break is the grid's own gap.

@@ -63,7 +63,8 @@ private struct ShelfPreviewHost: View {
         NavigationStack {
             ShelfView(library: fixture.library,
                       importer: fixture.importer,
-                      lastExitCode: .constant(nil))
+                      lastExitCode: .constant(nil),
+                      panelModel: ShelfPanelModel())
         }
         .preferredColorScheme(.dark)
     }
