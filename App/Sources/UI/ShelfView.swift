@@ -49,8 +49,15 @@ struct ShelfView: View {
     /// fixed: at accessibility sizes the wider floor fits fewer columns, which
     /// is spec §5's "drops columns rather than shrinking text".
     private var columns: [GridItem] {
-        [GridItem(.adaptive(minimum: Theme.gridMinimumTileWidth(for: dynamicTypeSize)),
-                  spacing: gridSpacing)]
+        [GridItem(.adaptive(minimum: tileMinimumWidth), spacing: gridSpacing)]
+    }
+
+    /// The grid's tile floor for the width the shelf has been measured at:
+    /// the phone floor until that is known and on anything phone-sized, a
+    /// wider one on a wide window (issue #353). One property, because the
+    /// column definition and the hero zone's budget must agree on it.
+    private var tileMinimumWidth: CGFloat {
+        Theme.gridMinimumTileWidth(for: dynamicTypeSize, contentWidth: heroContentWidth)
     }
 
     var body: some View {
@@ -235,7 +242,7 @@ struct ShelfView: View {
         ShelfHeroLayout.welcomeCardShowsDescription(
             viewportHeight: viewportHeight,
             contentWidth: heroContentWidth,
-            tileMinimumWidth: Theme.gridMinimumTileWidth(for: dynamicTypeSize),
+            tileMinimumWidth: tileMinimumWidth,
             contentPadding: contentPadding,
             gridSpacing: gridSpacing,
             fullCardHeight: ShelfHeroLayout.welcomeCardHeight(
@@ -381,7 +388,12 @@ struct ShelfView: View {
                         heroArt(game, height: ShelfHeroLayout.artHeight(
                             contentWidth: heroContentWidth,
                             viewportHeight: viewportHeight,
-                            captionHeight: heroCaptionHeight))
+                            captionHeight: heroCaptionHeight,
+                            gridPeek: ShelfHeroLayout.gridPeek(
+                                contentWidth: heroContentWidth,
+                                tileMinimumWidth: tileMinimumWidth,
+                                gridSpacing: gridSpacing,
+                                contentPadding: contentPadding)))
                         heroCaption(game)
                     }
                 case .sideBySide:
