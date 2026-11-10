@@ -309,10 +309,14 @@ jobs:
           # The iPhone Duo is pre-created by the runner image under the 27.1
           # runtime, so it is only checked, not ensured. If an image ever
           # drops it, this fails by name with the device list in the log,
-          # and the fix is an ensure script like the iPad's. Booted early for
-          # the same reason as the iPad, and non-fatal for the same reason.
+          # and the fix is an ensure script like the iPad's.
+          #
+          # Deliberately NOT booted here, unlike the iPad. Run 42835006870
+          # booted it early as well: this step took 3m35s where it takes 8s,
+          # and with three simulators up the runner then "lost communication
+          # with the server" 73 minutes into the iPhone leg. The Duo boots in
+          # its own step, after the other two are shut down.
           Scripts/check-simulator-available.sh "$SIMULATOR_DEVICE_DUO" "$SIMULATOR_OS_DUO"
-          xcrun simctl boot "$SIMULATOR_DEVICE_DUO" || true
 
       # -only-testing:WaddleTests is REQUIRED, not a tuning choice: the
       # Waddle scheme's test action also includes WaddleUITests, which boot
@@ -389,6 +393,11 @@ jobs:
         env:
           DESTINATION: platform=iOS Simulator,name=${{ env.SIMULATOR_DEVICE_DUO }},OS=${{ env.SIMULATOR_OS_DUO }}
         run: |
+          # One simulator at a time from here: the iPhone and iPad legs are
+          # done, and a third booted beside them is what starved the runner
+          # on run 42835006870. Non-fatal: with nothing booted, `shutdown
+          # all` has nothing to do and the leg runs as it would have.
+          xcrun simctl shutdown all || true
           xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
             -destination "$DESTINATION" \
             -only-testing:WaddleTests \
