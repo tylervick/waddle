@@ -76,11 +76,16 @@ extension XCTestCase {
             .waitForExistence(timeout: 5), "game page never appeared", file: file, line: line)
     }
 
-    /// Pops the game page back to the shelf. The back button is titled with the
-    /// shelf's own navigation title. Asserts, so a broken pop fails here rather
-    /// than as a timeout against the wrong screen later.
+    /// Pops the game page back to the shelf. Asserts, so a broken pop fails
+    /// here rather than as a timeout against the wrong screen later.
+    ///
+    /// Found by UIKit's own `BackButton` identifier, not by its title and not
+    /// inside a navigation bar (issue #352): on a closed iPhone Duo the system
+    /// lays the button out in the status column, where it has no label and
+    /// sits in a toolbar, so a query for a navigation-bar button titled
+    /// "Waddle" found nothing while the button was on screen.
     func returnToShelf(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
-        let back = app.navigationBars.buttons["Waddle"]
+        let back = app.buttons.matching(identifier: "BackButton").firstMatch
         XCTAssertTrue(back.waitForExistence(timeout: 5), "no back button — navigation is broken", file: file, line: line)
         back.tap()
         XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 10),
@@ -117,13 +122,47 @@ extension XCTestCase {
         XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 10), file: file, line: line)
     }
 
-    /// Scrolls until `element` is in the accessibility tree. A lazy `Form`/`List`
-    /// omits off-screen rows entirely (docs/learnings/lazy-form-hides-rows-from-uitests.md).
+    /// Scrolls until `element` can be tapped. A lazy `Form`/`List` omits
+    /// off-screen rows entirely (docs/learnings/lazy-form-hides-rows-from-uitests.md),
+    /// but a row can also be in the accessibility tree and still hang off the
+    /// window's bottom edge: on a closed iPhone Duo (678 pt tall) the game
+    /// page's scheme picker existed at y 668 to 702, the old "swipe while it
+    /// does not exist" loop never swiped, and the tap opened nothing
+    /// (issue #352).
+    ///
+    /// `isHittable` alone does not catch that. It answered true for that
+    /// row: XCUITest picks a hit point inside whatever sliver is visible, and
+    /// a tap on ten points of row at the very bottom edge does not open its
+    /// menu. So the element must also lie wholly inside the window.
     func scrollTo(_ element: XCUIElement, in app: XCUIApplication, maxSwipes: Int = 6,
                   file: StaticString = #filePath, line: UInt = #line) {
         var swipes = 0
-        while !element.exists && swipes < maxSwipes { app.swipeUp(); swipes += 1 }
+        while !isFullyOnScreen(element, in: app) && swipes < maxSwipes { app.swipeUp(); swipes += 1 }
         XCTAssertTrue(element.waitForExistence(timeout: 2), "\(element) never scrolled into view", file: file, line: line)
+    }
+
+    /// Whether a tap on `element` lands on the element proper: it exists, is
+    /// hittable, and its whole frame is inside the app's window.
+    private func isFullyOnScreen(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        guard element.exists, element.isHittable else { return false }
+        return app.windows.firstMatch.frame.contains(element.frame)
+    }
+
+    /// `element`'s label from a single accessibility snapshot, or nil when
+    /// the element is not there.
+    ///
+    /// `element.exists` followed by `element.label` is two snapshots. An
+    /// element that leaves between them (the debug HUD goes with the engine
+    /// session) has already answered "exists", and the `label` read then
+    /// records a test failure rather than returning anything (issue #350).
+    /// `snapshot()` throws instead, so one `try?` covers both the element
+    /// that was never there and the one that left mid-read.
+    ///
+    /// `@MainActor` because `snapshot()` is, and its result is not Sendable:
+    /// only the label, a String, leaves this method.
+    @MainActor
+    func labelIfPresent(_ element: XCUIElement) -> String? {
+        (try? element.snapshot())?.label
     }
 
     /// The Rename alert's text field. SwiftUI does not forward an

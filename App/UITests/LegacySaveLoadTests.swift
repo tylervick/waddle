@@ -122,6 +122,7 @@ final class LegacySaveLoadTests: XCTestCase {
 
     private var lastSeenStrip = ""
 
+    @MainActor
     private func waitForHUD(_ hud: XCUIElement, timeout: TimeInterval,
                             until condition: ([String: String]) -> Bool) -> [String: String] {
         let deadline = Date().addingTimeInterval(timeout)
@@ -133,8 +134,9 @@ final class LegacySaveLoadTests: XCTestCase {
         return parsed
     }
 
+    @MainActor
     private func lastStrip(_ hud: XCUIElement) -> String {
-        if hud.exists { lastSeenStrip = hud.label }
+        if let strip = labelIfPresent(hud) { lastSeenStrip = strip }
         return lastSeenStrip
     }
 

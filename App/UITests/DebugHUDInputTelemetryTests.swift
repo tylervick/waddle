@@ -100,6 +100,7 @@ final class DebugHUDInputTelemetryTests: XCTestCase {
     /// Polls the HUD until `condition` holds for its parsed fields or the
     /// timeout passes, and returns the last parse either way; the caller's
     /// assertion then names what was actually on screen.
+    @MainActor
     private func waitForHUD(_ hud: XCUIElement, timeout: TimeInterval,
                             until condition: ([String: String]) -> Bool) -> [String: String] {
         let deadline = Date().addingTimeInterval(timeout)
@@ -115,8 +116,9 @@ final class DebugHUDInputTelemetryTests: XCTestCase {
     /// is a hard failure that hides which field was wrong. Keep the last text
     /// seen so every assertion message can show it.
     private var lastSeenStrip = ""
+    @MainActor
     private func lastStrip(_ hud: XCUIElement) -> String {
-        if hud.exists { lastSeenStrip = hud.label }
+        if let strip = labelIfPresent(hud) { lastSeenStrip = strip }
         return lastSeenStrip
     }
 
