@@ -24,6 +24,7 @@ export GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
 REPO="$TMP/repo"
 mkdir -p "$REPO/Scripts" "$REPO/App/Waddle.xcodeproj" "$REPO/App/Resources/GameData" "$TMP/bin"
 cp "$ROOT/Scripts/profile-session.sh" "$REPO/Scripts/"
+printf 'settings:\n  base:\n    DEVELOPMENT_TEAM: STUBTEAM1\n' > "$REPO/App/project.yml"
 # The guard's verdict is a file the cases flip; its own suite tests the guard.
 cat > "$REPO/Scripts/check-engine-fresh.sh" <<'EOF'
 #!/bin/bash
@@ -160,6 +161,26 @@ grep -q "devicectl device install app --device $PHONE .*Release-iphoneos/Waddle.
 grep -q "xctrace record --template Processor Trace --device $PHONE --time-limit 70s --output $TMP/o/run-2.trace .*--env WADDLE_PROFILE_GAME=Freedoom Phase 2 --env WADDLE_PROFILE_DEMO=demo1 --env WADDLE_PROFILE_MODE=playdemo --launch -- cat.milo.waddle" "$CALLS" \
   || { cat "$CALLS" >&2; fail "the record command line is not the expected one"; }
 pass "a device run builds Release, installs, and records twice"
+
+# 9b. --signing development: the same Release build, signed with the Mac's
+#     development identity instead of the App Store profile, and said so.
+#     The unknown value goes first and the default run last, so case 10 reads
+#     the conditions.json of an ordinary device run.
+run --signing adhoc
+refused "an unknown --signing value is refused" "signing takes .distribution."
+run --signing development
+[ "$RC" -eq 0 ] || { cat "$TMP/out" >&2; fail "--signing development exited $RC"; }
+build="$(grep '^xcodebuild' "$CALLS")"
+for want in "-configuration Release" "CODE_SIGN_STYLE=Automatic" "CODE_SIGN_IDENTITY=Apple Development" \
+            "PROVISIONING_PROFILE_SPECIFIER=" "DEVELOPMENT_TEAM=STUBTEAM1"; do
+  case "$build" in *"$want"*) ;; *) fail "development build command lacks: $want" ;; esac
+done
+[ "$(json signing)" = "development" ] || fail "conditions.json signing is '$(json signing)', wanted development"
+run
+[ "$RC" -eq 0 ] || { cat "$TMP/out" >&2; fail "default run after --signing exited $RC"; }
+case "$(grep '^xcodebuild' "$CALLS")" in *CODE_SIGN_STYLE*) fail "the default build overrides signing" ;; esac
+[ "$(json signing)" = "distribution" ] || fail "conditions.json signing default is '$(json signing)', wanted distribution"
+pass "--signing development swaps in automatic development signing and is recorded"
 
 # 10. Every condition the issue lists is in conditions.json, read back from
 #     the device and the WAD rather than echoed from the command line.

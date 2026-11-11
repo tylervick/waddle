@@ -669,7 +669,18 @@ fixes (`e13fd2a`, `0244905`). The first only bit under automation's phantom
 controller, and the second fixed a regression the first introduced within this
 same release, so neither was ever broken for a player on 1.1.
 
-## 16. Accessibility Nutrition Label — DRAFT, nothing submitted
+## 16. Accessibility Nutrition Label — PUBLISHED 2026-11-10, no feature claimed
+
+**Published 2026-11-10 (issue #217), through the API, exactly as drafted below.**
+Two declarations, one per device family, every `supports*` attribute `false`:
+`IPHONE` `b64a83ed-b99e-4b2c-8388-5b933304f4b3` and `IPAD`
+`0c275ae9-26a6-45c8-8d0e-00d627f26fae`, each created with
+`POST /v1/accessibilityDeclarations` and published with
+`PATCH … {"publish": true}`; the read-back of
+`GET /v1/apps/6792905089/accessibilityDeclarations` afterwards showed both
+`PUBLISHED` with all nine attributes `false`. Apple now shows the section as
+"supports none of these features" rather than "not indicated". Re-run that
+read-back before changing any answer; what follows is the basis, unchanged.
 
 **Drafted answer (2026-10-05, issue #217): claim none of the nine features, on
 either device family.** Not yet through the user gate, and nothing has been
