@@ -15,6 +15,7 @@ final class SoftKeyboardTests: XCTestCase {
     func testFourFingerTapSummonsAndDismissesInGame() throws {
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "25"
+        app.holdAutoquit()
         // The Simulator reports a phantom controller/keyboard, which would
         // otherwise hide the overlay (see OverlayPresenter.applyPolicy).
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
@@ -78,6 +79,7 @@ final class SoftKeyboardTests: XCTestCase {
     func testFourFingerTapIgnoredWhileMenuOpen() throws {
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "25"
+        app.holdAutoquit()
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         // See the sibling test above: force real gameplay first so "open
         // the menu" genuinely leaves a GAMEPLAY context, matching this

@@ -443,6 +443,7 @@ final class SessionStartStateTests: XCTestCase {
     func testAutomapBoundsAreEachMapsOwn() throws {
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
+        app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_SESSION_START"] = "1"
         app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
@@ -466,6 +467,7 @@ final class SessionStartStateTests: XCTestCase {
                 XCTAssertTrue(map.waitForExistence(timeout: 30), "\(name): no automap button")
                 Thread.sleep(forTimeInterval: 4)
                 map.tap()
+                self.releaseAutoquit()
             }
             bounds.append(label(app, "automapBoundsLabel", name: name))
             entries.append(label(app, "sessionEntryStateLabel", name: name))

@@ -21,6 +21,7 @@ final class BackgroundSuspendTests: XCTestCase {
         // Continue hero appear whether or not this session wrote one.
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "30"
+        app.holdAutoquit()
         // Straight into E1M1: Woof autosaves only on level completion, so
         // the only save a warped session can leave behind is the one under
         // test.
@@ -70,6 +71,7 @@ final class BackgroundSuspendTests: XCTestCase {
         shot.lifetime = .keepAlways
         add(shot)
 
+        releaseAutoquit()
         let exitLabel = app.staticTexts["engineExitLabel"]
         XCTAssertTrue(exitLabel.waitForExistence(timeout: 90), "engine never returned to the launcher")
         XCTAssertEqual(exitLabel.label, "Engine exited: 0")
@@ -97,6 +99,7 @@ final class BackgroundSuspendTests: XCTestCase {
         XCTAssertEqual(resumed["gs"], "level", "the suspend save should load into its level: \(lastSeenStrip)")
         XCTAssertGreaterThanOrEqual(Int(resumed["lt"] ?? "") ?? -1, savedLevelTime,
                                     "the resumed level should continue from the saved leveltime: \(lastSeenStrip)")
+        releaseAutoquit()
         XCTAssertTrue(exitLabel.waitForExistence(timeout: 90), "resumed session never returned to the launcher")
         XCTAssertEqual(exitLabel.label, "Engine exited: 0")
     }
@@ -109,6 +112,7 @@ final class BackgroundSuspendTests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "12"
+        app.holdAutoquit()
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launchEnvironment["WADDLE_DEBUG_SESSION_START"] = "1"
         app.launchArguments += ["-debugHUD", "YES"]
@@ -144,6 +148,7 @@ final class BackgroundSuspendTests: XCTestCase {
         Thread.sleep(forTimeInterval: 2)
         app.activate()
 
+        releaseAutoquit()
         let exitLabel = app.staticTexts["engineExitLabel"]
         XCTAssertTrue(exitLabel.waitForExistence(timeout: 90), "engine never returned to the launcher")
         XCTAssertEqual(exitLabel.label, "Engine exited: 0")

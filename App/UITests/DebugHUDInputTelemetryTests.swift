@@ -21,6 +21,7 @@ final class DebugHUDInputTelemetryTests: XCTestCase {
     func testHUDReportsTheVirtualPadButtonEventsAndMenuCursor() throws {
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
+        app.holdAutoquit()
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         // UserDefaults reads launch arguments, so this flips the same
         // "Show Debug Info" setting the Player Settings toggle writes.
@@ -93,6 +94,7 @@ final class DebugHUDInputTelemetryTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(buttonEventsAfter, buttonEventsBefore + 4,
             "START and USE should each have produced a down and an up event: \(lastSeenStrip)")
 
+        releaseAutoquit()
         XCTAssertTrue(app.staticTexts["engineExitLabel"].waitForExistence(timeout: 90),
                       "engine never returned to the launcher")
     }
