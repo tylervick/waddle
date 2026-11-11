@@ -111,7 +111,11 @@ build:
 # directly, run revyl config validate, then ... commit the designated file
 # when Git-managed").
 pr_review:
-    enabled: true
+    # REVYL-PAUSED 2026-11-11: off for the moment, together with the three
+    # jobs marked REVYL-PAUSED in .github/workflows/ci.yml, which no longer
+    # build or upload anything for Revyl to review. Turn both back on
+    # together: a review with no artifact has nothing to install.
+    enabled: false
     review_triggers:
         # Repository-root-relative, matched against the paths GitHub reports.
         # Scoped to what can change the binary, so a docs-only or
