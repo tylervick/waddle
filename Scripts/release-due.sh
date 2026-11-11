@@ -55,6 +55,7 @@ NON_BINARY_PATHS=(
     ':(exclude)Scripts/check-*.sh'
     ':(exclude)Scripts/fixtures/'
     ':(exclude).github/'
+    ':(exclude).revyl/'
     ':(exclude)*.md'
     ':(exclude)COPYING'
     ':(exclude)renovate.json'
