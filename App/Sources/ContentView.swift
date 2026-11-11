@@ -33,12 +33,12 @@ struct ContentView: View {
                 .inspectorColumnWidth(min: 320, ideal: 376, max: 420)
         }
         .onChange(of: horizontalSizeClass, initial: true) { old, sizeClass in
-            panelModel.windowIsRegularWidth = sizeClass == .regular
             // Unfolding an iPhone Duo with nothing open leaves an empty
-            // column up; see `dismissStrayColumn`.
-            if old == .compact, sizeClass == .regular {
-                panelModel.dismissStrayColumn()
-            }
+            // column up; the model deals with it. See `systemSetPresented`.
+            let isRegular = sizeClass == .regular
+            let wasCompact = old == .compact
+            panelModel.windowWidthChanged(isRegular: isRegular,
+                                          becameRegular: wasCompact && isRegular)
         }
         .overlay(alignment: .bottom) {
             if let notice = ImportNotices.shared.current {

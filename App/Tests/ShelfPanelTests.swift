@@ -19,7 +19,7 @@ final class ShelfPanelTests: XCTestCase {
     func testAnUnmeasuredWindowIsTreatedAsCompact() {
         let model = ShelfPanelModel()
         XCTAssertFalse(model.opensInPanel)
-        model.windowIsRegularWidth = true
+        model.windowWidthChanged(isRegular: true, becameRegular: false)
         XCTAssertTrue(model.opensInPanel)
     }
 
@@ -68,26 +68,93 @@ final class ShelfPanelTests: XCTestCase {
     }
 
     /// Unfolding an iPhone Duo with nothing open: SwiftUI puts an empty
-    /// column up and never re-reads the binding, so the model bounces it.
-    /// Whatever happens in between, it must end not presented.
+    /// column up, writes true, and never re-reads the binding if that is
+    /// refused. So just after the window becomes regular the write is
+    /// accepted and then taken back, which SwiftUI can see.
     @MainActor
-    func testAStrayColumnIsBouncedShutWhenNothingIsOpen() async throws {
+    func testTheUnfoldsStrayColumnIsAcceptedAndThenClosed() async throws {
         let model = ShelfPanelModel()
-        model.dismissStrayColumn()
-        try await Task.sleep(for: .milliseconds(500))
-        XCTAssertFalse(model.isPresented)
-        XCTAssertNil(model.panel)
+        model.windowWidthChanged(isRegular: false, becameRegular: false)
+        model.windowWidthChanged(isRegular: true, becameRegular: true)
+
+        model.systemSetPresented(true)
+        XCTAssertTrue(model.isPresented, "the write has to be accepted for the close to be a visible change")
+        XCTAssertNil(model.panel, "but nothing is open")
+
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertFalse(model.isPresented, "the stray column was left up")
     }
 
-    /// The same unfold with a panel open is the column doing its job, and
-    /// the bounce must leave it alone.
+    /// The other order: the write arrives, and is refused, just before the
+    /// width change is reported. The column is up all the same.
     @MainActor
-    func testTheBounceLeavesAnOpenPanelAlone() async throws {
+    func testAWriteJustBeforeTheWidthChangeIsClosedToo() async throws {
         let model = ShelfPanelModel()
+        model.windowWidthChanged(isRegular: false, becameRegular: false)
+        model.systemSetPresented(true)
+        XCTAssertFalse(model.isPresented)
+
+        model.windowWidthChanged(isRegular: true, becameRegular: true)
+        XCTAssertTrue(model.isPresented)
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertFalse(model.isPresented, "the stray column was left up")
+    }
+
+    /// A window that was regular from launch: refusing is enough there, and
+    /// accepting even for a frame would flash a column at every launch.
+    @MainActor
+    func testAWindowThatStartedRegularRefusesAndNeverPresents() async throws {
+        let model = ShelfPanelModel()
+        model.windowWidthChanged(isRegular: true, becameRegular: false)
+        model.systemSetPresented(true)
+        for _ in 0..<8 {
+            XCTAssertFalse(model.isPresented)
+            try await Task.sleep(for: .milliseconds(30))
+        }
+    }
+
+    /// The same unfold with a panel open is the column doing its job.
+    @MainActor
+    func testAnUnfoldWithAPanelOpenKeepsIt() async throws {
+        let model = ShelfPanelModel()
+        model.windowWidthChanged(isRegular: true, becameRegular: false)
         model.panel = .settings
-        model.dismissStrayColumn()
-        try await Task.sleep(for: .milliseconds(500))
+        model.windowWidthChanged(isRegular: false, becameRegular: false)
+        model.systemSetPresented(false)
+        model.windowWidthChanged(isRegular: true, becameRegular: true)
+        model.systemSetPresented(true)
+        try await Task.sleep(for: .milliseconds(400))
         XCTAssertEqual(model.panel, .settings)
+    }
+
+    /// Folded again before the close has run: in a compact window the
+    /// accepted true would be an empty sheet, so it is taken back at once.
+    @MainActor
+    func testGoingBackToCompactTakesTheAcceptedWriteBack() async throws {
+        let model = ShelfPanelModel()
+        model.windowWidthChanged(isRegular: false, becameRegular: false)
+        model.windowWidthChanged(isRegular: true, becameRegular: true)
+        model.systemSetPresented(true)
+        model.windowWidthChanged(isRegular: false, becameRegular: false)
+        XCTAssertFalse(model.isPresented, "an empty sheet would be presented on the folded device")
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertFalse(model.isPresented)
+    }
+
+    /// A panel opened while a close is in flight is not closed by it.
+    @MainActor
+    func testOpeningAPanelAbandonsTheClose() async throws {
+        let model = ShelfPanelModel()
+        model.windowWidthChanged(isRegular: false, becameRegular: false)
+        model.windowWidthChanged(isRegular: true, becameRegular: true)
+        model.systemSetPresented(true)
+        model.panel = .settings
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertEqual(model.panel, .settings)
+
+        model.panel = nil
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertFalse(model.isPresented)
     }
 
     /// Settings is one panel; a game's panel is that game's.

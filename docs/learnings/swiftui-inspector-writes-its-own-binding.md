@@ -49,11 +49,30 @@ and only an explicit close forgets the content.
 
 Unfold a Duo with nothing open and the window goes from compact to regular
 width. SwiftUI puts an empty column up, writes `true`, has it refused, and
-does not look at the binding again: the column stays. It only takes the
-column down for a change it can observe, so `dismissStrayColumn` gives it
-one, presented for a frame and then not, with animations disabled, when the
-window becomes regular width with nothing to show. At launch and on a phone's
-rotation the refusal alone is enough.
+does not look at the binding again: the column stays. It only takes a column
+down for a change it can observe.
+
+So in the moments after the window becomes regular width, a `true` with
+nothing to show is *accepted*, which makes the model and SwiftUI agree that
+the column is up, and taken back about a frame later with animations
+disabled. At launch and on a phone's rotation into landscape, refusing alone
+is enough, and accepting there would flash a column at every launch, which
+is why the two cases are told apart by whether the window has just changed
+width.
+
+## Do not close it on a timer
+
+The first workaround bounced the binding on a timer after the width change
+(wait 120 ms, write `true`, wait 60 ms, write `false`). It passed two
+unfolds in a row and then failed on the first unfold after a fresh launch:
+the system put its column up *after* the bounce had already run. Reacting to
+SwiftUI's own write has nothing to race. Both orders are handled, the write
+arriving after the width change and just before it.
+
+A workaround for a transition has to be tried on the first transition after
+launch, more than once. Three fresh launches each unfolded twice is what
+`ShelfPanelModel` was checked against; the captures were compared by
+measuring the region where the column appears, not by eye.
 
 ## What to check when touching this
 
@@ -64,5 +83,5 @@ back. `WADDLE_OPEN_PANEL` opens a panel at launch for a capture, since
 nothing synthetic can long-press a tile on the open Duo
 (`iphone-duo-simulator-traps.md`).
 
-`ShelfPanelTests` pins the model's half of all four behaviours. It cannot see
+`ShelfPanelTests` pins the model's half of these behaviours. It cannot see
 a column on a screen (`geometry-tests-cannot-see-the-screen.md`).
