@@ -43,6 +43,7 @@ final class LegacySaveLoadTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(Int(resumed["lt"] ?? "") ?? -1, fixtureLevelTime,
                                     "the level should continue from the saved leveltime: \(lastSeenStrip)")
 
+        releaseAutoquit()
         let exitLabel = app.staticTexts["engineExitLabel"]
         XCTAssertTrue(exitLabel.waitForExistence(timeout: 90), "resumed session never returned to the launcher")
         XCTAssertEqual(exitLabel.label, "Engine exited: 0")
@@ -68,6 +69,7 @@ final class LegacySaveLoadTests: XCTestCase {
         XCTAssertEqual(seen["load"], "254", "Continue should still launch with -loadgame 254: \(lastSeenStrip)")
         XCTAssertNotEqual(seen["gs"], "level", "an unknown stamp must not be parsed into a level: \(lastSeenStrip)")
 
+        releaseAutoquit()
         let exitLabel = app.staticTexts["engineExitLabel"]
         XCTAssertTrue(exitLabel.waitForExistence(timeout: 90),
                       "the session should autoquit from the title screen; an engine error would block that")
@@ -100,6 +102,7 @@ final class LegacySaveLoadTests: XCTestCase {
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launchEnvironment["WADDLE_TEST_SUSPEND_SAVE"] = compressed.base64EncodedString()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = String(autoquitSeconds)
+        app.holdAutoquit()
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launchArguments += ["-debugHUD", "YES"]
         app.launch()

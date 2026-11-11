@@ -9,6 +9,7 @@ final class TouchControlsTests: XCTestCase {
     func testOverlayInstallsAndInputsReachEngine() throws {
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "14"
+        app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
         // The Simulator's XCUITest automation session registers a phantom
         // GCController and reports GCKeyboard.coalesced non-nil (the host
@@ -43,6 +44,7 @@ final class TouchControlsTests: XCTestCase {
         turnStart.press(forDuration: 0.05, thenDragTo: turnEnd)
 
         // Session ends via autoquit; overlay must be gone, launcher back.
+        releaseAutoquit()
         let exitLabel = app.staticTexts["engineExitLabel"]
         XCTAssertTrue(exitLabel.waitForExistence(timeout: 90))
         XCTAssertEqual(exitLabel.label, "Engine exited: 0")
@@ -68,6 +70,7 @@ final class TouchControlsTests: XCTestCase {
     func testModernSchemeDragTurnReachesEngine() throws {
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "14"
+        app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launchEnvironment["WADDLE_TOUCH_SCHEME"] = "modern"
@@ -87,6 +90,7 @@ final class TouchControlsTests: XCTestCase {
         turnStart.press(forDuration: 0.05, thenDragTo: turnEnd)
 
         // Session ends via autoquit; overlay must be gone, launcher back.
+        releaseAutoquit()
         let exitLabel = app.staticTexts["engineExitLabel"]
         XCTAssertTrue(exitLabel.waitForExistence(timeout: 90))
         XCTAssertEqual(exitLabel.label, "Engine exited: 0")
@@ -114,6 +118,7 @@ final class TouchControlsTests: XCTestCase {
     func testFireReleaseClearsTriggerResidue() throws {
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "14"
+        app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
@@ -139,6 +144,7 @@ final class TouchControlsTests: XCTestCase {
         // Session ends via autoquit; the ~0.3s post-release telemetry
         // sample (TouchGamepad.setFireTrigger) has long since landed by
         // the time this fires.
+        releaseAutoquit()
         let exitLabel = app.staticTexts["engineExitLabel"]
         XCTAssertTrue(exitLabel.waitForExistence(timeout: 90))
         XCTAssertEqual(exitLabel.label, "Engine exited: 0")
@@ -164,6 +170,7 @@ final class TouchControlsTests: XCTestCase {
     func testTouchEventCountResetsForFreshSession() throws {
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "14"
+        app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launch()
@@ -180,6 +187,7 @@ final class TouchControlsTests: XCTestCase {
         fire.tap()
         app.buttons["useButton"].tap()
 
+        releaseAutoquit()
         let exitLabel = app.staticTexts["engineExitLabel"]
         XCTAssertTrue(exitLabel.waitForExistence(timeout: 90))
         XCTAssertEqual(exitLabel.label, "Engine exited: 0")
@@ -199,6 +207,7 @@ final class TouchControlsTests: XCTestCase {
         XCTAssertTrue(fire.waitForExistence(timeout: 20),
                       "overlay never installed for the second session")
 
+        releaseAutoquit()
         XCTAssertTrue(exitLabel.waitForExistence(timeout: 90))
         XCTAssertEqual(exitLabel.label, "Engine exited: 0")
         XCTAssertFalse(fire.exists, "overlay not torn down after second session")
@@ -243,6 +252,7 @@ final class TouchControlsTests: XCTestCase {
     func testNearMissBesideWeaponPrevDoesNotStartStick() throws {
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "25"
+        app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launch()
@@ -275,6 +285,7 @@ final class TouchControlsTests: XCTestCase {
         XCTAssertTrue(stickEngaged.waitForExistence(timeout: 3),
             "stick never engaged on clean overlay -- the exclusion is too wide")
 
+        releaseAutoquit()
         let exitLabel = app.staticTexts["engineExitLabel"]
         XCTAssertTrue(exitLabel.waitForExistence(timeout: 90))
         XCTAssertEqual(exitLabel.label, "Engine exited: 0")
@@ -302,6 +313,7 @@ final class TouchControlsTests: XCTestCase {
     func testUseTapDrivesOnlyTheSouthButton() throws {
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "12"
+        app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
@@ -315,6 +327,7 @@ final class TouchControlsTests: XCTestCase {
         Thread.sleep(forTimeInterval: 2) // let the level settle before the one input
         use.tap()
 
+        releaseAutoquit()
         let writes = app.staticTexts["touchWritesLabel"]
         XCTAssertTrue(writes.waitForExistence(timeout: 60), "no per-control write readout after the session")
         let fields = Self.writeFields(writes.label)
@@ -335,6 +348,7 @@ final class TouchControlsTests: XCTestCase {
     func testStickDragDrivesOnlyAxes() throws {
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "12"
+        app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
@@ -349,6 +363,7 @@ final class TouchControlsTests: XCTestCase {
         let stickEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.22, dy: 0.90))
         stickStart.press(forDuration: 0.2, thenDragTo: stickEnd, withVelocity: .fast, thenHoldForDuration: 0.5)
 
+        releaseAutoquit()
         let writes = app.staticTexts["touchWritesLabel"]
         XCTAssertTrue(writes.waitForExistence(timeout: 60), "no per-control write readout after the session")
         let fields = Self.writeFields(writes.label)
@@ -369,6 +384,7 @@ final class TouchControlsTests: XCTestCase {
     func testAutomapDragPansAndPinchZooms() throws {
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "16"
+        app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
@@ -391,6 +407,7 @@ final class TouchControlsTests: XCTestCase {
         // Two fingers spreading, centred on the app: zoom in.
         app.pinch(withScale: 2.0, velocity: 1.0)
 
+        releaseAutoquit()
         let writes = app.staticTexts["touchWritesLabel"]
         XCTAssertTrue(writes.waitForExistence(timeout: 60), "no per-control write readout after the session")
         let fields = Self.writeFields(writes.label)
@@ -418,6 +435,7 @@ final class TouchControlsTests: XCTestCase {
     func testWalkingIntoAUsableLineAutoUses() throws {
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "16"
+        app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
@@ -434,6 +452,7 @@ final class TouchControlsTests: XCTestCase {
         let stickEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.22, dy: 0.52))
         stickStart.press(forDuration: 0.1, thenDragTo: stickEnd, withVelocity: .fast, thenHoldForDuration: 7.0)
 
+        releaseAutoquit()
         let label = app.staticTexts["autoUseLabel"]
         XCTAssertTrue(label.waitForExistence(timeout: 60), "no auto-use readout after the session")
         let fields = Self.equalsFields(label.label)
@@ -448,6 +467,7 @@ final class TouchControlsTests: XCTestCase {
     func testStandingStillNeverAutoUses() throws {
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "8"
+        app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
@@ -458,6 +478,7 @@ final class TouchControlsTests: XCTestCase {
         play.tap()
         XCTAssertTrue(app.buttons["fireButton"].waitForExistence(timeout: 30), "overlay never installed")
 
+        releaseAutoquit()
         let label = app.staticTexts["autoUseLabel"]
         XCTAssertTrue(label.waitForExistence(timeout: 60), "no auto-use readout after the session")
         let fields = Self.equalsFields(label.label)
@@ -524,6 +545,7 @@ final class TouchControlsTests: XCTestCase {
         addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "20"
+        app.holdAutoquit()
         app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launchArguments += ["-debugHUD", "YES"]
@@ -559,6 +581,7 @@ final class TouchControlsTests: XCTestCase {
         XCTAssertEqual(Double(h), Double(screen.height), accuracy: 1,
                        "engine window height \(h) should fill the landscape screen \(Int(screen.width))x\(Int(screen.height))")
 
+        releaseAutoquit()
         XCTAssertTrue(app.staticTexts["engineExitLabel"].waitForExistence(timeout: 60),
                       "engine never returned to the launcher")
     }
@@ -582,6 +605,7 @@ final class TouchControlsTests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "25"
+        app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launch()
@@ -630,6 +654,7 @@ final class TouchControlsTests: XCTestCase {
         fire.tap()
         attachScreenshot(named: "session-portrait-back")
 
+        releaseAutoquit()
         let exitLabel = app.staticTexts["engineExitLabel"]
         XCTAssertTrue(exitLabel.waitForExistence(timeout: 90),
                       "session did not survive rotation to a clean autoquit")
@@ -662,6 +687,7 @@ final class TouchControlsTests: XCTestCase {
     func testCornerTapMissesCircularButton() throws {
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "14"
+        app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launch()
@@ -683,6 +709,7 @@ final class TouchControlsTests: XCTestCase {
         // Dead centre: unambiguously inside the circle.
         fire.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 
+        releaseAutoquit()
         let exitLabel = app.staticTexts["engineExitLabel"]
         XCTAssertTrue(exitLabel.waitForExistence(timeout: 90))
         XCTAssertEqual(exitLabel.label, "Engine exited: 0")

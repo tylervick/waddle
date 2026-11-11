@@ -1,5 +1,8 @@
 import Foundation
 import WoofEngine
+#if DEBUG
+import notify
+#endif
 
 /// Runs Woof! engine sessions. The engine takes over the screen with its own
 /// SDL window; this call blocks the main thread until the user quits (SDL
@@ -39,6 +42,38 @@ enum EngineSession {
     #if DEBUG
     /// Sessions started in this launch; WADDLE_TEST_DEH_SESSIONS counts them.
     static private(set) var testSessionCount = 0
+    #endif
+
+    #if DEBUG
+    /// The running session's autoquit, when the launch armed one
+    /// (`WADDLE_AUTOQUIT_SECONDS`); nil between sessions.
+    private static var autoquitGate: AutoquitGate?
+
+    /// The Darwin notification a UI test posts once its steps inside a
+    /// session are done, which lets a held autoquit (`WADDLE_AUTOQUIT_HOLD`,
+    /// see `AutoquitGate`) end that session. A Darwin notification because
+    /// the test runner is another process and has no other way to reach in
+    /// without touching the screen. The UI test target cannot import the
+    /// app, so `XCTestCase.releaseAutoquit()` spells the same name out.
+    nonisolated static let autoquitReleaseNotification = "com.tylervick.waddle.test.autoquit-release"
+
+    /// Listens for `autoquitReleaseNotification`, from the first held
+    /// session to the end of the launch. Delivered on the main queue, which
+    /// SDL keeps pumping while a session blocks the main thread; the plain
+    /// autoquit's own hop below relies on the same thing.
+    private static let autoquitReleaseObserver: Void = {
+        var token: Int32 = 0
+        notify_register_dispatch(autoquitReleaseNotification, &token, .main) { _ in
+            MainActor.assumeIsolated { testDidReleaseAutoquit() }
+        }
+    }()
+
+    /// A release that arrives with no session running is dropped: it was
+    /// meant for a session that has already ended some other way.
+    private static func testDidReleaseAutoquit() {
+        guard isRunning, autoquitGate?.testDidRelease() == true else { return }
+        WoofIOS_RequestQuit()
+    }
     #endif
 
     #if DEBUG
@@ -91,19 +126,28 @@ enum EngineSession {
         // a stale timer left over from a prior session can't reach into the
         // next one and quit it early. Debug builds only — release carries
         // no test seams.
+        //
+        // With WADDLE_AUTOQUIT_HOLD the timer running out is not enough: the
+        // test must also have said its steps are done (AutoquitGate).
+        autoquitGate = nil
         if let secondsString = ProcessInfo.processInfo
             .environment["WADDLE_AUTOQUIT_SECONDS"],
             let seconds = Double(secondsString)
         {
+            let held = ProcessInfo.processInfo.environment["WADDLE_AUTOQUIT_HOLD"] != nil
+            autoquitGate = AutoquitGate(held: held)
+            if held { _ = autoquitReleaseObserver }
             Thread.detachNewThread {
                 Thread.sleep(forTimeInterval: seconds)
                 DispatchQueue.main.async {
-                    if isCurrentGeneration(generation) && isRunning {
+                    if isCurrentGeneration(generation) && isRunning,
+                       autoquitGate?.deadlineDidPass() == true {
                         WoofIOS_RequestQuit()
                     }
                 }
             }
         }
+        defer { autoquitGate = nil }
         #endif
 
         isRunning = true

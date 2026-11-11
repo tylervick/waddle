@@ -26,6 +26,7 @@ final class MenuStateAcrossSessionsTests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
+        app.holdAutoquit()
         for (key, value) in environment { app.launchEnvironment[key] = value }
         app.launch()
         return app
@@ -84,6 +85,7 @@ final class MenuStateAcrossSessionsTests: XCTestCase {
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
             Thread.sleep(forTimeInterval: 1.5)
             attach(name: "\(name)-after-tap")
+            releaseAutoquit()
             XCTAssertTrue(exitLabel.waitForExistence(timeout: 90),
                           "\(name): engine never returned to the launcher")
             XCTAssertEqual(exitLabel.label, "Engine exited: 0", "\(name): exit code")
@@ -123,6 +125,7 @@ final class MenuStateAcrossSessionsTests: XCTestCase {
             attach(name: "\(name)-episodes")
         }
 
+        releaseAutoquit()
         XCTAssertTrue(exitLabel.waitForExistence(timeout: 90),
                       "\(name): engine never returned to the launcher", file: file, line: line)
         XCTAssertEqual(exitLabel.label, "Engine exited: 0",

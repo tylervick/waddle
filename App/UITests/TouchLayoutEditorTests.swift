@@ -68,6 +68,7 @@ final class TouchLayoutEditorTests: XCTestCase {
         app.terminate()
         app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "12"
+        app.holdAutoquit()
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launch()
         let play = app.buttons["playFreedoom1"]
@@ -82,6 +83,7 @@ final class TouchLayoutEditorTests: XCTestCase {
                        "in-game FIRE is not where the editor left it: \(inGame) vs \(after)")
         XCTAssertGreaterThan(hypot(inGame.midX - before.midX, inGame.midY - before.midY), 80,
                              "in-game FIRE is still at its default position")
+        releaseAutoquit()
         let exit = app.staticTexts["engineExitLabel"]
         XCTAssertTrue(exit.waitForExistence(timeout: 90), "session did not end")
 

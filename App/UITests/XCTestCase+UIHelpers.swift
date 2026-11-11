@@ -1,4 +1,5 @@
 import XCTest
+import notify
 
 extension XCTestCase {
     /// Taps a text field, clears any existing contents, and types `text`.
@@ -165,10 +166,43 @@ extension XCTestCase {
         (try? element.snapshot())?.label
     }
 
+    /// Tells the app that this test's steps inside the running session are
+    /// done, so a held autoquit may end it (issue #380).
+    ///
+    /// `WADDLE_AUTOQUIT_SECONDS` asks a session to quit a fixed number of
+    /// seconds after it starts. On a slow CI runner one tap can take nine
+    /// seconds, the budget runs out in the middle of the test's steps, and
+    /// the next step fails on a control that left with the session. A launch
+    /// made with `holdAutoquit()` keeps the same budget but does not act on
+    /// it until this is called: the session lasts its budget or as long as
+    /// the test needs, whichever is longer. On a fast machine that is the
+    /// budget, to the second, so tests that measure it are undisturbed.
+    ///
+    /// Call it after the last step that needs the session, while the session
+    /// is known to be up (an overlay element has been seen): the app drops a
+    /// release that arrives with no session running. A test that never calls
+    /// it leaves the session running until the next launch replaces the app,
+    /// which is right for a test that does not wait for the session to end.
+    ///
+    /// The name is `EngineSession.autoquitReleaseNotification`, spelled out
+    /// because this target cannot import the app.
+    func releaseAutoquit() {
+        notify_post("com.tylervick.waddle.test.autoquit-release")
+    }
+
     /// The Rename alert's text field. SwiftUI does not forward an
     /// `accessibilityIdentifier` set on an alert's `TextField`, so it is found
     /// through the alert itself.
     func renameField(in app: XCUIApplication) -> XCUIElement {
         app.alerts["Rename"].textFields.firstMatch
+    }
+}
+
+extension XCUIApplication {
+    /// Makes this launch's autoquit wait for `XCTestCase.releaseAutoquit()`.
+    /// For every test that does something inside a live session; set it
+    /// beside `WADDLE_AUTOQUIT_SECONDS`, before `launch()`.
+    func holdAutoquit() {
+        launchEnvironment["WADDLE_AUTOQUIT_HOLD"] = "1"
     }
 }
