@@ -92,12 +92,26 @@ final class SessionLogCapture {
             var fds: [Int32] = [0, 0]
             guard pipe(&fds) == 0 else { continue }
             let (readEnd, writeEnd) = (fds[0], fds[1])
+            // Swapping a descriptor with dup2 fails every thread asleep in
+            // write() on the one being replaced with EPIPE, and EPIPE raises
+            // SIGPIPE, which ends the process without a crash report (issue
+            // #365). Both swaps do it: this one to a writer asleep on the
+            // original, end()'s to a writer asleep on the tee. The tee is
+            // ours, so it never signals. The original is borrowed, so it is
+            // only kept from signalling across the swap.
+            _ = fcntl(writeEnd, F_SETNOSIGPIPE, 1)
             let saved = dup(target)
+            let originalSignals = fcntl(target, F_GETNOSIGPIPE) == 0
+            if originalSignals { _ = fcntl(target, F_SETNOSIGPIPE, 1) }
             guard saved >= 0, dup2(writeEnd, target) >= 0 else {
+                if originalSignals { _ = fcntl(target, F_SETNOSIGPIPE, 0) }
                 close(readEnd); close(writeEnd)
                 if saved >= 0 { close(saved) }
                 continue
             }
+            // dup2 does not return until the writers it woke have left
+            // write(), so none of them can see the setting come back.
+            if originalSignals { _ = fcntl(saved, F_SETNOSIGPIPE, 0) }
             close(writeEnd) // target now IS the write end; drop our extra ref
 
             let thread = Thread { [weak self] in
@@ -114,7 +128,10 @@ final class SessionLogCapture {
         guard active else { return }
         // Restoring the original fd over the pipe's write end closes the
         // process's last reference to it, so each pump loop sees EOF and
-        // exits after draining whatever is still buffered.
+        // exits after draining whatever is still buffered. A thread asleep
+        // in write() on the tee at this moment has that write failed with
+        // EPIPE and its bytes are lost; begin() made sure that is all that
+        // happens to it.
         for capture in captures {
             dup2(capture.saved, capture.target)
         }

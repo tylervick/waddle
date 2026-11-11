@@ -53,3 +53,7 @@ mechanics rather than restating them here.
 
 **Provenance:** hit while building `App/Sources/Diagnostics/SessionLogCapture.swift`
 for diagnostics export.
+
+**A third trap, found later:** the `dup2` at each end of a session fails any
+thread asleep writing to the descriptor it replaces, and by default that
+kills the process. See `dup2-fails-a-blocked-writer-with-sigpipe.md`.
