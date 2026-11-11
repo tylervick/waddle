@@ -501,7 +501,11 @@ jobs:
   # that cost what it saves would be pointless.
   changed-paths:
     name: Detect app changes
-    if: github.event_name == 'pull_request'
+    # REVYL-PAUSED 2026-11-11: Revyl is switched off for the moment, here and
+    # in .revyl/config.yaml (pr_review.enabled). The leading `false &&` is the
+    # whole switch; to turn Revyl back on, delete it from the three jobs
+    # marked REVYL-PAUSED and set pr_review.enabled back to true.
+    if: false && github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -556,8 +560,10 @@ jobs:
     # instead makes that cost nothing. Fork contributors got no preview either
     # way; this only stops charging for the disappointment.
     needs: changed-paths
+    # REVYL-PAUSED 2026-11-11: see the note on changed-paths above.
     if: >-
-      github.event_name == 'pull_request'
+      false
+      && github.event_name == 'pull_request'
       && github.event.pull_request.draft == false
       && github.event.pull_request.head.repo.full_name == github.repository
       && needs.changed-paths.outputs.app == 'true'
@@ -724,7 +730,8 @@ jobs:
   revyl-main:
     name: Revyl current build
     needs: build-and-test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # REVYL-PAUSED 2026-11-11: see the note on changed-paths above.
+    if: false && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: xcode-27
     timeout-minutes: 45
     steps:
