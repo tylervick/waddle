@@ -121,6 +121,16 @@ static SDL_FRect src_frect = {0.0f}, dst_frect = {0.0f};
 
 static boolean clearneeded = false;
 
+#ifdef WOOF_IOS
+// Half-open fold (issue 373). While the app has set an area, the picture is
+// drawn inside that part of the window instead of being letterboxed in the
+// whole of it. Window points, like every other rect the overlay exchanges
+// with the engine. See I_SetPictureArea.
+static boolean picture_area_set = false;
+static SDL_FRect picture_area = {0.0f};
+static boolean PictureRect(SDL_FRect *rect);
+#endif
+
 static int window_width, window_height;
 static int default_window_width, default_window_height;
 static boolean window_focused = true;
@@ -591,7 +601,11 @@ static void UpdateMouseMenu(void)
     SDL_GetMouseState(&x, &y);
 
     SDL_FRect mouse_rect;
+#ifdef WOOF_IOS
+    PictureRect(&mouse_rect);
+#else
     SDL_GetRenderLogicalPresentationRect(renderer, &mouse_rect);
+#endif
 
     static SDL_FRect old_rect;
     if (SDL_RectsEqualFloat(&mouse_rect, &old_rect))
@@ -705,11 +719,41 @@ static void UpdateRender(void)
 
     SDL_UnlockTexture(texture);
 
+#ifdef WOOF_IOS
+    // Clear every frame, not once per change. The window is presented from a
+    // small pool of drawables whose contents persist, and nothing but this
+    // clear touches the window outside the picture, so a single clear
+    // reaches one drawable and the others keep whatever was drawn there
+    // before the picture moved. Measured on the iPhone Duo simulator
+    // (issue 373): after unfolding, the upper-half picture was still above
+    // the centred one in 7 of 8 captured frames. It is also why a strip of
+    // an older frame used to sit under the status bar in a letterboxed
+    // window.
+    clearneeded = true;
+#endif
+
     if (clearneeded)
     {
         SDL_RenderClear(renderer);
         clearneeded = false;
     }
+
+#ifdef WOOF_IOS
+    SDL_FRect picture;
+    if (picture_area_set && PictureRect(&picture))
+    {
+        // Logical presentation is off while the picture is confined (see
+        // ResetLogicalSize), so coordinates are output pixels. The texture
+        // is stored on its side: the rect it is drawn into is the picture's
+        // own turned a quarter about the same centre, exactly as dst_frect
+        // is the logical space's.
+        const SDL_FRect dst = {picture.x + (picture.w - picture.h) / 2.0f,
+                               picture.y + (picture.h - picture.w) / 2.0f,
+                               picture.h, picture.w};
+        SDL_RenderTextureRotated(renderer, texture, &src_frect, &dst, 90.0, NULL, SDL_FLIP_VERTICAL);
+        return;
+    }
+#endif
 
     SDL_RenderTextureRotated(renderer, texture, &src_frect, &dst_frect, 90.0, NULL, SDL_FLIP_VERTICAL);
 }
@@ -1244,6 +1288,21 @@ static void ResetLogicalSize(void)
     dst_rect.h = video.width;
     SDL_RectToFRect(&dst_rect, &dst_frect);
 
+#ifdef WOOF_IOS
+    if (picture_area_set)
+    {
+        // SDL can only centre a letterboxed picture in the whole output.
+        // Confined to part of the window, UpdateRender places it itself.
+        if (!SDL_SetRenderLogicalPresentation(renderer, 0, 0,
+            SDL_LOGICAL_PRESENTATION_DISABLED))
+        {
+            I_Printf(VB_ERROR, "Failed to clear logical size: %s", SDL_GetError());
+        }
+        clearneeded = true;
+        return;
+    }
+#endif
+
     if (!SDL_SetRenderLogicalPresentation(renderer, video.width, actualheight,
         SDL_LOGICAL_PRESENTATION_LETTERBOX))
     {
@@ -1675,7 +1734,7 @@ boolean I_MenuPointFromWindow(float x, float y, float *out_x, float *out_y)
         return false;
     }
     SDL_FRect mouse_rect;
-    SDL_GetRenderLogicalPresentationRect(renderer, &mouse_rect);
+    PictureRect(&mouse_rect);
     const float scale = SDL_GetWindowPixelDensity(screen);
     *out_x = clampf((x * scale - mouse_rect.x) / mouse_rect.w, 0.0f, 1.0f) * video.unscaledw;
     *out_y = clampf((y * scale - mouse_rect.y) / mouse_rect.h, 0.0f, 1.0f) * SCREENHEIGHT;
@@ -1691,17 +1750,68 @@ boolean I_WindowPointFromMenu(float mx, float my, float *out_x, float *out_y)
         return false;
     }
     SDL_FRect mouse_rect;
-    SDL_GetRenderLogicalPresentationRect(renderer, &mouse_rect);
+    PictureRect(&mouse_rect);
     const float scale = SDL_GetWindowPixelDensity(screen);
     *out_x = (mx / video.unscaledw * mouse_rect.w + mouse_rect.x) / scale;
     *out_y = (my / SCREENHEIGHT * mouse_rect.h + mouse_rect.y) / scale;
     return true;
 }
 
+// The picture as drawn, in output pixels. Normally that is SDL's logical
+// presentation rect: the picture letterboxed or pillarboxed in the whole
+// window. While the app confines it (I_SetPictureArea) it is the largest
+// rect of the picture's own shape that fits the area, centred in it, which
+// is the same fit SDL's letterbox makes in the whole output. Everything that
+// maps between the window and the picture goes through here, so a menu tap
+// lands on the item under the finger wherever the picture is.
+static boolean PictureRect(SDL_FRect *rect)
+{
+    if (!picture_area_set)
+    {
+        return SDL_GetRenderLogicalPresentationRect(renderer, rect);
+    }
+    const float density = SDL_GetWindowPixelDensity(screen);
+    if (density <= 0.0f || video.width <= 0 || actualheight <= 0)
+    {
+        return false;
+    }
+    const float area_w = picture_area.w * density;
+    const float area_h = picture_area.h * density;
+    const float scale = MIN(area_w / video.width, area_h / actualheight);
+    rect->w = video.width * scale;
+    rect->h = actualheight * scale;
+    rect->x = picture_area.x * density + (area_w - rect->w) / 2.0f;
+    rect->y = picture_area.y * density + (area_h - rect->h) / 2.0f;
+    return true;
+}
+
+// Half-open fold (issue 373): confine the picture to `area` (window points),
+// or give it the whole window back with NULL. An area with no size counts as
+// NULL. Takes effect on the next frame; safe before the renderer exists, and
+// forgotten when the next session's I_InitGraphics runs.
+void I_SetPictureArea(const SDL_FRect *area)
+{
+    const boolean set = area && area->w > 0.0f && area->h > 0.0f;
+    if (!set && !picture_area_set)
+    {
+        return;
+    }
+    picture_area_set = set;
+    if (set)
+    {
+        picture_area = *area;
+    }
+    if (renderer)
+    {
+        ResetLogicalSize();
+        clearneeded = true;
+    }
+}
+
 // Overlay layout (issue 351): where the game picture is, in the SDL window's
-// own coordinate space (UIKit points). It is the logical presentation rect
-// the two functions above already map through, so it is the letterboxed or
-// pillarboxed picture as drawn, whatever aspect the session settled on. The
+// own coordinate space (UIKit points). It is the rect the two functions
+// above already map through, so it is the letterboxed or pillarboxed picture
+// as drawn, whatever aspect the session settled on, or the confined one. The
 // overlay needs it to find Doom's status bar, which is the bottom 32 of the
 // picture's 200 rows and is only at the bottom of the window when the
 // picture fills it. False, leaving the outputs untouched, before the window
@@ -1713,7 +1823,7 @@ boolean I_PictureRectInWindow(float *x, float *y, float *w, float *h)
         return false;
     }
     SDL_FRect rect;
-    if (!SDL_GetRenderLogicalPresentationRect(renderer, &rect))
+    if (!PictureRect(&rect))
     {
         return false;
     }
@@ -1804,6 +1914,9 @@ void I_InitGraphics(void)
     I_AtExit(I_ShutdownGraphics, true);
 #ifdef WOOF_IOS
     SDL_AddEventWatch(AppLifecycleWatch, NULL);
+    // A static outlives the session that set it. The overlay sets the area
+    // again once this session's window exists.
+    picture_area_set = false;
 #endif
 
     I_InitVideoParms();
