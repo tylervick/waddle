@@ -42,6 +42,9 @@ final class TouchOverlayView: UIView {
     private let stickKnob = CAShapeLayer()
     private let turnBase = CAShapeLayer()
     private let turnKnob = CAShapeLayer()
+    /// Holds the four stick layers, so that one mask can cut them off at the
+    /// fold the way the window's edge already cuts them off (issue #373).
+    private let stickLayers = CALayer()
 
     private var debugHUDLabel: UILabel?
     private var debugHUDTimer: Timer?
@@ -63,6 +66,13 @@ final class TouchOverlayView: UIView {
     /// division region, which no simulator in CI has. Non-nil while the seam
     /// is in use; see `installHalfOpenTestSeam()`.
     private var testHalfOpen: Bool?
+    /// `WADDLE_TEST_HALF_OPEN=stick`: while flat, fold as soon as a movement
+    /// stick has begun, which is the one moment a UI test cannot pick for
+    /// itself.
+    private var testFoldsUnderSticks = false
+    /// How many held tracks a fold has let go of, for the marker. A count
+    /// and not a live flag for the reason `stickEngagedMarker` latches.
+    private var tracksReleasedByFold = 0
     private var testHalfOpenToggleToken: Int32?
     /// The engine's picture rect and the fold's band, for a UI test to read:
     /// the corner-marker pattern again, shown only while the split is on.
@@ -117,8 +127,9 @@ final class TouchOverlayView: UIView {
             layer.strokeColor = UIColor.white.withAlphaComponent(0.35).cgColor
             layer.lineWidth = 2
             layer.isHidden = true
-            self.layer.addSublayer(layer)
+            stickLayers.addSublayer(layer)
         }
+        layer.addSublayer(stickLayers)
 
         // --- Button wiring audit ---
         // Every control below is wired against Woof!'s *default* gamepad
@@ -352,6 +363,7 @@ final class TouchOverlayView: UIView {
                                   divisions: foldDivisions)
         guard split != halfOpenSplit else { return false }
         halfOpenSplit = split
+        releaseTracksOutsideControls()
         if let split {
             // The engine works in SDL-window points; the overlay is a
             // subview of that window, so `to: nil` is the same space.
@@ -367,15 +379,57 @@ final class TouchOverlayView: UIView {
         return true
     }
 
+    /// The device was folded under a finger that was already steering. A
+    /// stick or a turn that began above where the controls now end would go
+    /// on working from on top of the picture, so it is let go, as a
+    /// cancelled touch is: movement stops and the finger has to come down
+    /// again, below the fold. A track that began inside the new area stays.
+    /// Unfolding lets go of nothing: the whole window is the area again.
+    private func releaseTracksOutsideControls() {
+        guard let area = halfOpenSplit?.controlsArea else { return }
+        var released = 0
+        if stickTouch != nil, !area.contains(stickModel.center) {
+            releaseStick()
+            released += 1
+        }
+        if turnTouch != nil, !area.contains(turnModel.center) {
+            releaseTurn()
+            released += 1
+        }
+        // A touch still waiting to become a menu tap or a stick was aimed at
+        // a picture that has since moved. Either would now be a guess.
+        if let pending = pendingMenuTouch, !area.contains(pending.start) {
+            pendingMenuTouch = nil
+        }
+        #if DEBUG
+        tracksReleasedByFold += released
+        #endif
+    }
+
+    private func releaseStick() {
+        stickTouch = nil
+        gamepad.setMovement(x: 0, y: 0, scheme: scheme)
+        stickBase.isHidden = true
+        stickKnob.isHidden = true
+    }
+
+    private func releaseTurn() {
+        turnTouch = nil
+        turnBase.isHidden = true
+        turnKnob.isHidden = true
+    }
+
     #if DEBUG
     /// `WADDLE_TEST_HALF_OPEN=1` starts the session as if the device were
     /// standing half open with the fold across the middle of the window;
     /// `=0` starts it flat with the seam armed. Either way the Darwin
     /// notification below flips it, so a UI test can fold and unfold
     /// mid-session from its own process, as `releaseAutoquit()` does.
+    /// `=stick` starts flat and folds under any movement stick begun flat.
     private func installHalfOpenTestSeam() {
         guard let value = ProcessInfo.processInfo.environment["WADDLE_TEST_HALF_OPEN"] else { return }
-        testHalfOpen = value != "0"
+        testFoldsUnderSticks = value == "stick"
+        testHalfOpen = value != "0" && value != "stick"
         var token: Int32 = 0
         let status = notify_register_dispatch(Self.testHalfOpenToggleNotification, &token, .main) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -389,7 +443,7 @@ final class TouchOverlayView: UIView {
 
     static let testHalfOpenToggleNotification = "com.tylervick.waddle.test.half-open-toggle"
 
-    /// "picture=x,y,w,h crease=top,bottom" in window points, for
+    /// "picture=x,y,w,h crease=top,bottom released=n" in window points, for
     /// `HalfOpenLayoutTests`.
     private func updateHalfOpenMarker() {
         guard let split = halfOpenSplit, let picture = enginePictureRect else {
@@ -397,9 +451,9 @@ final class TouchOverlayView: UIView {
             return
         }
         halfOpenMarker.accessibilityValue = String(
-            format: "picture=%.1f,%.1f,%.1f,%.1f crease=%.1f,%.1f",
+            format: "picture=%.1f,%.1f,%.1f,%.1f crease=%.1f,%.1f released=%d",
             picture.minX, picture.minY, picture.width, picture.height,
-            split.crease.minY, split.crease.maxY)
+            split.crease.minY, split.crease.maxY, tracksReleasedByFold)
         halfOpenMarker.isHidden = false
     }
     #endif
@@ -696,6 +750,22 @@ final class TouchOverlayView: UIView {
         refreshHalfOpenSplit()
         let inset = safeAreaInsets
         let b = bounds
+        // A stick is drawn round the finger, so one that starts just below
+        // the fold would reach up over the band and onto the picture. Cut it
+        // off there. The axes are untouched: the stick still reads from
+        // where the finger came down, as it does at the window's edge.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        stickLayers.frame = b
+        if let area = halfOpenSplit?.controlsArea {
+            let mask = stickLayers.mask ?? CALayer()
+            mask.backgroundColor = UIColor.black.cgColor
+            mask.frame = area
+            stickLayers.mask = mask
+        } else {
+            stickLayers.mask = nil
+        }
+        CATransaction.commit()
         if let debugHUDLabel {
             debugHUDLabel.frame = CGRect(x: b.minX + inset.left, y: b.minY + inset.top,
                                          width: b.width - inset.left - inset.right,
@@ -810,6 +880,18 @@ final class TouchOverlayView: UIView {
                                      deadZone: CGFloat(tuning.stickDeadZone))
         drawStick(at: point)
         stickEngagedMarker.isHidden = false
+        #if DEBUG
+        if testFoldsUnderSticks, testHalfOpen == false {
+            // On the next turn of the run loop, which is how the hinge's own
+            // callback arrives: between two touch events, never inside one.
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.testHalfOpen = true
+                    self?.followFold()
+                }
+            }
+        }
+        #endif
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -884,14 +966,9 @@ final class TouchOverlayView: UIView {
                     gamepad.menuTap(down: false)
                 }
             } else if touch == stickTouch {
-                stickTouch = nil
-                gamepad.setMovement(x: 0, y: 0, scheme: scheme)
-                stickBase.isHidden = true
-                stickKnob.isHidden = true
+                releaseStick()
             } else if touch == turnTouch {
-                turnTouch = nil
-                turnBase.isHidden = true
-                turnKnob.isHidden = true
+                releaseTurn()
             }
         }
     }

@@ -25,25 +25,7 @@ final class HalfOpenLayoutTests: XCTestCase {
 
     @MainActor
     func testGameStandsAboveTheFoldAndControlsBelowIt() throws {
-        let app = XCUIApplication()
-        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "20"
-        app.holdAutoquit()
-        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
-        app.launchEnvironment["WADDLE_TEST_HALF_OPEN"] = "1"
-        app.launchArguments += ["-debugHUD", "YES"]
-        app.launch()
-        XCTAssertTrue(app.navigationBars["Waddle"].waitForExistence(timeout: 90), "launcher UI never appeared")
-        let ok = app.alerts.buttons["OK"]
-        if ok.waitForExistence(timeout: 3) { ok.tap() }
-
-        let phase2 = app.buttons.matching(NSPredicate(format:
-            "identifier BEGINSWITH 'game-' AND identifier CONTAINS 'Freedoom Phase 2'")).firstMatch
-        XCTAssertTrue(phase2.waitForExistence(timeout: 30), "Phase 2 tile missing")
-        phase2.tap()
-
-        let hud = app.staticTexts["sessionDebugHUD"]
-        XCTAssertTrue(hud.waitForExistence(timeout: 30), "debug HUD never appeared")
-        XCTAssertTrue(app.buttons["fireButton"].waitForExistence(timeout: 30), "overlay never installed")
+        let (app, hud) = startSession(halfOpen: "1")
 
         // The marker is only there while the overlay is split, and carries
         // the rect the engine says it is drawing into.
@@ -115,15 +97,82 @@ final class HalfOpenLayoutTests: XCTestCase {
         XCTAssertEqual(exitLabel.label, "Engine exited: 0")
     }
 
+    /// Folding the device under a thumb that is already steering. A stick
+    /// that began above where the fold lands would go on working from on top
+    /// of the picture, so the overlay lets go of it; one that began below
+    /// the fold is still in the controls' half and is kept.
+    ///
+    /// A test cannot fold the device at the moment a finger is down: the
+    /// drag is one blocking call. `WADDLE_TEST_HALF_OPEN=stick` makes the
+    /// app do it, on the turn of the run loop after a stick begins flat. The
+    /// marker then reports how many held tracks the fold let go of.
+    @MainActor
+    func testFoldingUnderAHeldStickLetsGoOfItOnlyAboveTheFold() throws {
+        let (app, hud) = startSession(halfOpen: "stick")
+        let marker = app.otherElements["halfOpenSplit"]
+        XCTAssertFalse(marker.exists, "the session should start flat")
+
+        // Above where the fold will be.
+        drag(app, fromY: 0.20, toY: 0.30)
+        XCTAssertTrue(app.otherElements["stickEngaged"].waitForExistence(timeout: 3),
+                      "flat, a drag in the upper half should start the stick")
+        XCTAssertTrue(marker.waitForExistence(timeout: 5), "the overlay did not fold under the stick")
+        let first = try XCTUnwrap(readSplit(marker), "unreadable marker: \(marker.value ?? "nil")")
+        XCTAssertEqual(first.released, 1, "the stick held above the fold should have been let go: \(marker.value ?? "nil")")
+
+        // Open flat, then the same again from below where the fold will be.
+        notify_post("com.tylervick.waddle.test.half-open-toggle")
+        XCTAssertTrue(waitUntil(timeout: 5) { !marker.exists }, "the overlay stayed split after opening flat")
+        drag(app, fromY: 0.75, toY: 0.85)
+        XCTAssertTrue(marker.waitForExistence(timeout: 5), "the overlay did not fold under the second stick")
+        let second = try XCTUnwrap(readSplit(marker), "unreadable marker: \(marker.value ?? "nil")")
+        XCTAssertEqual(second.released, 1, "a stick held below the fold should have been kept: \(marker.value ?? "nil")")
+
+        // On the title screen the kept stick's movement opens the menu.
+        if waitForHUD(hud, timeout: 2, until: { $0["cm"] != "off" })["cm"] != "off" { closeMenus(app, hud) }
+        releaseAutoquit()
+        let exitLabel = app.staticTexts["engineExitLabel"]
+        XCTAssertTrue(exitLabel.waitForExistence(timeout: 90), "engine never returned to the launcher")
+        XCTAssertEqual(exitLabel.label, "Engine exited: 0")
+    }
+
     // MARK: helpers
+
+    /// Launches into a Freedoom Phase 2 session with the overlay forced on
+    /// and the fold's test seam in the given state.
+    @MainActor
+    private func startSession(halfOpen: String) -> (XCUIApplication, XCUIElement) {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "20"
+        app.holdAutoquit()
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_TEST_HALF_OPEN"] = halfOpen
+        app.launchArguments += ["-debugHUD", "YES"]
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Waddle"].waitForExistence(timeout: 90), "launcher UI never appeared")
+        let ok = app.alerts.buttons["OK"]
+        if ok.waitForExistence(timeout: 3) { ok.tap() }
+
+        let phase2 = app.buttons.matching(NSPredicate(format:
+            "identifier BEGINSWITH 'game-' AND identifier CONTAINS 'Freedoom Phase 2'")).firstMatch
+        XCTAssertTrue(phase2.waitForExistence(timeout: 30), "Phase 2 tile missing")
+        phase2.tap()
+
+        let hud = app.staticTexts["sessionDebugHUD"]
+        XCTAssertTrue(hud.waitForExistence(timeout: 30), "debug HUD never appeared")
+        XCTAssertTrue(app.buttons["fireButton"].waitForExistence(timeout: 30), "overlay never installed")
+        return (app, hud)
+    }
 
     private struct Split {
         let picture: CGRect
         let creaseTop: CGFloat
         let creaseBottom: CGFloat
+        /// Held tracks a fold has let go of since the session began.
+        let released: Int?
     }
 
-    /// "picture=x,y,w,h crease=top,bottom", window points.
+    /// "picture=x,y,w,h crease=top,bottom released=n", window points.
     @MainActor
     private func readSplit(_ marker: XCUIElement) -> Split? {
         guard let value = marker.value as? String else { return nil }
@@ -135,7 +184,8 @@ final class HalfOpenLayoutTests: XCTestCase {
         }
         guard let p = numbers["picture"], p.count == 4, let c = numbers["crease"], c.count == 2 else { return nil }
         return Split(picture: CGRect(x: p[0], y: p[1], width: p[2], height: p[3]),
-                     creaseTop: c[0], creaseBottom: c[1])
+                     creaseTop: c[0], creaseBottom: c[1],
+                     released: numbers["released"]?.first.map { Int($0) })
     }
 
     /// A short vertical drag in the stick column, at the given heights.
