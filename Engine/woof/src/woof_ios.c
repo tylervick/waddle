@@ -1261,6 +1261,19 @@ bool WoofIOS_GetPictureRect(float *x, float *y, float *w, float *h)
     return I_PictureRectInWindow(x, y, w, h);
 }
 
+void WoofIOS_SetPictureArea(float x, float y, float w, float h)
+{
+    extern void I_SetPictureArea(const SDL_FRect *area); // i_video.c
+    const SDL_FRect area = {x, y, w, h};
+    I_SetPictureArea(&area);
+}
+
+void WoofIOS_ClearPictureArea(void)
+{
+    extern void I_SetPictureArea(const SDL_FRect *area); // i_video.c
+    I_SetPictureArea(NULL);
+}
+
 const char *WoofIOS_DebugWindowState(void)
 {
     extern void I_DebugWindowSize(int *w, int *h); // i_video.c
