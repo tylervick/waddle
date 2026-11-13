@@ -68,15 +68,22 @@ struct TouchTrackRouter {
     let scheme: TouchControlScheme
     let buttons: [TouchOverlayButtonState]
     let nearMissMargin: CGFloat
+    /// The part of the overlay a track may start in, when the device is
+    /// standing half open (`HalfOpenSplit`, issue #373): the half below the
+    /// fold. The stick and the drag-to-turn surface are controls like the
+    /// buttons, and belong with them. `nil` is the whole overlay.
+    let controlsArea: CGRect?
 
     init(overlayWidth: CGFloat,
          scheme: TouchControlScheme,
          buttons: [TouchOverlayButtonState],
-         nearMissMargin: CGFloat = TouchTrackRouter.buttonNearMissMargin) {
+         nearMissMargin: CGFloat = TouchTrackRouter.buttonNearMissMargin,
+         controlsArea: CGRect? = nil) {
         self.overlayWidth = overlayWidth
         self.scheme = scheme
         self.buttons = buttons
         self.nearMissMargin = nearMissMargin
+        self.controlsArea = controlsArea
     }
 
     /// x below which a touch is in the movement stick's column.
@@ -105,6 +112,10 @@ struct TouchTrackRouter {
     /// closed that gap along with the extraction.
     func route(_ point: CGPoint, stickTracking: Bool, turnTracking: Bool) -> TouchTrackRoute {
         if isNearButton(point) { return .ignore }
+        // Above the fold is the picture, and the band is the crease. A menu
+        // drawn there is still tapped there: `MenuTouchRouter` makes a touch
+        // this ignores the menu's pointer.
+        if let controlsArea, !controlsArea.contains(point) { return .ignore }
         if point.x < stickColumnLimit {
             return stickTracking ? .ignore : .stick
         }

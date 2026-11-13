@@ -1,5 +1,8 @@
 import UIKit
 import WoofEngine
+#if DEBUG
+import notify
+#endif
 
 /// Transparent full-screen overlay: left region = movement stick,
 /// right region = drag-to-turn, plus edge-anchored buttons. Pure UIKit —
@@ -49,6 +52,22 @@ final class TouchOverlayView: UIView {
     private var summonTouches = Set<UITouch>()
     private var summonArmed = true
     private let stickEngagedMarker = UIView()
+
+    // Half-open play layout (issue #373). `halfOpenSplit` is what the layout
+    // and the touch routing read; `refreshHalfOpenSplit()` derives it from
+    // the hinge reading below and the fold's division region.
+    private var hingePartiallyOpen = false
+    private var halfOpenSplit: HalfOpenSplit?
+    #if DEBUG
+    /// Test seam: `WADDLE_TEST_HALF_OPEN` stands in for the hinge and the
+    /// division region, which no simulator in CI has. Non-nil while the seam
+    /// is in use; see `installHalfOpenTestSeam()`.
+    private var testHalfOpen: Bool?
+    private var testHalfOpenToggleToken: Int32?
+    /// The engine's picture rect and the fold's band, for a UI test to read:
+    /// the corner-marker pattern again, shown only while the split is on.
+    private let halfOpenMarker = UIView()
+    #endif
 
     // Automap gestures (issue #113). While the engine's automap is up, free-
     // area touches pan (one finger) and zoom (two) it instead of starting
@@ -224,6 +243,17 @@ final class TouchOverlayView: UIView {
         stickEngagedMarker.isHidden = true
         addSubview(stickEngagedMarker)
 
+        #if DEBUG
+        halfOpenMarker.frame = CGRect(x: 10, y: 2, width: 2, height: 2)
+        halfOpenMarker.accessibilityIdentifier = "halfOpenSplit"
+        halfOpenMarker.isAccessibilityElement = true
+        halfOpenMarker.isUserInteractionEnabled = false
+        halfOpenMarker.isHidden = true
+        addSubview(halfOpenMarker)
+        installHalfOpenTestSeam()
+        #endif
+        observeHinge()
+
         if debugHUDEnabled {
             let label = UILabel()
             label.accessibilityIdentifier = "sessionDebugHUD"
@@ -258,9 +288,121 @@ final class TouchOverlayView: UIView {
         debugHUDTimer = nil
         menuPolicyTimer?.invalidate()
         menuPolicyTimer = nil
+        #if DEBUG
+        if let token = testHalfOpenToggleToken {
+            notify_cancel(token)
+            testHalfOpenToggleToken = nil
+        }
+        #endif
         if keyboard.isVisible { keyboard.dismiss() }
         super.removeFromSuperview()
     }
+
+    // MARK: Half-open play layout (issue #373)
+
+    /// Follows the hinge. The system delivers the current reading when the
+    /// interaction joins a window, and again on every change.
+    ///
+    /// The API is iOS 27.1's. On anything older there is no hinge, the flag
+    /// stays false and the overlay never splits.
+    private func observeHinge() {
+        guard #available(iOS 27.1, *) else { return }
+        addInteraction(UIHingeInteraction { [weak self] _, update in
+            guard let self else { return }
+            hingePartiallyOpen = update.hinge?.status == .partiallyOpen
+            followFold()
+        })
+    }
+
+    /// The fold's band as the system reports it for this view, active or
+    /// not. `HalfOpenSplit` decides what counts.
+    private var foldDivisions: [FoldDivision] {
+        #if DEBUG
+        if testHalfOpen != nil {
+            // A band the Duo's size across the middle of the window.
+            return [FoldDivision(frame: CGRect(x: bounds.minX, y: bounds.midY - 20,
+                                               width: bounds.width, height: 40),
+                                 isActive: true)]
+        }
+        #endif
+        guard #available(iOS 27.1, *) else { return [] }
+        return reservedRegions(kind: .division, options: [.includeInactive])
+            .map { FoldDivision(frame: $0.frame, isActive: $0.isActive) }
+    }
+
+    /// Picks up a change in the fold and relays the controls out for it.
+    /// From the hinge's handler and from the menu-policy poll. The poll is
+    /// not there for show: the band turns active about a third of a second
+    /// after the hinge reads partly open, and nothing announces that.
+    private func followFold() {
+        if refreshHalfOpenSplit() { setNeedsLayout() }
+    }
+
+    /// Recomputes the split and, when it changed, tells the engine where the
+    /// picture may go. Returns whether it changed. `layoutSubviews` calls it
+    /// directly, since the band's frame follows the bounds; everything else
+    /// goes through `followFold()`.
+    @discardableResult
+    private func refreshHalfOpenSplit() -> Bool {
+        var partiallyOpen = hingePartiallyOpen
+        #if DEBUG
+        if let testHalfOpen { partiallyOpen = testHalfOpen }
+        #endif
+        let split = HalfOpenSplit(bounds: bounds, hingePartiallyOpen: partiallyOpen,
+                                  divisions: foldDivisions)
+        guard split != halfOpenSplit else { return false }
+        halfOpenSplit = split
+        if let split {
+            // The engine works in SDL-window points; the overlay is a
+            // subview of that window, so `to: nil` is the same space.
+            let area = convert(split.pictureArea, to: nil)
+            WoofIOS_SetPictureArea(Float(area.minX), Float(area.minY),
+                                   Float(area.width), Float(area.height))
+        } else {
+            WoofIOS_ClearPictureArea()
+        }
+        // The engine answers with the new rect at once; take it now so the
+        // controls and the picture move in the same pass.
+        updatePictureRect()
+        return true
+    }
+
+    #if DEBUG
+    /// `WADDLE_TEST_HALF_OPEN=1` starts the session as if the device were
+    /// standing half open with the fold across the middle of the window;
+    /// `=0` starts it flat with the seam armed. Either way the Darwin
+    /// notification below flips it, so a UI test can fold and unfold
+    /// mid-session from its own process, as `releaseAutoquit()` does.
+    private func installHalfOpenTestSeam() {
+        guard let value = ProcessInfo.processInfo.environment["WADDLE_TEST_HALF_OPEN"] else { return }
+        testHalfOpen = value != "0"
+        var token: Int32 = 0
+        let status = notify_register_dispatch(Self.testHalfOpenToggleNotification, &token, .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let current = self.testHalfOpen else { return }
+                self.testHalfOpen = !current
+                self.followFold()
+            }
+        }
+        if status == 0 { testHalfOpenToggleToken = token }
+    }
+
+    static let testHalfOpenToggleNotification = "com.tylervick.waddle.test.half-open-toggle"
+
+    /// "picture=x,y,w,h crease=top,bottom" in window points, for
+    /// `HalfOpenLayoutTests`.
+    private func updateHalfOpenMarker() {
+        guard let split = halfOpenSplit, let picture = enginePictureRect else {
+            halfOpenMarker.isHidden = true
+            return
+        }
+        halfOpenMarker.accessibilityValue = String(
+            format: "picture=%.1f,%.1f,%.1f,%.1f crease=%.1f,%.1f",
+            picture.minX, picture.minY, picture.width, picture.height,
+            split.crease.minY, split.crease.maxY)
+        halfOpenMarker.isHidden = false
+    }
+    #endif
 
     // MARK: Menu-context automap suppression (always on, see wiring audit)
 
@@ -272,6 +414,7 @@ final class TouchOverlayView: UIView {
     private func startMenuPolicyTimer() {
         let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
             self?.updatePictureRect()
+            self?.followFold()
             self?.updateAutomapAvailability()
             self?.updateKeyboardForContext()
             self?.dropAutomapGestureIfMapClosed()
@@ -501,7 +644,9 @@ final class TouchOverlayView: UIView {
                            hudReserve: debugHUDEnabled ? debugHUDStripHeight : 0,
                            overrides: layoutOverrides,
                            pictureRect: enginePictureRect
-                               ?? TouchOverlayLayout.predictedPictureRect(in: bounds))
+                               ?? TouchOverlayLayout.predictedPictureRect(
+                                   in: halfOpenSplit?.pictureArea ?? bounds),
+                           controlsArea: halfOpenSplit?.controlsArea)
     }
 
     /// Where the engine says it is drawing the game, in this view's
@@ -527,6 +672,9 @@ final class TouchOverlayView: UIView {
             enginePictureRect = reported
             setNeedsLayout()
         }
+        #if DEBUG
+        updateHalfOpenMarker()
+        #endif
     }
 
     /// Equal to within half a point: the engine's rect comes through a
@@ -543,6 +691,9 @@ final class TouchOverlayView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        // First: the fold's band is in this view's coordinates, so new
+        // bounds (a rotation) can make or unmake the split.
+        refreshHalfOpenSplit()
         let inset = safeAreaInsets
         let b = bounds
         if let debugHUDLabel {
@@ -576,7 +727,8 @@ final class TouchOverlayView: UIView {
             scheme: scheme,
             buttons: buttons.map {
                 TouchOverlayButtonState(frame: $0.frame, isHidden: $0.isHidden)
-            })
+            },
+            controlsArea: halfOpenSplit?.controlsArea)
     }
 
     // MARK: Touches (stick + turn; buttons handle their own)
