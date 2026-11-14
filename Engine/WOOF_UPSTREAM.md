@@ -663,6 +663,25 @@ only ever runs once):
   `TouchOverlayView`, which finds Doom's status bar as the bottom 32/200 of
   it. Read-only; nothing in the engine's behaviour changes.
 
+- `src/i_video.c`, `src/woof_ios.c` / `src/woof_ios.h` -- the picture confined
+  to part of the window (issue 373: an iPhone Duo standing half open shows the
+  game above the fold). `WoofIOS_SetPictureArea` / `WoofIOS_ClearPictureArea`
+  reach `I_SetPictureArea`. SDL's letterbox can only centre the picture in the
+  whole output, so while an area is set `ResetLogicalSize` turns logical
+  presentation off and `UpdateRender` draws the texture into the largest rect
+  of the picture's own shape that fits the area, centred in it. `PictureRect`
+  is that rect, or SDL's logical presentation rect when no area is set, and
+  the four places that map between window and picture read it instead of
+  calling SDL: `I_MenuPointFromWindow`, `I_WindowPointFromMenu`,
+  `I_PictureRectInWindow`, and upstream's `UpdateMouseMenu` (one `#ifdef`).
+  `I_InitGraphics` forgets the area, since a static outlives its session.
+  With no area set nothing about placement changes.
+  Same patch: `UpdateRender` clears the window every frame under `WOOF_IOS`
+  instead of once per `clearneeded`. iOS presents from a pool of drawables
+  whose contents persist, so one clear reaches one of them; without this the
+  picture's previous position stays on screen after it moves. See
+  `docs/learnings/iphone-duo-half-open-pose.md`.
+
 - `src/i_video.c`, `src/g_game.c`, `src/g_game.h`, `src/d_main.c` -- the app's
   lifecycle reaches the engine (issue #111). SDL's iOS layer observes UIKit's
   resign-active and did-enter-background notifications itself and turns them

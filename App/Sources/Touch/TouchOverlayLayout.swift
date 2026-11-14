@@ -103,18 +103,27 @@ struct TouchOverlayLayout {
     private let topRowY: CGFloat
     private let bottomLimit: CGFloat
 
-    /// - Parameter pictureRect: the rect the engine is drawing the game
-    ///   into, in overlay coordinates, when it is known. `nil` keeps the
-    ///   window-bottom reserve and nothing else.
+    /// - Parameters:
+    ///   - pictureRect: the rect the engine is drawing the game into, in
+    ///     overlay coordinates, when it is known. `nil` keeps the
+    ///     window-bottom reserve and nothing else.
+    ///   - controlsArea: the part of the window the controls must stay in,
+    ///     when the device is standing half open (`HalfOpenSplit`, issue
+    ///     #373): the half below the fold. `nil` is the whole window.
     init(bounds: CGRect, safeAreaInsets: UIEdgeInsets, hudReserve: CGFloat,
-         overrides: TouchOverlayLayoutOverrides = .none, pictureRect: CGRect? = nil) {
-        let usable = bounds.inset(by: safeAreaInsets)
+         overrides: TouchOverlayLayoutOverrides = .none, pictureRect: CGRect? = nil,
+         controlsArea: CGRect? = nil) {
+        let window = bounds.inset(by: safeAreaInsets)
 
         // Short/long rather than width/height: a rotation must not resize
         // the controls under the player's thumbs mid-session, and Doom on a
         // phone is played in both orientations.
-        let short = min(usable.width, usable.height)
-        let long = max(usable.width, usable.height)
+        //
+        // The whole window's sides, also when the controls are held to part
+        // of it: folding half open must not resize them either, and Apple's
+        // condition for that layout is that the controls stay the same.
+        let short = min(window.width, window.height)
+        let long = max(window.width, window.height)
 
         // min() of the two ratios, not max() and not per-axis: the overlay
         // must fit the *tighter* dimension, and scaling each axis separately
@@ -122,13 +131,26 @@ struct TouchOverlayLayout {
         let raw = min(short / Self.referenceShortSide, long / Self.referenceLongSide)
         let scale = Swift.min(Swift.max(raw, Self.minScale), Self.maxScale)
 
+        // Where controls may be placed. Half open, that is the window from
+        // the lower edge of the fold's band down: the top row stands there
+        // instead of at the top of the window, and a position the player
+        // saved is clamped there. The debug strip stays at the window's top,
+        // so it only pushes the row down if it reaches that far.
+        var usable = window
+        var topRowY = window.minY + hudReserve
+        if let area = controlsArea, area.minY > window.minY, area.minY < window.maxY {
+            usable = CGRect(x: window.minX, y: area.minY,
+                            width: window.width, height: window.maxY - area.minY)
+            topRowY = Swift.max(topRowY, area.minY)
+        }
+
         self.scale = scale
         self.overrides = overrides
         self.usable = usable
         self.stickRadius = 60 * scale
         self.knobRadius = 26 * scale
         self.statusBarReserve = short * Self.statusBarFraction
-        self.topRowY = usable.minY + hudReserve
+        self.topRowY = topRowY
 
         let windowLimit = usable.maxY - statusBarReserve
         if let picture = pictureRect, picture.width > 0, picture.height > 0 {

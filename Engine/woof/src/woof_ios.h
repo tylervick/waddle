@@ -330,4 +330,17 @@ const char *WoofIOS_DebugMenuState(void);
 // functions above.
 bool WoofIOS_GetPictureRect(float *x, float *y, float *w, float *h);
 
+// --- Half-open fold: where the picture may be ---
+// Confines the picture to one part of the window, given in the same space
+// WoofIOS_GetPictureRect answers in. The engine fits the picture's own shape
+// inside the area and centres it there, and WoofIOS_GetPictureRect, menu taps
+// and the mouse all follow. For an iPhone Duo standing half open, where the
+// picture belongs above the fold (issue 373). An area with no size is the
+// same as clearing. The engine forgets the area when a session starts, so
+// the overlay sets it per session. Main-thread-only.
+void WoofIOS_SetPictureArea(float x, float y, float w, float h);
+
+// Gives the picture the whole window back.
+void WoofIOS_ClearPictureArea(void);
+
 #endif
