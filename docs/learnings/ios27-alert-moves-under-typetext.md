@@ -50,3 +50,17 @@ a tap aimed from a stale frame is indistinguishable from a tap that landed
 and was ignored until the frames are in the log.
 
 **Provenance:** issue #306, found while verifying PR #305.
+
+**Added 2026-11-17 (issue #384): the three seconds was timing the runner.**
+"Up to three seconds" above bounded the whole polling loop, and the loop
+needs three matching samples before it returns. One sample is four
+accessibility queries: 0.19 s on this machine, 1.7 to 1.8 s on a slow CI
+runner. There, two samples fit in the three seconds, so the helper failed an
+alert that was at rest in every sample it took (two of three full UI runs,
+2026-11-11 to 2026-11-13). The timeout is now judged by when a sample was
+begun: a sample fails the wait only if it was begun after the timeout and
+did not add to the run of matching samples. The three seconds is then a
+statement about the alert (it was seen unsettled that long after typing
+ended), whatever a sample costs. The same defect, in another helper, is
+`ui-test-autoquit-budget-guesses-the-runner.md`: a deadline that has to
+cover the cost of looking is a guess about the machine doing the looking.
