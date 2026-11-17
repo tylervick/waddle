@@ -36,34 +36,53 @@ extension XCTestCase {
     /// Once the resting condition holds, the alert's frame also has to read
     /// the same three samples running (the probes only ever saw the two
     /// discrete positions, so this is insurance against an in-flight frame,
-    /// at the cost of 200 ms). A timeout fails here, by name, rather than
-    /// letting the next tap fail somewhere less legible.
+    /// at the cost of 200 ms).
+    ///
+    /// `timeout` is how long the alert is given to come to rest, and it is
+    /// judged by when a sample was begun, not by when the loop gets round to
+    /// looking at the clock. It used to bound the whole loop, which made it
+    /// a guess about the runner: one sample is four accessibility queries,
+    /// 0.19 s locally and 1.8 s on a slow CI runner, so three samples of a
+    /// settled alert did not fit in 3 s there and the helper failed an alert
+    /// that had come to rest (issue #384). Now a sample fails the wait only
+    /// if it was begun after the timeout and still did not add to the run of
+    /// matching samples: the alert was seen unsettled that long after the
+    /// typing ended. A run that is still growing is left to finish, which is
+    /// at most three more samples, so the wait is bounded either way. A
+    /// failure is reported here, by name, rather than letting the next tap
+    /// fail somewhere less legible.
     func waitForAlertToSettle(timeout: TimeInterval = 3,
                               file: StaticString = #filePath, line: UInt = #line) {
         let app = XCUIApplication()
         let alert = app.alerts.firstMatch
         guard alert.exists else { return }
-        let deadline = Date().addingTimeInterval(timeout)
+        let start = Date()
         var previousAlertFrame: CGRect?
         var stableSamples = 0
-        repeat {
+        while true {
+            let begun = Date().timeIntervalSince(start)
             let keyboard = app.keyboards.firstMatch
             guard keyboard.exists else { return }
             let keyboardFrame = keyboard.frame
             let alertFrame = alert.frame
             let onScreen = keyboardFrame.minY < app.frame.maxY
+            let runBefore = stableSamples
             if onScreen && !alertFrame.intersects(keyboardFrame) {
                 stableSamples = alertFrame == previousAlertFrame ? stableSamples + 1 : 1
                 if stableSamples >= 3 { return }
             } else {
                 stableSamples = 0
             }
+            if begun >= timeout && stableSamples <= runBefore {
+                XCTFail("the alert did not settle clear of the keyboard within \(timeout)s " +
+                        "(alert \(alertFrame), keyboard \(keyboardFrame), " +
+                        String(format: "sampled %.1fs in)", begun),
+                        file: file, line: line)
+                return
+            }
             previousAlertFrame = alertFrame
             Thread.sleep(forTimeInterval: 0.1)
-        } while Date() < deadline
-        XCTFail("the alert did not settle clear of the keyboard within \(timeout)s " +
-                "(alert \(alert.frame), keyboard \(app.keyboards.firstMatch.frame))",
-                file: file, line: line)
+        }
     }
 
     /// Opens a tile's game page via its long-press menu (spec §3.1).
