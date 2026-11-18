@@ -959,17 +959,21 @@ bool WoofIOS_IsAttractMode(void)
 _Static_assert(WOOF_IOS_NUM_WEAPONS == NUMWEAPONS,
                "WOOF_IOS_NUM_WEAPONS must match the engine's weapon count");
 
+// A live local player in a level: when the grid may open and its selects
+// count.
+static bool WeaponSelectAllowed(void)
+{
+    return gamestate == GS_LEVEL && !demoplayback
+           && players[consoleplayer].playerstate == PST_LIVE;
+}
+
 bool WoofIOS_GetWeaponSelectState(WoofIOS_WeaponSlot out[WOOF_IOS_NUM_WEAPONS])
 {
-    if (gamestate != GS_LEVEL || demoplayback)
+    if (!WeaponSelectAllowed())
     {
         return false;
     }
     const player_t *player = &players[consoleplayer];
-    if (player->playerstate != PST_LIVE)
-    {
-        return false;
-    }
     for (int w = 0; w < WOOF_IOS_NUM_WEAPONS; w++)
     {
         // P_CheckAmmo's test (p_pspr.c), asked of weapon w rather than the
@@ -998,7 +1002,7 @@ bool WoofIOS_GetWeaponSelectState(WoofIOS_WeaponSlot out[WOOF_IOS_NUM_WEAPONS])
 
 void WoofIOS_SelectWeapon(int weapon)
 {
-    if (weapon < 0 || weapon >= WOOF_IOS_NUM_WEAPONS)
+    if (weapon < 0 || weapon >= WOOF_IOS_NUM_WEAPONS || !WeaponSelectAllowed())
     {
         return;
     }
@@ -1009,6 +1013,10 @@ void WoofIOS_SelectWeapon(int weapon)
 
 void WoofIOS_SelectBestWeapon(void)
 {
+    if (!WeaponSelectAllowed())
+    {
+        return;
+    }
     extern void G_TouchSelectBestWeapon(void); // g_game.c
     G_TouchSelectBestWeapon();
     touch_weapon_selects++;
@@ -1064,8 +1072,9 @@ static int WeaponPatchLength(const byte *patch, int size)
 
 int WoofIOS_CopyWeaponSprite(int weapon, unsigned char *buf, int cap)
 {
-    if (weapon < 0 || weapon >= WOOF_IOS_NUM_WEAPONS || !buf || cap <= 0
-        || !states || !sprites)
+    // Outside a level the sprite tables may be a finished session's.
+    if (gamestate != GS_LEVEL || weapon < 0 || weapon >= WOOF_IOS_NUM_WEAPONS
+        || !buf || cap <= 0 || !states || !sprites)
     {
         return 0;
     }
@@ -1109,7 +1118,7 @@ int WoofIOS_CopyWeaponSprite(int weapon, unsigned char *buf, int cap)
 int WoofIOS_CopyPlaypal(unsigned char *buf, int cap)
 {
     enum { playpal_bytes = 768 };
-    if (!buf || cap < playpal_bytes || numlumps <= 0)
+    if (gamestate != GS_LEVEL || !buf || cap < playpal_bytes || numlumps <= 0)
     {
         return 0;
     }

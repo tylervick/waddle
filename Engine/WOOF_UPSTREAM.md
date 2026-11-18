@@ -785,10 +785,13 @@ only ever runs once):
   woof_ios.c adds `WoofIOS_GetWeaponSelectState()` (owned and can-fire per
   weapon, can-fire by `P_CheckAmmo`'s test without its switch; false outside
   a live local player in a level), `WoofIOS_SelectWeapon()` /
-  `WoofIOS_SelectBestWeapon()` over the latch, `WoofIOS_CopyWeaponSprite()`
-  (frame 0 of the weapon's ready-state sprite as `V_CachePatchNum` caches
-  it, so PNGs arrive converted; its length is found by walking the column
-  table, bounded by `V_LumpSize`) and `WoofIOS_CopyPlaypal()`. Accepted
+  `WoofIOS_SelectBestWeapon()` over the latch (ignored and not counted
+  under the same condition, so no latch is left for a later session or
+  level to consume), `WoofIOS_CopyWeaponSprite()` (frame 0 of the weapon's
+  ready-state sprite as `V_CachePatchNum` caches it, so PNGs arrive
+  converted; its length is found by walking the column table, bounded by
+  `V_LumpSize`) and `WoofIOS_CopyPlaypal()`, both returning 0 outside
+  GS_LEVEL, where the sprite tables may still be a finished session's. Accepted
   selections are counted as ` ws:<n>` in `WoofIOS_DebugTouchWrites()`; the
   latch and the counter reset at session start with the other touch state.
 
