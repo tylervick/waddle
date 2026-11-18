@@ -36,6 +36,15 @@
 #include "i_printf.h"
 #include "m_argv.h"
 #include "z_zone.h"  // pu_tag for the session-start seam
+// Weapon-select grid (WoofIOS_GetWeaponSelectState and friends):
+#include "d_items.h"  // weaponinfo[]
+#include "deh_misc.h" // deh_bfg_cells_per_shot
+#include "doomstat.h" // players[], consoleplayer, mbf21
+#include "info.h"     // states[], num_states, num_sprites
+#include "m_swap.h"   // SHORT, LONG for the patch header
+#include "r_state.h"  // sprites, firstspritelump, numspritelumps
+#include "v_patch.h"  // V_CachePatchNum, V_LumpSize
+#include "w_wad.h"    // W_CheckNumForName, W_CacheLumpNum
 
 void D_DoomMain(void);
 
@@ -75,6 +84,9 @@ static bool touch_menu_tap_held;
 // zoom are held keys), counted per Doom key code the same way.
 #define TOUCH_KEY_SLOTS 256
 static int touch_key_writes[TOUCH_KEY_SLOTS];
+// Weapon-grid selections the engine accepted (WoofIOS_SelectWeapon and
+// WoofIOS_SelectBestWeapon), the ws:<n> of WoofIOS_DebugTouchWrites.
+static int touch_weapon_selects;
 
 // Lazily-opened gamepad-layer view of touch_joystick, used only by
 // WoofIOS_DebugTriggerValue (test telemetry) to read back the value Woof's
@@ -363,10 +375,13 @@ int WoofIOS_Run(int argc, char **argv)
     {
         extern void G_ResetAutoUseSession(void); // g_game.c
         G_ResetAutoUseSession();
+        extern void G_ResetTouchWeaponSession(void); // g_game.c
+        G_ResetTouchWeaponSession();
     }
     memset(touch_button_writes, 0, sizeof(touch_button_writes));
     memset(touch_axis_writes, 0, sizeof(touch_axis_writes));
     memset(touch_key_writes, 0, sizeof(touch_key_writes));
+    touch_weapon_selects = 0;
     touch_turn_writes = 0;
     touch_menu_pointer_writes = 0;
     touch_menu_tap_writes = 0;
@@ -680,7 +695,11 @@ const char *WoofIOS_DebugTouchWrites(void)
     }
     if (n < (int)sizeof(buf))
     {
-        snprintf(buf + n, sizeof(buf) - n, " turn:%d", touch_turn_writes);
+        n += snprintf(buf + n, sizeof(buf) - n, " turn:%d", touch_turn_writes);
+    }
+    if (n < (int)sizeof(buf))
+    {
+        snprintf(buf + n, sizeof(buf) - n, " ws:%d", touch_weapon_selects);
     }
     return buf;
 }
@@ -932,6 +951,175 @@ bool WoofIOS_IsAttractMode(void)
 {
     extern boolean demoplayback; // doomstat.h
     return !menuactive && (gamestate == GS_DEMOSCREEN || demoplayback);
+}
+
+// --- Weapon-select grid ---
+// The table the overlay's grid is drawn from. NUMWEAPONS is the engine's own
+// count, so a mismatch with the header's constant fails the build.
+_Static_assert(WOOF_IOS_NUM_WEAPONS == NUMWEAPONS,
+               "WOOF_IOS_NUM_WEAPONS must match the engine's weapon count");
+
+bool WoofIOS_GetWeaponSelectState(WoofIOS_WeaponSlot out[WOOF_IOS_NUM_WEAPONS])
+{
+    if (gamestate != GS_LEVEL || demoplayback)
+    {
+        return false;
+    }
+    const player_t *player = &players[consoleplayer];
+    if (player->playerstate != PST_LIVE)
+    {
+        return false;
+    }
+    for (int w = 0; w < WOOF_IOS_NUM_WEAPONS; w++)
+    {
+        // P_CheckAmmo's test (p_pspr.c), asked of weapon w rather than the
+        // ready weapon, and without its demo-compatibility weapon switch.
+        const int ammo = weaponinfo[w].ammo;
+        int count = 1;
+        if (mbf21)
+        {
+            count = weaponinfo[w].ammopershot;
+        }
+        else if (w == wp_bfg)
+        {
+            count = deh_bfg_cells_per_shot;
+        }
+        else if (w == wp_supershotgun)
+        {
+            count = 2;
+        }
+        out[w].owned = player->weaponowned[w] != 0;
+        out[w].can_fire = ammo == am_noammo
+                          || (ammo >= 0 && ammo < NUMAMMO
+                              && player->ammo[ammo] >= count);
+    }
+    return true;
+}
+
+void WoofIOS_SelectWeapon(int weapon)
+{
+    if (weapon < 0 || weapon >= WOOF_IOS_NUM_WEAPONS)
+    {
+        return;
+    }
+    extern void G_TouchSelectWeapon(int weapon); // g_game.c
+    G_TouchSelectWeapon(weapon);
+    touch_weapon_selects++;
+}
+
+void WoofIOS_SelectBestWeapon(void)
+{
+    extern void G_TouchSelectBestWeapon(void); // g_game.c
+    G_TouchSelectBestWeapon();
+    touch_weapon_selects++;
+}
+
+// The byte length of a Doom-format patch: the furthest post terminator any
+// column reaches. 0 when the header or any post would read past `size`, the
+// size of the buffer the engine holds the patch in.
+static int WeaponPatchLength(const byte *patch, int size)
+{
+    if (size < 8)
+    {
+        return 0;
+    }
+    const patch_t *header = (const patch_t *)patch;
+    const int width = SHORT(header->width);
+    const int table_end = 8 + 4 * width;
+    if (width <= 0 || table_end > size)
+    {
+        return 0;
+    }
+    int end = table_end;
+    for (int c = 0; c < width; c++)
+    {
+        int32_t raw_ofs;
+        memcpy(&raw_ofs, patch + 8 + 4 * c, sizeof(raw_ofs));
+        int ofs = LONG(raw_ofs);
+        if (ofs < table_end)
+        {
+            return 0;
+        }
+        // Each post is topdelta, length, a pad byte, length pixels and a
+        // pad byte; 0xff in place of a topdelta ends the column.
+        while (ofs < size && patch[ofs] != 0xff)
+        {
+            if (ofs + 1 >= size)
+            {
+                return 0;
+            }
+            ofs += patch[ofs + 1] + 4;
+        }
+        if (ofs >= size)
+        {
+            return 0;
+        }
+        if (ofs + 1 > end)
+        {
+            end = ofs + 1;
+        }
+    }
+    return end;
+}
+
+int WoofIOS_CopyWeaponSprite(int weapon, unsigned char *buf, int cap)
+{
+    if (weapon < 0 || weapon >= WOOF_IOS_NUM_WEAPONS || !buf || cap <= 0
+        || !states || !sprites)
+    {
+        return 0;
+    }
+    const int state = weaponinfo[weapon].readystate;
+    if (state < 0 || state >= num_states)
+    {
+        return 0;
+    }
+    const int sprite = states[state].sprite;
+    if (sprite < 0 || sprite >= num_sprites)
+    {
+        return 0;
+    }
+    const spritedef_t *def = &sprites[sprite];
+    if (def->numframes <= 0 || !def->spriteframes)
+    {
+        return 0;
+    }
+    const int lump = def->spriteframes[0].lump[0];
+    if (lump < 0 || lump >= numspritelumps)
+    {
+        return 0;
+    }
+    const int lumpnum = firstspritelump + lump;
+    if (lumpnum < 0 || lumpnum >= numlumps)
+    {
+        return 0;
+    }
+    // The engine's cached patch, so a PNG sprite arrives already converted
+    // to Doom picture format; V_LumpSize is that converted size.
+    const byte *patch = (const byte *)V_CachePatchNum(lumpnum, PU_CACHE);
+    const int length = WeaponPatchLength(patch, V_LumpSize(lumpnum));
+    if (length <= 0 || length > cap)
+    {
+        return 0;
+    }
+    memcpy(buf, patch, length);
+    return length;
+}
+
+int WoofIOS_CopyPlaypal(unsigned char *buf, int cap)
+{
+    enum { playpal_bytes = 768 };
+    if (!buf || cap < playpal_bytes || numlumps <= 0)
+    {
+        return 0;
+    }
+    const int lump = W_CheckNumForName("PLAYPAL");
+    if (lump < 0 || W_LumpLength(lump) < playpal_bytes)
+    {
+        return 0;
+    }
+    memcpy(buf, W_CacheLumpNum(lump, PU_CACHE), playpal_bytes);
+    return playpal_bytes;
 }
 
 const char *WoofIOS_DebugMenuState(void)

@@ -57,9 +57,12 @@ int WoofIOS_DebugTouchAxisWrites(int sdl_axis);
 int WoofIOS_DebugTouchTurnWrites(void);
 int WoofIOS_DebugTouchKeyWrites(int key); // keys from WoofIOS_InjectKey
 // The same as one line, non-zero entries only:
-//   "touchWrites: b<button>:<n> ... a<axis>:<n> ... k<key>:<n> ... turn:<n>"
-// so one USE tap reads "touchWrites: b0:2 turn:0" and a stick drag lists
-// axes and no button. Shown after a session under WADDLE_DEBUG_INPUT_COUNTS.
+//   "touchWrites: b<button>:<n> ... a<axis>:<n> ... k<key>:<n> ... turn:<n>
+//    ws:<n>"
+// so one USE tap reads "touchWrites: b0:2 turn:0 ws:0" and a stick drag lists
+// axes and no button. ws counts weapon-grid selections the engine accepted
+// (WoofIOS_SelectWeapon and WoofIOS_SelectBestWeapon) and is always present.
+// Shown after a session under WADDLE_DEBUG_INPUT_COUNTS.
 const char *WoofIOS_DebugTouchWrites(void);
 
 // Last engine error text (Woof!'s i_system.c errmsg buffer). Empty string
@@ -309,6 +312,43 @@ bool WoofIOS_IsMenuMessageShowing(void);
 // True on the title screen or during a demo while no menu is up, so the
 // overlay can open the menu on a tap (console "press any button").
 bool WoofIOS_IsAttractMode(void);
+
+// --- Weapon-select grid ---
+// The overlay's grid of the nine weapons, in engine order (wp_fist,
+// wp_pistol, wp_shotgun, wp_chaingun, wp_missile, wp_plasma, wp_bfg,
+// wp_chainsaw, wp_supershotgun). Main-thread-only, same contract as the
+// touch-control functions above.
+#define WOOF_IOS_NUM_WEAPONS 9
+typedef struct
+{
+    bool owned;    // the player has the weapon
+    bool can_fire; // enough ammo for one shot, by P_CheckAmmo's rule
+} WoofIOS_WeaponSlot;
+
+// Fills all nine entries and returns true while a live local player is in a
+// level (GS_LEVEL, no demo playback, PST_LIVE); otherwise returns false and
+// leaves `out` untouched, and the grid may not open.
+bool WoofIOS_GetWeaponSelectState(WoofIOS_WeaponSlot out[WOOF_IOS_NUM_WEAPONS]);
+
+// Switch to weapon 0..8 on the next built command, as a direct selection:
+// the engine's fist/chainsaw and shotgun/SSG toggles are skipped. Out of
+// range is ignored; a weapon not owned is the engine's usual no-op.
+void WoofIOS_SelectWeapon(int weapon);
+
+// Switch to the engine's best weapon for the ammo held (P_SwitchWeapon) on
+// the next built command. Not routed through a key, so rebinding cannot
+// break it.
+void WoofIOS_SelectBestWeapon(void);
+
+// Copies the Doom-format picture of frame 0 of the weapon's ready-state
+// sprite into `buf` (a PNG sprite arrives converted), for the overlay to
+// decode with PLAYPAL. Returns the bytes written, or 0 if there is no sprite
+// or `cap` is too small. Call during a session, once the WADs are loaded.
+int WoofIOS_CopyWeaponSprite(int weapon, unsigned char *buf, int cap);
+
+// Copies the first 768 bytes of PLAYPAL (palette 0) into `buf`. Returns 768,
+// or 0 if there is no PLAYPAL or `cap` is too small.
+int WoofIOS_CopyPlaypal(unsigned char *buf, int cap);
 
 // Debug/test telemetry only, its own debug-HUD segment:
 //   "cm=<off|msg|setup|main|load|save|epi|skill|options|other> msg=<0|1>

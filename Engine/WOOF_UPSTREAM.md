@@ -768,6 +768,30 @@ only ever runs once):
   BLOCKMAP lump emptied, through the blockmap-presence check (`42470994`),
   rather than merely not crashing: the IWAD's own E1M1 would read `DoomBSP`.
 
+- `src/g_game.c`, `src/woof_ios.c` / `src/woof_ios.h` -- the touch
+  overlay's weapon-select grid. In g_game.c (WOOF_IOS), beside
+  `G_ResetAutoUseSession`: `G_TouchSelectWeapon(weapon)` and
+  `G_TouchSelectBestWeapon()` latch a pending weapon or a pending
+  select-best, and `G_ResetTouchWeaponSession()` clears both. In
+  `G_BuildTiccmd` a branch ahead of the auto-switch `if` consumes the latch
+  (select-best resolved with `P_SwitchWeapon`) and falls into the existing
+  `newweapon != wp_nochange` block, so BT_CHANGE and `G_NextWeaponReset`
+  happen as for any direct selection. Key injection was not enough: the
+  number keys go through `AdjustWeaponSelection`, which toggles fist to
+  chainsaw and shotgun to SSG, so a tapped weapon could arrive as its
+  partner, and select-best on the `0` key breaks if it is rebound. At a
+  vanilla compatibility level `P_PlayerThink` still makes the same swaps
+  when it applies the command; that is the original rule and is left alone.
+  woof_ios.c adds `WoofIOS_GetWeaponSelectState()` (owned and can-fire per
+  weapon, can-fire by `P_CheckAmmo`'s test without its switch; false outside
+  a live local player in a level), `WoofIOS_SelectWeapon()` /
+  `WoofIOS_SelectBestWeapon()` over the latch, `WoofIOS_CopyWeaponSprite()`
+  (frame 0 of the weapon's ready-state sprite as `V_CachePatchNum` caches
+  it, so PNGs arrive converted; its length is found by walking the column
+  table, bounded by `V_LumpSize`) and `WoofIOS_CopyPlaypal()`. Accepted
+  selections are counted as ` ws:<n>` in `WoofIOS_DebugTouchWrites()`; the
+  latch and the counter reset at session start with the other touch state.
+
 Related (not upstream files): `Scripts/build-engine.sh` passes
 `-DCMAKE_FIND_ROOT_PATH="$OUT/$platform"` in addition to
 `-DCMAKE_PREFIX_PATH`. When `CMAKE_SYSTEM_NAME=iOS`, CMake restricts
