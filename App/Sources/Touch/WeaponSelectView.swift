@@ -18,6 +18,7 @@ final class WeaponSelectView: UIView {
     private var spriteSources: [DoomGraphics.Bitmap?]
     private var spriteImages: [CGImage?]
     private var silhouetteImages: [CGImage?]
+    private var pixelScale: CGFloat = 1
 
     override init(frame: CGRect) {
         let count = WeaponSelectGeometry.cellCount
@@ -34,15 +35,20 @@ final class WeaponSelectView: UIView {
     required init?(coder: NSCoder) { fatalError("not used") }
 
     /// Cell subviews carry accessibilityIdentifier "weaponCell0"…"weaponCell8",
-    /// accessibilityLabel = name, value = "not owned" / "ready" / "out of ammo".
+    /// accessibilityLabel = name, value = "not owned" / "ready" / "out of ammo",
+    /// the `.button` trait, and `.notEnabled` when the model says the cell is
+    /// not selectable.
     /// isUserInteractionEnabled is false on the view and its cells: the overlay
     /// owns the touches.
     func update(geometry: WeaponSelectGeometry, model: WeaponSelectModel,
                 sprites: [DoomGraphics.Bitmap?]) {
-        // Sprites are drawn at 1.25x native size in the predecessor's 480-wide
-        // virtual screen, scaled with the picture, so a sprite keeps its old
-        // proportion to its cell.
-        let pixelScale = 1.25 * geometry.pictureRect.width / 480
+        // Sprites are drawn at 1.25x native size in the predecessor's 480x320
+        // virtual screen, scaled with the picture by its limiting axis, so a
+        // sprite keeps its old proportion to its cell on a 3:2 picture and is
+        // not cropped by a short cell on a widescreen one.
+        let pixelScale = 1.25 * min(geometry.pictureRect.width / 480,
+                                    geometry.pictureRect.height / 320)
+        self.pixelScale = pixelScale
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -53,13 +59,19 @@ final class WeaponSelectView: UIView {
             let image = sprites.indices.contains(i) ? image(for: sprites[i], at: i,
                                                             silhouette: appearance == .unowned) : nil
             cell.frame = geometry.cellFrame(i)
-            cell.configure(appearance: appearance, slot: slot, sprite: image, pixelScale: pixelScale)
+            cell.configure(appearance: appearance, slot: slot, selectable: model.isSelectable(i),
+                           sprite: image, pixelScale: pixelScale)
         }
         CATransaction.commit()
     }
 
     func cellFrameForTesting(_ index: Int) -> CGRect {
         cells[index].frame
+    }
+
+    /// Points per sprite pixel from the last `update`.
+    func spritePixelScaleForTesting() -> CGFloat {
+        pixelScale
     }
 
     private func image(for bitmap: DoomGraphics.Bitmap?, at i: Int, silhouette: Bool) -> CGImage? {
@@ -136,7 +148,7 @@ private final class WeaponCellView: UIView {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    func configure(appearance: WeaponCellAppearance, slot: WeaponSlotState,
+    func configure(appearance: WeaponCellAppearance, slot: WeaponSlotState, selectable: Bool,
                    sprite: CGImage?, pixelScale: CGFloat) {
         switch appearance {
         case .unowned: backgroundColor = Palette.unowned
@@ -148,6 +160,7 @@ private final class WeaponCellView: UIView {
 
         // Pressed is visual only: the value is the slot underneath it.
         accessibilityValue = !slot.owned ? "not owned" : (slot.canFire ? "ready" : "out of ammo")
+        accessibilityTraits = selectable ? .button : [.button, .notEnabled]
 
         spriteLayer.contents = sprite
         spriteLayer.isHidden = sprite == nil

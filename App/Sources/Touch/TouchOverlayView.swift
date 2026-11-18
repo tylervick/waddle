@@ -1065,10 +1065,13 @@ final class TouchOverlayView: UIView {
     }
 
     /// The grid's share of `touchesBegan`; true when it consumed the touch.
-    /// A touch in the hotspot goes to the model when the grid is open (a
-    /// re-tap closes it) or can open; otherwise the hotspot is inert and the
-    /// touch is routed exactly as it would be without it. While open, every
-    /// other touch is the grid's, wherever it lands.
+    /// While closed, a touch in the hotspot goes to the model when the grid
+    /// can open; otherwise the hotspot is inert and the touch is routed
+    /// exactly as it would be without it. While open, every touch is the
+    /// grid's, wherever it lands, and cells are tested before the hotspot:
+    /// the bottom of the middle column's last cell overlaps the hotspot, and
+    /// a touch there is a pick of that cell. Only a touch in the hotspot and
+    /// in no cell is a re-tap, which closes the grid.
     ///
     /// A finger landing in the same `touchesBegan` call as the touch that
     /// opened (or re-tap closed) the grid is consumed and nothing more: it
@@ -1079,6 +1082,12 @@ final class TouchOverlayView: UIView {
     private func weaponGridTookBegan(_ touch: UITouch, at point: CGPoint,
                                      openAtBatchStart: Bool) -> Bool {
         if weaponModel.isOpen != openAtBatchStart { return true }
+        let cell = weaponGeometry.cell(at: point)
+        if weaponModel.isOpen, let cell {
+            weaponModel.touchBegan(AnyHashable(touch), cell: cell)
+            syncWeaponGrid()
+            return true
+        }
         if weaponGeometry.hotspot.contains(point) {
             let slots = weaponModel.isOpen ? nil : weaponGridSlots()
             guard weaponModel.isOpen || slots != nil else { return false }
@@ -1088,7 +1097,7 @@ final class TouchOverlayView: UIView {
             return true
         }
         guard weaponModel.isOpen else { return false }
-        weaponModel.touchBegan(AnyHashable(touch), cell: weaponGeometry.cell(at: point))
+        weaponModel.touchBegan(AnyHashable(touch), cell: cell)
         syncWeaponGrid()
         return true
     }
@@ -1181,6 +1190,9 @@ final class TouchOverlayView: UIView {
                     && (!keyboardActive || button.accessibilityIdentifier == "menuButton")
             }
             weaponView.isHidden = !open
+            // Says what activating it does: open the grid, or close it and
+            // switch to the best weapon. The identifier never changes.
+            weaponHotspot.accessibilityLabel = open ? "Close weapons, switch to best weapon" : "Weapons"
         }
         if open { updateWeaponView() }
     }

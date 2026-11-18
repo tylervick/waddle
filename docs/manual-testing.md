@@ -48,6 +48,8 @@ overlay to remain visible even when input devices are connected.
     is disabled, so open them by another route (a hardware keyboard's Esc or
     Tab), or close the grid first and confirm ≡ and MAP work again
   - Rotate the device with the grid open: the cells follow the picture
+  - On a landscape iPhone and on an iPad, every weapon sprite fits its cell:
+    no barrel cut off at the top, none drawn under the name
   - A PWAD that replaces weapon sprites shows its own art in the cells
   - At a vanilla compatibility level, picking "shotgun" with the super
     shotgun owned may give the super shotgun (the original game's rule;
