@@ -91,6 +91,25 @@ final class TouchOverlayView: UIView {
     private var automapIdleTimer: Timer?
     private let automapTranslator = AutomapGestureTranslator()
 
+    // Weapon-select grid (the predecessor's switcher; see the design spec,
+    // docs/superpowers/specs/2026-11-17-weapon-select-grid-design.md). The
+    // model owns the open/pick rules, the geometry follows the picture, and
+    // this view only routes touches and performs the model's effects.
+    private var weaponModel = WeaponSelectModel()
+    private var weaponGeometry = WeaponSelectGeometry(pictureRect: .zero)
+    private let weaponView = WeaponSelectView()
+    /// The invisible bottom-centre patch that opens the grid. It takes no
+    /// touches itself (the overlay hit-tests it by frame, so a touch there
+    /// reaches `touchesBegan` like any other); it exists so VoiceOver and
+    /// UI tests can find the spot.
+    private let weaponHotspot = UIView()
+    /// Fetched once per session, on first open, then reused as-is so the
+    /// view's per-cell comparison never sees a "new" sprite.
+    private var weaponSprites: [DoomGraphics.Bitmap?]?
+    /// What the overlay last applied for the model's `isOpen`, so opening and
+    /// closing each run their side effects exactly once.
+    private var weaponGridShown = false
+
     init(gamepad: TouchGamepad, scheme: TouchControlScheme,
          tuning: TouchTuning, debugHUDEnabled: Bool,
          layoutOverrides: TouchOverlayLayoutOverrides = .none) {
@@ -206,6 +225,7 @@ final class TouchOverlayView: UIView {
         addButton("≡", control: .menu) { [weak self] down in
             self?.gamepad.setButton(.start, down: down)
         }
+        installWeaponGrid()
 
         // Always on -- independent of debugHUDEnabled below, which is
         // opt-in and off by default. This one is a correctness fix (see
@@ -474,6 +494,7 @@ final class TouchOverlayView: UIView {
             self?.dropAutomapGestureIfMapClosed()
             self?.updatePromptButtons()
             self?.dropMenuTouchesIfMenuClosed()
+            self?.pollWeaponGrid()
         }
         RunLoop.main.add(timer, forMode: .common)
         menuPolicyTimer = timer
@@ -570,6 +591,10 @@ final class TouchOverlayView: UIView {
         // a failed becomeFirstResponder would otherwise leave controls inert
         // with no keyboard on screen (review Minor #2).
         guard keyboard.present() else { return }
+        // The keyboard is one of the things that closes the weapon grid.
+        // Closed here, before the button lock below, because closing gives
+        // the buttons back and the lock must have the last word.
+        closeWeaponGrid()
         // Interaction guard: stop movement and make the gameplay controls
         // inert while typing, so touches near or under the keyboard cannot
         // steer or fire.
@@ -697,10 +722,16 @@ final class TouchOverlayView: UIView {
         TouchOverlayLayout(bounds: bounds, safeAreaInsets: safeAreaInsets,
                            hudReserve: debugHUDEnabled ? debugHUDStripHeight : 0,
                            overrides: layoutOverrides,
-                           pictureRect: enginePictureRect
-                               ?? TouchOverlayLayout.predictedPictureRect(
-                                   in: halfOpenSplit?.pictureArea ?? bounds),
+                           pictureRect: pictureRect,
                            controlsArea: halfOpenSplit?.controlsArea)
+    }
+
+    /// The engine's picture rect or, until it answers, the same prediction
+    /// the layout editor uses. Shared by the controls and the weapon grid so the
+    /// two never disagree about where the picture is.
+    private var pictureRect: CGRect {
+        enginePictureRect
+            ?? TouchOverlayLayout.predictedPictureRect(in: halfOpenSplit?.pictureArea ?? bounds)
     }
 
     /// Where the engine says it is drawing the game, in this view's
@@ -784,6 +815,7 @@ final class TouchOverlayView: UIView {
         let prompt = layout.promptButtonFrames()
         promptNoButton.frame = prompt.no
         promptYesButton.frame = prompt.yes
+        layoutWeaponGrid()
     }
 
     /// Live routing decision for the current geometry. Recomputed per
@@ -823,6 +855,10 @@ final class TouchOverlayView: UIView {
         let attract = gamepad.isAttractMode
         for touch in touches {
             let point = touch.location(in: self)
+            // Before menu routing: the hotspot wins over stick, turn and menu
+            // for a touch that begins in it, and an open grid takes every
+            // touch. Checked per touch, since one in this batch may open it.
+            if weaponGridTookBegan(touch, at: point) { continue }
             let route = router.route(point, stickTracking: stickTouch != nil,
                                      turnTracking: turnTouch != nil)
             let nearButton = router.isNearButton(point)
@@ -896,6 +932,15 @@ final class TouchOverlayView: UIView {
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         if keyboardActive { return }
+        if weaponModel.isOpen {
+            // Opening released every track, and no new one starts while the
+            // grid is up, so there is nothing below for these touches to move.
+            for touch in touches {
+                weaponModel.touchMoved(AnyHashable(touch), cell: weaponGeometry.cell(at: touch.location(in: self)))
+            }
+            syncWeaponGrid()
+            return
+        }
         if !automapTouches.isEmpty, touches.contains(where: { automapTouches.contains($0) }) {
             moveAutomap()
             return
@@ -925,16 +970,21 @@ final class TouchOverlayView: UIView {
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        endTouches(touches)
+        endTouches(touches, cancelled: false)
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        endTouches(touches)
+        endTouches(touches, cancelled: true)
     }
 
-    private func endTouches(_ touches: Set<UITouch>) {
+    /// `cancelled` matters only to the weapon grid: a cancelled touch must
+    /// never pick. Every other track ends the same way either way.
+    private func endTouches(_ touches: Set<UITouch>, cancelled: Bool) {
         summonTouches.subtract(touches)
         if summonTouches.isEmpty { summonArmed = true }
+        // Not a `return`: the tracks below were all let go at open, so these
+        // touches fall through them harmlessly, exactly as before.
+        if weaponModel.isOpen { endWeaponGridTouches(touches, cancelled: cancelled) }
         if !automapTouches.isEmpty {
             for touch in touches {
                 if let i = automapTouches.firstIndex(of: touch) {
@@ -971,6 +1021,157 @@ final class TouchOverlayView: UIView {
                 releaseTurn()
             }
         }
+    }
+
+    // MARK: Weapon-select grid
+
+    /// Called once from `init`, after the buttons, so the grid draws above
+    /// them and above the stick layers. Neither the grid nor the hotspot
+    /// takes touches: both fall through to this view, which hit-tests them
+    /// against `weaponGeometry` (the grid's own cells are drawing only). The
+    /// hotspot is not a `TouchOverlayControl`, so the layout editor and every
+    /// `allCases`-driven behaviour never see it.
+    private func installWeaponGrid() {
+        weaponView.isHidden = true
+        addSubview(weaponView)
+        weaponHotspot.backgroundColor = .clear
+        weaponHotspot.isUserInteractionEnabled = false
+        weaponHotspot.isAccessibilityElement = true
+        weaponHotspot.accessibilityIdentifier = "weaponSelectHotspot"
+        weaponHotspot.accessibilityLabel = "Weapons"
+        weaponHotspot.accessibilityTraits = .button
+        addSubview(weaponHotspot)
+    }
+
+    /// From `layoutSubviews`: the grid follows the picture, through rotation,
+    /// letterboxing and the half-open fold, via the same rect the controls use.
+    private func layoutWeaponGrid() {
+        weaponGeometry = WeaponSelectGeometry(pictureRect: pictureRect)
+        weaponHotspot.frame = weaponGeometry.hotspot
+        weaponView.frame = bounds
+        if weaponModel.isOpen { updateWeaponView() }
+    }
+
+    /// The engine's nine slots when the grid may be open, nil when it may
+    /// not: a menu or prompt is up, the automap is, it is the title or a
+    /// demo, the soft keyboard is up, or the engine itself says no (no level,
+    /// dead, demo playback). The cheap overlay-side checks go first.
+    private func weaponGridSlots() -> [WeaponSlotState]? {
+        guard !keyboardActive, !gamepad.isAttractMode, !WoofIOS_IsMenuActive(),
+              !gamepad.isMenuMessageShowing, !WoofIOS_IsAutomapActive() else { return nil }
+        return gamepad.weaponSlots()
+    }
+
+    /// The grid's share of `touchesBegan`; true when it consumed the touch.
+    /// A touch in the hotspot goes to the model when the grid is open (a
+    /// re-tap closes it) or can open; otherwise the hotspot is inert and the
+    /// touch is routed exactly as it would be without it. While open, every
+    /// other touch is the grid's, wherever it lands.
+    private func weaponGridTookBegan(_ touch: UITouch, at point: CGPoint) -> Bool {
+        if weaponGeometry.hotspot.contains(point) {
+            let slots = weaponModel.isOpen ? nil : weaponGridSlots()
+            guard weaponModel.isOpen || slots != nil else { return false }
+            if let slots { weaponModel.slots = slots }
+            performWeaponGrid(weaponModel.hotspotTouchBegan(canOpen: slots != nil))
+            syncWeaponGrid()
+            return true
+        }
+        guard weaponModel.isOpen else { return false }
+        weaponModel.touchBegan(AnyHashable(touch), cell: weaponGeometry.cell(at: point))
+        syncWeaponGrid()
+        return true
+    }
+
+    /// Lifts may pick; cancellations never do.
+    private func endWeaponGridTouches(_ touches: Set<UITouch>, cancelled: Bool) {
+        for touch in touches {
+            let id = AnyHashable(touch)
+            if cancelled {
+                weaponModel.touchCancelled(id)
+            } else {
+                performWeaponGrid(weaponModel.touchEnded(id, cell: weaponGeometry.cell(at: touch.location(in: self))))
+            }
+        }
+        syncWeaponGrid()
+    }
+
+    private func performWeaponGrid(_ effects: [WeaponSelectModel.Effect]) {
+        for effect in effects {
+            switch effect {
+            case .releaseHeldInputs: releaseHeldInputsForWeaponGrid()
+            case .select(let index): gamepad.selectWeapon(index)
+            case .selectBest: gamepad.selectBestWeapon()
+            }
+        }
+    }
+
+    /// Opening lets go of everything a finger was holding, each with its
+    /// paired up or zero write (see
+    /// docs/learnings/soft-keyboard-keydown-keyup-pairing.md), so nothing
+    /// stays latched under the grid. Every track is forgotten as well as
+    /// released, so when those fingers later move or lift they match no
+    /// track and fall through `touchesMoved` / `endTouches` doing nothing:
+    /// the stick and the turn as a cancelled touch is; the automap and menu
+    /// fingers as their "closed under a finger" paths do; and the attract-tap
+    /// candidate, whose lift would otherwise still open the menu. The
+    /// four-finger summon count is not gameplay input and is left alone.
+    private func releaseHeldInputsForWeaponGrid() {
+        releaseStick()
+        releaseTurn()
+        gamepad.setFireTrigger(down: false)
+        if !automapTouches.isEmpty {
+            automapTouches.removeAll()
+            automapLastPoints.removeAll()
+        }
+        holdAutomapKeys([])
+        if menuTouch != nil {
+            menuTouch = nil
+            gamepad.menuTap(down: false)
+        }
+        pendingMenuTouch = nil
+        attractTapTouch = nil
+        for button in buttons { button.forceRelease() }
+    }
+
+    /// From the policy timer. While open: refresh the slots (ammo runs out,
+    /// a weapon is picked up) and close if the grid may no longer be open (a
+    /// menu, the automap, death, the level ending). While closed there is
+    /// nothing for the model to do, so the engine is not asked.
+    private func pollWeaponGrid() {
+        guard weaponModel.isOpen else { return }
+        let slots = weaponGridSlots()
+        if let slots { weaponModel.slots = slots }
+        weaponModel.availabilityChanged(canOpen: slots != nil)
+        syncWeaponGrid()
+    }
+
+    /// Closes without picking anything, as a forced close does.
+    private func closeWeaponGrid() {
+        guard weaponModel.isOpen else { return }
+        weaponModel.availabilityChanged(canOpen: false)
+        syncWeaponGrid()
+    }
+
+    /// Brings the view and the buttons in line with the model. Opening hides
+    /// nothing but takes the buttons' touches away, so a cell drawn over a
+    /// button gets the touch and no button can be pressed under the grid;
+    /// closing gives them back, minus what the soft keyboard's lock holds.
+    private func syncWeaponGrid() {
+        let open = weaponModel.isOpen
+        if open != weaponGridShown {
+            weaponGridShown = open
+            if open, weaponSprites == nil { weaponSprites = gamepad.weaponSprites() }
+            for button in buttons {
+                button.isUserInteractionEnabled = !open
+                    && (!keyboardActive || button.accessibilityIdentifier == "menuButton")
+            }
+            weaponView.isHidden = !open
+        }
+        if open { updateWeaponView() }
+    }
+
+    private func updateWeaponView() {
+        weaponView.update(geometry: weaponGeometry, model: weaponModel, sprites: weaponSprites ?? [])
     }
 
     // MARK: Automap gestures (issue #113)
@@ -1155,24 +1356,58 @@ final class OverlayButton: UIView {
     // one: a second tap flushes and replaces it, and the closure of the
     // replaced item must not release the new press.
     private var pendingRelease: (id: UUID, work: DispatchWorkItem)?
+    /// A finger is on the button and its release has not been sent or
+    /// scheduled. Read only by `forceRelease()`.
+    private var isPressed = false
+    /// `forceRelease()` already sent the up for the finger still on the
+    /// button, so that finger's lift must send nothing.
+    private var releaseAlreadySent = false
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         Self.debugPressCount += 1
         flushPendingRelease()
+        releaseAlreadySent = false
+        isPressed = true
         backgroundColor = UIColor.white.withAlphaComponent(0.3)
         timing.pressed(at: ProcessInfo.processInfo.systemUptime)
         onPress(true)
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        release()
+        endPress()
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        endPress()
+    }
+
+    /// Let go now, for the weapon grid opening over the controls: exactly one
+    /// `onPress(false)` if the button is down or still owes a delayed release
+    /// (which is cancelled and sent at once), nothing otherwise. The finger
+    /// may still be on the button; its eventual lift then sends nothing, so
+    /// the press cannot be released twice or, worse, re-pressed.
+    func forceRelease() {
+        if isPressed {
+            isPressed = false
+            releaseAlreadySent = true
+            _ = timing.released(at: ProcessInfo.processInfo.systemUptime) // forget the press
+            backgroundColor = UIColor.white.withAlphaComponent(0.12)
+            onPress(false)
+        } else {
+            flushPendingRelease()
+        }
+    }
+
+    private func endPress() {
+        if releaseAlreadySent {
+            releaseAlreadySent = false
+            return
+        }
         release()
     }
 
     private func release() {
+        isPressed = false
         backgroundColor = UIColor.white.withAlphaComponent(0.12)
         let delay = timing.released(at: ProcessInfo.processInfo.systemUptime)
         guard delay > 0 else {

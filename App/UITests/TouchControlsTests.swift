@@ -419,6 +419,52 @@ final class TouchControlsTests: XCTestCase {
                       "automap gestures must not reach the movement stick: \(writes.label)")
     }
 
+    /// The weapon-select grid end to end: a tap on the invisible status-bar
+    /// hotspot opens the 3x3 grid, a tap on a weapon the player does not own
+    /// (the shotgun, cell 2, at Freedoom E1M1's start) picks nothing and
+    /// leaves it open, and a tap on an owned one (the fist, cell 0) picks it
+    /// and closes it. `ws:<n>` in `touchWritesLabel` counts the select calls
+    /// the engine accepted, so exactly one proves the routing reached the
+    /// shim once, from the owned cell only. Queried as `.any` because the
+    /// hotspot and the cells are plain views, not buttons.
+    @MainActor
+    func testWeaponGridPicksAnOwnedWeapon() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "20"
+        app.holdAutoquit()
+        app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        play.tap()
+        XCTAssertTrue(app.buttons["fireButton"].waitForExistence(timeout: 30), "overlay never installed")
+        Thread.sleep(forTimeInterval: 2) // let the level settle before the first input
+
+        let hotspot = app.descendants(matching: .any)["weaponSelectHotspot"]
+        XCTAssertTrue(hotspot.waitForExistence(timeout: 5), "no weapon-select hotspot on the overlay")
+        hotspot.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+
+        let fist = app.descendants(matching: .any)["weaponCell0"]
+        XCTAssertTrue(fist.waitForExistence(timeout: 5), "tapping the hotspot should open the grid")
+        let shotgun = app.descendants(matching: .any)["weaponCell2"]
+        XCTAssertTrue(shotgun.exists, "the grid should show all nine cells")
+        shotgun.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertTrue(fist.exists, "an unowned weapon must not pick or close the grid")
+
+        fist.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(fist.waitForNonExistence(timeout: 5), "picking an owned weapon should close the grid")
+
+        releaseAutoquit()
+        let writes = app.staticTexts["touchWritesLabel"]
+        XCTAssertTrue(writes.waitForExistence(timeout: 60), "no per-control write readout after the session")
+        let fields = Self.writeFields(writes.label)
+        XCTAssertEqual(fields["ws"], 1, "exactly one weapon select should reach the engine: \(writes.label)")
+    }
+
     // MARK: Auto-use (issue #114)
 
     /// The predecessor's defining feel: walk at a door and it opens. The
