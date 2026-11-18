@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-17
 **Branch:** `tylervick/weapon-select-grid`
-**Status:** design, awaiting approval
+**Status:** approved, implemented
 
 ## Intent
 
@@ -48,7 +48,11 @@ Reference implementation: `~/Documents/DOOM-iOS/code/iphone/iphone_loop.c:1177-1
   recorded in `Engine/WOOF_UPSTREAM.md`.
 - Gesture recognizers do not fire in SDL's window; use responder-chain
   touches (`docs/learnings/sdl-window-gesture-recognizers.md`).
-- Pull requests run only `WaddleTests`, so the behaviour is proven there
+- Every pull request runs `WaddleTests` (`ci.yml`); one that touches
+  `App/Sources`, `App/UITests`, the asset catalog or `App/project.yml` also
+  runs `ui-tests.yml`'s shell smoke subset, which starts no engine session.
+  `TouchControlsTests` and the other engine-session tests run only on a push
+  to `main` or a manual dispatch, so the behaviour is proven in `WaddleTests`
   through pure models. A `WaddleUITests` failure needs a `main` baseline
   before it is blamed on this work
   (`docs/learnings/ui-test-failures-need-a-main-baseline.md`). New files need
@@ -112,8 +116,13 @@ chaingun, rockets, plasma / BFG, chainsaw, dblshotgun (the predecessor's
 labels). Cell *i* is at column `i % 3`, row `i / 3`; column pitch 160/480 of
 picture width with a 20/480 left margin and 120/480 cell width; row pitch
 88/320 of picture height, cell height 80/320, starting at the picture's top.
-The grid therefore covers the top 264/320 and leaves the status bar and the
-hotspot uncovered. All nine cells always show.
+The grid therefore covers the top 256/320 and leaves the status bar
+uncovered, but not the hotspot: the hotspot (the middle sixth of the
+picture's width, its bottom 80/320) overlaps the bottom of the chainsaw
+cell. While the grid is open, cells are tested before the hotspot: a touch
+that begins inside any cell is that cell's, and only a touch in the hotspot
+and in no cell is a re-tap. While it is closed, the hotspot opens it. All
+nine cells always show.
 
 Each cell:
 
