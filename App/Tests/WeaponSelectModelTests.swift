@@ -55,6 +55,11 @@ final class WeaponSelectModelTests: XCTestCase {
         m.touchBegan("b", cell: 4)
         XCTAssertEqual(m.touchEnded("b", cell: nil), [])
         XCTAssertTrue(m.isOpen)
+
+        // Both spent touches were dropped: a fresh touch can be tracked and pick.
+        m.touchBegan("c", cell: 4)
+        XCTAssertEqual(m.touchEnded("c", cell: 4), [.select(4)])
+        XCTAssertFalse(m.isOpen)
     }
 
     func testOutOfAmmoWeaponIsStillSelectable() {
@@ -90,6 +95,21 @@ final class WeaponSelectModelTests: XCTestCase {
         XCTAssertFalse(m.isOpen)
         XCTAssertEqual(m.touchEnded("a", cell: 1), [])
         XCTAssertFalse(m.isOpen)
+
+        // Re-open: the stale finger must not pick from its old tracking.
+        XCTAssertEqual(m.hotspotTouchBegan(canOpen: true), [.releaseHeldInputs])
+        XCTAssertEqual(m.touchEnded("a", cell: 1), [])
+        XCTAssertTrue(m.isOpen)
+    }
+
+    func testReTapCloseForgetsTheFinger() {
+        var m = openModel(owned: [1])
+        m.touchBegan("a", cell: 1)
+        XCTAssertEqual(m.hotspotTouchBegan(canOpen: true), [.selectBest])
+        XCTAssertFalse(m.isOpen)
+        XCTAssertEqual(m.hotspotTouchBegan(canOpen: true), [.releaseHeldInputs])
+        XCTAssertEqual(m.touchEnded("a", cell: 1), [])
+        XCTAssertTrue(m.isOpen)
     }
 
     func testCancelledTouchPicksNothing() {
