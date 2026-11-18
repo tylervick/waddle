@@ -48,4 +48,9 @@ final class DoomGraphicsTests: XCTestCase {
         lump.append(Data([0x00, 0x01, 0x00, 0x05, 0x00, 0xFF]))
         XCTAssertNil(DoomGraphics.decodePicture(lump, palette: [UInt8](repeating: 0, count: 1024)))
     }
+
+    func testSilhouetteKeepsAlphaAndBlacksColour() {
+        let b = DoomGraphics.Bitmap(width: 2, height: 1, rgba: [10, 20, 30, 255, 40, 50, 60, 0])
+        XCTAssertEqual(b.silhouette().rgba, [0, 0, 0, 255, 0, 0, 0, 0])
+    }
 }
