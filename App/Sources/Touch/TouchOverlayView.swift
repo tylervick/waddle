@@ -103,8 +103,9 @@ final class TouchOverlayView: UIView {
     /// reaches `touchesBegan` like any other); it exists so VoiceOver and
     /// UI tests can find the spot.
     private let weaponHotspot = UIView()
-    /// Fetched once per session, on first open, then reused as-is so the
-    /// view's per-cell comparison never sees a "new" sprite.
+    /// Fetched lazily on open, once per session once any sprite decodes
+    /// (an all-nil fetch is retried on the next open), then reused as-is so
+    /// the view's per-cell comparison never sees a "new" sprite.
     private var weaponSprites: [DoomGraphics.Bitmap?]?
     /// What the overlay last applied for the model's `isOpen`, so opening and
     /// closing each run their side effects exactly once.
@@ -853,12 +854,13 @@ final class TouchOverlayView: UIView {
         let automapUp = WoofIOS_IsAutomapActive()
         let menuUp = WoofIOS_IsMenuActive()
         let attract = gamepad.isAttractMode
+        let weaponGridOpenAtBatchStart = weaponModel.isOpen
         for touch in touches {
             let point = touch.location(in: self)
             // Before menu routing: the hotspot wins over stick, turn and menu
             // for a touch that begins in it, and an open grid takes every
             // touch. Checked per touch, since one in this batch may open it.
-            if weaponGridTookBegan(touch, at: point) { continue }
+            if weaponGridTookBegan(touch, at: point, openAtBatchStart: weaponGridOpenAtBatchStart) { continue }
             let route = router.route(point, stickTracking: stickTouch != nil,
                                      turnTracking: turnTouch != nil)
             let nearButton = router.isNearButton(point)
@@ -1067,7 +1069,16 @@ final class TouchOverlayView: UIView {
     /// re-tap closes it) or can open; otherwise the hotspot is inert and the
     /// touch is routed exactly as it would be without it. While open, every
     /// other touch is the grid's, wherever it lands.
-    private func weaponGridTookBegan(_ touch: UITouch, at point: CGPoint) -> Bool {
+    ///
+    /// A finger landing in the same `touchesBegan` call as the touch that
+    /// opened (or re-tap closed) the grid is consumed and nothing more: it
+    /// can neither pick, close, nor steer, whatever order the set iterates
+    /// in. Iterated after the opening touch, it is caught by the
+    /// `openAtBatchStart` check below. Iterated before, it was routed as
+    /// usual and then let go by the opening's `releaseHeldInputs`.
+    private func weaponGridTookBegan(_ touch: UITouch, at point: CGPoint,
+                                     openAtBatchStart: Bool) -> Bool {
+        if weaponModel.isOpen != openAtBatchStart { return true }
         if weaponGeometry.hotspot.contains(point) {
             let slots = weaponModel.isOpen ? nil : weaponGridSlots()
             guard weaponModel.isOpen || slots != nil else { return false }
@@ -1160,7 +1171,11 @@ final class TouchOverlayView: UIView {
         let open = weaponModel.isOpen
         if open != weaponGridShown {
             weaponGridShown = open
-            if open, weaponSprites == nil { weaponSprites = gamepad.weaponSprites() }
+            // Fetched on open until at least one sprite decodes (a fetch
+            // before the engine is ready can come back empty), then kept.
+            if open, !(weaponSprites?.contains { $0 != nil } ?? false) {
+                weaponSprites = gamepad.weaponSprites()
+            }
             for button in buttons {
                 button.isUserInteractionEnabled = !open
                     && (!keyboardActive || button.accessibilityIdentifier == "menuButton")
@@ -1364,6 +1379,17 @@ final class OverlayButton: UIView {
     private var releaseAlreadySent = false
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        // Hit-testing happens before delivery, so a finger that landed on
+        // this button in the same event as the touch that opened the weapon
+        // grid is still delivered here after the grid disabled interaction.
+        // Pressing it would leave FIRE (or any button) held under the grid,
+        // so it is swallowed whole: nothing is sent now, the pressed and
+        // pending bookkeeping is untouched (nothing is down, nothing owed),
+        // and its lift is marked to send nothing either.
+        guard isUserInteractionEnabled else {
+            releaseAlreadySent = true
+            return
+        }
         Self.debugPressCount += 1
         flushPendingRelease()
         releaseAlreadySent = false
