@@ -61,8 +61,9 @@ int WoofIOS_DebugTouchKeyWrites(int key); // keys from WoofIOS_InjectKey
 //    ws:<n>"
 // so one USE tap reads "touchWrites: b0:2 turn:0 ws:0" and a stick drag lists
 // axes and no button. ws counts weapon-grid selections the engine accepted
-// (WoofIOS_SelectWeapon and WoofIOS_SelectBestWeapon calls made while a live
-// local player is in a level) and is always present.
+// (WoofIOS_SelectWeapon and WoofIOS_SelectBestWeapon calls that passed
+// their gate; accepted is not necessarily applied, see there) and is always
+// present.
 // Shown after a session under WADDLE_DEBUG_INPUT_COUNTS.
 const char *WoofIOS_DebugTouchWrites(void);
 
@@ -326,31 +327,47 @@ typedef struct
     bool can_fire; // enough ammo for one shot, by P_CheckAmmo's rule
 } WoofIOS_WeaponSlot;
 
-// Fills all nine entries and returns true while a live local player is in a
-// level (GS_LEVEL, no demo playback, PST_LIVE); otherwise returns false and
-// leaves `out` untouched, and the grid may not open.
+// Fills all nine entries and returns true while the engine reports a live
+// local player in a level (gamestate GS_LEVEL, no demo playback, PST_LIVE);
+// otherwise returns false and leaves `out` untouched, and the grid may not
+// open. The gate reads gamestate as it stands, which no session start
+// resets: it is zero (GS_LEVEL) in a fresh process and players[] is zeroed
+// to PST_LIVE, and after a session it keeps that session's last value. So
+// between a session's start and its first level load (a -loadgame start
+// loads in the first tic) the gate can pass for a player with no level yet,
+// and the table reads all unowned. Once a level has loaded it refuses
+// intermission, finale, the title/demo screens and a dead player. It does
+// not look at the menu or pause; the overlay checks the menu itself.
 bool WoofIOS_GetWeaponSelectState(WoofIOS_WeaponSlot out[WOOF_IOS_NUM_WEAPONS]);
 
 // Switch to weapon 0..8 on the next built command, as a direct selection:
 // the engine's fist/chainsaw and shotgun/SSG toggles are skipped. Out of
 // range is ignored, and so is any call while WoofIOS_GetWeaponSelectState
 // would return false; a weapon not owned is the engine's usual no-op.
+// Accepted (and counted in ws) does not guarantee applied: a select made
+// while a menu is open or the game is paused is latched all the same, and
+// is then either applied under the menu or carried by a command the game
+// discards, as is one built into a command that pause or save overwrites
+// with BT_SPECIAL.
 void WoofIOS_SelectWeapon(int weapon);
 
 // Switch to the engine's best weapon for the ammo held (P_SwitchWeapon) on
 // the next built command. Not routed through a key, so rebinding cannot
-// break it. Ignored while WoofIOS_GetWeaponSelectState would return false.
+// break it. Ignored while WoofIOS_GetWeaponSelectState would return false;
+// accepted is not guaranteed applied, as for WoofIOS_SelectWeapon.
 void WoofIOS_SelectBestWeapon(void);
 
 // Copies the Doom-format picture of frame 0 of the weapon's ready-state
 // sprite into `buf` (a PNG sprite arrives converted), for the overlay to
-// decode with PLAYPAL. Returns the bytes written, or 0 outside a level
-// (gamestate GS_LEVEL), if there is no sprite, or if `cap` is too small.
+// decode with PLAYPAL. Returns the bytes written, or 0 while gamestate is
+// not GS_LEVEL, if there is no sprite, or if `cap` is too small. The
+// gamestate check is the same one WoofIOS_GetWeaponSelectState makes, with
+// the same gap before a session's first level load.
 int WoofIOS_CopyWeaponSprite(int weapon, unsigned char *buf, int cap);
 
 // Copies the first 768 bytes of PLAYPAL (palette 0) into `buf`. Returns 768,
-// or 0 outside a level (gamestate GS_LEVEL), if there is no PLAYPAL, or if
-// `cap` is too small.
+// or 0 while gamestate is not GS_LEVEL (with the same gap as above), if
+// there is no PLAYPAL, or if `cap` is too small.
 int WoofIOS_CopyPlaypal(unsigned char *buf, int cap);
 
 // Debug/test telemetry only, its own debug-HUD segment:

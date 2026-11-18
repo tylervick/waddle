@@ -776,9 +776,11 @@ only ever runs once):
   `G_BuildTiccmd` a branch ahead of the auto-switch `if` consumes the latch
   (select-best resolved with `P_SwitchWeapon`) and falls into the existing
   `newweapon != wp_nochange` block, so BT_CHANGE and `G_NextWeaponReset`
-  happen as for any direct selection. At `demo_compatibility` a pending
-  super shotgun goes through `WeaponSSG()` (shotgun, or nothing if the SSG
-  is already up or pending), as the `9` key does: `P_PlayerThink` reads only
+  happen as for any direct selection. At `demo_compatibility` a super
+  shotgun -- a pending direct pick, or select-best's resolution, since
+  `P_SwitchWeapon` can return it there -- goes through `WeaponSSG()`
+  (shotgun, or nothing if the SSG is already up or pending), as the `9` key
+  does: `P_PlayerThink` reads only
   `BT_WEAPONMASK_OLD` there, so a raw `wp_supershotgun` (8) would arrive as
   the fist. Key injection was not enough: the
   number keys go through `AdjustWeaponSelection`, which toggles fist to

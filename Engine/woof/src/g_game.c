@@ -894,14 +894,18 @@ void G_BuildTiccmd(ticcmd_t* cmd)
   // branch's done_autoswitch handling is skipped for the tic the latch
   // fires, harmlessly: it runs again on the next tic. At demo_compatibility
   // P_PlayerThink reads only BT_WEAPONMASK_OLD, where wp_supershotgun (8)
-  // would arrive as wp_fist, so the SSG goes as WeaponSSG sends it.
+  // would arrive as wp_fist, so the SSG -- picked directly or resolved by
+  // select-best, where P_SwitchWeapon can return it -- goes as WeaponSSG
+  // sends it.
   if (touch_weapon_pending_best || touch_weapon_pending != wp_nochange)
   {
     newweapon = touch_weapon_pending_best
                     ? P_SwitchWeapon(&players[consoleplayer])
-                : demo_compatibility && touch_weapon_pending == wp_supershotgun
-                    ? WeaponSSG()
                     : touch_weapon_pending;
+    if (demo_compatibility && newweapon == wp_supershotgun)
+    {
+      newweapon = WeaponSSG();
+    }
     touch_weapon_pending = wp_nochange;
     touch_weapon_pending_best = false;
   }

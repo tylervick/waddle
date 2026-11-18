@@ -960,8 +960,10 @@ bool WoofIOS_IsAttractMode(void)
 _Static_assert(WOOF_IOS_NUM_WEAPONS == NUMWEAPONS,
                "WOOF_IOS_NUM_WEAPONS must match the engine's weapon count");
 
-// A live local player in a level: when the grid may open and its selects
-// count.
+// A live local player in a level, as gamestate reports it: when the grid
+// may open and its selects count. gamestate is not reset at session start,
+// so before a session's first level load this can pass on a stale or
+// fresh-process GS_LEVEL; menu and pause are not checked (see the header).
 static bool WeaponSelectAllowed(void)
 {
     return gamestate == GS_LEVEL && !demoplayback
@@ -1073,7 +1075,10 @@ static int WeaponPatchLength(const byte *patch, int size)
 
 int WoofIOS_CopyWeaponSprite(int weapon, unsigned char *buf, int cap)
 {
-    // Outside a level the sprite tables may be a finished session's.
+    // Outside a level the sprite tables may be a finished session's. This
+    // refuses intermission, finale and the title/demo screens, but not a
+    // session's start before its first level load, where gamestate may
+    // still read GS_LEVEL (see WoofIOS_GetWeaponSelectState).
     if (gamestate != GS_LEVEL || weapon < 0 || weapon >= WOOF_IOS_NUM_WEAPONS
         || !buf || cap <= 0 || !states || !sprites)
     {
