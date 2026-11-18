@@ -43,8 +43,9 @@
 #include "info.h"     // states[], num_states, num_sprites
 #include "m_swap.h"   // SHORT, LONG for the patch header
 #include "r_state.h"  // sprites, firstspritelump, numspritelumps
+#include "v_palette.h" // playpal_global, PLAYPAL_BYTES
 #include "v_patch.h"  // V_CachePatchNum, V_LumpSize
-#include "w_wad.h"    // W_CheckNumForName, W_CacheLumpNum
+#include "w_wad.h"    // lumpcache, numlumps
 
 void D_DoomMain(void);
 
@@ -1104,8 +1105,13 @@ int WoofIOS_CopyWeaponSprite(int weapon, unsigned char *buf, int cap)
         return 0;
     }
     // The engine's cached patch, so a PNG sprite arrives already converted
-    // to Doom picture format; V_LumpSize is that converted size.
-    const byte *patch = (const byte *)V_CachePatchNum(lumpnum, PU_CACHE);
+    // to Doom picture format; V_LumpSize is that converted size. A patch
+    // already cached is read in place, keeping its owner's tag: the status
+    // bar caches sprite patches PU_STATIC, and V_CachePatchNum would demote
+    // one to PU_CACHE, to be freed under that owner at the next level load.
+    const byte *patch = lumpcache[lumpnum]
+                            ? (const byte *)lumpcache[lumpnum]
+                            : (const byte *)V_CachePatchNum(lumpnum, PU_CACHE);
     const int length = WeaponPatchLength(patch, V_LumpSize(lumpnum));
     if (length <= 0 || length > cap)
     {
@@ -1117,18 +1123,17 @@ int WoofIOS_CopyWeaponSprite(int weapon, unsigned char *buf, int cap)
 
 int WoofIOS_CopyPlaypal(unsigned char *buf, int cap)
 {
-    enum { playpal_bytes = 768 };
-    if (gamestate != GS_LEVEL || !buf || cap < playpal_bytes || numlumps <= 0)
+    // The palette V_InitPalette holds PU_STATIC, read in place: re-caching
+    // the lump would demote it to PU_CACHE (W_CacheLumpNum's Z_ChangeTag),
+    // and the next level load's Z_FreeTag(PU_CACHE) would free it from under
+    // playpal_global->data.
+    if (gamestate != GS_LEVEL || !buf || cap < PLAYPAL_BYTES || !playpal_global
+        || !playpal_global->data || playpal_global->length < PLAYPAL_BYTES)
     {
         return 0;
     }
-    const int lump = W_CheckNumForName("PLAYPAL");
-    if (lump < 0 || W_LumpLength(lump) < playpal_bytes)
-    {
-        return 0;
-    }
-    memcpy(buf, W_CacheLumpNum(lump, PU_CACHE), playpal_bytes);
-    return playpal_bytes;
+    memcpy(buf, playpal_global->data, PLAYPAL_BYTES);
+    return PLAYPAL_BYTES;
 }
 
 const char *WoofIOS_DebugMenuState(void)

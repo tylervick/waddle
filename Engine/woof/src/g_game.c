@@ -890,11 +890,17 @@ void G_BuildTiccmd(ticcmd_t* cmd)
 
 #ifdef WOOF_IOS
   // The touch weapon grid's latch (see G_TouchSelectWeapon); falls into the
-  // BT_CHANGE block below like any direct selection.
+  // BT_CHANGE block below like any direct selection. The auto-switch
+  // branch's done_autoswitch handling is skipped for the tic the latch
+  // fires, harmlessly: it runs again on the next tic. At demo_compatibility
+  // P_PlayerThink reads only BT_WEAPONMASK_OLD, where wp_supershotgun (8)
+  // would arrive as wp_fist, so the SSG goes as WeaponSSG sends it.
   if (touch_weapon_pending_best || touch_weapon_pending != wp_nochange)
   {
     newweapon = touch_weapon_pending_best
                     ? P_SwitchWeapon(&players[consoleplayer])
+                : demo_compatibility && touch_weapon_pending == wp_supershotgun
+                    ? WeaponSSG()
                     : touch_weapon_pending;
     touch_weapon_pending = wp_nochange;
     touch_weapon_pending_best = false;
