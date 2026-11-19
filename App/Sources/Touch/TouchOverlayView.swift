@@ -1207,8 +1207,12 @@ final class TouchOverlayView: UIView {
         return true
     }
 
-    /// Lifts may pick; cancellations never do.
+    /// Lifts may pick; cancellations never do. A ring lift resolves its
+    /// shared slot against the engine's state as it is now, not as the last
+    /// 0.25 s poll saw it (the weapon may have changed since), and a "may
+    /// not be open" answer here is the forced close the poll would have made.
     private func endWeaponSelectorTouches(_ touches: Set<UITouch>, cancelled: Bool) {
+        if weaponSelectorStyle == .ring, !cancelled, ringModel.isOpen { refreshRingFromEngine() }
         for touch in touches {
             let id = AnyHashable(touch)
             let point = touch.location(in: self)
@@ -1283,13 +1287,21 @@ final class TouchOverlayView: UIView {
             if let slots { weaponModel.slots = slots }
             weaponModel.availabilityChanged(canOpen: slots != nil)
         case .ring:
-            if let slots {
-                ringModel.slots = slots
-                ringModel.selectedWeapon = gamepad.selectedWeapon()
-            }
-            ringModel.availabilityChanged(canOpen: slots != nil)
+            refreshRingFromEngine()
         }
         syncWeaponSelector()
+    }
+
+    /// The ring's slots and selected weapon, read now; nil from the engine
+    /// (or the overlay's own "may open" checks) closes it without a pick.
+    /// Opening reads both itself, in `weaponRingTookBegan`.
+    private func refreshRingFromEngine() {
+        let slots = weaponGridSlots()
+        if let slots {
+            ringModel.slots = slots
+            ringModel.selectedWeapon = gamepad.selectedWeapon()
+        }
+        ringModel.availabilityChanged(canOpen: slots != nil)
     }
 
     /// Closes without picking anything, as a forced close does.

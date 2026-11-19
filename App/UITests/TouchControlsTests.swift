@@ -466,9 +466,10 @@ final class TouchControlsTests: XCTestCase {
     }
 
     /// The weapon-select ring's one-gesture pick: press on the hotspot, slide
-    /// to the fist's wedge (slot 0) and lift. The ring is the default, so no
-    /// style is named. A first tap opens it, which proves it is the ring
-    /// (seven wedges, no `weaponCell7`) and gives the fist wedge's place; a
+    /// to the fist's wedge (slot 0) and lift. The ring is the default, but
+    /// the style is pinned anyway (see below). A first tap opens it, which
+    /// proves it is the ring (seven wedges, no `weaponCell7`) and gives the
+    /// fist wedge's place; a
     /// second tap on the hotspot closes it without a pick (the grid's re-tap
     /// would select the best weapon and count in `ws`). The press-slide-lift
     /// then opens, picks and closes, so `ws` is exactly 1.
@@ -484,6 +485,9 @@ final class TouchControlsTests: XCTestCase {
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        // Pinned, so a stored Grid setting in the app container cannot
+        // turn this into a grid test.
+        app.launchEnvironment["WADDLE_WEAPON_SELECTOR"] = "ring"
         app.launch()
 
         let play = app.buttons["playFreedoom1"]
