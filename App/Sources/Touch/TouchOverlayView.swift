@@ -953,6 +953,9 @@ final class TouchOverlayView: UIView {
         if weaponSelectorOpen {
             // Opening released every track, and no new one starts while the
             // selector is up, so there is nothing below for these touches to move.
+            // The ring redraws only when the highlight changes; moves cannot
+            // open or close it.
+            let highlightBefore = ringModel.highlightedSlot
             for touch in touches {
                 let point = touch.location(in: self)
                 switch weaponSelectorStyle {
@@ -960,7 +963,9 @@ final class TouchOverlayView: UIView {
                 case .ring: ringModel.touchMoved(AnyHashable(touch), at: ringGeometry.locate(point))
                 }
             }
-            syncWeaponSelector()
+            if weaponSelectorStyle == .grid || ringModel.highlightedSlot != highlightBefore {
+                syncWeaponSelector()
+            }
             return
         }
         if !automapTouches.isEmpty, touches.contains(where: { automapTouches.contains($0) }) {
@@ -1097,11 +1102,15 @@ final class TouchOverlayView: UIView {
 
     /// From `layoutSubviews`: the selector follows the picture, through
     /// rotation, letterboxing and the half-open fold, via the same rect the
-    /// controls use. Both geometries share the hotspot.
+    /// controls use. The hotspot view takes the installed style's frame: the
+    /// grid's rectangle, or the bounding box of the ring's disc.
     private func layoutWeaponSelector() {
         weaponGeometry = WeaponSelectGeometry(pictureRect: pictureRect)
         ringGeometry = WeaponRingGeometry(pictureRect: pictureRect)
-        weaponHotspot.frame = weaponGeometry.hotspot
+        switch weaponSelectorStyle {
+        case .grid: weaponHotspot.frame = weaponGeometry.hotspot
+        case .ring: weaponHotspot.frame = ringGeometry.hotspot
+        }
         weaponView?.frame = bounds
         ringView?.frame = bounds
         if weaponSelectorOpen { updateWeaponSelectorView() }

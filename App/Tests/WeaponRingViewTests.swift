@@ -114,6 +114,48 @@ final class WeaponRingViewTests: XCTestCase {
         XCTAssertTrue(wedges(view).allSatisfy { !$0.isUserInteractionEnabled })
     }
 
+    /// The end wedges' sprites stay above the centre line, where their
+    /// panels are; every sprite is still aspect-fitted to the square.
+    func testSpritesStayAboveTheCentreLine() {
+        let square = DoomGraphics.Bitmap(width: 2, height: 2, rgba: [UInt8](repeating: 255, count: 16))
+        let view = makeView(model(owned: Set(0..<9)), sprites: Array(repeating: square, count: 9))
+        for i in 0..<7 {
+            guard let sprite = view.spriteFrameForTesting(i) else { return XCTFail("wedge \(i) has no sprite") }
+            XCTAssertLessThanOrEqual(sprite.maxY, geometry.center.y, "wedge \(i)")
+            XCTAssertEqual(sprite.width, geometry.spriteSide, accuracy: 1e-6, "wedge \(i)")
+        }
+        let middle = view.spriteFrameForTesting(3)!
+        XCTAssertEqual(middle.midY, geometry.wedgeMidpoint(3).y, accuracy: 1e-6, "an unconstrained sprite is not moved")
+    }
+
+    func testSpriteRectFitsAndNudges() {
+        let box = CGRect(x: 0, y: 0, width: 40, height: 40)
+        XCTAssertEqual(WeaponRingView.spriteRect(imageSize: CGSize(width: 20, height: 10), box: box, floorY: 100),
+                       CGRect(x: 0, y: 10, width: 40, height: 20))
+        XCTAssertEqual(WeaponRingView.spriteRect(imageSize: CGSize(width: 10, height: 10), box: box, floorY: 30),
+                       CGRect(x: 0, y: -10, width: 40, height: 40))
+        XCTAssertEqual(WeaponRingView.spriteRect(imageSize: .zero, box: box, floorY: 30), .zero)
+    }
+
+    /// The accessibility path is the panel. The wedge's frame is unchanged,
+    /// so the centre XCUITest taps is still the wedge midpoint; that centre,
+    /// and the centre of the panel's bounding box (in case a reader takes
+    /// the frame from the path), are both on the drawn wedge.
+    func testAccessibilityPathIsThePanelAndTapPointsAreOnTheDrawing() {
+        let view = makeView(model(owned: [1]))
+        view.isHidden = false
+        let found = wedges(view)
+        for i in 0..<7 {
+            XCTAssertNotNil(found[i].accessibilityPath, "wedge \(i)")
+            let frame = view.wedgeFrameForTesting(i)
+            XCTAssertEqual(geometry.drawnWedge(at: CGPoint(x: frame.midX, y: frame.midY)), i, "frame centre \(i)")
+            guard let path = view.panelPathForTesting(i) else { return XCTFail("no panel \(i)") }
+            let box = path.boundingBoxOfPath
+            XCTAssertEqual(geometry.drawnWedge(at: CGPoint(x: box.midX, y: box.midY)), i, "path box centre \(i)")
+            XCTAssertTrue(path.contains(geometry.wedgeMidpoint(i)), "panel contains its midpoint \(i)")
+        }
+    }
+
     func testPanelPathLeavesAGap() {
         let c = CGPoint(x: 0, y: 0)
         let path = WeaponRingView.panelPath(center: c, inner: 40, outer: 100,

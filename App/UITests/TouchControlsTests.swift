@@ -472,6 +472,10 @@ final class TouchControlsTests: XCTestCase {
     /// second tap on the hotspot closes it without a pick (the grid's re-tap
     /// would select the best weapon and count in `ws`). The press-slide-lift
     /// then opens, picks and closes, so `ws` is exactly 1.
+    ///
+    /// The older `testWeaponGridPicksAnOwnedWeapon` names no style, so despite
+    /// its name and comment it now exercises the ring (its taps hold there);
+    /// the grid is covered by `testWeaponGridSelectorStillPicks`.
     @MainActor
     func testWeaponRingSlideToPick() throws {
         let app = XCUIApplication()

@@ -41,9 +41,10 @@ overlay to remain visible even when input devices are connected.
     open; tapping an owned wedge picks it and closes; tapping an unowned
     wedge does nothing and the ring stays open; tapping the hotspot again
     closes it without changing weapon
-  - Tap outside: with the ring open, a tap anywhere off the ring and the
-    hotspot (over the stick, over FIRE) closes it, and does not move, turn
-    or fire
+  - Tap outside: with the ring open, a tap anywhere off the drawn wedges
+    (over the stick, over FIRE or USE just past the ring's outer edge, in
+    the ring's hole) closes it without a pick, and does not move, turn or
+    fire. A slide that starts on a wedge may still overshoot the edge and pick
   - Walk with the stick, then open the ring with the other hand while the
     stick thumb stays down: the player stops at once, and moving or lifting
     that thumb over a wedge neither picks nor highlights it. Hold FIRE
@@ -53,7 +54,9 @@ overlay to remain visible even when input devices are connected.
     picks it; once more swaps back. Same with the shotgun and super shotgun
     in a DOOM II game (preferred: super shotgun). At a vanilla compatibility
     level the original game's rule may still turn a fist pick into the
-    chainsaw or a shotgun pick into the super shotgun (expected)
+    chainsaw or a shotgun pick into the super shotgun (expected). Reopening
+    immediately after a shared-slot pick can still show the same partner
+    until the engine builds its next command (a tic); that is expected
   - The wedge of the weapon in hand has a light outline. An owned weapon
     with no ammo shows red and is still pickable
   - The ring closes on its own when a menu or the automap opens, when the

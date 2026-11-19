@@ -47,9 +47,11 @@ final class WeaponRingView: UIView {
     /// "not owned" / "ready" / "out of ammo", the `.button` trait, and
     /// `.notEnabled` when the slot resolves to nothing. Each wedge view's frame
     /// is its sprite square, centred on the wedge's midpoint, so the centre of
-    /// its accessibility frame is inside the wedge; the panel is drawn by a
-    /// layer that reaches outside that frame. `sprites` is nine entries in
-    /// engine weapon order.
+    /// its accessibility frame (where XCUITest taps) is on the drawn wedge;
+    /// the panel is drawn by a layer that reaches outside that frame, and is
+    /// also the wedge's `accessibilityPath`, so VoiceOver outlines and
+    /// explores the panel itself rather than the overlapping squares.
+    /// `sprites` is nine entries in engine weapon order.
     func update(geometry: WeaponRingGeometry, model: WeaponRingModel,
                 sprites: [DoomGraphics.Bitmap?]) {
         let side = geometry.spriteSide
@@ -70,6 +72,7 @@ final class WeaponRingView: UIView {
             wedge.configure(
                 panel: Self.panelPath(center: center, inner: geometry.innerRadius, outer: geometry.outerRadius,
                                       start: angles.start, end: angles.end, gap: gap),
+                spriteFloorY: center.y - gap,
                 appearance: appearance,
                 accented: model.selectedSlot == i,
                 name: WeaponSelectModel.names[shown],
@@ -97,13 +100,41 @@ final class WeaponRingView: UIView {
         return path
     }
 
+    /// Aspect-fitted into `box`, centred, then moved up if needed so its
+    /// bottom is no lower than `floorY`. Only the end wedges (0 and 6), whose
+    /// midpoints sit 0.156 · R above the centre line, need the nudge: an
+    /// unmoved square sprite there would reach 0.084 · R below the line,
+    /// where there is no panel.
+    static func spriteRect(imageSize: CGSize, box: CGRect, floorY: CGFloat) -> CGRect {
+        guard imageSize.width > 0, imageSize.height > 0 else { return .zero }
+        let scale = min(box.width / imageSize.width, box.height / imageSize.height)
+        let size = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
+        var rect = CGRect(x: box.midX - size.width / 2, y: box.midY - size.height / 2,
+                          width: size.width, height: size.height)
+        if rect.maxY > floorY { rect.origin.y -= rect.maxY - floorY }
+        return rect
+    }
+
     func wedgeFrameForTesting(_ index: Int) -> CGRect { wedges[index].frame }
+    /// The panel path in this view's coordinates.
+    func panelPathForTesting(_ index: Int) -> CGPath? {
+        guard let path = wedges[index].panelPath else { return nil }
+        let origin = wedges[index].frame.origin
+        var move = CGAffineTransform(translationX: origin.x, y: origin.y)
+        return path.copy(using: &move)
+    }
+    /// The sprite's drawn rectangle in this view's coordinates, or nil.
+    func spriteFrameForTesting(_ index: Int) -> CGRect? {
+        guard let rect = wedges[index].spriteRect else { return nil }
+        return rect.offsetBy(dx: wedges[index].frame.minX, dy: wedges[index].frame.minY)
+    }
     func isAccentedForTesting(_ index: Int) -> Bool { wedges[index].isAccented }
     func hasSpriteForTesting(_ index: Int) -> Bool { wedges[index].hasSprite }
 }
 
-/// One wedge: the panel layer and the sprite. The sprite fills the view's
-/// square, aspect-fitted, nearest-neighbour, upright.
+/// One wedge: the panel layer and the sprite. The sprite is aspect-fitted
+/// into the view's square, nearest-neighbour, upright, and clipped to the
+/// panel, so nothing of it draws outside the wedge.
 private final class WeaponWedgeView: UIView {
     /// Brighter than `ready`, for the wedge a lift would pick. The grid's
     /// `pressed` is darker than its `ready`, which suits a cell under a
@@ -112,9 +143,24 @@ private final class WeaponWedgeView: UIView {
     private static let accent = WeaponPanelPalette.text.cgColor
 
     private let panel = CAShapeLayer()
+    /// Clips the sprite to the panel.
+    private let spriteClip = CALayer()
+    private let spriteMask = CAShapeLayer()
     private let spriteLayer = CALayer()
     private(set) var isAccented = false
+    private(set) var panelPath: CGPath?
     var hasSprite: Bool { spriteLayer.contents != nil }
+    var spriteRect: CGRect? { spriteLayer.isHidden ? nil : spriteLayer.frame }
+
+    /// The panel, in screen coordinates, computed when asked so it follows
+    /// layout, rotation and the window.
+    override var accessibilityPath: UIBezierPath? {
+        get {
+            guard let panelPath else { return nil }
+            return UIAccessibility.convertToScreenCoordinates(UIBezierPath(cgPath: panelPath), in: self)
+        }
+        set {}  // derived from the panel; not settable
+    }
 
     init(index: Int) {
         super.init(frame: .zero)
@@ -126,13 +172,15 @@ private final class WeaponWedgeView: UIView {
         layer.addSublayer(panel)
         spriteLayer.magnificationFilter = .nearest
         spriteLayer.minificationFilter = .nearest
-        spriteLayer.contentsGravity = .resizeAspect
-        layer.addSublayer(spriteLayer)
+        spriteLayer.contentsGravity = .resize
+        spriteClip.mask = spriteMask
+        spriteClip.addSublayer(spriteLayer)
+        layer.addSublayer(spriteClip)
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    func configure(panel path: CGPath, appearance: WeaponCellAppearance, accented: Bool,
+    func configure(panel path: CGPath, spriteFloorY: CGFloat, appearance: WeaponCellAppearance, accented: Bool,
                    name: String, state: WeaponSlotState?, sprite: CGImage?, edgeWidth: CGFloat) {
         let fill: UIColor
         switch appearance {
@@ -143,6 +191,7 @@ private final class WeaponWedgeView: UIView {
         }
         panel.frame = bounds
         panel.path = path
+        panelPath = path
         panel.fillColor = fill.cgColor
         isAccented = accented
         panel.strokeColor = accented ? Self.accent : WeaponPanelPalette.edge
@@ -153,7 +202,13 @@ private final class WeaponWedgeView: UIView {
         accessibilityValue = state.map { $0.canFire ? "ready" : "out of ammo" } ?? "not owned"
         accessibilityTraits = state != nil ? .button : [.button, .notEnabled]
 
-        spriteLayer.frame = bounds
+        spriteClip.frame = bounds
+        spriteMask.frame = bounds
+        spriteMask.path = path
+        spriteLayer.frame = sprite.map {
+            WeaponRingView.spriteRect(imageSize: CGSize(width: $0.width, height: $0.height),
+                                      box: bounds, floorY: spriteFloorY)
+        } ?? bounds
         spriteLayer.contents = sprite
         spriteLayer.isHidden = sprite == nil
         spriteLayer.opacity = appearance == .unowned ? 0.6 : 1
