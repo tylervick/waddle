@@ -3,4 +3,4 @@ A weapon ring, and room to spread out on bigger screens.
 - Pick weapons from a ring: tap the middle of the status bar to open it, or press there, slide up and lift over the weapon you want. The fist and chainsaw share a slot, and so do the two shotguns; pick the slot again to swap. Prefer a grid? Settings > Weapon Selector.
 - On iPad and other wide windows, a game's page and Settings open beside your library instead of covering it.
 - iPhone Duo: Waddle fills the inner display, and with the phone standing half open the game sits on the upper half with the touch controls below the fold.
-- Touch controls stay clear of the status bar when the picture does not fill the screen, as on an iPad held upright.
+- The on-screen buttons stay clear of the status bar when the picture does not fill the screen, as on an iPad held upright.
