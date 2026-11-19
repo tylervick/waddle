@@ -30,6 +30,30 @@ overlay to remain visible even when input devices are connected.
 - [ ] Weapon prev/next cycles; MAP toggles automap (previously silently did
       nothing — was wired to an unbound button); ≡ opens the menu;
       tapping an item opens it, and the stick + FIRE/USE still navigate it
+- [ ] Weapon-select grid: tapping the bottom centre of the picture (the
+      middle of the status bar) opens a 3×3 weapon grid over the picture.
+      Check each of:
+  - Walk with the stick, then tap the hotspot with the other hand while the
+    stick thumb stays down: the player stops at once. Relax that thumb so it
+    lifts over a bottom-row cell: nothing is picked and the grid stays open.
+    Hold FIRE (chaingun) and open the grid the same way: firing stops
+  - Tap each owned weapon in turn (reopening between taps): each switches to
+    that weapon and closes the grid. An unowned cell (dark, black
+    silhouette) does nothing
+  - An owned weapon with no ammo shows a red cell and is still pickable
+  - Tapping the hotspot again while the grid is open closes it and switches
+    to the best weapon with ammo
+  - The grid closes on its own when a menu or the automap opens and when the
+    player dies. While it is open every overlay button, ≡ and MAP included,
+    is disabled, so open them by another route (a hardware keyboard's Esc or
+    Tab), or close the grid first and confirm ≡ and MAP work again
+  - Rotate the device with the grid open: the cells follow the picture
+  - On a landscape iPhone and on an iPad, every weapon sprite fits its cell:
+    no barrel cut off at the top, none drawn under the name
+  - A PWAD that replaces weapon sprites shows its own art in the cells
+  - At a vanilla compatibility level, picking "shotgun" with the super
+    shotgun owned may give the super shotgun (the original game's rule;
+    expected)
 - [ ] MAP is hidden/unresponsive whenever a menu is on screen (options,
       Load/Save, etc.), and reappears the instant the menu closes — MAP's
       correct gameplay button (NORTH) doubles as `input_menu_clear` in

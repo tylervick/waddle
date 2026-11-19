@@ -60,3 +60,16 @@ enum DoomGraphics {
         return Bitmap(width: width, height: height, rgba: rgba)
     }
 }
+
+extension DoomGraphics.Bitmap {
+    /// Same alpha, every colour channel zero: the "not owned" sprite.
+    func silhouette() -> DoomGraphics.Bitmap {
+        var out = rgba
+        for p in stride(from: 0, to: out.count - out.count % 4, by: 4) {
+            out[p + 0] = 0
+            out[p + 1] = 0
+            out[p + 2] = 0
+        }
+        return DoomGraphics.Bitmap(width: width, height: height, rgba: out)
+    }
+}

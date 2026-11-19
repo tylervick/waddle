@@ -659,6 +659,33 @@ void G_ResetAutoUseSession(void)
   autouse_presses = 0;
 }
 
+// Touch weapon-select grid: a weapon the overlay picked, latched until the
+// next G_BuildTiccmd turns it into BT_CHANGE ahead of the key-driven choices
+// and without AdjustWeaponSelection, whose fist/chainsaw and shotgun/SSG
+// toggles would turn a tapped weapon into its partner. Select-best latches
+// a P_SwitchWeapon resolution instead. Both clear when consumed and at each
+// session start.
+static int touch_weapon_pending = wp_nochange;
+static boolean touch_weapon_pending_best;
+
+void G_TouchSelectWeapon(int weapon)
+{
+  touch_weapon_pending = weapon;
+  touch_weapon_pending_best = false;
+}
+
+void G_TouchSelectBestWeapon(void)
+{
+  touch_weapon_pending = wp_nochange;
+  touch_weapon_pending_best = true;
+}
+
+void G_ResetTouchWeaponSession(void)
+{
+  touch_weapon_pending = wp_nochange;
+  touch_weapon_pending_best = false;
+}
+
 // Issue #304: players[] is what a fresh process has (all zero) at the start
 // of every in-process session. G_PlayerReborn deliberately carries cheats
 // (killough: "preserve cheats across idclev") and the visitedlevels pointer
@@ -861,6 +888,29 @@ void G_BuildTiccmd(ticcmd_t* cmd)
   G_NextWeaponResendCmd();
   boolean nextweapon_cmd = false;
 
+#ifdef WOOF_IOS
+  // The touch weapon grid's latch (see G_TouchSelectWeapon); falls into the
+  // BT_CHANGE block below like any direct selection. The auto-switch
+  // branch's done_autoswitch handling is skipped for the tic the latch
+  // fires, harmlessly: it runs again on the next tic. At demo_compatibility
+  // P_PlayerThink reads only BT_WEAPONMASK_OLD, where wp_supershotgun (8)
+  // would arrive as wp_fist, so the SSG -- picked directly or resolved by
+  // select-best, where P_SwitchWeapon can return it -- goes as WeaponSSG
+  // sends it.
+  if (touch_weapon_pending_best || touch_weapon_pending != wp_nochange)
+  {
+    newweapon = touch_weapon_pending_best
+                    ? P_SwitchWeapon(&players[consoleplayer])
+                    : touch_weapon_pending;
+    if (demo_compatibility && newweapon == wp_supershotgun)
+    {
+      newweapon = WeaponSSG();
+    }
+    touch_weapon_pending = wp_nochange;
+    touch_weapon_pending_best = false;
+  }
+  else
+#endif
   if ((!demo_compatibility && players[consoleplayer].attackdown &&
        !P_CheckAmmo(&players[consoleplayer]) &&
        ((boom_weapon_state_injection && !done_autoswitch) ||

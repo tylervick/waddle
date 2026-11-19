@@ -1,10 +1,17 @@
 # A `WaddleUITests` failure means nothing until you check the latest `main` run
 
-No pull request runs `WaddleUITests`. `ci.yml` is deliberately
-`-only-testing:WaddleTests`, and `ui-tests.yml` runs on `push: main` and manual
-dispatch. So `main` can carry a red UI test indefinitely with no red check on
-anybody's branch, and the first person to run the suite locally sees failures
-that have nothing to do with their diff.
+No pull request runs the whole of `WaddleUITests`. `ci.yml` is deliberately
+`-only-testing:WaddleTests`. `ui-tests.yml` runs the full suite (less
+`RealWADTests`) on `push: main` and on manual dispatch; on a pull request that
+touches `App/Sources/**`, `App/UITests/**`, `App/Assets.xcassets/**` or
+`App/project.yml` it runs only a shell smoke subset (`PlayTabTests`,
+`GamePageTests`, `FilesScreenTests`, `HiddenGamesScreenTests`, `ShipUITests`),
+none of which starts an engine session. Engine-session and touch tests
+(`EngineSmokeTests`, `TouchControlsTests` and the rest) need a dispatch or
+`main`. So `main` can carry a red UI test indefinitely with no red check on
+anybody's branch, a green pull request says nothing about those tests, and the
+first person to run the suite locally sees failures that have nothing to do
+with their diff.
 
 **Before attributing any `WaddleUITests` failure to your own change, get a
 baseline from `main` rather than assuming green:**
@@ -14,8 +21,10 @@ gh run list --workflow=ui-tests.yml --limit 5
 gh run view <id> --log | grep -oE "Test Case '.*' (passed|failed)" | sort -u
 ```
 
-A branch signal, when you want one pre-merge, is
-`gh workflow run ui-tests.yml --ref <branch>`.
+A branch signal for the tests the smoke subset leaves out, when you want one
+pre-merge, is
+`gh workflow run ui-tests.yml --ref <branch> -f only_testing=WaddleUITests/<Class>`
+(or no `only_testing` for the whole suite).
 
 Two things make this worth a file rather than a habit. `RealWADTests` cannot
 pass anywhere without the non-redistributable fixtures in

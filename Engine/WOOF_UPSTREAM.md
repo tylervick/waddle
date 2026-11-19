@@ -768,6 +768,48 @@ only ever runs once):
   BLOCKMAP lump emptied, through the blockmap-presence check (`42470994`),
   rather than merely not crashing: the IWAD's own E1M1 would read `DoomBSP`.
 
+- `src/g_game.c`, `src/woof_ios.c` / `src/woof_ios.h` -- the touch
+  overlay's weapon-select grid. In g_game.c (WOOF_IOS), beside
+  `G_ResetAutoUseSession`: `G_TouchSelectWeapon(weapon)` and
+  `G_TouchSelectBestWeapon()` latch a pending weapon or a pending
+  select-best, and `G_ResetTouchWeaponSession()` clears both. In
+  `G_BuildTiccmd` a branch ahead of the auto-switch `if` consumes the latch
+  (select-best resolved with `P_SwitchWeapon`) and falls into the existing
+  `newweapon != wp_nochange` block, so BT_CHANGE and `G_NextWeaponReset`
+  happen as for any direct selection. At `demo_compatibility` a super
+  shotgun -- a pending direct pick, or select-best's resolution, since
+  `P_SwitchWeapon` can return it there -- goes through `WeaponSSG()`
+  (shotgun, or nothing if the SSG is already up or pending), as the `9` key
+  does: `P_PlayerThink` reads only
+  `BT_WEAPONMASK_OLD` there, so a raw `wp_supershotgun` (8) would arrive as
+  the fist. Key injection was not enough: the
+  number keys go through `AdjustWeaponSelection`, which toggles fist to
+  chainsaw and shotgun to SSG, so a tapped weapon could arrive as its
+  partner, and select-best on the `0` key breaks if it is rebound. At a
+  vanilla compatibility level `P_PlayerThink` still makes the same swaps
+  when it applies the command; that is the original rule and is left alone.
+  woof_ios.c adds `WoofIOS_GetWeaponSelectState()` (owned and can-fire per
+  weapon, can-fire by `P_CheckAmmo`'s test without its switch; false outside
+  a live local player in a level), `WoofIOS_SelectWeapon()` /
+  `WoofIOS_SelectBestWeapon()` over the latch (ignored and not counted
+  under the same condition, so no latch is left for a later session or
+  level to consume), `WoofIOS_CopyWeaponSprite()` (frame 0 of the weapon's
+  ready-state sprite as `V_CachePatchNum` caches it, so PNGs arrive
+  converted; its length is found by walking the column table, bounded by
+  `V_LumpSize`) and `WoofIOS_CopyPlaypal()`, both returning 0 outside
+  GS_LEVEL, where the sprite tables may still be a finished session's.
+  The gate is weaker than it reads before a session's first level load
+  (`gamestate` is not reset at session start); `woof_ios.h` states the gap.
+  Neither changes a zone tag: the palette is copied from
+  `playpal_global->data` (re-caching PLAYPAL as PU_CACHE would demote the
+  PU_STATIC block `V_InitPalette` keeps, and the next level load's
+  `Z_FreeTag(PU_CACHE)` would free it under the engine), and a sprite
+  already in `lumpcache` is read in place rather than through
+  `V_CachePatchNum`, whose `Z_ChangeTag` would demote a patch the status
+  bar cached PU_STATIC. Accepted
+  selections are counted as ` ws:<n>` in `WoofIOS_DebugTouchWrites()`; the
+  latch and the counter reset at session start with the other touch state.
+
 Related (not upstream files): `Scripts/build-engine.sh` passes
 `-DCMAKE_FIND_ROOT_PATH="$OUT/$platform"` in addition to
 `-DCMAKE_PREFIX_PATH`. When `CMAKE_SYSTEM_NAME=iOS`, CMake restricts

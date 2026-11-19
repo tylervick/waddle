@@ -185,3 +185,58 @@ extension TouchGamepad: TextInjecting {
         WoofIOS_InjectKey(27, false)
     }
 }
+
+// MARK: Weapon-select grid
+
+extension TouchGamepad {
+    /// One Doom picture lump per weapon fits easily: the stock weapon sprites
+    /// are a few KB, and a lump that does not fit makes the engine return 0
+    /// (no sprite) rather than truncate.
+    private static let weaponSpriteCapacity = 64 * 1024
+    private static let playpalBytes = 768
+
+    /// The nine slots in engine weapon order, or nil when the engine says the
+    /// grid may not open (no level, dead, demo playback).
+    func weaponSlots() -> [WeaponSlotState]? {
+        var raw = [WoofIOS_WeaponSlot](repeating: WoofIOS_WeaponSlot(owned: false, can_fire: false),
+                                       count: Int(WOOF_IOS_NUM_WEAPONS))
+        let ok = raw.withUnsafeMutableBufferPointer { WoofIOS_GetWeaponSelectState($0.baseAddress) }
+        guard ok else { return nil }
+        return raw.map { WeaponSlotState(owned: $0.owned, canFire: $0.can_fire) }
+    }
+
+    /// Switch to weapon `index` (0..<9) on the next built command.
+    func selectWeapon(_ index: Int) {
+        guard let weapon = Int32(exactly: index) else { return }
+        WoofIOS_SelectWeapon(weapon)
+    }
+
+    /// Switch to the engine's best weapon for the ammo held.
+    func selectBestWeapon() {
+        WoofIOS_SelectBestWeapon()
+    }
+
+    /// Nine entries in engine weapon order; nil where the engine has no
+    /// sprite or it does not decode. All nil outside a level or without a
+    /// PLAYPAL.
+    func weaponSprites() -> [DoomGraphics.Bitmap?] {
+        let count = Int(WOOF_IOS_NUM_WEAPONS)
+        let none = [DoomGraphics.Bitmap?](repeating: nil, count: count)
+
+        var playpal = [UInt8](repeating: 0, count: Self.playpalBytes)
+        let palBytes = playpal.withUnsafeMutableBufferPointer {
+            Int(WoofIOS_CopyPlaypal($0.baseAddress, Int32($0.count)))
+        }
+        guard palBytes == Self.playpalBytes,
+              let palette = DoomGraphics.palette(from: Data(playpal)) else { return none }
+
+        var buf = [UInt8](repeating: 0, count: Self.weaponSpriteCapacity)
+        return (0..<count).map { weapon in
+            let written = buf.withUnsafeMutableBufferPointer {
+                Int(WoofIOS_CopyWeaponSprite(Int32(weapon), $0.baseAddress, Int32($0.count)))
+            }
+            guard written > 0, written <= buf.count else { return nil }
+            return DoomGraphics.decodePicture(Data(buf[0..<written]), palette: palette)
+        }
+    }
+}
