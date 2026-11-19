@@ -643,6 +643,20 @@ weighing it.
 Required on every update. The current version's text is `listing/whats-new.txt`;
 replace it for each release. Older versions are recorded below.
 
+### 1.4
+
+Shipped 2026-11-10 (build 282). The text as submitted, moved here when 1.5
+replaced it in `listing/whats-new.txt`:
+
+```
+Tap the menus, and a newer engine underneath.
+
+- The in-game menus answer to touch: tap an item to choose it, drag a slider to set it, and answer a yes/no prompt with on-screen buttons. Tap the title screen to open the menu.
+- Woof! engine updated to 16.0.0, with its latest fixes and compatibility work. Maps built with compressed nodes now load.
+- Saves made with earlier versions of Waddle still load.
+- Updated audio and platform libraries.
+```
+
 ### 1.3
 
 Shipped 2026-10-03 (build 277). The text as submitted, moved here when 1.4
