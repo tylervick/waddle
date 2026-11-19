@@ -798,6 +798,8 @@ only ever runs once):
   converted; its length is found by walking the column table, bounded by
   `V_LumpSize`) and `WoofIOS_CopyPlaypal()`, both returning 0 outside
   GS_LEVEL, where the sprite tables may still be a finished session's.
+  The gate is weaker than it reads before a session's first level load
+  (`gamestate` is not reset at session start); `woof_ios.h` states the gap.
   Neither changes a zone tag: the palette is copied from
   `playpal_global->data` (re-caching PLAYPAL as PU_CACHE would demote the
   PU_STATIC block `V_InitPalette` keeps, and the next level load's

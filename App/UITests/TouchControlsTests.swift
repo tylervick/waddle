@@ -425,8 +425,8 @@ final class TouchControlsTests: XCTestCase {
     /// leaves it open, and a tap on an owned one (the fist, cell 0) picks it
     /// and closes it. `ws:<n>` in `touchWritesLabel` counts the select calls
     /// the engine accepted, so exactly one proves the routing reached the
-    /// shim once, from the owned cell only. Queried as `.any` because the
-    /// hotspot and the cells are plain views, not buttons.
+    /// shim once, from the owned cell only. Queried as `.any` so the test
+    /// does not depend on which element type the hotspot and cells report.
     @MainActor
     func testWeaponGridPicksAnOwnedWeapon() throws {
         let app = XCUIApplication()
