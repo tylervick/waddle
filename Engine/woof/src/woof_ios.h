@@ -340,6 +340,14 @@ typedef struct
 // not look at the menu or pause; the overlay checks the menu itself.
 bool WoofIOS_GetWeaponSelectState(WoofIOS_WeaponSlot out[WOOF_IOS_NUM_WEAPONS]);
 
+// The console player's weapon as the overlay's ring should see it: the
+// pending weapon if a switch is under way, else the ready weapon, as 0..8 in
+// the order above. -1 whenever WoofIOS_GetWeaponSelectState would return
+// false (same gate, same gap before a session's first level load). The
+// ring's shared slots (fist/chainsaw, shotgun/SSG) read it to know which
+// partner is up.
+int WoofIOS_GetSelectedWeapon(void);
+
 // Switch to weapon 0..8 on the next built command, as a direct selection:
 // the engine's fist/chainsaw and shotgun/SSG toggles are skipped. Out of
 // range is ignored, and so is any call while WoofIOS_GetWeaponSelectState

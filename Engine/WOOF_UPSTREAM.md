@@ -790,7 +790,10 @@ only ever runs once):
   when it applies the command; that is the original rule and is left alone.
   woof_ios.c adds `WoofIOS_GetWeaponSelectState()` (owned and can-fire per
   weapon, can-fire by `P_CheckAmmo`'s test without its switch; false outside
-  a live local player in a level), `WoofIOS_SelectWeapon()` /
+  a live local player in a level), `WoofIOS_GetSelectedWeapon()` (for the
+  weapon-select ring's shared fist/chainsaw and shotgun/SSG slots: the
+  console player's `pendingweapon` if not `wp_nochange`, else
+  `readyweapon`; -1 under the same gate), `WoofIOS_SelectWeapon()` /
   `WoofIOS_SelectBestWeapon()` over the latch (ignored and not counted
   under the same condition, so no latch is left for a later session or
   level to consume), `WoofIOS_CopyWeaponSprite()` (frame 0 of the weapon's
