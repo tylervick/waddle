@@ -15,16 +15,11 @@ import CoreGraphics
 struct WeaponRingPoint: Equatable {
     var wedge: Int?
     var inHotspot: Bool
-    /// On the drawn panels of `wedge` (strict band). Only meaningful when
-    /// `wedge` is non-nil; defaults to "on the drawing" whenever there is a
-    /// wedge, which is what a point at a wedge's midpoint is.
+    /// On the drawn panel of `wedge` (strict band). Required, so a caller
+    /// states it: `locate` never reports it true without a wedge, nor
+    /// together with `inHotspot`, since the disc and the drawn band do not
+    /// overlap.
     var onDrawing: Bool
-
-    init(wedge: Int?, inHotspot: Bool, onDrawing: Bool? = nil) {
-        self.wedge = wedge
-        self.inHotspot = inHotspot
-        self.onDrawing = wedge != nil && (onDrawing ?? true)
-    }
 
     /// The wedge whose drawn panel the point is on, or nil.
     var drawnWedge: Int? { onDrawing ? wedge : nil }

@@ -115,14 +115,15 @@ final class WeaponRingViewTests: XCTestCase {
     }
 
     /// The end wedges' sprites stay above the centre line, where their
-    /// panels are; every sprite is still aspect-fitted to the square.
+    /// panels are, and every sprite lies inside its panel.
     func testSpritesStayAboveTheCentreLine() {
         let square = DoomGraphics.Bitmap(width: 2, height: 2, rgba: [UInt8](repeating: 255, count: 16))
         let view = makeView(model(owned: Set(0..<9)), sprites: Array(repeating: square, count: 9))
         for i in 0..<7 {
             guard let sprite = view.spriteFrameForTesting(i) else { return XCTFail("wedge \(i) has no sprite") }
             XCTAssertLessThanOrEqual(sprite.maxY, geometry.center.y, "wedge \(i)")
-            XCTAssertEqual(sprite.width, geometry.spriteSide, accuracy: 1e-6, "wedge \(i)")
+            let panel = view.panelPathForTesting(i)!
+            XCTAssertTrue(WeaponRingDrawing.edgePoints(of: sprite).allSatisfy { panel.contains($0) }, "wedge \(i)")
         }
         let middle = view.spriteFrameForTesting(3)!
         XCTAssertEqual(middle.midY, geometry.wedgeMidpoint(3).y, accuracy: 1e-6, "an unconstrained sprite is not moved")

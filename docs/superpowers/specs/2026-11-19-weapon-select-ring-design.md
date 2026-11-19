@@ -34,8 +34,10 @@ lift over the weapon you want.
 
 `WoofIOS_GetWeaponSelectState`, `WoofIOS_SelectWeapon`, `WoofIOS_CopyWeaponSprite`,
 `WoofIOS_CopyPlaypal`; `TouchGamepad.weaponSlots()/selectWeapon(_:)/weaponSprites()`;
-the hotspot rectangle (`WeaponSelectGeometry.hotspot`) and its accessibility
-exposure rule; the "may open" conditions; release-held-inputs-on-open and
+the `weaponSelectHotspot` view and its accessibility exposure rule (its
+frame and hit test depend on the style: the grid's rectangle,
+`WeaponSelectGeometry.hotspot`, or the ring's disc, below); the "may open"
+conditions; release-held-inputs-on-open and
 buttons-disabled-while-open in `TouchOverlayView`; the 0.25 s poll that closes
 on menu/automap/death.
 
@@ -138,13 +140,27 @@ Open:
 Seven wedge panels with a thin gap between them, in the grid's panel palette:
 unowned dark with a silhouette, ready, red when owned but unable to fire,
 brighter when the tracked finger is over a selectable wedge. The slot holding
-the selected weapon carries an accent outline. Each sprite is drawn upright,
-nearest-neighbour, centred at the wedge's mid-radius and scaled to fit
-`0.8 · (R − r)`. No blur, no system materials, no name labels.
+the selected weapon carries an accent outline. No blur, no system materials,
+no name labels.
+
+Each sprite is drawn upright and nearest-neighbour, at the largest size of
+its own aspect ratio that fits inside its wedge's panel: it starts from the
+aspect fit to a `0.8 · (R − r)` square centred at the wedge's mid-radius
+point and shrinks in 5 % steps until its corners, and three more points
+along each edge, are all inside the panel path (a panel is only about
+`0.32 · R` across at wedge 3's midpoint, so a wide sprite shrinks rather
+than being cut). In the end wedges (0 and 6) the midpoint is only
+`0.156 · R` above the centre line, so a sprite whose bottom would fall below
+the centre line (less the gap) is first moved up to it. The sprite is also
+masked to its panel, as a safety net only.
 
 Wedges are accessibility elements `weaponCell0`…`weaponCell6` (the grid's
 identifier scheme, by slot), labelled with the resolved weapon's name, with
-the same `.button` / `.notEnabled` traits and values the grid's cells use.
+the same `.button` / `.notEnabled` traits and values the grid's cells use,
+and only while the ring is shown. Each wedge view's frame (its accessibility
+frame) is the sprite square centred on the wedge's midpoint, which is on the
+drawn wedge; its `accessibilityPath` is the panel in screen coordinates, so
+VoiceOver outlines the wedge itself rather than the overlapping squares.
 The view and its wedges take no touches; the overlay owns them.
 
 ### Tests

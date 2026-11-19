@@ -174,13 +174,13 @@ final class WeaponRingGeometryTests: XCTestCase {
         for g in [classic, wide, small] {
             let p = CGPoint(x: g.hotspot.midX, y: g.hotspot.midY)
             XCTAssertNil(g.wedge(at: p), "a tap in the middle of the hotspot is not over a wedge")
-            XCTAssertEqual(g.locate(p), WeaponRingPoint(wedge: nil, inHotspot: true))
+            XCTAssertEqual(g.locate(p), WeaponRingPoint(wedge: nil, inHotspot: true, onDrawing: false))
         }
     }
 
     func testLocateReportsWedgeAndHotspotIndependently() {
-        XCTAssertEqual(classic.locate(classic.wedgeMidpoint(1)), WeaponRingPoint(wedge: 1, inHotspot: false))
-        XCTAssertEqual(classic.locate(CGPoint(x: 31, y: 11)), WeaponRingPoint(wedge: nil, inHotspot: false))
+        XCTAssertEqual(classic.locate(classic.wedgeMidpoint(1)), WeaponRingPoint(wedge: 1, inHotspot: false, onDrawing: true))
+        XCTAssertEqual(classic.locate(CGPoint(x: 31, y: 11)), WeaponRingPoint(wedge: nil, inHotspot: false, onDrawing: false))
         // The generous band reaches into the hotspot disc (0.75 r to r).
         let inHole = classic.locate(point(classic, degrees: 90, distance: 0.9 * classic.innerRadius))
         XCTAssertTrue(inHole.inHotspot)

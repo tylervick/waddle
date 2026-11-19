@@ -97,8 +97,10 @@ final class TouchOverlayView: UIView {
     // docs/superpowers/specs/2026-11-17-weapon-select-grid-design.md), as
     // `weaponSelectorStyle` chose at install. Each style's model owns its
     // open/pick rules and its geometry follows the picture; this view only
-    // routes touches and performs the model's effects. The hotspot, the
-    // sprites and the open-side effects are shared.
+    // routes touches and performs the model's effects. The hotspot view, the
+    // sprites and the open-side effects are shared; the hotspot's shape and
+    // the view's frame depend on the style (the grid's rectangle, or the
+    // ring's disc and its bounding box).
     private let weaponSelectorStyle: WeaponSelectorStyle
     private var weaponModel = WeaponSelectModel()
     private var weaponGeometry = WeaponSelectGeometry(pictureRect: .zero)

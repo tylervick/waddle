@@ -83,36 +83,15 @@ final class WeaponRingView: UIView {
         CATransaction.commit()
     }
 
-    /// An annular sector with `gap` points of clear between neighbours: each
-    /// side is pulled in by the angle that half the gap subtends at that
-    /// radius, so the gap is the same width along its length.
+    // The pure drawing arithmetic lives in `WeaponRingDrawing`, where
+    // `WaddleTests` can pin it without UIKit.
     static func panelPath(center: CGPoint, inner: CGFloat, outer: CGFloat,
                           start: CGFloat, end: CGFloat, gap: CGFloat) -> CGPath {
-        let path = CGMutablePath()
-        guard inner > 0, outer > inner else { return path }
-        let outerInset = min(gap / 2 / outer, (end - start) / 2)
-        let innerInset = min(gap / 2 / inner, (end - start) / 2)
-        path.addArc(center: center, radius: outer, startAngle: start + outerInset,
-                    endAngle: end - outerInset, clockwise: false)
-        path.addArc(center: center, radius: inner, startAngle: end - innerInset,
-                    endAngle: start + innerInset, clockwise: true)
-        path.closeSubpath()
-        return path
+        WeaponRingDrawing.panelPath(center: center, inner: inner, outer: outer, start: start, end: end, gap: gap)
     }
 
-    /// Aspect-fitted into `box`, centred, then moved up if needed so its
-    /// bottom is no lower than `floorY`. Only the end wedges (0 and 6), whose
-    /// midpoints sit 0.156 · R above the centre line, need the nudge: an
-    /// unmoved square sprite there would reach 0.084 · R below the line,
-    /// where there is no panel.
     static func spriteRect(imageSize: CGSize, box: CGRect, floorY: CGFloat) -> CGRect {
-        guard imageSize.width > 0, imageSize.height > 0 else { return .zero }
-        let scale = min(box.width / imageSize.width, box.height / imageSize.height)
-        let size = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
-        var rect = CGRect(x: box.midX - size.width / 2, y: box.midY - size.height / 2,
-                          width: size.width, height: size.height)
-        if rect.maxY > floorY { rect.origin.y -= rect.maxY - floorY }
-        return rect
+        WeaponRingDrawing.spriteRect(imageSize: imageSize, box: box, floorY: floorY)
     }
 
     func wedgeFrameForTesting(_ index: Int) -> CGRect { wedges[index].frame }
@@ -132,9 +111,9 @@ final class WeaponRingView: UIView {
     func hasSpriteForTesting(_ index: Int) -> Bool { wedges[index].hasSprite }
 }
 
-/// One wedge: the panel layer and the sprite. The sprite is aspect-fitted
-/// into the view's square, nearest-neighbour, upright, and clipped to the
-/// panel, so nothing of it draws outside the wedge.
+/// One wedge: the panel layer and the sprite. The sprite is fitted inside
+/// the panel (`WeaponRingDrawing.fittedSpriteRect`), nearest-neighbour, upright,
+/// and also clipped to the panel as a safety net.
 private final class WeaponWedgeView: UIView {
     /// Brighter than `ready`, for the wedge a lift would pick. The grid's
     /// `pressed` is darker than its `ready`, which suits a cell under a
@@ -206,8 +185,9 @@ private final class WeaponWedgeView: UIView {
         spriteMask.frame = bounds
         spriteMask.path = path
         spriteLayer.frame = sprite.map {
-            WeaponRingView.spriteRect(imageSize: CGSize(width: $0.width, height: $0.height),
-                                      box: bounds, floorY: spriteFloorY)
+            WeaponRingDrawing.fittedSpriteRect(imageSize: CGSize(width: $0.width, height: $0.height),
+                                               center: CGPoint(x: bounds.midX, y: bounds.midY),
+                                               side: bounds.width, floorY: spriteFloorY, panel: path)
         } ?? bounds
         spriteLayer.contents = sprite
         spriteLayer.isHidden = sprite == nil

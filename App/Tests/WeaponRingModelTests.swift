@@ -5,11 +5,15 @@ import XCTest
 /// design's "Gestures" section. Pure: the caller hit-tests and passes in
 /// where each touch is; the model answers with effects.
 final class WeaponRingModelTests: XCTestCase {
-    private let hotspot = WeaponRingPoint(wedge: nil, inHotspot: true)
-    private let elsewhere = WeaponRingPoint(wedge: nil, inHotspot: false)
-    private func wedge(_ i: Int) -> WeaponRingPoint { WeaponRingPoint(wedge: i, inHotspot: false) }
-    /// A hotspot corner that reaches up into the wedge band.
-    private func hotspotOverWedge(_ i: Int) -> WeaponRingPoint { WeaponRingPoint(wedge: i, inHotspot: true) }
+    private let hotspot = WeaponRingPoint(wedge: nil, inHotspot: true, onDrawing: false)
+    private let elsewhere = WeaponRingPoint(wedge: nil, inHotspot: false, onDrawing: false)
+    /// On wedge `i`'s drawn panel, as at its midpoint.
+    private func wedge(_ i: Int) -> WeaponRingPoint { WeaponRingPoint(wedge: i, inHotspot: false, onDrawing: true) }
+    /// In the hotspot disc, 0.75 · r to r from the centre, where the generous
+    /// band reaches in: over wedge `i` by that band, on no drawn panel.
+    private func hotspotOverWedge(_ i: Int) -> WeaponRingPoint {
+        WeaponRingPoint(wedge: i, inHotspot: true, onDrawing: false)
+    }
 
     /// Fist, pistol and the rocket launcher by default; the shotgun is not.
     private func model(owned: Set<Int> = [0, 1, 4], selected: Int? = 1) -> WeaponRingModel {
@@ -101,9 +105,9 @@ final class WeaponRingModelTests: XCTestCase {
         XCTAssertNil(m.highlightedSlot)
     }
 
-    /// The hotspot's top corners reach into the wedge band. A finger that
-    /// never left the hotspot is a tap there all the same: it neither picks
-    /// nor lights the wedge.
+    /// The generous band reaches into the hotspot disc. A finger that never
+    /// left the hotspot is a tap there all the same: it neither picks nor
+    /// lights the wedge.
     func testATapInTheHotspotOverAWedgeIsStillATap() {
         var m = opened()
         m.touchMoved("opener", at: hotspotOverWedge(4))
@@ -191,13 +195,15 @@ final class WeaponRingModelTests: XCTestCase {
         XCTAssertEqual(m.touchEnded("b", at: wedge(1)), [])
     }
 
-    /// Wedges are tested before the hotspot while open, as the grid tests
-    /// its cells first.
-    func testWhileOpenAWedgeOverlappingTheHotspotIsAWedge() {
+    /// Open, a touch-down in the hotspot disc where the generous band reaches
+    /// in (the ring's hole) is on no drawn wedge: it closes without a pick,
+    /// and its lift over the same spot picks nothing either.
+    func testWhileOpenATouchDownInTheHoleOverTheGenerousBandCloses() {
         var m = openIdle()
         XCTAssertEqual(m.touchBegan("b", at: hotspotOverWedge(4), canOpen: true, openAtBatchStart: true), [])
-        XCTAssertTrue(m.isOpen)
-        XCTAssertEqual(m.touchEnded("b", at: hotspotOverWedge(4)), [.select(4)])
+        XCTAssertFalse(m.isOpen)
+        XCTAssertEqual(m.touchEnded("b", at: hotspotOverWedge(4)), [])
+        XCTAssertFalse(m.isOpen)
     }
 
     // MARK: Strict band for touch-downs, generous band for a tracked finger
