@@ -1003,6 +1003,19 @@ bool WoofIOS_GetWeaponSelectState(WoofIOS_WeaponSlot out[WOOF_IOS_NUM_WEAPONS])
     return true;
 }
 
+int WoofIOS_GetSelectedWeapon(void)
+{
+    if (!WeaponSelectAllowed())
+    {
+        return -1;
+    }
+    const player_t *player = &players[consoleplayer];
+    const int weapon = player->pendingweapon != wp_nochange
+                           ? (int)player->pendingweapon
+                           : (int)player->readyweapon;
+    return weapon >= 0 && weapon < WOOF_IOS_NUM_WEAPONS ? weapon : -1;
+}
+
 void WoofIOS_SelectWeapon(int weapon)
 {
     if (weapon < 0 || weapon >= WOOF_IOS_NUM_WEAPONS || !WeaponSelectAllowed())

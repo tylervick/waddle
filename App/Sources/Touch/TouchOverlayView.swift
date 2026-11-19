@@ -91,14 +91,26 @@ final class TouchOverlayView: UIView {
     private var automapIdleTimer: Timer?
     private let automapTranslator = AutomapGestureTranslator()
 
-    // Weapon-select grid (the predecessor's switcher; see the design spec,
-    // docs/superpowers/specs/2026-11-17-weapon-select-grid-design.md). The
-    // model owns the open/pick rules, the geometry follows the picture, and
-    // this view only routes touches and performs the model's effects.
+    // Weapon selector: the half-ring (the default; see
+    // docs/superpowers/specs/2026-11-19-weapon-select-ring-design.md) or the
+    // 3x3 grid (the predecessor's switcher;
+    // docs/superpowers/specs/2026-11-17-weapon-select-grid-design.md), as
+    // `weaponSelectorStyle` chose at install. Each style's model owns its
+    // open/pick rules and its geometry follows the picture; this view only
+    // routes touches and performs the model's effects. The hotspot view, the
+    // sprites and the open-side effects are shared; the hotspot's shape and
+    // the view's frame depend on the style (the grid's rectangle, or the
+    // ring's disc and its bounding box).
+    private let weaponSelectorStyle: WeaponSelectorStyle
     private var weaponModel = WeaponSelectModel()
     private var weaponGeometry = WeaponSelectGeometry(pictureRect: .zero)
-    private let weaponView = WeaponSelectView()
-    /// The invisible bottom-centre patch that opens the grid. It takes no
+    /// The grid's view; nil when the ring was installed.
+    private let weaponView: WeaponSelectView?
+    private var ringModel = WeaponRingModel()
+    private var ringGeometry = WeaponRingGeometry(pictureRect: .zero)
+    /// The ring's view; nil when the grid was installed.
+    private let ringView: WeaponRingView?
+    /// The invisible bottom-centre patch that opens the selector. It takes no
     /// touches itself (the overlay hit-tests it by frame, so a touch there
     /// reaches `touchesBegan` like any other); it exists so VoiceOver and
     /// UI tests can find the spot.
@@ -109,11 +121,15 @@ final class TouchOverlayView: UIView {
     private var weaponSprites: [DoomGraphics.Bitmap?]?
     /// What the overlay last applied for the model's `isOpen`, so opening and
     /// closing each run their side effects exactly once.
-    private var weaponGridShown = false
+    private var weaponSelectorShown = false
 
     init(gamepad: TouchGamepad, scheme: TouchControlScheme,
          tuning: TouchTuning, debugHUDEnabled: Bool,
-         layoutOverrides: TouchOverlayLayoutOverrides = .none) {
+         layoutOverrides: TouchOverlayLayoutOverrides = .none,
+         weaponSelectorStyle: WeaponSelectorStyle = .defaultStyle) {
+        self.weaponSelectorStyle = weaponSelectorStyle
+        weaponView = weaponSelectorStyle == .grid ? WeaponSelectView() : nil
+        ringView = weaponSelectorStyle == .ring ? WeaponRingView() : nil
         self.gamepad = gamepad
         self.scheme = scheme
         self.tuning = tuning
@@ -226,7 +242,7 @@ final class TouchOverlayView: UIView {
         addButton("≡", control: .menu) { [weak self] down in
             self?.gamepad.setButton(.start, down: down)
         }
-        installWeaponGrid()
+        installWeaponSelector()
 
         // Always on -- independent of debugHUDEnabled below, which is
         // opt-in and off by default. This one is a correctness fix (see
@@ -495,7 +511,7 @@ final class TouchOverlayView: UIView {
             self?.dropAutomapGestureIfMapClosed()
             self?.updatePromptButtons()
             self?.dropMenuTouchesIfMenuClosed()
-            self?.pollWeaponGrid()
+            self?.pollWeaponSelector()
         }
         RunLoop.main.add(timer, forMode: .common)
         menuPolicyTimer = timer
@@ -592,10 +608,10 @@ final class TouchOverlayView: UIView {
         // a failed becomeFirstResponder would otherwise leave controls inert
         // with no keyboard on screen (review Minor #2).
         guard keyboard.present() else { return }
-        // The keyboard is one of the things that closes the weapon grid.
+        // The keyboard is one of the things that closes the weapon selector.
         // Closed here, before the button lock below, because closing gives
         // the buttons back and the lock must have the last word.
-        closeWeaponGrid()
+        closeWeaponSelector()
         // Interaction guard: stop movement and make the gameplay controls
         // inert while typing, so touches near or under the keyboard cannot
         // steer or fire.
@@ -816,7 +832,7 @@ final class TouchOverlayView: UIView {
         let prompt = layout.promptButtonFrames()
         promptNoButton.frame = prompt.no
         promptYesButton.frame = prompt.yes
-        layoutWeaponGrid()
+        layoutWeaponSelector()
     }
 
     /// Live routing decision for the current geometry. Recomputed per
@@ -854,13 +870,15 @@ final class TouchOverlayView: UIView {
         let automapUp = WoofIOS_IsAutomapActive()
         let menuUp = WoofIOS_IsMenuActive()
         let attract = gamepad.isAttractMode
-        let weaponGridOpenAtBatchStart = weaponModel.isOpen
+        let weaponSelectorOpenAtBatchStart = weaponSelectorOpen
         for touch in touches {
             let point = touch.location(in: self)
             // Before menu routing: the hotspot wins over stick, turn and menu
-            // for a touch that begins in it, and an open grid takes every
+            // for a touch that begins in it, and an open selector takes every
             // touch. Checked per touch, since one in this batch may open it.
-            if weaponGridTookBegan(touch, at: point, openAtBatchStart: weaponGridOpenAtBatchStart) { continue }
+            if weaponSelectorTookBegan(touch, at: point, openAtBatchStart: weaponSelectorOpenAtBatchStart) {
+                continue
+            }
             let route = router.route(point, stickTracking: stickTouch != nil,
                                      turnTracking: turnTouch != nil)
             let nearButton = router.isNearButton(point)
@@ -934,13 +952,22 @@ final class TouchOverlayView: UIView {
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         if keyboardActive { return }
-        if weaponModel.isOpen {
+        if weaponSelectorOpen {
             // Opening released every track, and no new one starts while the
-            // grid is up, so there is nothing below for these touches to move.
+            // selector is up, so there is nothing below for these touches to move.
+            // The ring redraws only when the highlight changes; moves cannot
+            // open or close it.
+            let highlightBefore = ringModel.highlightedSlot
             for touch in touches {
-                weaponModel.touchMoved(AnyHashable(touch), cell: weaponGeometry.cell(at: touch.location(in: self)))
+                let point = touch.location(in: self)
+                switch weaponSelectorStyle {
+                case .grid: weaponModel.touchMoved(AnyHashable(touch), cell: weaponGeometry.cell(at: point))
+                case .ring: ringModel.touchMoved(AnyHashable(touch), at: ringGeometry.locate(point))
+                }
             }
-            syncWeaponGrid()
+            if weaponSelectorStyle == .grid || ringModel.highlightedSlot != highlightBefore {
+                syncWeaponSelector()
+            }
             return
         }
         if !automapTouches.isEmpty, touches.contains(where: { automapTouches.contains($0) }) {
@@ -979,14 +1006,14 @@ final class TouchOverlayView: UIView {
         endTouches(touches, cancelled: true)
     }
 
-    /// `cancelled` matters only to the weapon grid: a cancelled touch must
+    /// `cancelled` matters only to the weapon selector: a cancelled touch must
     /// never pick. Every other track ends the same way either way.
     private func endTouches(_ touches: Set<UITouch>, cancelled: Bool) {
         summonTouches.subtract(touches)
         if summonTouches.isEmpty { summonArmed = true }
         // Not a `return`: the tracks below were all let go at open, so these
         // touches fall through them harmlessly, exactly as before.
-        if weaponModel.isOpen { endWeaponGridTouches(touches, cancelled: cancelled) }
+        if weaponSelectorOpen { endWeaponSelectorTouches(touches, cancelled: cancelled) }
         if !automapTouches.isEmpty {
             for touch in touches {
                 if let i = automapTouches.firstIndex(of: touch) {
@@ -1025,17 +1052,26 @@ final class TouchOverlayView: UIView {
         }
     }
 
-    // MARK: Weapon-select grid
+    // MARK: Weapon selector (ring or grid)
 
-    /// Called once from `init`, after the buttons, so the grid draws above
-    /// them and above the stick layers. Neither the grid nor the hotspot
-    /// takes touches: both fall through to this view, which hit-tests them
-    /// against `weaponGeometry` (the grid's own cells are drawing only). The
-    /// hotspot is not a `TouchOverlayControl`, so the layout editor and every
+    /// Called once from `init`, after the buttons, so the selector draws
+    /// above them and above the stick layers. Neither the selector's view nor
+    /// the hotspot takes touches: both fall through to this view, which
+    /// hit-tests them against the style's geometry (the grid's cells and the
+    /// ring's wedges are drawing only). The hotspot is not a
+    /// `TouchOverlayControl`, so the layout editor and every
     /// `allCases`-driven behaviour never see it.
-    private func installWeaponGrid() {
-        weaponView.isHidden = true
-        addSubview(weaponView)
+    private func installWeaponSelector() {
+        if let weaponView {
+            weaponView.isHidden = true
+            addSubview(weaponView)
+        }
+        if let ringView {
+            // Hidden before it joins the tree: its wedges are accessibility
+            // elements only while it is shown.
+            ringView.isHidden = true
+            addSubview(ringView)
+        }
         weaponHotspot.backgroundColor = .clear
         weaponHotspot.isUserInteractionEnabled = false
         weaponHotspot.accessibilityIdentifier = "weaponSelectHotspot"
@@ -1066,23 +1102,46 @@ final class TouchOverlayView: UIView {
             || UIAccessibility.isSwitchControlRunning
     }
 
-    /// From `layoutSubviews`: the grid follows the picture, through rotation,
-    /// letterboxing and the half-open fold, via the same rect the controls use.
-    private func layoutWeaponGrid() {
+    /// From `layoutSubviews`: the selector follows the picture, through
+    /// rotation, letterboxing and the half-open fold, via the same rect the
+    /// controls use. The hotspot view takes the installed style's frame: the
+    /// grid's rectangle, or the bounding box of the ring's disc.
+    private func layoutWeaponSelector() {
         weaponGeometry = WeaponSelectGeometry(pictureRect: pictureRect)
-        weaponHotspot.frame = weaponGeometry.hotspot
-        weaponView.frame = bounds
-        if weaponModel.isOpen { updateWeaponView() }
+        ringGeometry = WeaponRingGeometry(pictureRect: pictureRect)
+        switch weaponSelectorStyle {
+        case .grid: weaponHotspot.frame = weaponGeometry.hotspot
+        case .ring: weaponHotspot.frame = ringGeometry.hotspot
+        }
+        weaponView?.frame = bounds
+        ringView?.frame = bounds
+        if weaponSelectorOpen { updateWeaponSelectorView() }
     }
 
-    /// The engine's nine slots when the grid may be open, nil when it may
-    /// not: a menu or prompt is up, the automap is, it is the title or a
+    private var weaponSelectorOpen: Bool {
+        switch weaponSelectorStyle {
+        case .grid: return weaponModel.isOpen
+        case .ring: return ringModel.isOpen
+        }
+    }
+
+    /// The engine's nine slots when the selector may be open, nil when it
+    /// may not: a menu or prompt is up, the automap is, it is the title or a
     /// demo, the soft keyboard is up, or the engine itself says no (no level,
     /// dead, demo playback). The cheap overlay-side checks go first.
     private func weaponGridSlots() -> [WeaponSlotState]? {
         guard !keyboardActive, !gamepad.isAttractMode, !WoofIOS_IsMenuActive(),
               !gamepad.isMenuMessageShowing, !WoofIOS_IsAutomapActive() else { return nil }
         return gamepad.weaponSlots()
+    }
+
+    /// The selector's share of `touchesBegan`; true when it consumed the touch.
+    private func weaponSelectorTookBegan(_ touch: UITouch, at point: CGPoint,
+                                         openAtBatchStart: Bool) -> Bool {
+        switch weaponSelectorStyle {
+        case .grid: return weaponGridTookBegan(touch, at: point, openAtBatchStart: openAtBatchStart)
+        case .ring: return weaponRingTookBegan(touch, at: point, openAtBatchStart: openAtBatchStart)
+        }
     }
 
     /// The grid's share of `touchesBegan`; true when it consumed the touch.
@@ -1106,7 +1165,7 @@ final class TouchOverlayView: UIView {
         let cell = weaponGeometry.cell(at: point)
         if weaponModel.isOpen, let cell {
             weaponModel.touchBegan(AnyHashable(touch), cell: cell)
-            syncWeaponGrid()
+            syncWeaponSelector()
             return true
         }
         if weaponGeometry.hotspot.contains(point) {
@@ -1114,34 +1173,75 @@ final class TouchOverlayView: UIView {
             guard weaponModel.isOpen || slots != nil else { return false }
             if let slots { weaponModel.slots = slots }
             performWeaponGrid(weaponModel.hotspotTouchBegan(canOpen: slots != nil))
-            syncWeaponGrid()
+            syncWeaponSelector()
             return true
         }
         guard weaponModel.isOpen else { return false }
         weaponModel.touchBegan(AnyHashable(touch), cell: cell)
-        syncWeaponGrid()
+        syncWeaponSelector()
         return true
     }
 
-    /// Lifts may pick; cancellations never do.
-    private func endWeaponGridTouches(_ touches: Set<UITouch>, cancelled: Bool) {
+    /// The ring's share of `touchesBegan`; true when it consumed the touch.
+    /// The routing rules, the batch rule included, are `WeaponRingModel`'s:
+    /// this asks the engine whether the ring may open only for a touch that
+    /// could open it (closed, in the hotspot, not in a batch that already
+    /// opened or closed it), and otherwise passes `canOpen: false`, which the
+    /// model reads only in that case. A touch the model does not take is
+    /// routed exactly as it would be without the hotspot. As with the grid,
+    /// a same-batch finger iterated before the opening touch was routed as
+    /// usual and is then let go by the opening's `releaseHeldInputs`.
+    private func weaponRingTookBegan(_ touch: UITouch, at point: CGPoint,
+                                     openAtBatchStart: Bool) -> Bool {
+        let located = ringGeometry.locate(point)
+        var canOpen = false
+        if !ringModel.isOpen, !openAtBatchStart, located.inHotspot, let slots = weaponGridSlots() {
+            ringModel.slots = slots
+            ringModel.selectedWeapon = gamepad.selectedWeapon()
+            canOpen = true
+        }
+        guard let effects = ringModel.touchBegan(AnyHashable(touch), at: located, canOpen: canOpen,
+                                                 openAtBatchStart: openAtBatchStart) else { return false }
+        performWeaponRing(effects)
+        syncWeaponSelector()
+        return true
+    }
+
+    /// Lifts may pick; cancellations never do. A ring lift resolves its
+    /// shared slot against the engine's state as it is now, not as the last
+    /// 0.25 s poll saw it (the weapon may have changed since), and a "may
+    /// not be open" answer here is the forced close the poll would have made.
+    private func endWeaponSelectorTouches(_ touches: Set<UITouch>, cancelled: Bool) {
+        if weaponSelectorStyle == .ring, !cancelled, ringModel.isOpen { refreshRingFromEngine() }
         for touch in touches {
             let id = AnyHashable(touch)
-            if cancelled {
-                weaponModel.touchCancelled(id)
-            } else {
-                performWeaponGrid(weaponModel.touchEnded(id, cell: weaponGeometry.cell(at: touch.location(in: self))))
+            let point = touch.location(in: self)
+            switch (weaponSelectorStyle, cancelled) {
+            case (.grid, true): weaponModel.touchCancelled(id)
+            case (.grid, false): performWeaponGrid(weaponModel.touchEnded(id, cell: weaponGeometry.cell(at: point)))
+            case (.ring, true): ringModel.touchCancelled(id)
+            case (.ring, false): performWeaponRing(ringModel.touchEnded(id, at: ringGeometry.locate(point)))
             }
         }
-        syncWeaponGrid()
+        syncWeaponSelector()
     }
 
     private func performWeaponGrid(_ effects: [WeaponSelectModel.Effect]) {
         for effect in effects {
             switch effect {
-            case .releaseHeldInputs: releaseHeldInputsForWeaponGrid()
+            case .releaseHeldInputs: releaseHeldInputsForWeaponSelector()
             case .select(let index): gamepad.selectWeapon(index)
             case .selectBest: gamepad.selectBestWeapon()
+            }
+        }
+    }
+
+    /// The ring has no select-best: its hotspot re-tap only closes.
+    private func performWeaponRing(_ effects: [WeaponRingModel.Effect]) {
+        for effect in effects {
+            switch effect {
+            case .releaseHeldInputs: releaseHeldInputsForWeaponSelector()
+            case .select(let weapon): gamepad.selectWeapon(weapon)
             }
         }
     }
@@ -1149,14 +1249,14 @@ final class TouchOverlayView: UIView {
     /// Opening lets go of everything a finger was holding, each with its
     /// paired up or zero write (see
     /// docs/learnings/soft-keyboard-keydown-keyup-pairing.md), so nothing
-    /// stays latched under the grid. Every track is forgotten as well as
+    /// stays latched under the selector. Every track is forgotten as well as
     /// released, so when those fingers later move or lift they match no
     /// track and fall through `touchesMoved` / `endTouches` doing nothing:
     /// the stick and the turn as a cancelled touch is; the automap and menu
     /// fingers as their "closed under a finger" paths do; and the attract-tap
     /// candidate, whose lift would otherwise still open the menu. The
     /// four-finger summon count is not gameplay input and is left alone.
-    private func releaseHeldInputsForWeaponGrid() {
+    private func releaseHeldInputsForWeaponSelector() {
         releaseStick()
         releaseTurn()
         gamepad.setFireTrigger(down: false)
@@ -1175,32 +1275,54 @@ final class TouchOverlayView: UIView {
     }
 
     /// From the policy timer. While open: refresh the slots (ammo runs out,
-    /// a weapon is picked up) and close if the grid may no longer be open (a
-    /// menu, the automap, death, the level ending). While closed there is
-    /// nothing for the model to do, so the engine is not asked.
-    private func pollWeaponGrid() {
-        guard weaponModel.isOpen else { return }
+    /// a weapon is picked up; for the ring, also which weapon is up) and
+    /// close if the selector may no longer be open (a menu, the automap,
+    /// death, the level ending). While closed there is nothing for the model
+    /// to do, so the engine is not asked.
+    private func pollWeaponSelector() {
+        guard weaponSelectorOpen else { return }
         let slots = weaponGridSlots()
-        if let slots { weaponModel.slots = slots }
-        weaponModel.availabilityChanged(canOpen: slots != nil)
-        syncWeaponGrid()
+        switch weaponSelectorStyle {
+        case .grid:
+            if let slots { weaponModel.slots = slots }
+            weaponModel.availabilityChanged(canOpen: slots != nil)
+        case .ring:
+            refreshRingFromEngine()
+        }
+        syncWeaponSelector()
+    }
+
+    /// The ring's slots and selected weapon, read now; nil from the engine
+    /// (or the overlay's own "may open" checks) closes it without a pick.
+    /// Opening reads both itself, in `weaponRingTookBegan`.
+    private func refreshRingFromEngine() {
+        let slots = weaponGridSlots()
+        if let slots {
+            ringModel.slots = slots
+            ringModel.selectedWeapon = gamepad.selectedWeapon()
+        }
+        ringModel.availabilityChanged(canOpen: slots != nil)
     }
 
     /// Closes without picking anything, as a forced close does.
-    private func closeWeaponGrid() {
-        guard weaponModel.isOpen else { return }
-        weaponModel.availabilityChanged(canOpen: false)
-        syncWeaponGrid()
+    private func closeWeaponSelector() {
+        guard weaponSelectorOpen else { return }
+        switch weaponSelectorStyle {
+        case .grid: weaponModel.availabilityChanged(canOpen: false)
+        case .ring: ringModel.availabilityChanged(canOpen: false)
+        }
+        syncWeaponSelector()
     }
 
     /// Brings the view and the buttons in line with the model. Opening hides
-    /// nothing but takes the buttons' touches away, so a cell drawn over a
-    /// button gets the touch and no button can be pressed under the grid;
-    /// closing gives them back, minus what the soft keyboard's lock holds.
-    private func syncWeaponGrid() {
-        let open = weaponModel.isOpen
-        if open != weaponGridShown {
-            weaponGridShown = open
+    /// nothing but takes the buttons' touches away, so a cell or wedge drawn
+    /// over a button gets the touch and no button can be pressed under the
+    /// selector; closing gives them back, minus what the soft keyboard's
+    /// lock holds.
+    private func syncWeaponSelector() {
+        let open = weaponSelectorOpen
+        if open != weaponSelectorShown {
+            weaponSelectorShown = open
             // Fetched on open until at least one sprite decodes (a fetch
             // before the engine is ready can come back empty), then kept.
             if open, !(weaponSprites?.contains { $0 != nil } ?? false) {
@@ -1210,16 +1332,22 @@ final class TouchOverlayView: UIView {
                 button.isUserInteractionEnabled = !open
                     && (!keyboardActive || button.accessibilityIdentifier == "menuButton")
             }
-            weaponView.isHidden = !open
-            // Says what activating it does: open the grid, or close it and
-            // switch to the best weapon. The identifier never changes.
-            weaponHotspot.accessibilityLabel = open ? "Close weapons, switch to best weapon" : "Weapons"
+            weaponView?.isHidden = !open
+            ringView?.isHidden = !open
+            // Says what activating it does: open the selector, or close it
+            // (the grid also switches to the best weapon). The identifier
+            // never changes.
+            switch weaponSelectorStyle {
+            case .grid: weaponHotspot.accessibilityLabel = open ? "Close weapons, switch to best weapon" : "Weapons"
+            case .ring: weaponHotspot.accessibilityLabel = open ? "Close weapons" : "Weapons"
+            }
         }
-        if open { updateWeaponView() }
+        if open { updateWeaponSelectorView() }
     }
 
-    private func updateWeaponView() {
-        weaponView.update(geometry: weaponGeometry, model: weaponModel, sprites: weaponSprites ?? [])
+    private func updateWeaponSelectorView() {
+        weaponView?.update(geometry: weaponGeometry, model: weaponModel, sprites: weaponSprites ?? [])
+        ringView?.update(geometry: ringGeometry, model: ringModel, sprites: weaponSprites ?? [])
     }
 
     // MARK: Automap gestures (issue #113)
