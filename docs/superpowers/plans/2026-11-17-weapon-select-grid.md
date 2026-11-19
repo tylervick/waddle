@@ -164,7 +164,7 @@ struct WeaponSelectModel {
 }
 ```
 
-Rules the signatures leave open: at most one touch is tracked — the first that begins inside any cell after opening. Only the tracked touch can pick; it picks the cell it **lifts** in, if that cell is selectable (it may differ from where it began). `appearance` is `.pressed` only for a selectable cell the tracked touch is currently over; otherwise `.unowned` / `.empty` (owned, cannot fire) / `.ready`. A caller checks the hotspot before cells for began-touches (they overlap under cell 7).
+Rules the signatures leave open: at most one touch is tracked — the first that begins inside any cell after opening. Only the tracked touch can pick; it picks the cell it **lifts** in, if that cell is selectable (it may differ from where it began). `appearance` is `.pressed` only for a selectable cell the tracked touch is currently over; otherwise `.unowned` / `.empty` (owned, cannot fire) / `.ready`. The hotspot and cell 7 overlap. While the grid is open a caller checks cells first, so a touch in the overlap is the chainsaw cell's; only a touch in the hotspot and in no cell is a re-tap. While closed, only the hotspot is checked. (Changed after the whole-branch review: hotspot-first made a lit, owned cell pick a different weapon.)
 
 - [ ] **Step 1: Write the failing tests.** One test per line; each asserts the returned effects and `isOpen`:
   - `testOpensAndReleasesHeldInputs` — closed, `hotspotTouchBegan(canOpen: true)` → `[.releaseHeldInputs]`, open.
@@ -259,7 +259,7 @@ Decisions:
 - The overlay holds a `WeaponSelectModel`, a `WeaponSelectView` (hidden while closed), lazily loaded sprites (once per session, on first open), and a clear, non-interactive subview with `accessibilityIdentifier = "weaponSelectHotspot"`, label "Weapons", framed to `geometry.hotspot`.
 - Geometry is rebuilt in `layoutSubviews` from `enginePictureRect`, falling back to the same predicted rect the layout uses.
 - `canOpen` = `gamepad.weaponSlots() != nil` and no menu, no prompt, no automap, not attract mode, soft keyboard not active.
-- In `touchesBegan`, after the keyboard guard and before menu routing: a touch inside the hotspot goes to `hotspotTouchBegan(canOpen:)` when the grid is open or `canOpen` is true, and is consumed. When neither holds it falls through to today's routing unchanged (the hotspot is inert). While open, every other began-touch goes to `model.touchBegan` and is consumed.
+- In `touchesBegan`, after the keyboard guard and before menu routing: while the grid is open, a touch inside any cell goes to `model.touchBegan` first; otherwise a touch inside the hotspot goes to `hotspotTouchBegan(canOpen:)` when the grid is open or `canOpen` is true, and is consumed. When neither holds it falls through to today's routing unchanged (the hotspot is inert). While open, every other began-touch goes to `model.touchBegan` and is consumed.
 - `.releaseHeldInputs` → `releaseStick()`, `releaseTurn()`, `gamepad.setFireTrigger(down: false)`, drop automap/menu/pending touches as their existing "closed under a finger" paths do, and for each `OverlayButton` a new `forceRelease()` that sends its up immediately (cancelling any delayed release). Buttons have `isUserInteractionEnabled = false` while the grid is open and get it back on close.
 - `.select(n)` → `gamepad.selectWeapon(n)`; `.selectBest` → `gamepad.selectBestWeapon()`.
 - The policy timer, each tick: refresh `model.slots` while open, and call `availabilityChanged(canOpen:)`.
