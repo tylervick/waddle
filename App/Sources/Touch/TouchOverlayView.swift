@@ -1038,11 +1038,32 @@ final class TouchOverlayView: UIView {
         addSubview(weaponView)
         weaponHotspot.backgroundColor = .clear
         weaponHotspot.isUserInteractionEnabled = false
-        weaponHotspot.isAccessibilityElement = true
         weaponHotspot.accessibilityIdentifier = "weaponSelectHotspot"
         weaponHotspot.accessibilityLabel = "Weapons"
         weaponHotspot.accessibilityTraits = .button
         addSubview(weaponHotspot)
+        updateWeaponHotspotExposure()
+        for name in [UIAccessibility.voiceOverStatusDidChangeNotification,
+                     UIAccessibility.switchControlStatusDidChangeNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(updateWeaponHotspotExposure),
+                                                   name: name, object: nil)
+        }
+    }
+
+    /// The hotspot is an accessibility element only while VoiceOver or
+    /// Switch Control is running. The accessibility hit test ignores
+    /// `isUserInteractionEnabled`, so as an element it is what a hit test at
+    /// any point inside it returns, and XCUITest's app-level multi-touch tap
+    /// treats that as occlusion: its four points run down the screen's
+    /// centre line, one lands in the hotspot, the occluder resolves to the
+    /// full-screen `touchOverlay`, and the gesture fails with "unable to
+    /// compute coordinates" (SoftKeyboardTests). As a plain view it is still
+    /// in the UI-test tree by its identifier, like the overlay itself, and
+    /// the hit test passes over it. See
+    /// docs/learnings/accessibility-element-blocks-app-multi-touch-tap.md.
+    @objc private func updateWeaponHotspotExposure() {
+        weaponHotspot.isAccessibilityElement = UIAccessibility.isVoiceOverRunning
+            || UIAccessibility.isSwitchControlRunning
     }
 
     /// From `layoutSubviews`: the grid follows the picture, through rotation,
