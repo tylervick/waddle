@@ -87,9 +87,12 @@ final class OverlayPresenter {
         // The player's button positions from the layout editor (issue #115),
         // under the same read-once rule.
         let layoutOverrides = TouchOverlayLayoutOverrides.current()
+        // Ring or grid, under the same read-once rule.
+        let weaponSelectorStyle = WeaponSelectorStyle.current()
         let view = TouchOverlayView(gamepad: gamepad, scheme: scheme,
                                     tuning: tuning, debugHUDEnabled: debugHUDEnabled,
-                                    layoutOverrides: layoutOverrides)
+                                    layoutOverrides: layoutOverrides,
+                                    weaponSelectorStyle: weaponSelectorStyle)
         view.frame = window.bounds
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         window.addSubview(view)

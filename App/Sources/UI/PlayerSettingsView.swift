@@ -19,6 +19,7 @@ struct PlayerSettingsView: View {
     var onDone: (() -> Void)?
 
     @AppStorage(TouchControlScheme.userDefaultsKey) private var touchScheme: TouchControlScheme = .defaultScheme
+    @AppStorage(WeaponSelectorStyle.userDefaultsKey) private var weaponSelector: WeaponSelectorStyle = .defaultStyle
     @AppStorage(debugHUDUserDefaultsKey) private var debugHUD: Bool = false
     @State private var showControlFeel = false
     @Environment(\.dismiss) private var dismiss
@@ -32,6 +33,14 @@ struct PlayerSettingsView: View {
                         Text("Modern").tag(TouchControlScheme.modern)
                     }
                     .accessibilityIdentifier("touchSchemePicker")
+
+                    // Read when a session starts, like the scheme above.
+                    Picker("Weapon Selector", selection: $weaponSelector) {
+                        ForEach(WeaponSelectorStyle.allCases, id: \.self) { style in
+                            Text(style.displayLabel).tag(style)
+                        }
+                    }
+                    .accessibilityIdentifier("weaponSelectorPicker")
 
                     // A sheet, not a push: `ControlFeelView` brings its own
                     // `NavigationStack` and Done button (it was built for this

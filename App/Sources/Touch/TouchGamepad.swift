@@ -205,6 +205,14 @@ extension TouchGamepad {
         return raw.map { WeaponSlotState(owned: $0.owned, canFire: $0.can_fire) }
     }
 
+    /// The weapon up, or pending if a switch is under way, as an engine
+    /// weapon number (0..<9); nil when the selector may not open. The ring's
+    /// shared slots read it to know which partner is up.
+    func selectedWeapon() -> Int? {
+        let weapon = Int(WoofIOS_GetSelectedWeapon())
+        return (0..<Int(WOOF_IOS_NUM_WEAPONS)).contains(weapon) ? weapon : nil
+    }
+
     /// Switch to weapon `index` (0..<9) on the next built command.
     func selectWeapon(_ index: Int) {
         guard let weapon = Int32(exactly: index) else { return }

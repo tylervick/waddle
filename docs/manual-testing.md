@@ -30,9 +30,43 @@ overlay to remain visible even when input devices are connected.
 - [ ] Weapon prev/next cycles; MAP toggles automap (previously silently did
       nothing — was wired to an unbound button); ≡ opens the menu;
       tapping an item opens it, and the stick + FIRE/USE still navigate it
-- [ ] Weapon-select grid: tapping the bottom centre of the picture (the
-      middle of the status bar) opens a 3×3 weapon grid over the picture.
-      Check each of:
+- [ ] Weapon-select ring (the default): pressing the bottom centre of the
+      picture (the middle of the status bar) fans a half-ring of seven
+      weapons above it. Check each of:
+  - Slide to pick: press the hotspot, slide up onto an owned weapon (its
+    wedge brightens under the finger) and lift: that weapon comes up and the
+    ring closes, in one gesture. Lift over an unowned (dark) wedge or
+    anywhere off the ring instead: the ring closes and nothing changes
+  - Tap toggle: a quick tap on the hotspot opens the ring and leaves it
+    open; tapping an owned wedge picks it and closes; tapping an unowned
+    wedge does nothing and the ring stays open; tapping the hotspot again
+    closes it without changing weapon
+  - Tap outside: with the ring open, a tap anywhere off the ring and the
+    hotspot (over the stick, over FIRE) closes it, and does not move, turn
+    or fire
+  - Walk with the stick, then open the ring with the other hand while the
+    stick thumb stays down: the player stops at once, and moving or lifting
+    that thumb over a wedge neither picks nor highlights it. Hold FIRE
+    (chaingun) and open the ring the same way: firing stops
+  - Shared slots: with both fist and chainsaw (IDKFA), the left wedge shows
+    the chainsaw; pick it, reopen, and the same wedge shows the fist and
+    picks it; once more swaps back. Same with the shotgun and super shotgun
+    in a DOOM II game (preferred: super shotgun). At a vanilla compatibility
+    level the original game's rule may still turn a fist pick into the
+    chainsaw or a shotgun pick into the super shotgun (expected)
+  - The wedge of the weapon in hand has a light outline. An owned weapon
+    with no ammo shows red and is still pickable
+  - The ring closes on its own when a menu or the automap opens, when the
+    player dies, and when the soft keyboard comes up; a finger held at that
+    moment picks nothing when it lifts
+  - Rotate the device with the ring open: it follows the picture; on a
+    landscape iPhone and an iPad every sprite sits upright inside its wedge
+  - Switch Settings → Weapon Selector to Grid, start a new session: the
+    hotspot opens the 3×3 grid below, and its checks hold. Switch back to
+    Ring for the next session
+- [ ] Weapon-select grid (Settings → Weapon Selector → Grid): tapping the
+      bottom centre of the picture (the middle of the status bar) opens a
+      3×3 weapon grid over the picture. Check each of:
   - Walk with the stick, then tap the hotspot with the other hand while the
     stick thumb stays down: the player stops at once. Relax that thumb so it
     lifts over a bottom-row cell: nothing is picked and the grid stays open.

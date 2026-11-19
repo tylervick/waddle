@@ -465,6 +465,91 @@ final class TouchControlsTests: XCTestCase {
         XCTAssertEqual(fields["ws"], 1, "exactly one weapon select should reach the engine: \(writes.label)")
     }
 
+    /// The weapon-select ring's one-gesture pick: press on the hotspot, slide
+    /// to the fist's wedge (slot 0) and lift. The ring is the default, so no
+    /// style is named. A first tap opens it, which proves it is the ring
+    /// (seven wedges, no `weaponCell7`) and gives the fist wedge's place; a
+    /// second tap on the hotspot closes it without a pick (the grid's re-tap
+    /// would select the best weapon and count in `ws`). The press-slide-lift
+    /// then opens, picks and closes, so `ws` is exactly 1.
+    @MainActor
+    func testWeaponRingSlideToPick() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "20"
+        app.holdAutoquit()
+        app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        play.tap()
+        XCTAssertTrue(app.buttons["fireButton"].waitForExistence(timeout: 30), "overlay never installed")
+        Thread.sleep(forTimeInterval: 2) // let the level settle before the first input
+
+        let hotspot = app.descendants(matching: .any)["weaponSelectHotspot"]
+        XCTAssertTrue(hotspot.waitForExistence(timeout: 5), "no weapon-select hotspot on the overlay")
+        let hotspotCentre = hotspot.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        hotspotCentre.tap()
+
+        let fist = app.descendants(matching: .any)["weaponCell0"]
+        XCTAssertTrue(fist.waitForExistence(timeout: 5), "tapping the hotspot should open the ring")
+        XCTAssertTrue(app.descendants(matching: .any)["weaponCell6"].exists, "the ring should show seven wedges")
+        XCTAssertFalse(app.descendants(matching: .any)["weaponCell7"].exists, "the ring has seven wedges, not nine")
+        let target = CGVector(dx: fist.frame.midX - hotspot.frame.midX, dy: fist.frame.midY - hotspot.frame.midY)
+
+        hotspotCentre.tap()
+        XCTAssertTrue(fist.waitForNonExistence(timeout: 5), "a second hotspot tap should close the ring")
+
+        hotspotCentre.press(forDuration: 0.3, thenDragTo: hotspotCentre.withOffset(target),
+                            withVelocity: .slow, thenHoldForDuration: 0.2)
+        XCTAssertTrue(fist.waitForNonExistence(timeout: 5), "lifting over an owned weapon should close the ring")
+
+        releaseAutoquit()
+        let writes = app.staticTexts["touchWritesLabel"]
+        XCTAssertTrue(writes.waitForExistence(timeout: 60), "no per-control write readout after the session")
+        let fields = Self.writeFields(writes.label)
+        XCTAssertEqual(fields["ws"], 1, "exactly one weapon select should reach the engine: \(writes.label)")
+    }
+
+    /// The grid behind the setting: with `WADDLE_WEAPON_SELECTOR=grid` the
+    /// hotspot opens the nine-cell grid, and a tap on the fist picks it and
+    /// closes the grid, exactly one accepted select.
+    @MainActor
+    func testWeaponGridSelectorStillPicks() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "20"
+        app.holdAutoquit()
+        app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        app.launchEnvironment["WADDLE_WEAPON_SELECTOR"] = "grid"
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        play.tap()
+        XCTAssertTrue(app.buttons["fireButton"].waitForExistence(timeout: 30), "overlay never installed")
+        Thread.sleep(forTimeInterval: 2)
+
+        let hotspot = app.descendants(matching: .any)["weaponSelectHotspot"]
+        XCTAssertTrue(hotspot.waitForExistence(timeout: 5), "no weapon-select hotspot on the overlay")
+        hotspot.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+
+        let fist = app.descendants(matching: .any)["weaponCell0"]
+        XCTAssertTrue(fist.waitForExistence(timeout: 5), "tapping the hotspot should open the grid")
+        XCTAssertTrue(app.descendants(matching: .any)["weaponCell8"].exists, "the grid should show all nine cells")
+        fist.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(fist.waitForNonExistence(timeout: 5), "picking an owned weapon should close the grid")
+
+        releaseAutoquit()
+        let writes = app.staticTexts["touchWritesLabel"]
+        XCTAssertTrue(writes.waitForExistence(timeout: 60), "no per-control write readout after the session")
+        let fields = Self.writeFields(writes.label)
+        XCTAssertEqual(fields["ws"], 1, "exactly one weapon select should reach the engine: \(writes.label)")
+    }
+
     // MARK: Auto-use (issue #114)
 
     /// The predecessor's defining feel: walk at a door and it opens. The
