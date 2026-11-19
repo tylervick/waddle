@@ -1,6 +1,6 @@
-Tap the menus, and a newer engine underneath.
+A weapon ring, and room to spread out on bigger screens.
 
-- The in-game menus answer to touch: tap an item to choose it, drag a slider to set it, and answer a yes/no prompt with on-screen buttons. Tap the title screen to open the menu.
-- Woof! engine updated to 16.0.0, with its latest fixes and compatibility work. Maps built with compressed nodes now load.
-- Saves made with earlier versions of Waddle still load.
-- Updated audio and platform libraries.
+- Pick weapons from a ring: tap the middle of the status bar to open it, or press there, slide up and lift over the weapon you want. The fist and chainsaw share a slot, and so do the two shotguns; pick the slot again to swap. Prefer a grid? Settings > Weapon Selector.
+- On iPad and other wide windows, a game's page and Settings open beside your library instead of covering it.
+- iPhone Duo: Waddle fills the inner display, and with the phone standing half open the game sits on the upper half with the touch controls below the fold.
+- The on-screen buttons stay clear of the status bar when the picture does not fill the screen, as on an iPad held upright.
