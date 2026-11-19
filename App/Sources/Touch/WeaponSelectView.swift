@@ -13,19 +13,14 @@ import UIKit
 final class WeaponSelectView: UIView {
     private let cells: [WeaponCellView]
 
-    /// Converted images, keyed by the bitmaps they came from, so `update`
-    /// (called on every poll) only converts a sprite when it changes.
-    private var spriteSources: [DoomGraphics.Bitmap?]
-    private var spriteImages: [CGImage?]
-    private var silhouetteImages: [CGImage?]
+    /// Converted images, so `update` (called on every poll) only converts a
+    /// sprite when it changes.
+    private let spriteImages = WeaponSpriteImages(count: WeaponSelectGeometry.cellCount)
     private var pixelScale: CGFloat = 1
 
     override init(frame: CGRect) {
         let count = WeaponSelectGeometry.cellCount
         cells = (0..<count).map { WeaponCellView(name: WeaponSelectModel.names[$0], index: $0) }
-        spriteSources = Array(repeating: nil, count: count)
-        spriteImages = Array(repeating: nil, count: count)
-        silhouetteImages = Array(repeating: nil, count: count)
         super.init(frame: frame)
         isUserInteractionEnabled = false
         backgroundColor = .clear
@@ -56,8 +51,8 @@ final class WeaponSelectView: UIView {
             let appearance = model.appearance(i)
             let slot = model.slots.indices.contains(i)
                 ? model.slots[i] : WeaponSlotState(owned: false, canFire: false)
-            let image = sprites.indices.contains(i) ? image(for: sprites[i], at: i,
-                                                            silhouette: appearance == .unowned) : nil
+            let image = sprites.indices.contains(i)
+                ? spriteImages.image(for: sprites[i], at: i, silhouette: appearance == .unowned) : nil
             cell.frame = geometry.cellFrame(i)
             cell.configure(appearance: appearance, slot: slot, selectable: model.isSelectable(i),
                            sprite: image, pixelScale: pixelScale)
@@ -73,47 +68,11 @@ final class WeaponSelectView: UIView {
     func spritePixelScaleForTesting() -> CGFloat {
         pixelScale
     }
-
-    private func image(for bitmap: DoomGraphics.Bitmap?, at i: Int, silhouette: Bool) -> CGImage? {
-        if bitmap != spriteSources[i] {
-            spriteSources[i] = bitmap
-            spriteImages[i] = bitmap.flatMap(Self.makeImage)
-            silhouetteImages[i] = nil
-        }
-        guard let bitmap else { return nil }
-        if silhouette {
-            if silhouetteImages[i] == nil { silhouetteImages[i] = Self.makeImage(bitmap.silhouette()) }
-            return silhouetteImages[i]
-        }
-        return spriteImages[i]
-    }
-
-    /// RGBA, straight alpha, row-major, as `DoomGraphics` produces it.
-    private static func makeImage(_ bitmap: DoomGraphics.Bitmap) -> CGImage? {
-        guard bitmap.width > 0, bitmap.height > 0,
-              bitmap.rgba.count == bitmap.width * bitmap.height * 4,
-              let provider = CGDataProvider(data: Data(bitmap.rgba) as CFData) else { return nil }
-        return CGImage(width: bitmap.width, height: bitmap.height,
-                       bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: bitmap.width * 4,
-                       space: CGColorSpaceCreateDeviceRGB(),
-                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
-                       provider: provider, decode: nil, shouldInterpolate: false,
-                       intent: .defaultIntent)
-    }
 }
 
-/// One cell: panel, name, sprite. Colours are picked from the range of
-/// Doom's own palette (its greys, browns and blood reds) rather than the
-/// app shell's theme, which belongs to the library, not the game.
+/// One cell: panel, name, sprite, in the selectors' shared palette.
 private final class WeaponCellView: UIView {
-    private enum Palette {
-        static let unowned = UIColor(red: 0.16, green: 0.16, blue: 0.16, alpha: 0.9)
-        static let ready = UIColor(red: 0.43, green: 0.39, blue: 0.33, alpha: 0.9)
-        static let empty = UIColor(red: 0.52, green: 0.06, blue: 0.06, alpha: 0.9)
-        static let pressed = UIColor(red: 0.30, green: 0.30, blue: 0.30, alpha: 0.9)
-        static let edge = UIColor(white: 0, alpha: 0.75).cgColor
-        static let text = UIColor(red: 0.96, green: 0.91, blue: 0.78, alpha: 1)
-    }
+    private typealias Palette = WeaponPanelPalette
 
     private let nameLabel = UILabel()
     private let spriteLayer = CALayer()
