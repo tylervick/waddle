@@ -41,9 +41,13 @@ struct WeaponRingModel {
     /// in the same batch as the touch that opened or closed the ring is
     /// consumed and does nothing else.
     ///
-    /// Open, a touch on a wedge is tracked (if no finger is) and is tested
-    /// before the hotspot, as the grid tests its cells first. Any other
-    /// touch, in the hotspot or not, closes the ring without a pick.
+    /// Open, a touch-down on a drawn wedge (the strict band, `drawnWedge`) is
+    /// tracked if no finger is. Any other touch-down, in the hotspot, just
+    /// off the drawing (a button past the outer edge, a thumb coming back
+    /// under the inner edge) or anywhere else, closes the ring without a
+    /// pick. The hotspot and the drawn band do not overlap, so there is no
+    /// tie to break. Once tracked, a finger moves and lifts by the generous
+    /// band, so a slide may overshoot.
     mutating func touchBegan(_ id: AnyHashable, at point: WeaponRingPoint,
                              canOpen: Bool, openAtBatchStart: Bool) -> [Effect]? {
         if isOpen != openAtBatchStart { return [] }
@@ -53,7 +57,7 @@ struct WeaponRingModel {
             track(id, at: point, opener: true)
             return [.releaseHeldInputs]
         }
-        if point.wedge != nil {
+        if point.drawnWedge != nil {
             if tracked == nil { track(id, at: point, opener: false) }
             return []
         }
@@ -124,7 +128,8 @@ struct WeaponRingModel {
         !openerLeftHotspot && point.inHotspot
     }
 
-    /// A tap never picks, even where the hotspot overlaps a wedge.
+    /// A tap never picks, even where the generous band reaches into the
+    /// hotspot (0.75 · r to r): a finger that never left the hotspot is a tap.
     private func pick(at point: WeaponRingPoint, tap: Bool) -> Int? {
         guard !tap, let wedge = point.wedge else { return nil }
         return resolvedWeapon(wedge)

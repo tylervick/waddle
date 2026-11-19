@@ -200,6 +200,58 @@ final class WeaponRingModelTests: XCTestCase {
         XCTAssertEqual(m.touchEnded("b", at: hotspotOverWedge(4)), [.select(4)])
     }
 
+    // MARK: Strict band for touch-downs, generous band for a tracked finger
+
+    /// What `WeaponRingGeometry.locate` reports at 1.2 · R (a button just
+    /// past the outer edge) and at 0.85 · r (under the inner edge, in the
+    /// hotspot disc): the generous wedge, but not on the drawing.
+    private func pastOuterEdge(_ i: Int) -> WeaponRingPoint {
+        WeaponRingPoint(wedge: i, inHotspot: false, onDrawing: false)
+    }
+    private func underInnerEdge(_ i: Int) -> WeaponRingPoint {
+        WeaponRingPoint(wedge: i, inHotspot: true, onDrawing: false)
+    }
+
+    func testATouchDownPastTheOuterEdgeClosesWithoutAPick() {
+        var m = openIdle()
+        XCTAssertEqual(m.touchBegan("b", at: pastOuterEdge(1), canOpen: true, openAtBatchStart: true), [])
+        XCTAssertFalse(m.isOpen)
+        XCTAssertEqual(m.touchEnded("b", at: pastOuterEdge(1)), [], "its lift picks nothing")
+        XCTAssertFalse(m.isOpen)
+    }
+
+    func testATouchDownUnderTheInnerEdgeClosesWithoutAPick() {
+        var m = openIdle()
+        XCTAssertEqual(m.touchBegan("b", at: underInnerEdge(1), canOpen: true, openAtBatchStart: true), [])
+        XCTAssertFalse(m.isOpen)
+        XCTAssertEqual(m.touchEnded("b", at: underInnerEdge(1)), [])
+        XCTAssertFalse(m.isOpen)
+    }
+
+    /// A tracked slide may still overshoot the drawing and pick.
+    func testATrackedSlideOvershootingTheOuterEdgePicks() {
+        var m = openIdle()
+        _ = m.touchBegan("b", at: wedge(4), canOpen: false, openAtBatchStart: true)
+        m.touchMoved("b", at: pastOuterEdge(1))
+        XCTAssertEqual(m.highlightedSlot, 1)
+        XCTAssertEqual(m.touchEnded("b", at: pastOuterEdge(1)), [.select(1)])
+        XCTAssertFalse(m.isOpen)
+    }
+
+    func testTheOpeningSlideOvershootingTheOuterEdgePicks() {
+        var m = opened()
+        m.touchMoved("opener", at: pastOuterEdge(0))
+        XCTAssertEqual(m.touchEnded("opener", at: pastOuterEdge(0)), [.select(0)])
+    }
+
+    /// Back in the hole after leaving the hotspot, the generous band still
+    /// reaches there (0.75 · r up), so the lift picks.
+    func testAnOpenerThatLeftAndLiftsUnderTheInnerEdgePicks() {
+        var m = opened()
+        m.touchMoved("opener", at: wedge(1))
+        XCTAssertEqual(m.touchEnded("opener", at: underInnerEdge(1)), [.select(1)])
+    }
+
     // MARK: One finger at a time
 
     func testOnlyOneFingerIsTracked() {

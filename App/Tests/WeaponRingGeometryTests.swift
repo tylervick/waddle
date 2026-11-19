@@ -42,9 +42,68 @@ final class WeaponRingGeometryTests: XCTestCase {
         XCTAssertEqual(small.wedge(at: small.wedgeMidpoint(3)), 3)
     }
 
-    func testHotspotIsTheGrids() {
+    // MARK: Hotspot disc (ring only; the grid keeps its rectangle)
+
+    func testHotspotDiscContainsTheCentre() {
         for g in [classic, wide, small] {
-            XCTAssertEqual(g.hotspot, WeaponSelectGeometry(pictureRect: g.pictureRect).hotspot)
+            XCTAssertTrue(g.isInHotspot(g.center), "\(g.pictureRect)")
+        }
+    }
+
+    func testHotspotDiscReachesNearlyToTheInnerEdge() {
+        let r = classic.innerRadius
+        XCTAssertTrue(classic.isInHotspot(point(classic, degrees: 135, distance: 0.9 * r)), "0.9 r up-left")
+        XCTAssertFalse(classic.isInHotspot(point(classic, degrees: 135, distance: 1.1 * r)), "1.1 r up-left")
+        XCTAssertTrue(classic.isInHotspot(point(classic, degrees: -90, distance: 0.9 * r)),
+                      "it covers the status-bar strip under the centre")
+    }
+
+    /// The hotspot view's frame is only the disc's bounding box: its corners
+    /// are not the hotspot.
+    func testLocateUsesTheDiscNotItsBoundingBox() {
+        let r = classic.innerRadius
+        let corner = CGPoint(x: classic.center.x - 0.9 * r, y: classic.center.y + 0.9 * r)
+        XCTAssertTrue(classic.hotspot.contains(corner))
+        XCTAssertFalse(classic.isInHotspot(corner))
+        XCTAssertFalse(classic.locate(corner).inHotspot)
+        XCTAssertTrue(classic.locate(classic.center).inHotspot)
+    }
+
+    /// On a widescreen picture the disc reaches past the picture's bottom
+    /// edge (r = 74.3, the centre is 64.3 above it); that part is clipped.
+    func testHotspotDiscIsClippedToThePicture() {
+        let below = CGPoint(x: wide.center.x, y: wide.pictureRect.maxY + 1)
+        XCTAssertLessThan(below.y - wide.center.y, wide.innerRadius)
+        XCTAssertFalse(wide.isInHotspot(below))
+        XCTAssertEqual(wide.hotspot.maxY, wide.pictureRect.maxY, accuracy: 1e-9)
+        XCTAssertEqual(wide.hotspot.minY, wide.center.y - wide.innerRadius, accuracy: 1e-9)
+        XCTAssertEqual(wide.hotspot.width, 2 * wide.innerRadius, accuracy: 1e-9)
+    }
+
+    /// The hotspot view's frame is the disc's bounding box clipped to the
+    /// picture. Its centre, which UI tests tap, is in the disc and in no
+    /// wedge, strict or generous, on every picture here and on a portrait
+    /// 402-wide phone at 4:3 and 16:10.
+    func testHotspotFrameCentreIsInTheDiscAndNoWedge() {
+        let portrait43 = WeaponRingGeometry(pictureRect: CGRect(x: 0, y: 286.25, width: 402, height: 301.5))
+        let portrait1610 = WeaponRingGeometry(pictureRect: CGRect(x: 0, y: 311.5, width: 402, height: 251.25))
+        for g in [classic, wide, small, portrait43, portrait1610] {
+            let c = CGPoint(x: g.hotspot.midX, y: g.hotspot.midY)
+            XCTAssertTrue(g.isInHotspot(c), "\(g.pictureRect)")
+            XCTAssertNil(g.drawnWedge(at: c), "\(g.pictureRect)")
+            XCTAssertNil(g.wedge(at: c), "\(g.pictureRect)")
+        }
+    }
+
+    func testHotspotAndDrawnWedgesDoNotOverlap() {
+        let r = classic.innerRadius
+        for degrees in stride(from: CGFloat(1), to: 180, by: 7) {
+            let inside = point(classic, degrees: degrees, distance: r - 0.01)
+            let outside = point(classic, degrees: degrees, distance: r + 0.01)
+            XCTAssertTrue(classic.isInHotspot(inside))
+            XCTAssertNil(classic.drawnWedge(at: inside))
+            XCTAssertFalse(classic.isInHotspot(outside))
+            XCTAssertNotNil(classic.drawnWedge(at: outside))
         }
     }
 
@@ -122,11 +181,38 @@ final class WeaponRingGeometryTests: XCTestCase {
     func testLocateReportsWedgeAndHotspotIndependently() {
         XCTAssertEqual(classic.locate(classic.wedgeMidpoint(1)), WeaponRingPoint(wedge: 1, inHotspot: false))
         XCTAssertEqual(classic.locate(CGPoint(x: 31, y: 11)), WeaponRingPoint(wedge: nil, inHotspot: false))
-        // The hotspot's top corners reach above the centre line into the band.
-        let corner = CGPoint(x: classic.hotspot.maxX - 1, y: classic.hotspot.minY + 1)
-        let located = classic.locate(corner)
-        XCTAssertTrue(located.inHotspot)
-        XCTAssertNotNil(located.wedge)
+        // The generous band reaches into the hotspot disc (0.75 r to r).
+        let inHole = classic.locate(point(classic, degrees: 90, distance: 0.9 * classic.innerRadius))
+        XCTAssertTrue(inHole.inHotspot)
+        XCTAssertEqual(inHole.wedge, 3)
+        XCTAssertNil(inHole.drawnWedge)
+    }
+
+    // MARK: Strict band (touch-downs) against the generous band (a tracked slide)
+
+    func testATouchDownJustOutsideTheDrawingIsOnNoDrawnWedge() {
+        let R = classic.outerRadius, r = classic.innerRadius
+        let past = point(classic, degrees: 30, distance: 1.2 * R)
+        XCTAssertNil(classic.drawnWedge(at: past), "1.2 R: past the outer edge")
+        XCTAssertEqual(classic.wedge(at: past), 5, "a tracked slide may still overshoot there")
+        XCTAssertEqual(classic.locate(past), WeaponRingPoint(wedge: 5, inHotspot: false, onDrawing: false))
+
+        let under = point(classic, degrees: 150, distance: 0.85 * r)
+        XCTAssertNil(classic.drawnWedge(at: under), "0.85 r: under the inner edge")
+        XCTAssertEqual(classic.wedge(at: under), 1)
+        XCTAssertNil(classic.locate(under).drawnWedge)
+    }
+
+    func testDrawnBandEdges() {
+        let R = classic.outerRadius, r = classic.innerRadius
+        XCTAssertEqual(classic.drawnWedge(at: point(classic, degrees: 90, distance: R + 1)), 3, "within the slack")
+        XCTAssertNil(classic.drawnWedge(at: point(classic, degrees: 90, distance: R + 3)))
+        XCTAssertEqual(classic.drawnWedge(at: point(classic, degrees: 90, distance: r + 0.5)), 3)
+        XCTAssertNil(classic.drawnWedge(at: point(classic, degrees: 90, distance: r - 0.01)), "inside r is the hotspot's")
+        XCTAssertNil(classic.drawnWedge(at: point(classic, degrees: -45, distance: (R + r) / 2)), "below the line")
+        for i in 0..<7 {
+            XCTAssertEqual(classic.drawnWedge(at: classic.wedgeMidpoint(i)), i)
+        }
     }
 
     func testSpriteSide() {

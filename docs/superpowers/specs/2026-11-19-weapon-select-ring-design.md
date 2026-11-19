@@ -89,10 +89,20 @@ weapon's silhouette.
   radius `r = 0.40 · R`.
 - Seven equal wedges across the upper half-circle, slot 0 at the left
   horizon, slot 6 at the right.
-- Hit-testing is more generous than the drawing so a slide can overshoot: a
-  point is in a wedge when it is above the centre line and its distance from
-  the centre is between `0.75 · r` and `1.35 · R`.
-- The hotspot is the grid's, unchanged.
+- Two hit bands, both above the centre line and split into the same seven
+  angles:
+  - **Drawn (strict)**, for touch-downs: distance from the centre greater
+    than `r` and at most `R` plus 2 points of slack. A touch-down while the
+    ring is open starts tracking only here.
+  - **Generous**, for a finger already tracked (its moves and its lift):
+    distance between `0.75 · r` and `1.35 · R`, so a slide can overshoot
+    the drawing and still pick.
+- The hotspot (ring style only) is a disc: every point within `r` of the
+  centre, clipped to `P`. It covers the ring's hole and the status-bar strip
+  under the centre, and does not overlap the drawn band. The
+  `weaponSelectHotspot` view's frame is the disc's bounding box clipped to
+  `P`; its centre is in the disc and in no wedge. The grid style keeps its
+  own rectangle (`WeaponSelectGeometry.hotspot`) unchanged.
 
 ### Gestures
 
@@ -100,18 +110,24 @@ Closed, and the ring may open:
 
 - **Touch-down in the hotspot** opens the ring and releases held inputs, as
   the grid does. Unlike the grid, the opening finger is tracked.
-- That finger **moves**: the wedge under it highlights.
-- That finger **lifts over a selectable wedge**: pick it, close.
+- That finger **moves**: the wedge under it (generous band) highlights.
 - It **lifts without ever leaving the hotspot** (a tap): the ring stays open.
+  This wins where the generous band reaches into the hotspot disc
+  (`0.75 · r` to `r`): a tap never picks.
+- Otherwise, it **lifts over a selectable wedge** (generous band): pick it,
+  close.
 - It **lifts anywhere else**: close, no pick.
 
 Open:
 
-- **Touch-down on a wedge**: that finger is tracked; lifting over a
-  selectable wedge picks and closes; lifting elsewhere leaves the ring open.
+- **Touch-down on a drawn wedge** (strict band): that finger is tracked;
+  lifting over a selectable wedge (generous band) picks and closes; lifting
+  elsewhere leaves the ring open.
 - **Touch-down in the hotspot**: close, no pick. (The grid's re-tap selects
   the best weapon; a toggle that changes weapon would be a surprise here.)
-- **Touch-down anywhere else**: close, no pick; the touch is consumed.
+- **Touch-down anywhere else**, including just off the drawing (a button
+  past the outer edge, a thumb under the inner edge): close, no pick; the
+  touch is consumed.
 - Only one finger is tracked at a time. A finger in the same `touchesBegan`
   batch as the one that opens or closes the ring is consumed and can neither
   pick nor steer (same rule the grid has).
