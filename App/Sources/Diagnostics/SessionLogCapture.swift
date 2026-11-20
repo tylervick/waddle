@@ -326,7 +326,9 @@ private final class PassThrough: @unchecked Sendable {
     /// is what lets a reader that is behind, but reading, have the end of
     /// the session (pull request 399's review). After those, a full queue
     /// means dropped bytes, so the queue never holds more than `capacity`
-    /// and `teeRemainder` together.
+    /// and `teeRemainder` together. The writer may be holding one batch it
+    /// took from the queue earlier, so what is in memory for the
+    /// destination tops out at `2 * capacity + teeRemainder`.
     func stopWaiting() {
         condition.lock()
         waits = false

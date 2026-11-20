@@ -166,13 +166,26 @@ final class SessionLogCaptureStalledReaderTests: XCTestCase {
                       "the bound put a thread to sleep; it must drop, not block")
         XCTAssertEqual(writer.written, payload.count)
 
-        // What the pass-through kept is what comes out once somebody reads.
-        // The sink's own 64 KiB of filler comes first; everything after
-        // that was held in memory.
+        // What the pass-through kept is what comes out once somebody reads,
+        // after the sink's own filler. The figures are spelled out here and
+        // not read from the capture, so that changing them there shows up.
+        let pipe = 65_536           // the sink's filler; also the queue's capacity
+        let remainder = 69_632      // the over-capacity allowance: a pipe and a 4 KiB chunk
+        let note = 128              // room for the "bytes not passed through" line
+        // The queue cannot have dropped before it was full and the whole
+        // allowance was spent.
+        let floor = pipe + (pipe + remainder)
+        // The most it can have kept: a full queue with the allowance spent,
+        // plus one batch of up to `pipe` the writer took before the queue
+        // filled. Then, once the reader un-stalls it, whatever the pump had
+        // not yet taken from the tee, which is another `remainder` at most.
+        let ceiling = pipe + (2 * pipe + remainder) + remainder + note
         let reader = CollectingReader(sink: sink)
         let arrived = reader.countOnceQuiet(for: 0.5, timeout: 20)
-        XCTAssertLessThan(arrived, 1024 * 1024,
-                          "\(arrived) bytes were waiting for the reader; all but the sink's 64 KiB of them were held in memory")
+        XCTAssertGreaterThanOrEqual(arrived, floor,
+            "the reader got less than a full queue; either it never read or the allowance was not granted")
+        XCTAssertLessThanOrEqual(arrived, ceiling,
+            "\(arrived) bytes were waiting for the reader, more than the queue's bound allows it to have held")
     }
 
     /// A stall is not for good. Once the reader reads again the original

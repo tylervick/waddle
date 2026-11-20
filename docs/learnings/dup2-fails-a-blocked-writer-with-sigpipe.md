@@ -113,9 +113,9 @@ Three things to know before changing it:
   that treated a queue still full at `end()` as a stall and dropped what
   the tee held: a reader taking 4 KiB every 5 ms lost about 40 KB of a
   400 KB burst and was told it had stopped reading. Once the session is
-  ending the queue takes the tee's remainder over its capacity, which is
-  bounded because nothing can write to the tee any more. Only a grace
-  period that ran out marks a reader stalled.
+  ending the queue takes the tee's remainder over its capacity. A wait cut
+  short by `end()` never marks a reader stalled; a grace period that ran
+  out does, and so does the case in the next bullet.
 
 - **`end()` does not take the tee away from everybody.** Its `dup2` drops
   the target's reference to the tee's write end, and a duplicate of the
@@ -125,8 +125,11 @@ Three things to know before changing it:
   that way was all held in memory (issue #410). Nothing in the app, the
   engine or the vendored libraries makes such a duplicate; system frameworks
   were not searched. The queue now takes exactly what the tee can have held
-  at `end()` over its capacity, a pipe and the pump's chunk in hand, and
-  after that a full queue drops.
+  at `end()` over its capacity, a pipe and the pump's chunk in hand
+  (69,632 bytes), and after that a full queue marks the reader stalled and
+  drops. The first version of the previous bullet's fix said the remainder
+  was bounded "because nothing can write to the tee any more"; that was the
+  mistake.
 
 A device was not tested, for the reason the issue gives: nothing there holds
 a pty on the app's stderr. The CI stall itself was not reproduced either;
@@ -160,8 +163,9 @@ error flag.
 
 **It is not fixed, and this is why.** Darwin has no call that replaces a
 descriptor without that window: `dup2` is the atomic one on paper and is the
-first row of the table, and there is no `dup3`. What is left is keeping
-writers out for the length of the swap, and the capture cannot:
+first row of the table, and there is no `dup3`. Given a swap per session,
+what is left is keeping writers out for the length of it, and the capture
+cannot:
 
 - `ftrylockfile(stdout)` and `(stderr)` around the swap would hold off stdio
   writers only. The engine's `printf`s are stdio, but they run on the main
@@ -171,6 +175,23 @@ writers out for the length of the swap, and the capture cannot:
 - A blocking `flockfile` would be worse than the loss: a stdio writer asleep
   on a full original holds that lock, and `begin()` would wait for it for
   ever, where today its `dup2` wakes it.
+
+**The route not taken: do not swap per session.** The tee could be put over
+stdout and stderr once, at launch, before any other thread exists, and stay
+there, with only the log file opened and closed per session. No swap, no
+window. It has not been tried, and it is open. What it would cost, from
+reading and not from measurement:
+
+- Every byte the app prints, in or out of a session, would go through the
+  pump and the pass-through thread, so the stalled-reader handling above
+  would apply for the whole life of the process and not just a session.
+- Output still in the tee or the queue when the process dies would never
+  reach the console. Today that is true only during a session.
+- "Before any other thread exists" has to be shown, not assumed, in an app
+  whose `main` is SwiftUI's.
+
+That is a larger change than one lost line at each end of a session has so
+far been worth.
 
 So a line of another thread's output can go missing at each end of a
 session, and a test that needs a writer's errno across `end()` must put the
