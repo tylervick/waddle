@@ -48,7 +48,12 @@ final class ScreenshotCaptureTests: XCTestCase {
     /// the App Store's landscape slots, just no longer a sideways one. The
     /// orientation only sticks once the app is frontmost, so call this right
     /// after every launch().
+    ///
+    /// The simulator keeps the orientation after the test ends, so each call
+    /// also registers the rotation back (issue #382); the next test, or the
+    /// next suite on this simulator, starts in portrait however this one ended.
     private func forceLandscape() {
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
         XCUIDevice.shared.orientation = .landscapeLeft
         Thread.sleep(forTimeInterval: 1.0)  // rotation animation
     }

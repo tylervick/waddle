@@ -10,7 +10,13 @@ final class TouchLayoutEditorTests: XCTestCase {
     /// Everything this test persists is wiped before it starts and after it
     /// ends, so a failure mid-way cannot leave a moved FIRE button for the
     /// rest of the suite.
+    ///
+    /// Portrait is set, not assumed (issue #382). The simulator keeps whatever
+    /// orientation the last test left, and on a landscape phone the Edit
+    /// Layout row is below the fold of Control Feel's lazy `Form`, so it is
+    /// absent from the hierarchy and `openLayoutEditor` fails on it.
     private func launchClean() -> XCUIApplication {
+        XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launch()
