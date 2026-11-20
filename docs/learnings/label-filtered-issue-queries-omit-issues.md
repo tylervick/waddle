@@ -21,15 +21,17 @@ The missing one was #79, every time.
 
 This is not a slow query or a stale cache you can wait out. An omitted issue is
 invisible for as long as the index disagrees — never selected by
-`Scripts/loop-precheck.sh`, never format-checked by
+`loop-precheck.sh` (the unattended loop's selector, now archived under
+`docs/archive/unattended-loop/`), never format-checked by
 `Scripts/check-issue-format.sh`, and indistinguishable in the record from a
 queue that is genuinely empty. It is a failure shaped exactly like success.
 
 **So neither script filters by label server-side.** Both fetch the open issues
-unfiltered and apply the label locally. `Scripts/test-loop-precheck.sh` cases
-19-21 and `Scripts/test-check-issue-format.sh` case 3 pin that: they assert the
-query carries no `--label`, that a non-eligible issue is never selected, and
-that an empty-but-readable queue does not report as an unreadable one.
+unfiltered and apply the label locally. The archived `test-loop-precheck.sh`
+cases 19-21 and `Scripts/test-check-issue-format.sh` case 3 pin that: they
+assert the query carries no `--label`, that an issue without the label is never
+selected, and that an empty-but-readable queue does not report as an unreadable
+one.
 
 The residual risk is that the unfiltered listing is complete only because `gh`
 routes it through `repository.issues` rather than search. If that ever changes,

@@ -5,7 +5,9 @@
 # comments. The report is the experiment's only output, so a silent parse
 # failure would mean drawing conclusions from data that was never read.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Archived beside the script it tests (see README.md here), so the script is
+# found next to this file rather than under the repository's Scripts/.
+HERE="$(cd "$(dirname "$0")" && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -123,7 +125,7 @@ EOF
         printf '%s\n' "---" "prose"
     } > "$1/trials/2026-08-07-issue-$2.md"
 }
-report() { env PATH="$1/bin:/usr/bin:/bin" "$ROOT/Scripts/loop-report.sh" "$1/trials"; }
+report() { env PATH="$1/bin:/usr/bin:/bin" "$HERE/loop-report.sh" "$1/trials"; }
 
 # 1. No records -> say so, exit 0, rather than dividing by zero.
 make_fixture "$TMP/a"

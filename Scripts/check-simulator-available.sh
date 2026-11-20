@@ -18,9 +18,8 @@
 # because they call for different responses:
 #   - ZERO devices enumerated, for ANY runtime: CoreSimulator itself failed
 #     to enumerate on this runner. Infrastructure, not the code under test.
-#     Exits with the WADDLE_SIMULATOR_UNAVAILABLE marker so a log grep --
-#     including Scripts/loop-prompt.md section 4 -- can tell this apart from
-#     a real regression and just re-run the job.
+#     Exits with the WADDLE_SIMULATOR_UNAVAILABLE marker so a log grep can
+#     tell this apart from a real regression and just re-run the job.
 #   - Devices enumerated, but none match the requested name/OS: a genuine
 #     destination pin problem. A re-run will not fix this, so the marker is
 #     NOT printed.

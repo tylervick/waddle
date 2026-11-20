@@ -20,6 +20,6 @@ The check is `Scripts/check-simulator-available.sh`, wired into
 `.github/workflows/ci.yml` and `.github/workflows/ui-tests.yml` ahead of
 their test steps. It retries on a bounded schedule before giving up, and on a
 zero-enumeration failure prints the `WADDLE_SIMULATOR_UNAVAILABLE` marker so
-a log grep — including `Scripts/loop-prompt.md` section 4 — can tell a flaky
+a log grep can tell a flaky
 runner apart from a real regression and re-run the job instead of "fixing" a
 clean diff.

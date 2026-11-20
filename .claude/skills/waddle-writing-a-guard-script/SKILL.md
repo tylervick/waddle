@@ -10,9 +10,10 @@ description: Use when adding or changing a Scripts/check-*.sh guard or its Scrip
 `CLAUDE.md`: *"A learning that can be an executable check should become one —
 `Scripts/check-engine-fresh.sh` is the pattern — and the learning file then
 points at the check instead of restating it."* That promotion is why `Scripts/`
-holds 40 shell files — every single one `#!/bin/bash` with `set -euo pipefail` —
-and why all 8 of its `check-*.sh` guards have a `test-check-*.sh` suite beside
-them.
+holds so many shell files — every one `#!/bin/bash`, and every one that is run
+and not sourced has `set -euo pipefail` — and why every `check-*.sh` guard has
+a `test-check-*.sh` suite beside it. (Count them with `ls`; the numbers once
+written here went stale.)
 
 Read the two models before writing: `Scripts/check-simulator-available.sh` +
 `Scripts/test-check-simulator-available.sh` (stubs a binary on PATH), and
@@ -49,7 +50,7 @@ pass() { echo "ok - $1"; }
 echo "All check-<name> tests passed."
 ```
 
-All 16 suites use that exact `fail`/`pass` pair. Cases are numbered in comments
+The suites use that `fail`/`pass` pair. Cases are numbered in comments
 (`# 1.`, `# 3b.`) and the comment says what failure shape the case exists to
 catch, not what the code does.
 
@@ -113,21 +114,18 @@ Distinguish failure *shapes* when they call for different responses.
 `check-simulator-available.sh` prints the `WADDLE_SIMULATOR_UNAVAILABLE` marker
 for "CoreSimulator enumerated nothing" (infrastructure — re-run) and omits it
 for "no device matched" (a real pin problem — a re-run will not help).
-`Scripts/loop-prompt.md` §4.3 greps for exactly that marker.
 
 ## Register it, or nobody runs it
 
 Add the suite to `.github/workflows/ci.yml` → **"Verify the build-script
 helpers"**. Its comment states the rule: *"This list must name EVERY
 Scripts/test-*.sh suite, not just the ones that guard the build."* The reason is
-concrete — `test-loop-report.sh` and `test-loop-precheck.sh` once ran nowhere on
-a pull request, so a change breaking one was green in CI and then scored
-`proved` by `check-red-green.sh` for breaking its own tests.
+concrete — two suites once ran nowhere on a pull request, so a change breaking
+one was green in CI.
 
-**The unattended loop may not do this.** `Scripts/loop-prompt.md` → "Rules that
-are absolute" forbids creating or modifying anything under `.github/workflows/`.
-An `agent:eligible` issue that adds a guard must say the CI wiring is the
-owner's follow-up, or be `agent:blocked`. See the `filing-an-issue` skill.
+Do it in the same pull request as the guard, and say in the pull request
+description that it edits a workflow: a changed workflow runs with the repo's
+secrets before the owner reviews it.
 
 If the guard replaces a prose learning, update the `docs/learnings/` file to
 point at the check rather than restate it, and keep its `INDEX.md` line — the
@@ -211,7 +209,7 @@ exports above.
 
 | Mistake | Fix |
 |---|---|
-| Guard added, suite not added to `ci.yml`'s helper list | Nobody runs it before merge; add it (owner-only if the loop authored it). |
+| Guard added, suite not added to `ci.yml`'s helper list | Nobody runs it before merge; add it in the same pull request and call out the workflow edit. |
 | Header comment describes the code | Describe what it refuses, and name the incident that bought it. |
 | Permissive stub that falls through on unexpected args | End the stub with a loud `exit 64`. |
 | Suite that really sleeps or really queries | Expose the knob (`*_DELAY`, `*_ATTEMPTS`); stub the binary. |

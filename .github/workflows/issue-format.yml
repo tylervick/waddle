@@ -1,13 +1,14 @@
 name: Issue Format
 
-# Separate from ci.yml on purpose. Scripts/check-issue-format.sh depends on
-# repo-wide mutable state -- the set of currently open agent:eligible issues
-# -- not on the contents of any one diff. When this check lived in ci.yml,
-# one under-specified agent:eligible issue, filed by anyone through the
-# public issue template, turned main and every open PR red, with an error
-# naming an issue the PR author has no permission to edit and no way to
-# bypass. Running it here instead means a malformed issue red-lights that
-# issue, not unrelated pull requests.
+# Checks that every open needs:owner issue says what needs the owner (see
+# Scripts/check-issue-format.sh for the rule and why it is this narrow).
+#
+# Separate from ci.yml on purpose. The check depends on repo-wide mutable
+# state -- the set of currently open issues -- not on the contents of any one
+# diff. When it lived in ci.yml, one malformed issue turned main and every
+# open PR red, with an error naming an issue the PR author has no permission
+# to edit and no way to bypass. Running it here instead means a malformed
+# issue red-lights that issue, not unrelated pull requests.
 on:
   issues:
     types: [opened, edited, labeled, reopened]
@@ -25,13 +26,13 @@ permissions:
 
 jobs:
   check-issue-format:
-    name: Check agent:eligible issue format
+    name: Check needs:owner issue format
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Verify agent:eligible issue format
+      - name: Verify needs:owner issue format
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

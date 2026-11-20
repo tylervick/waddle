@@ -37,7 +37,8 @@ two signing ones, so the fixture behaves the same for every developer and on CI.
 They also remove the identity the config was supplying, which is why the four
 `GIT_AUTHOR_*`/`GIT_COMMITTER_*` variables have to be supplied alongside them.
 
-Same shape as `Scripts/loop-prompt.md` section 0, one layer further in: a
+Same shape as section 0 of the archived
+`docs/archive/unattended-loop/loop-prompt.md`, one layer further in: a
 worktree-local intent silently served by repo-global — here machine-global —
 git state.
 

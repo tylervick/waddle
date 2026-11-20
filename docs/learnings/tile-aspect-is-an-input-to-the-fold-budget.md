@@ -33,20 +33,23 @@ Half of that file is the welcome card's budget, which reads it through
 `heroZoneBudget`. Grep for the constant before believing a claim about its blast
 radius — `grep -rn tileAspectRatio App/` finds all four call sites in a second.
 
-Second, this is why the unattended loop cannot finish #199. The remaining work
-is a judgement about an existing test — re-anchor it to a geometry that still
-discriminates, or retire it as superseded — and
-`Scripts/loop-prompt.md` forbids an unattended run from editing a test to make
-something pass, without exception. That prohibition binds the run, not the
-owner: it is a one-line decision in an interactive session, and the same shape
-as the forbidden-edit refusals on issues #68 and #14.
+Second, this is why the unattended loop (retired since) could not finish #199.
+The remaining work was a judgement about an existing test — re-anchor it to a
+geometry that still discriminates, or retire it as superseded — and
+`docs/archive/unattended-loop/loop-prompt.md` forbade an unattended run from
+editing a test to make something pass, without exception. That prohibition
+bound the run, not the owner: it was a one-line decision in an interactive
+session, and the same shape as the forbidden-edit refusals on issues #68 and
+#14. `CLAUDE.md` now covers the case: when an issue changes intended
+behaviour, the tests pinning the old behaviour are updated and listed in the
+pull request.
 
 **Not turned into an executable check on purpose.** The mechanical form of this
 — "no test may read a constant another test's subject also reads" — would fire
 on most of `ShelfHeroLayoutTests` and forbid the shared-constant style the whole
 layout suite is built on. What went wrong was a claim in an issue body, and
-`Scripts/check-issue-format.sh` (which might otherwise host such a check) is
-itself on the never-modify list.
+`Scripts/check-issue-format.sh` (which might otherwise host such a check) was
+at the time on the loop's never-modify list, a rule retired with the loop.
 
 **Provenance:** agent loop run 58, issue #199, 2026-08-21.
 

@@ -7,7 +7,7 @@
 # check-substrate.sh no longer touches gh, the network, or any token -- it
 # checks only CLAUDE.md and docs/learnings/, both part of the diff under
 # review -- so these cases need no PATH stripping or credential scrubbing.
-# The agent:eligible issue-format check, and the credential-scrubbing test
+# The issue-format check, and the credential-scrubbing test
 # fixture it needs, now live in Scripts/test-check-issue-format.sh.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
