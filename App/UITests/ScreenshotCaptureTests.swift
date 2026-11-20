@@ -52,10 +52,41 @@ final class ScreenshotCaptureTests: XCTestCase {
     /// The simulator keeps the orientation after the test ends, so each call
     /// also registers the rotation back (issue #382); the next test, or the
     /// next suite on this simulator, starts in portrait however this one ended.
-    private func forceLandscape() {
+    ///
+    /// Every shot is a landscape shot, so this ends by ASSERTING the interface
+    /// is landscape. Without that, a device that stayed portrait yields six
+    /// upright portrait buffers, the export step turns each a quarter turn as
+    /// it would a landscape one, and the run exits 0 with a set of sideways
+    /// images at exactly the right size. That happened on the second iPhone
+    /// Duo capture (issue #409).
+    ///
+    /// XCUIDevice does not rotate an iPhone Duo at all, so there the script
+    /// rotates the simulator from the host, and a rotation made before the
+    /// app was frontmost did not always reach the interface: of two CI runs
+    /// with identical commands, one came up landscape and one portrait. When
+    /// `WADDLE_SCREENSHOT_ROTATE_REQUEST` names a file, creating it asks the
+    /// script to turn the device again now, while the app is on screen; the
+    /// script deletes the file once it has. (A test in the simulator shares
+    /// the host's filesystem, which is what makes a file a workable signal.)
+    @MainActor
+    private func forceLandscape(_ app: XCUIApplication) {
         addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
         XCUIDevice.shared.orientation = .landscapeLeft
         Thread.sleep(forTimeInterval: 1.0)  // rotation animation
+
+        let request = ProcessInfo.processInfo.environment["WADDLE_SCREENSHOT_ROTATE_REQUEST"]
+        let deadline = Date().addingTimeInterval(60)
+        while app.frame.width <= app.frame.height && Date() < deadline {
+            if let request, !FileManager.default.fileExists(atPath: request) {
+                XCTAssertTrue(FileManager.default.createFile(atPath: request, contents: nil),
+                              "could not ask the host to rotate the device (\(request))")
+            }
+            Thread.sleep(forTimeInterval: 2.0)
+        }
+        XCTAssertTrue(app.frame.width > app.frame.height,
+                      "the interface is not landscape (\(app.frame.size)); every shot would be "
+                      + "exported sideways. Host rotation requested: \(request != nil)")
+        Thread.sleep(forTimeInterval: 1.0)  // let a late rotation finish animating
     }
 
     private func shoot(_ name: String) {
@@ -192,7 +223,7 @@ final class ScreenshotCaptureTests: XCTestCase {
         app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launch()
-        forceLandscape()
+        forceLandscape(app)
 
         let play = app.buttons["playFreedoom1"]
         XCTAssertTrue(play.waitForExistence(timeout: 20))
@@ -224,7 +255,7 @@ final class ScreenshotCaptureTests: XCTestCase {
         // the hero renders. No debug HUD or other seams.
         app.launchEnvironment["WADDLE_SEED_CONTINUE_SAVE"] = "1"
         app.launch()
-        forceLandscape()
+        forceLandscape(app)
 
         // Probe the shelf by its chrome, not by a tile. With the Continue hero
         // seeded above it, the LazyVGrid starts below the fold on a landscape
@@ -316,7 +347,10 @@ final class ScreenshotCaptureTests: XCTestCase {
                       "Control Feel sheet never opened")
         shoot("04-control-feel")
         app.buttons["controlFeelDoneButton"].tap()
-        let settingsDone = app.navigationBars["Settings"].buttons["Done"]
+        // Not scoped to the navigation bar: on a closed iPhone Duo the system
+        // lays the sheet's buttons out in the status column, in a toolbar.
+        // Nothing else on screen is called Done once Control Feel has closed.
+        let settingsDone = app.buttons["Done"].firstMatch
         XCTAssertTrue(settingsDone.waitForExistence(timeout: 5),
                       "Settings sheet did not survive dismissing Control Feel")
         settingsDone.tap()

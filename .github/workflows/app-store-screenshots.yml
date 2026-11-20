@@ -23,6 +23,20 @@ on:
         type: string
         required: false
         default: ''
+      # `all` is the two required sets, 6.9" iPhone and 13" iPad. The iPhone
+      # Duo set is never part of it: its upload path had not been sent to
+      # Apple when it was written (docs/app-store/metadata.md §12, "The Duo
+      # set"), so it runs only when chosen here by name, and then alone.
+      device:
+        description: Which set (all = iPhone + iPad; duo = the iPhone Duo set alone, see metadata.md §12)
+        type: choice
+        required: false
+        default: all
+        options:
+          - all
+          - iphone
+          - ipad
+          - duo
 
 # Two runs against one set would interleave deletes and uploads.
 concurrency:
@@ -65,10 +79,11 @@ jobs:
           ASC_KEY_PATH: ${{ runner.temp }}/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
           APPLY: ${{ inputs.apply }}
           VERSION: ${{ inputs.version }}
+          DEVICE: ${{ inputs.device }}
         run: |
           # The tee below must not swallow the script's exit status.
           set -o pipefail
-          set -- --device all
+          set -- --device "${DEVICE:-all}"
           if [ "$APPLY" = "true" ]; then set -- "$@" --apply; fi
           if [ -n "$VERSION" ]; then set -- "$@" --version "$VERSION"; fi
           Scripts/upload-screenshots.sh "$@" | tee "$RUNNER_TEMP/upload.log"
