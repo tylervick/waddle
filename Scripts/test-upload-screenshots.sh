@@ -269,7 +269,11 @@ setup; run
 [ "$(mutations)" = 0 ] || fail "dry run made mutating calls: $(cat "$TMP/w/calls.log")"
 echo "$OUT" | grep -q "dry run" || fail "dry run did not say so: $OUT"
 echo "$OUT" | grep -q "S12P (APP_IPHONE_67) holds 2" || fail "dry run did not report the iPhone set: $OUT"
-echo "$OUT" | grep -q "holds 2 placement(s) in IPHONE_DUO_PROFILE" || fail "dry run did not report the Duo group: $OUT"
+# The default is the two required sets. The Duo set's writes have never been
+# sent to Apple, so nothing reaches even its reads unless it is asked for by
+# name (cases 19 on).
+! grep -q 'ssetLibrar\|/placements' "$TMP/w/calls.log" || fail "the default run reached the asset library: $(cat "$TMP/w/calls.log")"
+! echo "$OUT" | grep -qi "duo" || fail "the default run mentioned the Duo set: $OUT"
 pass "dry run reads, reports and mutates nothing"
 
 # 2. The happy path. Pins the three orderings the traps depend on: every old
@@ -618,16 +622,32 @@ setup; : > "$TMP/w/fix/readback-drop"; run --apply --device duo
 echo "$OUT" | grep -q "read back are not the six just placed" || fail "wrong failure: $OUT"
 pass "read-back mismatch fails"
 
-# 31. With --device all the Duo leg runs last: its writes had never been sent
-#     to Apple when it was written, and a failure there must not leave the
-#     two required sets half replaced.
-setup; echo "2752 2064" > "$TMP/w/fix/dims-S12I"; run --apply
-[ "$RC" = 0 ] || fail "apply of all three sets exited $RC: $OUT"
-last_set="$(grep -n '^PATCH .*/relationships/appScreenshots ' "$TMP/w/calls.log" | tail -1 | cut -d: -f1)"
-first_duo="$(grep -nE '^(POST|DELETE) .*/v1/appAssetLibrary' "$TMP/w/calls.log" | head -1 | cut -d: -f1)"
-[ -n "$last_set" ] && [ -n "$first_duo" ] && [ "$last_set" -lt "$first_duo" ] || fail "a Duo write came before the sets were finished"
-[ "$(grep -c '^POST .*/v1/appScreenshots ' "$TMP/w/calls.log")" = 12 ] || fail "expected 12 set reservations"
-[ "$(grep -c '^POST .*/v1/appAssetLibraryPlacements ' "$TMP/w/calls.log")" = 6 ] || fail "expected 6 Duo placements"
-pass "--device all uploads both sets, then the Duo set"
+# 31. The Duo writes have never been sent to Apple, so a routine upload must
+#     not reach them: `--device all`, and no --device at all, replace the two
+#     required sets and make no asset-library call of any kind, read or
+#     write. This holds even when the Duo directory is broken, because the
+#     Duo files are not looked at either.
+for args in "--device all" ""; do
+    setup; echo "2752 2064" > "$TMP/w/fix/dims-S12I"
+    make_png "$TMP/w/shots/iphone-duo/05-ingame.png" 10 10 exif
+    # shellcheck disable=SC2086
+    run --apply $args
+    [ "$RC" = 0 ] || fail "apply of the two required sets (${args:-no --device}) exited $RC: $OUT"
+    [ "$(grep -c '^POST .*/v1/appScreenshots ' "$TMP/w/calls.log")" = 12 ] || fail "expected 12 set reservations (${args:-no --device})"
+    ! grep -q 'ssetLibrar\|/placements' "$TMP/w/calls.log" \
+        || fail "a routine upload (${args:-no --device}) reached the asset library: $(grep 'ssetLibrar\|/placements' "$TMP/w/calls.log")"
+    ! echo "$OUT" | grep -qi "duo" || fail "a routine upload (${args:-no --device}) mentioned the Duo set: $OUT"
+done
+pass "--device all and the default upload the two required sets and never touch the Duo set"
+
+# 31b. And there is no spelling that uploads the Duo set together with the
+#      others: its checks run before any write, so in one run a Duo refusal
+#      would stop the required sets. It runs alone or not at all.
+for combo in "iphone,duo" "all,duo" "iphone duo" "everything"; do
+    setup; run --apply --device "$combo"
+    [ "$RC" = 2 ] || fail "--device '$combo' was accepted (exit $RC): $OUT"
+    [ ! -s "$TMP/w/calls.log" ] || fail "--device '$combo' made network calls"
+done
+pass "the Duo set cannot be combined with another set"
 
 echo "All upload-screenshots tests passed."

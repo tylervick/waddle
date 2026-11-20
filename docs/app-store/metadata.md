@@ -722,8 +722,15 @@ memory:
   through the screenshot-set path, as each upload's rendition check showed.
 
 **How it will be uploaded.** `Scripts/upload-screenshots.sh --device duo`, dry
-run by default; `--device all`, which the **App Store screenshots** workflow
-passes, now includes it and runs it last. Per file it creates an
+run by default, or the **App Store screenshots** workflow with `device=duo`.
+**Only by name, and only alone.** `--device all`, the script's default and
+the workflow's, still means the two required sets and makes no asset-library
+call at all; there is no way to ask for the Duo set together with them. That
+is the rule until this section records a first successful Duo upload: the
+writes are untried, the script runs every Duo check before its first write,
+and in a shared run a Duo refusal would have stopped the iPhone and iPad
+upload, or a Duo failure would have turned a run red after both required
+sets were replaced. Per file it creates an
 `appAssetLibraryImage` (category `APP_SCREENSHOTS_AND_PREVIEWS`) in the app's
 library, uploads the bytes through the returned `uploadOperations`, commits
 with `uploaded: true`, waits for the image to leave `AWAITING_UPLOAD` /
@@ -741,6 +748,18 @@ and write what Apple said here. Things the schema leaves open: whether an
 image must reach `COMPLETE` before it can be placed, whether the ordering
 request is needed at all, and what an image's `fileName` must be unique
 against (the script uploads `iphone-duo-<slot>.png`).
+
+**Known gap: library images accumulate.** The script deletes a version's old
+Duo *placements* and never an *image*, since an image may be placed on
+another version. So each `--apply` adds six images under the same six file
+names, and a run that fails between an upload and its placement leaves an
+image nothing points to. No cleanup was written, on purpose: it would be one
+more write never sent to Apple, and the right rule depends on what the first
+upload shows — whether an image that was once placed can be deleted or has
+to be archived (`AppAssetLibraryImageUpdateRequest` has an `archived`
+attribute, and the library already holds twelve `ARCHIVED` images), and
+whether a repeated `fileName` is refused, which would make reuse mandatory
+rather than tidy. Tracked on issue 409.
 
 **What the reads did establish** (2026-11-20, GET requests only, against
 version 1.5; the script's own dry-run path was run against the live API in a

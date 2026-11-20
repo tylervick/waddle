@@ -32,6 +32,14 @@
 #     be shared by many. So only placements are deleted, never images, and
 #     only placements read from the target version's own localization that
 #     also name that localization in their relationship.
+#   * KNOWN GAP: because images are never deleted, every --apply adds six
+#     more to the library under the same six file names, and a run that fails
+#     between an upload and its placement leaves an image nothing points to.
+#     That is deliberate for now. A cleanup would be one more write that has
+#     never been sent to Apple, and its rule depends on answers only a first
+#     upload gives: whether a once-placed image may be deleted or must be
+#     archived, and whether a repeated fileName is refused. Issue #409 tracks
+#     it; write the cleanup after metadata.md §12 records those answers.
 #   * The group holds 10, like a set, so the old placements still go first.
 #   * A Duo screenshot may be portrait or landscape, of the outer or the inner
 #     display: four exact sizes, checked locally and again against Apple's
@@ -41,9 +49,16 @@
 #     HAD NOT BEEN SENT TO APPLE when this was written (version 1.5 was in
 #     review). Treat the first --apply as the experiment it is, on an editable
 #     version, and record what Apple answers in metadata.md §12.
+#   * So the Duo set is uploaded ONLY when asked for by name. `--device all`,
+#     which is also the default, means the two required sets and nothing
+#     else, and there is no way to ask for the Duo set together with them: a
+#     Duo refusal can therefore never stop, or follow, an iPhone or iPad
+#     upload. Widen `all` only after §12 records a first successful Duo upload.
 #
 # Usage:
-#   Scripts/upload-screenshots.sh [--apply] [--version X.Y] [--device iphone|ipad|duo|all]
+#   Scripts/upload-screenshots.sh [--apply] [--version X.Y] [--device iphone|ipad|all|duo]
+#
+#   --device all (the default) is iphone + ipad. duo runs alone.
 #
 # Env:
 #   ASC_KEY_ID / ASC_ISSUER_ID / ASC_KEY_PATH   for Scripts/asc-jwt.sh
@@ -84,7 +99,7 @@ DUO_PLACEMENT_TYPE="APP_SCREENSHOT"
 DUO_SIZES="1398x2034 2034x1398 2007x2853 2853x2007"
 export DUO_GROUP DUO_PLACEMENT_TYPE
 
-usage() { echo "usage: $0 [--apply] [--version X.Y] [--device iphone|ipad|duo|all]" >&2; exit 2; }
+usage() { echo "usage: $0 [--apply] [--version X.Y] [--device iphone|ipad|all|duo]  (all = iphone + ipad; duo runs alone)" >&2; exit 2; }
 die() { echo "error: $*" >&2; exit 1; }
 
 APPLY=0; VERSION=""; DEVICE="all"
@@ -97,14 +112,17 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
-# DEVICES are uploaded as appScreenshotSets; DUO=1 adds the asset-library
-# leg, which runs last so that its untried writes cannot stop the other two.
+# DEVICES are uploaded as appScreenshotSets; DUO=1 is the asset-library leg.
+# The two are never both set: `all` is the two required sets only, and the
+# Duo set runs when named and on its own (see the header). Every Duo check
+# below sits before the first write of either kind, which is only safe
+# because of that.
 DEVICES=""; DUO=0
 case "$DEVICE" in
     iphone) DEVICES="iphone" ;;
     ipad) DEVICES="ipad" ;;
+    all) DEVICES="iphone ipad" ;;
     duo) DUO=1 ;;
-    all) DEVICES="iphone ipad"; DUO=1 ;;
     *) usage ;;
 esac
 

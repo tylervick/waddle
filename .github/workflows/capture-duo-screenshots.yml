@@ -18,7 +18,8 @@
 # The pull_request trigger is narrow on purpose: the capture test navigates
 # the real app, and it has drifted before without anything failing (#156,
 # #158). A change to the script, the test or this file is the moment a broken
-# capture is cheapest to see. No other pull request pays for the runner.
+# capture is cheapest to see. That includes the shared UI test helpers, which
+# every UI test change may touch. No other pull request pays for the runner.
 name: Capture iPhone Duo screenshots
 
 on:
@@ -28,6 +29,9 @@ on:
       - .github/workflows/capture-duo-screenshots.yml
       - Scripts/capture-screenshots.sh
       - App/UITests/ScreenshotCaptureTests.swift
+      # The navigation helpers the capture test calls. The first Duo capture
+      # failed in one of them (closeSettings), not in the test file.
+      - App/UITests/XCTestCase+UIHelpers.swift
 
 permissions:
   contents: read
