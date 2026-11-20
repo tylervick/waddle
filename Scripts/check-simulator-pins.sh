@@ -115,11 +115,19 @@ fi
 
 # 3 and 4. The whole-scheme `xcodebuild ... test` leg, in mise.toml and in the
 #    README's copy of it. Anchored on the trailing "' test" so the iPad leg,
-#    which ends "' \", cannot stand in for it.
-want="-destination 'platform=iOS Simulator,name=$device' test"
+#    which ends "' \", cannot stand in for it, and matched as a whole line so
+#    the right destination in a comment does not excuse a stale live one.
+#    Exactly one such line per file: with two there would be a second
+#    whole-scheme leg this guard was never told about.
+want="  -destination 'platform=iOS Simulator,name=$device' test"
 for f in "$MISE_FILE" "$README_FILE"; do
-    if ! grep -Fq -- "$want" "$f"; then
-        err "$f does not run the whole scheme on ci.yml's simulator; expected: $want"
+    # grep -c exits 1 on a count of zero, which is an answer here, not a
+    # failure; the files were proven readable above.
+    legs="$(grep -Ec "^  -destination 'platform=iOS Simulator,name=[^']*' test\$" "$f" || true)"
+    if [ "$legs" -ne 1 ]; then
+        err "$f has $legs whole-scheme test legs (lines of the form \"$want\"); expected exactly one"
+    elif ! grep -Fxq -- "$want" "$f"; then
+        err "$f does not run the whole scheme on ci.yml's simulator; expected the line: $want"
     fi
 done
 

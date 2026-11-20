@@ -127,6 +127,29 @@ make_fixture "$TMP/mise"; leave_behind "$TMP/mise/mise.toml"
 expect_refusal "$TMP/mise" "mise.toml does not run the whole scheme" "stale mise.toml"
 pass "a mise.toml phone leg on another phone is refused"
 
+# 3b. The stale phone on the live line and the right one only in a comment
+#     above it (review of PR #407): a substring match was satisfied by the
+#     comment and reported a clean tree.
+make_fixture "$TMP/misecomment"; leave_behind "$TMP/misecomment/mise.toml"
+echo "#   -destination 'platform=iOS Simulator,name=iPhone 18 Pro' test" >> "$TMP/misecomment/mise.toml"
+expect_refusal "$TMP/misecomment" "mise.toml does not run the whole scheme" "mise.toml destination in a comment"
+pass "the right mise.toml destination in a comment does not satisfy the check"
+
+# 3c. Two live whole-scheme legs, one right and one stale: the right one must
+#     not vouch for the other.
+make_fixture "$TMP/misetwo"
+echo "  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test" >> "$TMP/misetwo/mise.toml"
+expect_refusal "$TMP/misetwo" "mise.toml has 2 whole-scheme test legs" "two phone legs"
+pass "a second whole-scheme leg on another phone is refused"
+
+# 3d. No whole-scheme leg at all (the command reshaped, or the task removed)
+#     fails closed and says the leg is missing, not that it is stale.
+make_fixture "$TMP/misenone"
+grep -v "' test\$" "$TMP/misenone/mise.toml" > "$TMP/misenone/mise.new"
+mv "$TMP/misenone/mise.new" "$TMP/misenone/mise.toml"
+expect_refusal "$TMP/misenone" "mise.toml has 0 whole-scheme test legs" "no phone leg"
+pass "a mise.toml with no whole-scheme leg fails closed"
+
 # 4. The README's copy of the command left behind.
 make_fixture "$TMP/readme"; leave_behind "$TMP/readme/README.md"
 expect_refusal "$TMP/readme" "README.md does not run the whole scheme" "stale README"
