@@ -143,7 +143,9 @@ const char *WoofIOS_DebugWindowState(void);
 
 // Debug/test telemetry only: "gs=<level|demo|inter|finale|title|none>
 // load=<-loadgame argument, -1 without> lt=<leveltime, 0 outside a level>",
-// as they stand right now; demo is a level under demo playback. In the
+// as they stand right now; demo is a level under demo playback, and none is
+// a session that has reached neither its title nor a level yet (issue #379:
+// it used to read level there, from a gamestate nothing had set). In the
 // in-game debug HUD, so a test can tell a resumed save (load=254, gs=level)
 // from the title a failed command-line load falls back to (whose demo loop
 // reaches a level within seconds), and from a -warp (load=-1).
@@ -160,10 +162,12 @@ const char *WoofIOS_DebugGameState(void);
 //    dehstr=<string replacements> dehfiles=<-deh files listed>
 //    cheats=<cheat codes replaced> pars=<par times changed>
 //    dloop=<default demo-loop entries edited>
-//    dirtylv=<levels in p_dirty's archive> compres=<COMPDB restore pending>"
+//    dirtylv=<levels in p_dirty's archive> compres=<COMPDB restore pending>
+//    pcheats=<console player's cheat flags> gs=<WoofIOS_DebugGameState's gs>"
 // A fresh process reads "amlvl=-1/-1 amstop=1 amdef=0 amcol=1 msg=0
 // sbar=0 rewind=0 pad=0 rumble=0 tex=0 cmap=0 skipbl=0 dehtab=<its own>
-// dehstr=0 dehfiles=0 cheats=0 pars=0 dloop=0 dirtylv=0 compres=0 pcheats=0",
+// dehstr=0 dehfiles=0 cheats=0 pars=0 dloop=0 dirtylv=0 compres=0 pcheats=0
+// gs=none",
 // and so must every later
 // session; dehtab must equal the first session's.
 const char *WoofIOS_DebugSessionEntryState(void);
@@ -330,14 +334,12 @@ typedef struct
 // Fills all nine entries and returns true while the engine reports a live
 // local player in a level (gamestate GS_LEVEL, no demo playback, PST_LIVE);
 // otherwise returns false and leaves `out` untouched, and the grid may not
-// open. The gate reads gamestate as it stands, which no session start
-// resets: it is zero (GS_LEVEL) in a fresh process and players[] is zeroed
-// to PST_LIVE, and after a session it keeps that session's last value. So
-// between a session's start and its first level load (a -loadgame start
-// loads in the first tic) the gate can pass for a player with no level yet,
-// and the table reads all unowned. Once a level has loaded it refuses
-// intermission, finale, the title/demo screens and a dead player. It does
-// not look at the menu or pause; the overlay checks the menu itself.
+// open. WoofIOS_Run starts every session at GS_NONE (a fresh process would
+// otherwise read zero, which is GS_LEVEL, and a later session the last
+// one's final state), so the gate refuses a session's start before its
+// first level load as well as intermission, finale, the title/demo screens
+// and a dead player. It does not look at the menu or pause; the overlay
+// checks the menu itself.
 bool WoofIOS_GetWeaponSelectState(WoofIOS_WeaponSlot out[WOOF_IOS_NUM_WEAPONS]);
 
 // The console player's weapon as the overlay's ring should see it: the
@@ -369,13 +371,12 @@ void WoofIOS_SelectBestWeapon(void);
 // sprite into `buf` (a PNG sprite arrives converted), for the overlay to
 // decode with PLAYPAL. Returns the bytes written, or 0 while gamestate is
 // not GS_LEVEL, if there is no sprite, or if `cap` is too small. The
-// gamestate check is the same one WoofIOS_GetWeaponSelectState makes, with
-// the same gap before a session's first level load.
+// gamestate check is the same one WoofIOS_GetWeaponSelectState makes.
 int WoofIOS_CopyWeaponSprite(int weapon, unsigned char *buf, int cap);
 
 // Copies the first 768 bytes of PLAYPAL (palette 0) into `buf`. Returns 768,
-// or 0 while gamestate is not GS_LEVEL (with the same gap as above), if
-// there is no PLAYPAL, or if `cap` is too small.
+// or 0 while gamestate is not GS_LEVEL, if there is no PLAYPAL, or if `cap`
+// is too small.
 int WoofIOS_CopyPlaypal(unsigned char *buf, int cap);
 
 // Debug/test telemetry only, its own debug-HUD segment:
