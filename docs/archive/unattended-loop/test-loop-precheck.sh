@@ -10,7 +10,9 @@
 # each case controls the world precisely. A real gh would make these tests
 # depend on live repo state, which is the opposite of a regression suite.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Archived beside the script it tests (see README.md here), so the script is
+# found next to this file rather than under the repository's Scripts/.
+HERE="$(cd "$(dirname "$0")" && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -19,7 +21,7 @@ pass() { echo "ok - $1"; }
 
 make_fixture() { # dest
     mkdir -p "$1/Scripts" "$1/bin"
-    cp "$ROOT/Scripts/loop-precheck.sh" "$1/Scripts/"
+    cp "$HERE/loop-precheck.sh" "$1/Scripts/"
     printf '#!/bin/bash\nexit 0\n' > "$1/Scripts/check-engine-fresh.sh"
     chmod +x "$1/Scripts/check-engine-fresh.sh"
     printf '[]\n' > "$1/issues.json"

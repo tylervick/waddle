@@ -4,7 +4,8 @@
 # `gh api ... || true` and `gh api ... || echo <fallback>` stop `set -e`
 # aborting, and in exchange they destroy the only evidence the call failed.
 # The output is then read as an answer -- usually the permissive one. This has
-# bitten Scripts/loop-report.sh twice in the same shape:
+# bitten loop-report.sh (now docs/archive/unattended-loop/) twice in the same
+# shape:
 #
 #   - PR #66, reconciliation: a failed comments query produced a count of 0,
 #     recorded as a real measurement of "CodeRabbit found nothing".
@@ -38,8 +39,8 @@
 #
 # SCOPE, stated plainly so a reader knows what this does not cover:
 #   - `gh api` only, which is what docs/learnings/masked-exit-status-fails-open.md
-#     describes. `gh pr view ... || echo '{}'` in loop-report.sh is deliberate
-#     and fails closed (an unknown state simply never counts as merged), so
+#     describes. `gh pr view ... || echo '{}'` in loop-report.sh was deliberate
+#     and failed closed (an unknown state simply never counted as merged), so
 #     widening this to every `gh` subcommand would flag correct code.
 #   - Lines are joined on a trailing `\`, `|`, `||`, or `&&`. A command
 #     substitution spanning lines with no such marker is not joined, so a

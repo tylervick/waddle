@@ -99,7 +99,7 @@ Three things that are easy to get wrong:
 - **`gh` cannot do that registration under a fine-grained PAT.** `user/ssh_signing_keys`
   answers `403 Resource not accessible by personal access token`, and
   `gh auth refresh` does not apply to PAT logins. Paste it in the browser rather
-  than re-authenticating `gh` and disturbing the token the loop runs on.
+  than re-authenticating `gh` and disturbing the token unattended work runs on.
 - **Do not set `tag.gpgSign`** while you are in there — see
   [git-fixtures-inherit-signing-config.md](git-fixtures-inherit-signing-config.md)
   for the `fatal: no tag message?` cycle it costs. Commit signing alone is what

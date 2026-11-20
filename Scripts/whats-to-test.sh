@@ -174,8 +174,8 @@ import json, re, sys
 # literally named "Woof!", so "!" would cut mid-name.
 #
 # A paragraph that is only issue-closing references ("Closes #115",
-# "Fixes #1, #2") is a GitHub instruction, not prose, and this repository
-# opens every loop pull request with one (Scripts/loop-prompt.md). It is
+# "Fixes #1, #2") is a GitHub instruction, not prose, and many pull requests
+# in this repository open with one. It is
 # skipped and the next paragraph taken (issue #311: build 275 shipped 13
 # bullets as commit subjects because that line was the paragraph the 15-
 # character floor saw). The nine keywords and the reference forms are

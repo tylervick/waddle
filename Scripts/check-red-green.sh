@@ -5,6 +5,10 @@
 # Verdicts: proved | proved-by-compile | vacuous | no-test | n/a | error
 # See docs/superpowers/specs/2026-08-10-test-proof-signal-design.md.
 #
+# Run by hand (`Scripts/check-red-green.sh origin/main`, on a clean tree). CI
+# ran it on every pull request until 2026-11-20 as a non-gating measurement
+# for the unattended loop, which was the only reader of the result.
+#
 # `error` means the proof could not be computed. It never means "bad", and it
 # is never folded into a score -- see docs/learnings/masked-exit-status-fails-open.md
 # for why this repo treats an absent measurement as absent.
