@@ -1,0 +1,141 @@
+# Captures the iPhone Duo App Store screenshots (issue #409) and hands them
+# back as an artifact. It commits nothing and talks to no store: a person or
+# an agent downloads the artifact, looks at the images, and commits them to
+# docs/app-store/screenshots/iphone-duo/ in a pull request.
+#
+#   gh workflow run capture-duo-screenshots.yml --ref <branch>
+#   gh run download <run-id> -n iphone-duo-screenshots -D docs/app-store/screenshots/iphone-duo
+#
+# Why this is a workflow at all, when the other two sets are captured on a
+# developer's Mac by the same script: the Duo exists only on the iOS 27.1
+# simulator runtime, and the `xcode-27` image is the one place that is sure to
+# have it (docs/learnings/iphone-duo-simulator-traps.md). The script's Duo leg
+# is the same wherever it runs.
+#
+# OUTER DISPLAY ONLY. A simulator boots closed, and nothing Apple ships opens
+# it from a script, so this job cannot photograph the inner display.
+#
+# The pull_request trigger is narrow on purpose: the capture test navigates
+# the real app, and it has drifted before without anything failing (#156,
+# #158). A change to the script, the test or this file is the moment a broken
+# capture is cheapest to see. No other pull request pays for the runner.
+name: Capture iPhone Duo screenshots
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/capture-duo-screenshots.yml
+      - Scripts/capture-screenshots.sh
+      - App/UITests/ScreenshotCaptureTests.swift
+
+permissions:
+  contents: read
+
+concurrency:
+  group: capture-duo-screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  XCODE_VERSION: "27.1"
+  # The Duo's own runtime, as in ci.yml's SIMULATOR_OS_DUO: the one device the
+  # iOS 27.1 runtime supports, and the only runtime that has it.
+  SIMULATOR_DEVICE_DUO: "iPhone Duo"
+  SIMULATOR_OS_DUO: "27.1"
+
+jobs:
+  capture:
+    name: Capture (iPhone Duo, closed)
+    runs-on: xcode-27
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-waddle-build
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
+      - name: Verify simulator is available
+        run: Scripts/check-simulator-available.sh "$SIMULATOR_DEVICE_DUO" "$SIMULATOR_OS_DUO"
+
+      # Three of the six shots show imported map sets (the Files screen, the
+      # SCYTHE game page, the shelf), so the capture needs the same three
+      # WADs a local capture reads from ~/Downloads/doom-test-wads
+      # (docs/app-store/metadata.md §12 names them). They are fetched from the
+      # /idgames archive for this one job, checked against pinned SHA-256
+      # sums, and never cached, committed or uploaded: the artifact below
+      # holds screenshots and the test's result bundle only. The routine test
+      # workflows still never fetch them.
+      - name: Fetch the map sets the shots show
+        env:
+          WADS: ${{ runner.temp }}/doom-test-wads
+        run: |
+          set -euo pipefail
+          mkdir -p "$WADS/zips"
+          cd "$WADS/zips"
+          cat > SHA256SUMS <<'EOF'
+          a38246e005b4675d1f91474cd8dd93f4da016c4a22b1169dcede2608d72f6e99  scythe.zip
+          46bc1fe72abec5ad06739b91657f3ed2fed1fda967cd38e6faa4a1701999d64a  sunlust.zip
+          0fb738712c9007e8c238b6a88fb57842148ef3d6036a17f9a82c9949f131e9c9  eviternityii.zip
+          EOF
+          fetch() { # idgames path
+            local mirror
+            for mirror in https://youfailit.net/pub/idgames https://www.gamers.org/pub/idgames; do
+              if curl -sSfL --connect-timeout 20 --max-time 600 --retry 2 -o "$(basename "$1")" "$mirror/$1"; then
+                return 0
+              fi
+              echo "::warning::$mirror/$1 failed; trying the next mirror"
+            done
+            echo "::error::no /idgames mirror served $1"
+            return 1
+          }
+          fetch levels/doom2/megawads/scythe.zip
+          fetch levels/doom2/Ports/megawads/sunlust.zip
+          fetch levels/doom2/Ports/megawads/eviternityii.zip
+          shasum -a 256 -c SHA256SUMS
+          # The layout Scripts/capture-screenshots.sh reads.
+          unzip -q -o scythe.zip -d "$WADS/scythe"
+          unzip -q -o sunlust.zip -d "$WADS/sunlust"
+          unzip -q -o eviternityii.zip -d "$WADS/eviternityii"
+          ls -l "$WADS/scythe/SCYTHE.WAD" "$WADS/sunlust/sunlust/sunlust.wad" "$WADS/eviternityii/Eviternity II.wad"
+
+      - name: Capture
+        env:
+          WADDLE_TEST_WADS: ${{ runner.temp }}/doom-test-wads
+          WADDLE_DUO_SIMULATOR: ${{ env.SIMULATOR_DEVICE_DUO }}
+          WADDLE_SCREENSHOT_RESULTS: ${{ runner.temp }}/screenshot-results
+        run: |
+          set -euo pipefail
+          # The set in the tree must not be what gets uploaded if the capture
+          # produces fewer files than it should.
+          rm -rf docs/app-store/screenshots/iphone-duo
+          Scripts/capture-screenshots.sh prepare duo
+          Scripts/capture-screenshots.sh capture duo
+          {
+            echo "## iPhone Duo screenshots"
+            echo
+            echo '```'
+            sips -g pixelWidth -g pixelHeight -g hasAlpha docs/app-store/screenshots/iphone-duo/*.png
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the screenshots
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: iphone-duo-screenshots
+          path: docs/app-store/screenshots/iphone-duo/*.png
+          if-no-files-found: error
+          retention-days: 14
+
+      # Always: when the capture fails, the result bundle is how you see which
+      # screen the test was on.
+      - name: Upload the result bundle
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: iphone-duo-capture-results
+          path: ${{ runner.temp }}/screenshot-results/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
