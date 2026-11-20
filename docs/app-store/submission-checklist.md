@@ -180,6 +180,11 @@ assuming one went wrong.
       `Scripts/upload.sh` greps the output for `ERROR ITMS-` markers rather
       than trusting the exit code, which narrows that window but does not
       close it. The run also records a Delivery UUID — check for that.
+      The reverse also happens: a red "Upload to TestFlight" step whose log
+      shows `UPLOAD SUCCEEDED` may have delivered the build. The step says
+      so when it refuses such a transcript. If the build is in App Store
+      Connect, push its `build-N` tag by hand (see "A CI upload whose tag
+      failed to push" above) before the next merge.
 - [ ] The signed `.ipa` is attached to the run as an artifact (7-day
       retention) if you need to inspect exactly what shipped.
 
