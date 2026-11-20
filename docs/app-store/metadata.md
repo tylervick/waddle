@@ -560,8 +560,9 @@ lists "iPhone Duo" as the first entry under iPhone, with four accepted sizes:
 The page does not say whether a set needs both displays or either one, and
 gives no count beyond the general "up to 10 screenshots per device size".
 
-**It is not required today, and Apple says it will be from April 2027 for a
-build like ours.** The entry has no "Requirement" line. Its note reads:
+**It is not required today, and Apple says it will be from April 2027.** Two
+Apple pages give that date and they differ on scope. The specifications entry
+has no "Requirement" line. Its note reads:
 
 > Starting in April 2027, screenshots will be required for any app using the
 > iOS 27.1 SDK or later.
@@ -569,25 +570,37 @@ build like ours.** The entry has no "Requirement" line. Its note reads:
 The same page's "Required device sizes" section does not list the Duo. It
 names two: "At least one screenshot for iPhone with Dynamic Island (medium
 display)" and, for an iPad app, "At least one screenshot for iPad 13-inch
-display". Waddle is inside the note's condition: every workflow that builds
-it, `testflight.yml` included, pins `XCODE_VERSION: "27.1"`, so the store
-binary is built against the iOS 27.1 SDK. Apple gives a month and no day.
+display".
+
+Apple's news post of 2026-10-05,
+[Prepare and submit your apps for iPhone Duo](https://developer.apple.com/news/?id=kkphp5qo),
+states it with no SDK condition:
+
+> Starting April 2027, any apps or games submitted will need to include
+> screenshots for iPhone Duo.
+
+Plan on the broader reading: every submission from April 2027. The difference
+does not matter for Waddle, which meets the narrower condition too: every
+workflow that builds it, `testflight.yml` included, pins
+`XCODE_VERSION: "27.1"`, so the store binary is built against the iOS 27.1
+SDK. Neither page gives a day in April.
 
 **Apple documents a badge, and submitting Duo screenshots is what earns it.**
-Two Apple pages say so, in nearly the same sentence. The specifications page:
+Three Apple pages say so, in nearly the same sentence. The specifications page:
 
 > When you submit iPhone Duo screenshots in App Store Connect, your App Store
 > product page will display a badge to let people know your app is made for
 > iPhone Duo.
 
 [Three steps to make your app shine on iPhone Duo](https://developer.apple.com/iphone-duo/prepare/),
-under "Go further: Stand out on the App Store", ends the sentence "…your app
-is optimized for iPhone Duo" instead. No other condition is stated on either
-page: no review step, no capability and no Info.plist key. Neither page gives
-the badge's wording or shows it, so the "Made for iPhone Duo" label that
-third-party guides quote is not Apple's text as far as these pages go. The
-second page also mentions a "new preview tool in App Store Connect to see how
-your assets … look on iPhone Duo".
+under "Go further: Stand out on the App Store", and the news post above,
+under "Submit your app", end the sentence "…your app is optimized for iPhone
+Duo" instead. No other condition is stated on any of the three: no review
+step, no capability and no Info.plist key. None gives the badge's wording or
+shows it, so the "Made for iPhone Duo" label that third-party guides quote is
+not Apple's text as far as these pages go. The second and third also mention
+a "new preview tool in App Store Connect" that shows how assets look on iPhone
+Duo.
 
 **The App Store Connect API documents no Duo display type.**
 [`ScreenshotDisplayType`](https://developer.apple.com/documentation/appstoreconnectapi/screenshotdisplaytype)
@@ -605,8 +618,16 @@ and the
 [Prepare your app for iPhone Duo](https://developer.apple.com/videos/play/tech-talks/111461),
 and the forum summary of the
 [iPhone Duo group lab](https://developer.apple.com/forums/thread/847644).
-[Get ready for iPhone Duo](https://developer.apple.com/iphone-duo/) only links
-to the specifications page.
+[Get ready for iPhone Duo](https://developer.apple.com/iphone-duo/) says
+nothing itself and links four asset pages: the specifications page above;
+[App Store asset best practices and resources](https://developer.apple.com/app-store/asset-best-practices/),
+whose only mention is a banner pointing at the specifications;
+[App preview specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/app-preview-specifications),
+which gives the Duo no preview size of its own (it takes the standard iPhone
+886 × 1920 and 1920 × 886); and
+[Manage your App Store assets](https://developer.apple.com/help/app-store-connect/manage-app-information/manage-your-app-store-assets),
+which does not contain the word "Duo". None of the last three mentions a badge
+or a Duo requirement.
 
 **App Store Connect read-back, 2026-11-20 (API, GET requests only).** Version
 1.5 was `WAITING_FOR_REVIEW`, so it is the version read; it has one
@@ -630,8 +651,8 @@ localization, en-US.
   reference data carries a maximum per group and no minimum or required flag
   for any group, so the API cannot say "required". The evidence is 1.5 itself:
   built by a workflow pinned to Xcode 27.1, submitted with no Duo screenshot,
-  and accepted into `WAITING_FOR_REVIEW`. That matches the specifications page: not required
-  until April 2027. Whether the web UI shows a required marker on the slot was
+  and accepted into `WAITING_FOR_REVIEW`. That matches Apple's pages: not required until
+  April 2027. Whether the web UI shows a required marker on the slot was
   not read.
 - Waddle's own library (`GET /v1/appAssetLibraries/{appId}/images`) holds 44
   images, every one placed in `IPHONE_DYNAMIC_ISLAND_LARGE_PROFILE` or
