@@ -40,6 +40,7 @@
 #   SIMULATOR_READY_BOOT_WINDOW  seconds of host uptime to wait for (600)
 #   SIMULATOR_READY_TIMEOUT      seconds to wait for the renders (900)
 #   SIMULATOR_READY_POLL         seconds between looks at the log (10)
+#   SIMULATOR_READY_WORK_DIR     where the log readers write (a temp dir)
 #
 # Usage: Scripts/prepare-ui-test-simulator.sh <device-name> <os-version>
 # Prints `udid=<UDID>` to $GITHUB_OUTPUT when that is set.
@@ -115,51 +116,75 @@ fi
 
 # --- boot ---------------------------------------------------------------------
 # `bootstatus -b` boots a shut-down device and returns once it has finished
-# booting; on a booted one it returns at once. --start below is local time,
-# which is what `log show` both prints and parses.
+# booting; on a booted one it returns at once. It narrates every data-migration
+# plugin, so its output is kept for a failure and otherwise reduced to a line.
+# --start below is local time, which is what `log show` prints and parses.
+WORK="${SIMULATOR_READY_WORK_DIR:-$(mktemp -d)}"
+mkdir -p "$WORK"
 log_start="$(date '+%Y-%m-%d %H:%M:%S')"
-if ! xcrun simctl bootstatus "$UDID" -b; then
+if ! xcrun simctl bootstatus "$UDID" -b > "$WORK/bootstatus.txt" 2>&1; then
+    cat "$WORK/bootstatus.txt"
     echo "::error::simulator $UDID did not boot"
     exit 1
 fi
 say "boot finished"
 
 # --- condition 2: the gallery snapshots have been rendered --------------------
+# Two readers, because neither is enough alone. A `log stream` costs nothing
+# and sees every line from now on, but not one written before it attached. A
+# `log show` from the boot sees those, but on a runner in the middle of a first
+# boot one query took four minutes (run 44771876139, load average 510), so it
+# runs once, in the background, and is never waited on. The stream starts
+# first, so between them no line is missed.
 PREDICATE='process == "PosterBoard" AND (eventMessage CONTAINS "requested snapshot prewarm" OR eventMessage CONTAINS "Calling prewarmSnapshotsForRequests" OR eventMessage CONTAINS "Successfully prewarmed gallery snapshots")'
+STREAM="$WORK/stream.txt"
+BACKFILL="$WORK/backfill.txt"
+: > "$STREAM"
+: > "$BACKFILL"
+rm -f "$WORK/backfill.status"
+xcrun simctl spawn "$UDID" log stream --style compact --predicate "$PREDICATE" >> "$STREAM" 2>/dev/null &
+stream_pid=$!
+(
+    if xcrun simctl spawn "$UDID" log show --start "$log_start" --style compact --predicate "$PREDICATE" > "$BACKFILL.tmp" 2>/dev/null; then
+        mv "$BACKFILL.tmp" "$BACKFILL"
+        echo ok > "$WORK/backfill.status"
+    else
+        echo failed > "$WORK/backfill.status"
+    fi
+) &
+backfill_pid=$!
+cleanup() {
+    kill "$stream_pid" "$backfill_pid" 2>/dev/null || true
+}
+trap cleanup EXIT
+
 polls=$(( TIMEOUT / POLL ))
 if [ "$polls" -lt 1 ]; then polls=1; fi
 outcome="timeout"
 deferral=""
 announced=""
-query_failures=0
 i=0
 while [ "$i" -lt "$polls" ]; do
     i=$(( i + 1 ))
-    # A failed query is not an answer: count it and look again. Reading its
-    # empty output as "nothing logged yet" is right for one poll and wrong as a
-    # verdict, so the count is reported if the wait runs out.
-    if lines="$(xcrun simctl spawn "$UDID" log show --start "$log_start" --style compact --predicate "$PREDICATE" 2>/dev/null)"; then
-        case "$lines" in
-            *"deferring to -prewarm"*)
-                outcome="deferred"
-                deferral="$(printf '%s\n' "$lines" | grep -F 'deferring to -prewarm' | tail -1)"
-                break ;;
-        esac
-        case "$lines" in
-            *"Successfully prewarmed gallery snapshots"*)
-                outcome="settled"
-                break ;;
-        esac
-        case "$lines" in
-            *"Calling prewarmSnapshotsForRequests"*)
-                if [ -z "$announced" ]; then
-                    announced=1
-                    say "PosterBoard is rendering the gallery ($(printf '%s\n' "$lines" | grep -F 'Calling prewarmSnapshotsForRequests' | tail -1 | sed 's/.*Calling prewarmSnapshotsForRequests with //'))"
-                fi ;;
-        esac
-    else
-        query_failures=$(( query_failures + 1 ))
-    fi
+    lines="$(cat "$STREAM" "$BACKFILL")"
+    case "$lines" in
+        *"deferring to -prewarm"*)
+            outcome="deferred"
+            deferral="$(printf '%s\n' "$lines" | grep -F 'deferring to -prewarm' | tail -1)"
+            break ;;
+    esac
+    case "$lines" in
+        *"Successfully prewarmed gallery snapshots"*)
+            outcome="settled"
+            break ;;
+    esac
+    case "$lines" in
+        *"Calling prewarmSnapshotsForRequests"*)
+            if [ -z "$announced" ]; then
+                announced=1
+                say "PosterBoard is rendering the gallery ($(printf '%s\n' "$lines" | grep -F 'Calling prewarmSnapshotsForRequests' | tail -1 | sed 's/.*Calling prewarmSnapshotsForRequests with //'))"
+            fi ;;
+    esac
     sleep "$POLL"
 done
 waited=$(( (i - 1) * POLL ))
@@ -171,6 +196,10 @@ case "$outcome" in
     deferred)
         echo "::warning::WADDLE_SIMULATOR_NOT_SETTLED reason=deferred -- PosterBoard put the gallery renders off to its prewarm although the host was past the boot window; they will run during the tests (issue 396). Its line: $deferral" ;;
     *)
-        echo "::warning::WADDLE_SIMULATOR_NOT_SETTLED reason=timeout -- no gallery-render line in the simulator log ${waited}s after boot ($query_failures of $i log queries failed). The tests run anyway; if a launch fails, read it as issues 386/396." ;;
+        # Silence from two readers that both died is not silence from the
+        # simulator, so say which it was.
+        if kill -0 "$stream_pid" 2>/dev/null; then stream_state="running"; else stream_state="exited"; fi
+        if [ -f "$WORK/backfill.status" ]; then backfill_state="$(cat "$WORK/backfill.status")"; else backfill_state="unfinished"; fi
+        echo "::warning::WADDLE_SIMULATOR_NOT_SETTLED reason=timeout -- no gallery-render line in the simulator log ${waited}s after boot (log stream $stream_state, log show from boot $backfill_state). The tests run anyway; if a launch fails, read it as issues 386/396." ;;
 esac
 exit 0

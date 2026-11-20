@@ -36,7 +36,11 @@ BUNDLE="$2"
 OUT="$3"
 BUNDLE_ID="${WADDLE_BUNDLE_ID:-com.tylervick.waddle}"
 
+# Absolute, because `log collect` runs inside the simulator, whose working
+# directory is not this one: a relative path failed in run 44771876139 with
+# "failed to create directory".
 mkdir -p "$OUT"
+OUT="$(cd "$OUT" && pwd)"
 ARCHIVE="$OUT/simulator.logarchive"
 rm -rf "$ARCHIVE"
 
