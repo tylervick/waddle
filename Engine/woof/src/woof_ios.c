@@ -134,6 +134,8 @@ void WoofIOS_RequestQuit(void)
 // whether the previous session's values were still there.
 static char session_entry_state[384];
 
+static const char *DebugGameStateName(void);
+
 static void WoofIOS_DebugSessionEntryCheckpoint(void)
 {
     extern void AM_DebugSessionEntry(char *buf, size_t len);
@@ -159,13 +161,14 @@ static void WoofIOS_DebugSessionEntryCheckpoint(void)
     snprintf(session_entry_state, sizeof(session_entry_state),
              "%s msg=%d sbar=%d rewind=%d pad=%d rumble=%d tex=%d cmap=%d skipbl=%d"
              " dehtab=%08x dehstr=%d dehfiles=%d cheats=%d pars=%d dloop=%d"
-             " dirtylv=%d compres=%d pcheats=%d",
+             " dirtylv=%d compres=%d pcheats=%d gs=%s",
              am, ST_DebugMessageLeft(), ST_DebugStatusbarSet(),
              G_DebugRewindCount(), I_DebugStaleGamepad(), I_DebugRumbleGamepadSet(),
              I_DebugVideoTextureSet(), R_DebugColormapsSet(), skipblstart,
              DEH_DebugTablesHash(), DEH_DebugStringCount(), DEH_DebugFileCount(),
              M_DebugCheatsChanged(), DEH_DebugPartimesChanged(), D_DebugDemoLoopsChanged(),
-             P_DebugDirtyLevelCount(), G_DebugRestoreCompPending(), G_DebugPlayerCheats());
+             P_DebugDirtyLevelCount(), G_DebugRestoreCompPending(), G_DebugPlayerCheats(),
+             DebugGameStateName());
 }
 
 // Debug/test telemetry only: "pcheats=<flags>", the console player's cheat
@@ -388,6 +391,15 @@ int WoofIOS_Run(int argc, char **argv)
     touch_menu_tap_writes = 0;
     touch_menu_tap_dropped = 0;
     touch_menu_tap_held = false;
+
+    // gamestate has no initialiser, so a fresh process starts at 0, which is
+    // GS_LEVEL, and a later session starts with whatever the last one ended
+    // in. Until this session's title or first level load set it, everything
+    // that asks "in a level?" was answered from that: the debug HUD read
+    // gs=level during start-up (issue #379), and the weapon grid's gate
+    // could pass with no level loaded. GS_NONE is the value that is true.
+    extern gamestate_t gamestate; // doomstat.h
+    gamestate = GS_NONE;
 
     WoofIOS_DebugSessionEntryCheckpoint();
 
@@ -961,9 +973,9 @@ _Static_assert(WOOF_IOS_NUM_WEAPONS == NUMWEAPONS,
                "WOOF_IOS_NUM_WEAPONS must match the engine's weapon count");
 
 // A live local player in a level, as gamestate reports it: when the grid
-// may open and its selects count. gamestate is not reset at session start,
-// so before a session's first level load this can pass on a stale or
-// fresh-process GS_LEVEL; menu and pause are not checked (see the header).
+// may open and its selects count. WoofIOS_Run starts each session at
+// GS_NONE, so this cannot pass before the session's first level load; menu
+// and pause are not checked (see the header).
 static bool WeaponSelectAllowed(void)
 {
     return gamestate == GS_LEVEL && !demoplayback
@@ -1089,9 +1101,8 @@ static int WeaponPatchLength(const byte *patch, int size)
 int WoofIOS_CopyWeaponSprite(int weapon, unsigned char *buf, int cap)
 {
     // Outside a level the sprite tables may be a finished session's. This
-    // refuses intermission, finale and the title/demo screens, but not a
-    // session's start before its first level load, where gamestate may
-    // still read GS_LEVEL (see WoofIOS_GetWeaponSelectState).
+    // refuses intermission, finale, the title/demo screens and a session's
+    // start before its first level load (GS_NONE, set in WoofIOS_Run).
     if (gamestate != GS_LEVEL || weapon < 0 || weapon >= WOOF_IOS_NUM_WEAPONS
         || !buf || cap <= 0 || !states || !sprites)
     {
@@ -1454,24 +1465,29 @@ int WoofIOS_DebugSessionStartLumpsKB(void)
 extern gamestate_t gamestate; // doomstat.h
 extern boolean demoplayback;  // doomstat.h
 
+// "none" is GS_NONE: a session that has not yet reached its title or loaded
+// a level (WoofIOS_Run sets it; issue #379).
+static const char *DebugGameStateName(void)
+{
+    switch (gamestate)
+    {
+        // A demo's level is not the player's: the title's demo loop reaches
+        // GS_LEVEL within seconds, and a failed -loadgame falls back to it.
+        case GS_LEVEL:        return demoplayback ? "demo" : "level";
+        case GS_INTERMISSION: return "inter";
+        case GS_FINALE:       return "finale";
+        case GS_DEMOSCREEN:   return "title";
+        default:              return "none";
+    }
+}
+
 const char *WoofIOS_DebugGameState(void)
 {
     extern int startloadgame; // d_main.c: -loadgame's argument, -1 without
     extern int leveltime;     // doomstat.h
     static char buf[48];
-    const char *state;
-    switch (gamestate)
-    {
-        // A demo's level is not the player's: the title's demo loop reaches
-        // GS_LEVEL within seconds, and a failed -loadgame falls back to it.
-        case GS_LEVEL:        state = demoplayback ? "demo" : "level"; break;
-        case GS_INTERMISSION: state = "inter";  break;
-        case GS_FINALE:       state = "finale"; break;
-        case GS_DEMOSCREEN:   state = "title";  break;
-        default:              state = "none";   break;
-    }
-    snprintf(buf, sizeof(buf), "gs=%s load=%d lt=%d", state, startloadgame,
-             gamestate == GS_LEVEL ? leveltime : 0);
+    snprintf(buf, sizeof(buf), "gs=%s load=%d lt=%d", DebugGameStateName(),
+             startloadgame, gamestate == GS_LEVEL ? leveltime : 0);
     return buf;
 }
 
