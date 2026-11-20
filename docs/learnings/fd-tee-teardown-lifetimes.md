@@ -54,6 +54,14 @@ mechanics rather than restating them here.
 **Provenance:** hit while building `App/Sources/Diagnostics/SessionLogCapture.swift`
 for diagnostics export.
 
+**Since issue #394 the pass-through write is not the pump's.** A writer
+thread per descriptor owns `saved`, and the pump only reads the tee, writes
+the log and queues bytes for it. Both traps stand with "writer" read for
+"pump": it is the writer that holds `saved`, and the writer that `end()`
+abandons and whose descriptor it leaks. The epoch guard still matters,
+because an abandoned pump can spend up to `stallGrace` waiting on a full
+queue before it reads on. See `dup2-fails-a-blocked-writer-with-sigpipe.md`.
+
 **A third trap, found later:** the `dup2` at each end of a session fails any
 thread asleep writing to the descriptor it replaces, and by default that
 kills the process. See `dup2-fails-a-blocked-writer-with-sigpipe.md`.
