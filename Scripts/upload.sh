@@ -64,8 +64,71 @@ fi
 #     that did not exist (issue #240). The word-boundary keeps "no errors"
 #     and ".../error-codes" URLs -- which a clean transcript contains -- from
 #     tripping it. Scripts/test-upload.sh pins every one of these.
+#
+# Matching is the rule; the block below carves out the single transcript
+# where an `ERROR:` line is known not to mean a failed upload.
 if grep -qiE 'ITMS-|UPLOAD FAILED|VALIDATION FAILED|(^|[^[:alnum:]_/-])error:' <<<"$OUT"; then
+    # One exception, and it is deliberately the width of one transcript.
+    # On 2026-11-17 (issue 390) altool's own App Store Connect lookup got two
+    # 500s, printed each as `ERROR:`, retried, and then delivered build 293:
+    # "UPLOAD SUCCEEDED with no errors" and a Delivery UUID. Failing the step
+    # there stopped the job before the tag step, so App Store Connect held a
+    # build no `build-*` tag recorded and the next merge would have derived
+    # the same number and been refused as a duplicate.
+    #
+    # So an `ERROR:` line is forgiven only when ALL of this holds:
+    #   - nothing in the transcript is an ITMS code or a FAILED summary;
+    #   - every error-shaped line is altool reporting a 5xx from an App Store
+    #     Connect API call (`[CDASCAPI.…] APP STORE CONNECT API <call>:
+    #     received status code 5xx`) -- a 4xx is an answer, not a hiccup;
+    #   - after the last of them altool printed exactly one
+    #     `UPLOAD SUCCEEDED with no errors`, and the very next line is a
+    #     `Delivery UUID:`.
+    # Anything else -- the issue 240 rejection, a 5xx with no success block,
+    # an error after the success block, --validate (which has no delivery
+    # to confirm) -- falls through to the refusal below, as before.
+    DELIVERY=""
+    if [ "$ACTION" = "--upload-app" ]; then
+        DELIVERY="$(awk '
+            { line = tolower($0) }
+            line ~ /itms-|upload failed|validation failed/ { bad = 1 }
+            line ~ /(^|[^[:alnum:]_\/-])error:/ {
+                if ($0 ~ /ERROR: \[CDASCAPI\.[0-9A-Fa-f]+\] APP STORE CONNECT API [a-z-]+: received status code 5[0-9][0-9];/ && !succeeded) {
+                    transient++
+                } else {
+                    bad = 1
+                }
+            }
+            prev == "UPLOAD SUCCEEDED with no errors" {
+                if ($0 ~ /^Delivery UUID: [0-9A-Fa-f-]+$/) { uuid = $0 } else { bad = 1 }
+            }
+            $0 == "UPLOAD SUCCEEDED with no errors" { succeeded++ }
+            { prev = $0 }
+            END {
+                if (prev == "UPLOAD SUCCEEDED with no errors") bad = 1
+                if (!bad && transient > 0 && succeeded == 1 && uuid != "") {
+                    print transient " transient App Store Connect error(s), then " uuid
+                    exit 0
+                }
+                exit 1
+            }' <<<"$OUT")" || DELIVERY=""
+    fi
+    if [ -n "$DELIVERY" ]; then
+        echo "note: altool printed $DELIVERY." >&2
+        echo "      Its own lookup failed and was retried before the upload went" >&2
+        echo "      through; treating this as a SUCCESSFUL upload (issue 390)." >&2
+        exit 0
+    fi
     echo "error: altool reported an error but exited 0 (known Xcode 26 behaviour)." >&2
     echo "       treating this as a FAILED upload. Verify in App Store Connect." >&2
+    if [ "$ACTION" = "--upload-app" ] && grep -q 'UPLOAD SUCCEEDED' <<<"$OUT"; then
+        echo "error: altool ALSO printed UPLOAD SUCCEEDED, so the build MAY be in" >&2
+        echo "       App Store Connect. If it is, this run stopped before it could" >&2
+        echo "       record the build-N tag: push that tag by hand at the commit" >&2
+        echo "       that shipped (docs/app-store/submission-checklist.md, \"A CI" >&2
+        echo "       upload whose tag failed to push\") BEFORE the next merge, or" >&2
+        echo "       that merge derives the same build number and is refused as" >&2
+        echo "       a duplicate." >&2
+    fi
     exit 1
 fi
