@@ -61,13 +61,23 @@ clang -O2 docs/learnings/assets/duo-device-hub-2026-11-20/timed-drag.c -o timed-
 ```
 
 Coordinates are global screen points; the first waypoint is the press and its
-`ms` is how long it is held, a repeated point is a pause. `--option` holds
-Option for the whole path (see below for what that did not achieve). A plain
+`ms` is how long it is held, a repeated point is a pause. `--option` sets the
+Option flag on the whole path (see below for what that did not achieve). A plain
 `CGEventPostToPid` without field 51 is ignored by Device Hub.
 
-**Two fingers were not reachable.** An Option-drag posted this way arrives as
-a one-finger drag, with or without an Option key event first, so a pinch still
-needs a real Option-drag with the pointer.
+**Two fingers were not reachable, in the background or the foreground.** An
+Option-drag posted this way arrives as a one-finger drag, with or without an
+Option key event first. With the owner's leave, a real one was tried too:
+Device Hub brought to the front, left Option held and the pointer dragged
+through the HID event tap, in both orientations. It also panned the automap
+(`k172:2`, no `k61`) and no second touch point appeared. So Option-drag, the
+old Simulator's pinch, is not how Device Hub makes a second finger; what is
+has not been found. DeviceKit carries `magnifyWithEvent:`, which suggests a
+trackpad pinch, unconfirmed.
+
+Device Hub's app menu has both "Quit Device Hub" and "Quit and Keep Simulators
+Running": a plain quit shuts down the simulators it started, other workers'
+included, so leave it running.
 
 ## Trap 2: Device Hub's accessibility tree keeps stale nodes
 
