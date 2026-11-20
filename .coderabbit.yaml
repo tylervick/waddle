@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# CodeRabbit does not review pull requests here automatically (owner's
+# decision, 2026-11-20). Its one-review-an-hour rate limit held work up and
+# its stale changes-requested reviews blocked merges. Review is done by a
+# separate reviewer agent instead; see "How work flows" in CLAUDE.md.
+#
+# No `version` key on purpose: that selects the V2 schema, the only one
+# generally available. A one-off review can still be asked for with an
+# `@coderabbitai review` comment.
+reviews:
+  auto_review:
+    enabled: false
