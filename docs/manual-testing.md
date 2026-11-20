@@ -67,6 +67,25 @@ overlay to remain visible even when input devices are connected.
   - Switch Settings → Weapon Selector to Grid, start a new session: the
     hotspot opens the 3×3 grid below, and its checks hold. Switch back to
     Ring for the next session
+- [ ] Control hints (Settings → Show Control Hints, on by default): in a
+      level, take every finger off the screen for four seconds. Check each of:
+  - A translucent "Weapons" shape fades in over the weapon zone: a disc in
+    the middle of the status bar with the ring, the bottom-centre rectangle
+    with Settings → Weapon Selector → Grid. Tapping it opens the selector
+  - Touch Controls → Modern adds a "Move" circle on the left and an "Aim"
+    circle on the right; Classic shows "Weapons" alone
+  - Any touch (the stick, a button, the hint itself) takes the hints away at
+    once, and they return four seconds after the last finger lifts. Holding
+    the stick or FIRE for longer than that never shows them
+  - They do not appear on the title screen or over a demo, a menu, a Y/N
+    prompt, the automap, the open selector or the soft keyboard, and not
+    while dead
+  - Judge by eye, on a device: whether four seconds feels right, and whether
+    the hints read clearly without getting in the way of the picture or the
+    buttons, in portrait and in landscape (both were set without one)
+  - Turn Show Control Hints off and start a new session: they never appear
+  - With VoiceOver on, the hints are not announced; the "Weapons" zone is
+    still found by exploring, as before
 - [ ] Weapon-select grid (Settings → Weapon Selector → Grid): tapping the
       bottom centre of the picture (the middle of the status bar) opens a
       3×3 weapon grid over the picture. Check each of:

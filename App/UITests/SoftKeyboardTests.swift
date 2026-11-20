@@ -98,4 +98,52 @@ final class SoftKeyboardTests: XCTestCase {
         XCTAssertFalse(marker.waitForExistence(timeout: 3),
                        "keyboard wrongly summoned while a menu was open")
     }
+
+    /// The control hints (issue #392) are up when the four-finger tap
+    /// lands. The Weapons hint is drawn over the weapon zone, on the
+    /// screen's vertical centre line, which is where XCUITest puts the four
+    /// touches and where an accessibility element makes the gesture fail
+    /// (docs/learnings/accessibility-element-blocks-app-multi-touch-tap.md).
+    /// So this waits out the idle delay, reads the hint's corner marker to
+    /// know the hint is really showing, and only then taps: the keyboard
+    /// must still come up, and the touch-down must take the hint away.
+    /// Modern scheme, so Move and Aim are on screen with it.
+    @MainActor
+    func testFourFingerTapSummonsWithControlHintsShowing() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "25"
+        app.holdAutoquit()
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        // Pinned, so nothing stored in the app container decides whether or
+        // where the hints show.
+        app.launchEnvironment["WADDLE_CONTROL_HINTS"] = "1"
+        app.launchEnvironment["WADDLE_WEAPON_SELECTOR"] = "ring"
+        app.launchEnvironment["WADDLE_TOUCH_SCHEME"] = "modern"
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        play.tap()
+        XCTAssertTrue(app.buttons["fireButton"].waitForExistence(timeout: 20),
+                      "overlay never installed")
+
+        // Touch nothing for longer than the four-second idle delay. The
+        // wait after it is for the level: the count runs only once a live
+        // player is in one.
+        Thread.sleep(forTimeInterval: 5)
+        let hints = app.otherElements["controlHintsVisible"]
+        XCTAssertTrue(hints.waitForExistence(timeout: 15),
+                      "no control hints after five idle seconds in a level")
+        XCTAssertEqual(hints.value as? String, "weapons move aim",
+                       "the Modern scheme shows Move and Aim with Weapons")
+
+        let keyboard = app.otherElements["softKeyboardActive"]
+        XCTAssertFalse(keyboard.exists, "keyboard active before any tap")
+        app.tap(withNumberOfTaps: 1, numberOfTouches: 4)
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5),
+                      "four-finger tap did not summon the keyboard with the hints showing")
+        XCTAssertTrue(hints.waitForNonExistence(timeout: 5),
+                      "a touch-down must hide the control hints")
+    }
 }

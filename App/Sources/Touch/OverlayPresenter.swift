@@ -92,7 +92,8 @@ final class OverlayPresenter {
         let view = TouchOverlayView(gamepad: gamepad, scheme: scheme,
                                     tuning: tuning, debugHUDEnabled: debugHUDEnabled,
                                     layoutOverrides: layoutOverrides,
-                                    weaponSelectorStyle: weaponSelectorStyle)
+                                    weaponSelectorStyle: weaponSelectorStyle,
+                                    controlHintsEnabled: ControlHintsSetting.current())
         view.frame = window.bounds
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         window.addSubview(view)
