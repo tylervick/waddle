@@ -137,6 +137,44 @@ final class SessionLogCaptureStalledReaderTests: XCTestCase {
         if writer.hasReturned { reader.shutDown(closing: sink) }
     }
 
+    /// Issue #410: `end()` takes the tee's write end away from the captured
+    /// descriptor, but not from a duplicate of it made during the session.
+    /// Whatever is written to such a duplicate afterwards still reaches the
+    /// pump, and must not pile up in memory behind a reader that is not
+    /// reading.
+    func testWritesToADuplicateAfterTheSessionDoNotPileUpInMemory() throws {
+        let sink = try Sink(full: true)
+        // A grace period longer than the case: the reader has not been
+        // found stalled when the session ends, which is the state in which
+        // nothing used to be dropped at all.
+        let capture = SessionLogCapture(directory: tmp, targetFDs: [sink.writeEnd],
+                                        drainDeadline: 0.3, stallGrace: 30)
+        try capture.begin(name: "duplicate")
+        let duplicate = dup(sink.writeEnd)
+        XCTAssertGreaterThanOrEqual(duplicate, 0)
+        capture.end()
+
+        let payload = Self.pattern(count: 8 * 1024 * 1024)
+        let writer = PayloadWriter(fd: duplicate, payload: payload)
+        defer {
+            writer.finish(draining: sink)
+            // Only once the writer is done with it. This is EOF for the
+            // abandoned pump, which then lets its writer thread go.
+            if writer.hasReturned { Darwin.close(duplicate) }
+        }
+        XCTAssertTrue(writer.waitUntilReturned(timeout: 20),
+                      "the bound put a thread to sleep; it must drop, not block")
+        XCTAssertEqual(writer.written, payload.count)
+
+        // What the pass-through kept is what comes out once somebody reads.
+        // The sink's own 64 KiB of filler comes first; everything after
+        // that was held in memory.
+        let reader = CollectingReader(sink: sink)
+        let arrived = reader.countOnceQuiet(for: 0.5, timeout: 20)
+        XCTAssertLessThan(arrived, 1024 * 1024,
+                          "\(arrived) bytes were waiting for the reader; all but the sink's 64 KiB of them were held in memory")
+    }
+
     /// A stall is not for good. Once the reader reads again the original
     /// gets what is written from then on, and is told that there is a gap.
     func testPassThroughResumesWhenTheReaderReadsAgain() throws {
@@ -320,6 +358,19 @@ private final class CollectingReader: @unchecked Sendable {
             Thread.sleep(forTimeInterval: 0.01)
         }
         if thread.isFinished { Darwin.close(sink.readEnd) }
+    }
+
+    /// How many bytes have arrived, once no more have for `quiet` seconds.
+    func countOnceQuiet(for quiet: TimeInterval, timeout: TimeInterval) -> Int {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        var last = collected.count
+        var lastChange = Date.now
+        while Date.now < deadline, Date.now.timeIntervalSince(lastChange) < quiet {
+            Thread.sleep(forTimeInterval: 0.02)
+            let count = collected.count
+            if count != last { (last, lastChange) = (count, Date.now) }
+        }
+        return last
     }
 
     func contains(_ needle: [UInt8]) -> Bool {

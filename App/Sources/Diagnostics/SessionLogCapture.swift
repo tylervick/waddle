@@ -157,8 +157,9 @@ final class SessionLogCapture {
         // otherwise still be waiting when the log is closed below, and what
         // is left in the tee would never be logged. From here on it reads
         // the tee straight through to EOF, and the queue takes what the
-        // tee held however full it is: nothing can be written to the tee
-        // any more, so that is one pipe's worth at most.
+        // tee held at this moment, full or not. It takes no more than that
+        // on those terms: a duplicate of the target made during the session
+        // still writes into the tee (issue #410).
         for capture in captures {
             capture.passThrough.stopWaiting()
         }
@@ -196,7 +197,7 @@ final class SessionLogCapture {
     }
 
     private func pump(from readEnd: Int32, passThrough: PassThrough, epoch: Int) {
-        var buffer = [UInt8](repeating: 0, count: 4096)
+        var buffer = [UInt8](repeating: 0, count: pumpChunkBytes)
         while true {
             let n = read(readEnd, &buffer, buffer.count)
             guard n > 0 else { break }
@@ -220,6 +221,11 @@ final class SessionLogCapture {
     }
 }
 
+/// The most a pipe holds on Darwin. The tee is one.
+private let pipeBytes = 65536
+/// How much the pump reads from the tee at a time.
+private let pumpChunkBytes = 4096
+
 /// Owns every write to one capture's original destination, on a thread of
 /// its own, so that a destination nobody is reading can put only that thread
 /// to sleep.
@@ -237,7 +243,13 @@ final class SessionLogCapture {
 private final class PassThrough: @unchecked Sendable {
     /// As much as a pipe holds: with the tee's own pipe in front of it, a
     /// reader can fall about 128 KiB behind before anything waits.
-    private static let capacity = 65536
+    private static let capacity = pipeBytes
+
+    /// What can still be on its way from the tee when the session ends: a
+    /// full pipe, and the chunk the pump had already read and was waiting to
+    /// hand over. `testEndingBehindAReaderThatIsStillDrainingDropsNothing`
+    /// fails every time without it, and now and then with one chunk less.
+    private static let teeRemainder = pipeBytes + pumpChunkBytes
 
     private let fd: Int32
     private let stallGrace: TimeInterval
@@ -247,6 +259,8 @@ private final class PassThrough: @unchecked Sendable {
     private var dropped = 0
     private var finishing = false
     private var waits = true
+    /// Bytes the queue will still take over `capacity`; see `stopWaiting()`.
+    private var overCapacityAllowance = 0
     private var thread: Thread!
 
     init(to fd: Int32, stallGrace: TimeInterval, name: String) {
@@ -276,12 +290,22 @@ private final class PassThrough: @unchecked Sendable {
                     break
                 }
             }
-            // Only a reader that used up its grace has stalled. A wait cut
-            // short by `stopWaiting()` says nothing about the reader, which
-            // may be reading and merely behind; its bytes are queued past
-            // `capacity` below instead of being dropped.
-            if graceRanOut {
-                stalled = pending.count + bytes.count > Self.capacity
+            // A reader that used up its grace has stalled. A wait cut short
+            // by `stopWaiting()` says nothing about the reader, which may be
+            // reading and merely behind: what the tee held then is queued
+            // past `capacity`. Anything beyond that came in through another
+            // descriptor after the session, nobody is waiting for it, and a
+            // full queue drops it at once.
+            if pending.count + bytes.count > Self.capacity {
+                if graceRanOut {
+                    stalled = true
+                } else if !waits {
+                    if bytes.count <= overCapacityAllowance {
+                        overCapacityAllowance -= bytes.count
+                    } else {
+                        stalled = true
+                    }
+                }
             }
         }
         // While stalled everything is dropped, room or no room, so that what
@@ -297,13 +321,16 @@ private final class PassThrough: @unchecked Sendable {
 
     /// The session is ending: `offer` no longer waits for room, now or in a
     /// call already waiting, so the pump is never kept from the tee. Unless
-    /// the reader had already stalled, what the pump still offers is queued
-    /// over `capacity`. That is bounded by what the tee held when its write
-    /// end was taken away, and it is what lets a reader that is behind, but
-    /// reading, have the end of the session (pull request 399's review).
+    /// the reader had already stalled, the next `teeRemainder` bytes that
+    /// find the queue full are queued over `capacity` all the same, which
+    /// is what lets a reader that is behind, but reading, have the end of
+    /// the session (pull request 399's review). After those, a full queue
+    /// means dropped bytes, so the queue never holds more than `capacity`
+    /// and `teeRemainder` together.
     func stopWaiting() {
         condition.lock()
         waits = false
+        overCapacityAllowance = Self.teeRemainder
         condition.broadcast()
         condition.unlock()
     }

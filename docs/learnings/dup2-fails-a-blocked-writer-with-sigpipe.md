@@ -117,9 +117,64 @@ Three things to know before changing it:
   bounded because nothing can write to the tee any more. Only a grace
   period that ran out marks a reader stalled.
 
+- **`end()` does not take the tee away from everybody.** Its `dup2` drops
+  the target's reference to the tee's write end, and a duplicate of the
+  target made during the session keeps its own. The pump then never sees
+  EOF, and what is written to the duplicate afterwards keeps arriving. With
+  the wait called off and nothing marking the reader stalled, 32 MiB written
+  that way was all held in memory (issue #410). Nothing in the app, the
+  engine or the vendored libraries makes such a duplicate; system frameworks
+  were not searched. The queue now takes exactly what the tee can have held
+  at `end()` over its capacity, a pipe and the pump's chunk in hand, and
+  after that a full queue drops.
+
 A device was not tested, for the reason the issue gives: nothing there holds
 a pty on the app's stderr. The CI stall itself was not reproduced either;
 the check is a pipe nobody reads.
+
+## 2026-11-20: a writer that is awake loses its write to the swap, and stays that way
+
+Everything above is about a writer asleep in `write()`. A writer that is
+awake has a different problem with the same two `dup2` calls: for a moment
+during the swap the descriptor number is not open at all, and a `write()`
+that lands then fails with EBADF (issue #410).
+
+Measured with four threads that never block, each writing one byte at a time
+to a descriptor on `/dev/null`, while the main thread replaces it 20,000
+times:
+
+| Swap | Writes that succeeded | EBADF |
+|---|---|---|
+| `dup2(src, target)` | 79,256 and 79,773 | 1,793,796 and 1,442,428 |
+| `close(target)` then `fcntl(src, F_DUPFD, target)` | 79,801 and 79,829 | 2,068,011 and 2,352,376 |
+
+The review that raised this ran the same shape of probe and also counted
+EPIPE, about 50,000 against 2.4 million EBADF. Through the capture itself it
+saw a thread writing flat out get EBADF in 4 sessions of 20, at the same
+rate before any of the 2026-11 changes.
+
+The effect is one failed `write()`: those bytes are in neither the log nor
+the console. Nothing crashes. EBADF raises no signal, EPIPE is kept from
+signalling as described above, and the engine never looks at the stdio
+error flag.
+
+**It is not fixed, and this is why.** Darwin has no call that replaces a
+descriptor without that window: `dup2` is the atomic one on paper and is the
+first row of the table, and there is no `dup3`. What is left is keeping
+writers out for the length of the swap, and the capture cannot:
+
+- `ftrylockfile(stdout)` and `(stderr)` around the swap would hold off stdio
+  writers only. The engine's `printf`s are stdio, but they run on the main
+  thread, which is the thread calling `begin()` and `end()`, so they were
+  never in the race. The writers that are, XCTest's logging and anything
+  using `os_log` or `NSLog` to stderr, call `write()` directly.
+- A blocking `flockfile` would be worse than the loss: a stdio writer asleep
+  on a full original holds that lock, and `begin()` would wait for it for
+  ever, where today its `dup2` wakes it.
+
+So a line of another thread's output can go missing at each end of a
+session, and a test that needs a writer's errno across `end()` must put the
+writer to sleep first, as `SessionLogCaptureBlockedWriterTests` does.
 
 **The executable check:** `App/Tests/SessionLogCaptureStalledReaderTests.swift`.
 Against the capture as it was on `main` at 61c5b36 the writer stops after
@@ -127,4 +182,4 @@ Against the capture as it was on `main` at 61c5b36 the writer stops after
 
 **Provenance:** issue #365, found 2026-11-10 from the result bundles of runs
 42775216487 and 42940487234; issue #394, found 2026-11-19 from run
-44572978942.
+44572978942; issue #410, from the review of pull request 405.
