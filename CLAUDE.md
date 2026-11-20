@@ -23,10 +23,22 @@ An iOS port of the Woof! Doom engine. See `README.md` for build instructions and
 - `woof.pk3` lives at the app bundle root; IWADs live in `GameData/`, whose
   folder reference must never be renamed to "Resources".
 
+## How work flows
+
+- GitHub issues are the backlog. A steward bot or an attended session starts
+  work on one; it lands as a pull request the owner merges. Never merge it.
+- An issue is open to any agent unless labelled `needs:owner`; that issue
+  names the step needing the owner and what unblocks it.
+- Release and App Store steps are not run by an agent unless the owner asks.
+- A red UI Tests run is often not your diff; compare with `main` first
+  (`docs/learnings/ui-test-failures-need-a-main-baseline.md`).
+
 ## Changes
 
 - Conventional commits, matching existing history (`fix(ui):`, `docs(app-store):`).
-- Never edit or delete a test to make it pass.
+- Never weaken, skip or delete a test to get a green run. When the issue
+  changes intended behaviour, update the tests that pin the old behaviour and
+  list each one in the pull request description.
 - Work lands through pull requests, never directly on `main`.
 - Hit a trap worth remembering? Add a file under `docs/learnings/` and one line
   to its `INDEX.md`, in the same PR.

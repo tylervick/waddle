@@ -1,31 +1,29 @@
 ---
 name: waddle-filing-an-issue
-description: Use when filing, drafting, revising, or reviewing a GitHub issue in the Waddle repo — including choosing between agent:eligible and agent:blocked, picking a size label, writing the Definition of done or Verification section, or fixing a red "Issue Format" workflow run.
+description: Use when filing, drafting, revising, or reviewing a GitHub issue in the Waddle repo — including deciding whether it needs the needs:owner label, writing the Definition of done, Verification or "Needs the owner" section, picking labels, or fixing a red "Issue Format" workflow run.
 ---
 
 # Filing an issue in Waddle
 
 ## Overview
 
-Issues are this repo's only machine-readable backlog. `Scripts/loop-precheck.sh`
-picks one; `Scripts/loop-prompt.md` §3 then hands the unattended run nothing but
+Issues are this repo's only machine-readable backlog. A steward bot or an
+attended session starts a worker on one, and that worker often has nothing but
 `gh issue view <N>`. Whatever the issue does not say, nobody knows.
 
 `docs/superpowers/specs/2026-08-06-agent-substrate-design.md` gives the reason
 the format exists: *"an agent with no explicit completion condition reports
 success on incomplete work."*
 
-Read live examples before writing — they are the house style, not this file:
-`gh issue view 72` (evidence-first bug), `gh issue view 64` (small, precise),
-`gh issue view 84` and `gh issue view 93` (blocked, with the block justified).
+Read examples before writing — they are the house style, not this file. All
+are closed now and are cited for their shape: `gh issue view 72`
+(evidence-first bug), `gh issue view 64` (small, precise), `gh issue view 84`
+and `gh issue view 93` (a wrong result reaches testers, and the issue says so).
 
 If the issue is about adding or changing a `Scripts/check-*.sh` guard, the
 `waddle-writing-a-guard-script` skill covers what the work itself must look like.
 
-## The three required sections
-
-`Scripts/check-issue-format.sh` fails if **any open `agent:eligible` issue** is
-missing a non-empty section under each of these literal level-2 headings:
+## The three sections every issue carries
 
 ```
 ## Definition of done
@@ -33,33 +31,108 @@ missing a non-empty section under each of these literal level-2 headings:
 ## Provenance
 ```
 
-Mechanics worth knowing (all in that script):
+Start from `.github/ISSUE_TEMPLATE/task.md` and delete its HTML comments.
+Nothing checks these three mechanically any more (the check that did was keyed
+to a label that is retired), so the format holds only because whoever files
+the issue writes it. It earns its few lines: of the 38 pull requests the
+August 2026 loop opened from issues written this way, a review on 2026-11-20
+counted 36 merged unchanged.
 
-- Matching is exact on the whole line `## <heading>`, after a trailing `\r` is
-  stripped (so the web form's CRLF bodies behave like API-created ones). `###
-  Verification`, `## Verification:` and `## verification` all read as *missing*.
-- A section is "empty" only if it has no non-whitespace characters at all. So a
-  **leftover template HTML comment passes** — `<!-- The exact command that
-  demonstrates it. -->` is non-whitespace. The check is a floor, not a standard;
-  it cannot tell you the section says anything. Delete the comments and write
-  the content.
-- Only `agent:eligible` is checked. `agent:blocked` issues are not — but #84 and
-  #93 carry all three anyway, because the format is what makes an issue usable,
-  not just what makes CI green.
+- **Definition of done** names the observable condition, not the activity. Not
+  "fix the size cap" but "`ZipExtractor` rejects any entry whose uncompressed
+  size exceeds the cap, and a test proves it."
+- **Verification** is the exact command; see below.
+- **Provenance** names the pull request, review, or date the issue came from.
+  It is the only context that survives.
 
-**Where it runs:** `.github/workflows/issue-format.yml`, on `issues`
-(`opened`, `edited`, `labeled`, `reopened`), plus a weekly backstop
-(`cron: "0 6 * * 1"`) and `workflow_dispatch`. It is deliberately *not* in
-`ci.yml` — a malformed issue used to redden `main` and every open PR with an
-error the PR author had no permission to fix. So a malformed issue now reddens
-the **Issue Format** workflow, and stays red on every subsequent issue event
-until the body is fixed. That workflow also fails on a `skip - ` line, so the
-job cannot go green having checked zero issues.
+## Open by default, or `needs:owner`
 
-Start from `.github/ISSUE_TEMPLATE/agent-eligible.md`, and verify your own draft
-before filing rather than trusting the workflow to catch it: paste the body into
-a file and run the same extraction the check runs, or just confirm all three
-headings are present verbatim at level 2.
+**An issue is open to any agent unless it carries `needs:owner`.** There is no
+label that means "an agent may take this"; no label is that state.
+
+Add `needs:owner` only when a specific step cannot be done without the owner:
+
+| The step needs | Examples |
+|---|---|
+| **A device** | on-device touch feel, a measurement on real hardware, a hand on Device Hub |
+| **A decision** | a design direction, a choice between options the issue lays out |
+| **A credential** | App Store Connect work, signing |
+| **An approval** | a release, a TestFlight upload, a store submission or listing change (`CLAUDE.md`: not run by an agent unless the owner asks) |
+
+One question sorts most cases: **can a pull request verify the change before
+it merges, or does the first real test happen in production?** A wrong string
+in a Library alert (#64) is caught in review and costs nothing. A wrong
+changelog is already in testers' hands and "costs a build number to correct"
+(#84, #93). When the first real test is a live release, that step is the
+owner's approval; say so.
+
+**What is NOT a reason for the label:**
+
+- "An agent might get it wrong." The owner merges every pull request; a
+  plausible-but-wrong one costs a review, the same as any contribution.
+- The file it touches. Workflows under `.github/workflows/`, `CLAUDE.md`,
+  `mise.toml`, `orca.yaml` and the guard scripts are all changed in ordinary
+  pull requests. A workflow change is called out in the pull request
+  description, because a changed workflow runs with the repo's secrets before
+  the owner reviews it.
+- Waiting on another issue. That is sequencing, not the owner. Say it at the
+  top of the issue instead: *"Do not start before #124 is on `main`"*, and
+  name the thing #124 adds so the reader can check the code, not the tracker.
+
+### A `needs:owner` issue says what it needs
+
+`Scripts/check-issue-format.sh` fails the **Issue Format** workflow if any open
+`needs:owner` issue lacks a non-empty section under this literal heading:
+
+```
+## Needs the owner
+```
+
+Write three things there:
+
+1. **The step**, exactly. "Measure the gap on a physical iPhone", not "needs
+   testing".
+2. **Why only the owner can do it**: which device, decision, credential or
+   approval.
+3. **What would unblock it**, and whether anything will. *"Unblocks when a
+   device measurement is posted here; the patch can then be written by
+   anyone."* Or, for a permanent one, in as many words: *"No merge unblocks
+   this; it needs a physical device."*
+
+Then say what is *not* waiting: the work an agent can do now, before or around
+that step. Most `needs:owner` issues are mostly ordinary work.
+
+Name the unblock event so that lifting the label is a mechanical check instead
+of a judgement re-made months later, and state that there is no *second*
+blocker behind the first. On 2026-11-20, three of ten open blocked issues
+stated a reason or condition that had stopped being true, and they were found
+only because each was specific enough to check against the code.
+
+Mechanics of the check (all in that script):
+
+- Matching is exact on the whole line `## Needs the owner`, after a trailing
+  `\r` is stripped (so the web form's CRLF bodies behave like API-created
+  ones). `### Needs the owner`, `## Needs the owner:` and `## needs the owner`
+  all read as *missing*.
+- A section is "empty" only if it has no non-whitespace characters at all, so
+  a leftover HTML comment passes. The check is a floor, not a standard.
+- **Where it runs:** `.github/workflows/issue-format.yml`, on `issues`
+  (`opened`, `edited`, `labeled`, `reopened`), plus a weekly backstop
+  (`cron: "0 6 * * 1"`) and `workflow_dispatch`. It is deliberately *not* in
+  `ci.yml`, where a malformed issue would redden `main` and every open pull
+  request. It stays red on every subsequent issue event until the body is
+  fixed, and it also fails on a `skip - ` line, so the job cannot go green
+  having checked nothing.
+- Add the section *before* the label, or in the same edit. The `labeled`
+  event runs the check.
+
+### Retired labels
+
+`agent:eligible`, `agent:blocked`, `agent:in-progress`, `agent:stuck` and
+`agent:next` belonged to the unattended loop, retired 2026-11-20
+(`docs/archive/unattended-loop/`). Do not apply them. An older issue may still
+carry one, with a "Blocked for the loop: …" paragraph; nothing reads the
+labels now, and a reason that was only a loop rule is no longer a block.
 
 ## Evidence first: quote the measurement, don't assert the problem
 
@@ -89,144 +162,11 @@ Rules that follow from those:
 If you cannot reproduce it, say so and file it as a question or don't file it.
 The substrate spec's triage section: an item that cannot be reproduced is
 recorded as unreproducible rather than filed on suspicion, because a backlog of
-ghosts makes the loop look broken when the backlog is.
+ghosts makes the workers look broken when the backlog is.
 
-## `agent:eligible` or `agent:blocked`
+## Labels
 
-This is the judgement call people get wrong. Three questions, in order.
-
-**1. Does the work touch a path the loop is forbidden to change?**
-**Open `Scripts/loop-prompt.md` → "Rules that are absolute" and read the list
-there.** It is edited as the loop learns; do not trust any copy of it, this one
-included. The stable shape:
-
-- The loop's own guardrails: `Scripts/loop-precheck.sh`,
-  `Scripts/loop-report.sh`, `Scripts/loop-prompt.md`,
-  `Scripts/check-substrate.sh`, `Scripts/check-issue-format.sh`,
-  `Scripts/test-loop-precheck.sh`, `Scripts/test-loop-report.sh`, `orca.yaml`,
-  `CLAUDE.md`.
-- Anything under `.github/workflows/` — a workflow it added would execute on its
-  own pull request. **Consequence:** an issue that adds a new
-  `Scripts/check-*.sh` guard cannot also wire it into `ci.yml`. Either say in
-  the Definition of done that CI wiring is the owner's follow-up, or file it
-  `agent:blocked`. **Do not copy #80 here** — it is `agent:eligible` today and
-  asks for both "Wire it to a `schedule:` workflow" and "Register the new suite
-  in the `Verify the build-script helpers` step of `.github/workflows/ci.yml`".
-  As filed, the loop cannot finish it. It is the live example of this mistake,
-  not a model.
-- Signing configuration, `Engine/woof`'s vendor pin, App Store metadata,
-  `mise.toml`, and **adding any dependency** — pinning or locking a toolchain
-  version counts; check before assuming it does not.
-- The release path, which is **split, not blanket-forbidden** — the signing and
-  upload scripts are forbidden, the notes assembler is not. Read the current
-  split rather than guessing.
-- Existing `docs/learnings/` files may be **added to**, never rewritten or
-  deleted.
-
-`docs/superpowers/specs/2026-08-06-agent-substrate-design.md` → "Never
-agent-eligible" adds: anything needing a physical device, App Store Connect work,
-screenshot capture and metadata judgement, engine vendor re-pins (GPL provenance).
-
-**2. Can a pull request verify it before merge, or does the first real test
-happen in production?** This is the criterion the whole taxonomy rests on —
-`Scripts/loop-prompt.md` states it outright: *"The line is drawn at whether a
-pull request can verify the change before it merges."* It is why the release
-path splits: the notes assembler has a hermetic suite plus a `--print` smoke in
-`ci.yml`, so its worst case is wrong words the owner reads before merging; the
-upload and signing scripts are exercised by nothing on a pull request
-(`testflight.yml` is `workflow_dispatch`-only), so their first real test is a
-live release.
-
-#84 and #93 turn on the same question and land the other way. Both are
-hermetically testable in principle — and both are blocked, because the artefact
-they produce goes to real TestFlight testers and "a wrong result costs a build
-number to correct." #93 states the reasoning to copy: opening it up later "would
-be defensible — but as a deliberate decision, not an accident of labelling."
-
-**3. What does a wrong result cost?** A wrong string in a Library alert (#64) is
-caught in review and costs nothing. A wrong changelog is already in testers'
-hands. Weigh the cost of the *undetected* wrong result, not the likely one.
-
-**What is NOT a reason to block:** "the loop might get it wrong." The loop never
-merges its own work — `Scripts/loop-prompt.md` forbids `gh pr merge` and any
-push to `main`; the owner is the merge gate on every run. A plausible-but-wrong
-pull request costs a review, which is the same thing any contribution costs.
-
-**State the call either way, at the end of Provenance.** The `agent:blocked`
-label's own description is "Needs a human; reason stated in the issue" — #84 and
-#93 each end with a "Blocked for the loop: …" paragraph naming the reason and
-the sibling issues that share it. Write the symmetric paragraph when you mark
-something `agent:eligible`: what lands, that none of it is a protected path, and
-that a pull request verifies it before merge. It is one sentence, and it is what
-lets a reviewer check the call instead of re-deriving it.
-
-### If it is blocked, say what would unblock it
-
-`agent:blocked` covers two states that look identical in `gh issue list` and are
-not remotely the same thing:
-
-- **Permanently owner-only.** #28 (App Store Connect), #107 (age rating), #51
-  (on-device touch feel). No merge changes these; they are your work, not
-  backlog debt.
-- **Blocked in sequence.** #125, #126 and #127 are each ordinary `App/Sources/`
-  work with hermetic tests, decisions already made, and full Verification
-  sections. They are blocked only because they build on the shelf from #124,
-  which is not on `main` yet. Theming a shell that is about to be replaced would
-  be discarded work.
-
-Counted together they read as a growing wall. Counted apart, three of those
-expire the moment one *eligible* issue merges.
-
-**So when a blocker will lift on its own, name it and name the trigger.** The
-form those three use, verbatim:
-
-> Blocked for the loop — sequencing only: this styles the shelf from the shelf
-> issue #124, which is not yet on `main`; theming today's two-tab shell would be
-> discarded work. **Flip to agent:eligible when #124 merges.** No other blocker:
-> the work is `App/Sources/` + asset catalog, PR-verifiable.
-
-Three things that sentence does. It says the block is temporary. It names the
-exact event that ends it, so the flip is a mechanical check rather than a
-judgement call re-made months later. And it states there is no *second* blocker
-hiding behind the first — without that, whoever revisits it has to re-derive the
-whole eligibility question anyway.
-
-For a permanent block, say that too, in as many words: *"No merge unblocks this;
-it needs a physical device."* An issue that just says "blocked" leaves a reader
-unable to tell which pile it is in.
-
-A practical consequence worth knowing: a keystone issue can gate several others.
-#124 gates three. When that is true, the useful move is usually not to work the
-blocked items but to put `agent:next` on the keystone.
-
-## Size labels change what the loop attempts first
-
-`size:xs` (one file plus one test) · `size:s` (one module, no cross-cutting
-change) · `size:m` (crosses `Engine/`, or touches multiple modules).
-
-`Scripts/loop-precheck.sh` §5 ranks `size:xs`=0, `size:s`=1, `size:m`=2, and
-**anything with no size label = 3**, then tie-breaks on ascending issue number,
-and takes the minimum. So:
-
-- An unlabelled issue sorts behind every labelled one — leaving the size off is
-  not neutral, it is deprioritising.
-- Selection is deterministic. The same issue is re-picked every run until
-  something changes.
-- Excluded from selection: `agent:stuck`, a live `agent:in-progress` claim, and
-  any issue whose number appears as `closes|fixes|resolves #N` in an **open** PR
-  body.
-
-Size is an estimate; the template asks you to correct it when the PR lands, so
-that trials stay comparable (`…agent-substrate-design.md` → Risks).
-
-Note the **learning tax**: `CLAUDE.md` requires a `docs/learnings/` file plus its
-`INDEX.md` line for any trap worth remembering, and `Scripts/check-substrate.sh`
-enforces the bijection. So a guard-adding issue is four files minimum. Read
-`size:xs` as *one behaviour plus its test* — the learning and its index line do
-not push it to `size:s` on their own.
-
-Also add exactly one kind label. `Scripts/loop-prompt.md` §6 records it as the
-trial's `kind`:
+Exactly one kind label:
 
 | Label | Use for |
 |---|---|
@@ -235,6 +175,16 @@ trial's `kind`:
 | `test` | Coverage or test infrastructure, where the test *is* the deliverable (#48, #63) |
 | `chore` | Maintenance with no user-visible change, including adding a new guard (#46, #80) |
 | `documentation` / `deps` | Docs; dependency or toolchain bumps needing code changes (#79) |
+
+A size label is optional: `size:xs` (one file plus one test) · `size:s` (one
+module, no cross-cutting change) · `size:m` (crosses `Engine/`, or touches
+multiple modules). Nothing orders work by size any more. It is still a useful
+warning on large work that should be split.
+
+Note the **learning tax** when estimating: `CLAUDE.md` requires a
+`docs/learnings/` file plus its `INDEX.md` line for any trap worth remembering,
+and `Scripts/check-substrate.sh` enforces the bijection. So a guard-adding
+issue is four files minimum, plus one line in `ci.yml` to register its suite.
 
 ## Title
 
@@ -247,18 +197,28 @@ annotates*", not "fix the changelog range".
 
 ## Writing the Verification section
 
-The exact command, in a fenced block, that an unattended run will execute
-**unmodified** (`Scripts/loop-prompt.md` §3.4: if it fails, fix the change,
-never the test). Either `mise run test` or something narrower.
+The exact command, in a fenced block, that whoever works the issue will execute
+**unmodified**. If it fails, the change is fixed, not the test (`CLAUDE.md`:
+never weaken, skip or delete a test to get a green run). Either `mise run test`
+or something narrower.
+
+If the issue changes intended behaviour, say so and name the existing tests
+that pin the old behaviour. They are updated as part of the work and listed in
+the pull request description. An issue that asks for new behaviour while an
+existing test forbids it, and does not say which wins, stops the work (issue
+199 did exactly that).
 
 For a Swift change, the narrow form used by #64:
 
 ```
 mise run bootstrap
 xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -destination 'platform=iOS Simulator,name=iPhone 18 Pro' \
   -only-testing:WaddleTests test
 ```
+
+The device is the one `.github/workflows/ci.yml` pins as `SIMULATOR_DEVICE`;
+check it there instead of copying this.
 
 For shell work, name the suites directly — `Scripts/test-build-deps.sh`,
 `Scripts/check-substrate.sh`, … as #72 and #84 do.
@@ -275,8 +235,8 @@ failures: `docs/superpowers/specs/2026-08-10-test-proof-signal-design.md` record
 PR #57, whose body claimed verification "by deleting the corresponding line and
 watching the suite go red" — a reviewer deleted line 25 and every test still
 passed — and PR #61, which shipped a vacuous test caught by hand before merge.
-`Scripts/check-red-green.sh` now scores exactly this and has a `vacuous` verdict
-for it.
+`Scripts/check-red-green.sh` scores exactly this and has a `vacuous` verdict
+for it; run it by hand, CI does not.
 
 So when the issue concerns a guard, a refusal, a fail-closed path, or anything
 whose value is that it catches something, put the proof in the Verification
@@ -320,11 +280,10 @@ Where each of the three surfaces stands:
 | **Pull request body** | Closes on merge — correct and **required** here. |
 | **Issue body / comment** | Inert; does not close anything. Safe to quote. |
 
-In a pull request body it is required: `Scripts/loop-prompt.md` §3 tells every
-run to open a PR whose body contains `Closes #<ISSUE>`, and
-`Scripts/loop-precheck.sh` §5 parses exactly
-`(?:closes|fixes|resolves)\s+#(\d+)` out of open PR bodies to keep a claimed
-issue from being handed to a second run.
+In a pull request body it is required: `Closes #<ISSUE>` closes the issue when
+the owner merges, and until then the open pull request linked from the issue
+is what shows that someone is already working it. Any of the nine keywords
+makes that link, with `#N` or `GH-N`.
 
 **The trap when writing about this rule:** house style says quote the offending
 text, and an issue body is inert so you safely can. The *pull request* that
@@ -338,29 +297,30 @@ number — `issue 42`, `#42`, `per #42`. None of those is a keyword.
 
 | | |
 |---|---|
-| Template | `.github/ISSUE_TEMPLATE/agent-eligible.md` (delete the comments) |
+| Template | `.github/ISSUE_TEMPLATE/task.md` (delete the comments) |
 | Title | `<area or symbol>: <observable defect>` |
-| Required headings | `## Definition of done`, `## Verification`, `## Provenance` |
-| Enforced by | `Scripts/check-issue-format.sh` via `.github/workflows/issue-format.yml` |
-| Enforced on | open `agent:eligible` issues only, on issue events + weekly cron |
-| Labels | one kind (`bug`/`enhancement`/`documentation`/`test`/`chore`/`deps`), one size (`size:xs`/`s`/`m`), one of `agent:eligible`/`agent:blocked` |
+| Sections | `## Definition of done`, `## Verification`, `## Provenance` |
+| Open to agents | by default; no label needed |
+| Owner step | `needs:owner` label plus a `## Needs the owner` section: the step, why, what unblocks it |
+| Enforced | the `## Needs the owner` section only, by `Scripts/check-issue-format.sh` via `.github/workflows/issue-format.yml`, on issue events + weekly cron |
+| Labels | one kind (`bug`/`enhancement`/`documentation`/`test`/`chore`/`deps`); `needs:owner` if it applies; a size (`size:xs`/`s`/`m`) if useful |
 | Check it yourself | `Scripts/check-issue-format.sh` (needs an authenticated `gh`) |
-| Selection order | size rank, then ascending issue number (`Scripts/loop-precheck.sh`) |
 
 ## Common mistakes
 
 | Mistake | Fix |
 |---|---|
-| Template HTML comments left under a heading | They *pass* the check — it only tests for non-whitespace. Delete them and write the content. |
-| Heading written `### Verification` or `## Verification:` | Matching is exact on the whole line at level 2. The section reads as missing. |
+| Template HTML comments left under a heading | Delete them and write the content. Under `## Needs the owner` they even *pass* the check, which only tests for non-whitespace. |
+| Heading written `### Needs the owner` or `## Needs the owner:` | Matching is exact on the whole line at level 2. The section reads as missing. |
 | Definition of done names an activity | Name the observable condition. Not "fix the size cap" but "`ZipExtractor` rejects any entry whose uncompressed size exceeds the cap, and a test proves it." |
 | "X is broken" with no output | Paste the measurement, dated, with the command that produced it. |
 | Verification says "run the tests" | Give the exact command, unmodified-runnable, plus what the new cases must cover. |
 | New test demanded with no discrimination proof | Name the thing to break, and the expected fail-then-pass. |
-| Blocked with no reason | The label means "reason stated in the issue". Write the "Blocked for the loop: …" paragraph. |
-| Blocked with no unblock condition | If a merge or decision would lift it, name that event so the flip is mechanical. If nothing will, say so outright. |
-| Blocked because "an agent might get it wrong" | Not a reason — the owner is the merge gate on every run. |
+| `needs:owner` with no stated step | Write the `## Needs the owner` section: the step, why only the owner, what unblocks it. Issue Format is red until it exists. |
+| `needs:owner` with no unblock condition | If an event would lift it, name that event so the check is mechanical. If nothing will, say so outright. |
+| `needs:owner` because "an agent might get it wrong", or because it edits a workflow | Neither is a reason. The owner is the merge gate on every pull request. |
+| `needs:owner` on an issue that is only waiting for another issue | That is sequencing. Say "do not start before #N is on `main`" at the top, with no label. |
+| An `agent:*` label applied | Retired. Open issues need no label to be workable. |
 | `Fixed #13` assumed safe because the rule names three verbs | Nine keywords close, in any case, anywhere in the message. |
-| No size label | Sorts behind every labelled issue in `loop-precheck.sh`. |
 | Provenance says "found while testing" | Name the PR, review, trial record, or date. It is the only surviving context. |
-| Issue adds a guard script *and* wires it into `ci.yml` | The loop may not touch `.github/workflows/`. Split it or block it. |
+| Issue changes behaviour an existing test pins, without saying so | Name the tests that will change, so updating them is the work and not a rule broken. |

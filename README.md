@@ -63,10 +63,14 @@ records the traps this project has already paid for — read
 [its index](docs/learnings/INDEX.md) before debugging anything that feels like
 it should already work.
 
-Most of the backlog is worked by an unattended loop, whose protocol is
-`Scripts/loop-prompt.md`. The issues it is *not* allowed to touch are labelled
-`agent:blocked`; [`docs/owner-side-issues.md`](docs/owner-side-issues.md) is the
-counterpart process for clearing those by hand.
+GitHub issues are the backlog. A steward bot or an attended agent session
+starts work on an issue, and the work lands as a pull request the owner merges.
+An issue is open to any agent unless it is labelled `needs:owner`, in which
+case it says which step needs the owner and what would unblock it;
+[`docs/owner-side-issues.md`](docs/owner-side-issues.md) covers working those.
+The unattended loop that worked the backlog in August 2026 is retired; its
+scripts are kept in
+[`docs/archive/unattended-loop/`](docs/archive/unattended-loop/README.md).
 
 
 ## Licensing
