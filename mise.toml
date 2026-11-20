@@ -49,13 +49,18 @@ description = "Build and run the test suite (incl. engine smoke check) on iPhone
 # The iPad simulator is created on demand rather than pre-provisioned --
 # Scripts/ensure-ipad-simulator.sh owns that and prints the UDID, which
 # nothing here needs.
+#
+# Both device names are the ones ci.yml pins (SIMULATOR_DEVICE_IPAD and
+# SIMULATOR_DEVICE); move them together. The OS is left unpinned here, where
+# ci.yml pins SIMULATOR_OS, so a machine whose runtimes differ from the
+# runner image's can still run this.
 run = """
 Scripts/ensure-ipad-simulator.sh > /dev/null
 xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
   -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4)' \
   -only-testing:WaddleTests test
 xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
+  -destination 'platform=iOS Simulator,name=iPhone 18 Pro' test
 """
 depends = ["generate"]
 
