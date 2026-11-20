@@ -32,10 +32,20 @@ static void post(CGEventType t, CGPoint p) {
     CGEventPostToPid(pid, e); CFRelease(e);
 }
 int main(int argc, char **argv) {
-    if (argc < 6) { fprintf(stderr, "usage\n"); return 2; }
+    static const char *usage = "usage: timed-drag <pid> <window-id> <origin-x> <origin-y> [--option] x,y,ms [x,y,ms ...]\n";
+    if (argc < 6) { fputs(usage, stderr); return 2; }
     pid = atoi(argv[1]); win = (uint32_t)atoi(argv[2]); ox = atof(argv[3]); oy = atof(argv[4]);
     int i = 5; if (!strcmp(argv[i], "--option")) { flags |= kCGEventFlagMaskAlternate; i++; }
-    double x, y, ms; sscanf(argv[i++], "%lf,%lf,%lf", &x, &y, &ms);
+    if (i >= argc) { fputs(usage, stderr); return 2; }
+    // Parse every waypoint before posting anything, so a typo cannot leave a button down.
+    double x, y, ms;
+    for (int k = i; k < argc; k++) {
+        char tail;
+        if (sscanf(argv[k], "%lf,%lf,%lf%c", &x, &y, &ms, &tail) != 3 || ms < 0) {
+            fprintf(stderr, "bad waypoint '%s' (want x,y,ms)\n", argv[k]); return 2;
+        }
+    }
+    sscanf(argv[i++], "%lf,%lf,%lf", &x, &y, &ms);
     CGPoint cur = CGPointMake(x, y);
     make_key(); usleep(30000);
     if (flags & kCGEventFlagMaskAlternate) { CGEventRef k = CGEventCreateKeyboardEvent(NULL, 58, true); CGEventSetFlags(k, flags); CGEventPostToPid(pid, k); CFRelease(k); usleep(150000);

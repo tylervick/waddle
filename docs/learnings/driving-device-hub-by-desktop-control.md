@@ -1,4 +1,4 @@
-# Driving Device Hub by desktop control: it works, in the background, with three traps
+# Driving Device Hub by desktop control: it works, in the background, on an unlocked Mac, with three traps
 
 Measured 2026-11-20 on the worker Mac with Xcode 27.1 (27A9275), the iOS 27.1
 simulator runtime and Orca's computer-use (`orca computer ...`), while doing
@@ -14,6 +14,10 @@ needed a person, without bringing a window forward or moving the pointer.
 - **Start it.** `orca computer launch-app /Applications/Xcode-27.1.0.app/Contents/Applications/DeviceHub.app`
   (bundle id `com.apple.dt.Devices`). Select your own device by pressing its
   sidebar row. Accessibility and Screen Recording were already granted to Orca.
+- **The Mac must be unlocked.** With the screen locked or asleep every
+  `orca computer` call fails with `screen_locked` (seen by the reviewer of
+  PR 414 on 2026-11-20, twice, 15 minutes apart). Nothing an agent can do
+  lifts that; a person has to unlock it.
 - **Hinge.** Device Hub has three accessibility buttons under the device:
   `Closed`, `Partially Open`, `Open`. Pressing one by element index folds the
   simulator. No third-party tool is needed.
@@ -53,11 +57,12 @@ a later macOS. Build and use:
 clang -O2 docs/learnings/assets/duo-device-hub-2026-11-20/timed-drag.c -o timed-drag \
   -framework ApplicationServices -F/System/Library/PrivateFrameworks -framework SkyLight
 # pid, window id and window origin from `orca computer list-windows --app com.apple.dt.Devices --json`
-./timed-drag <pid> <window-id> <origin-x> <origin-y>  x,y,ms  x,y,ms ...
+./timed-drag <pid> <window-id> <origin-x> <origin-y> [--option]  x,y,ms  x,y,ms ...
 ```
 
 Coordinates are global screen points; the first waypoint is the press and its
-`ms` is how long it is held, a repeated point is a pause. A plain
+`ms` is how long it is held, a repeated point is a pause. `--option` holds
+Option for the whole path (see below for what that did not achieve). A plain
 `CGEventPostToPid` without field 51 is ignored by Device Hub.
 
 **Two fingers were not reachable.** An Option-drag posted this way arrives as
@@ -72,12 +77,16 @@ by name works; waiting on tree text does not. Wait on pixels from
 `simctl io screenshot` instead (strip the alpha channel first: the capture
 carries the display's corner mask).
 
-## Trap 3: `WADDLE_AUTOQUIT_SECONDS` counts from app launch
+## Trap 3: `WADDLE_AUTOQUIT_SECONDS` runs through the level load
 
-Not from session start. Under load the launch, the tap and the level load took
-22 s here, so a 25 s budget ended each session as the first gesture began, and
-the next gesture started a new session from the shelf. Budget 60 s when a
-desktop-control step sits between launch and the gesture.
+The budget starts when the session starts (`EngineSession.play()` arms it once
+per session), not when the level is on screen. Under load, the tap, the level
+load and the screenshot polling that confirmed the level took about 20 s here,
+so a 25 s budget ended each session as the first gesture began, and the next
+gesture then started a new session from the shelf. An earlier version of this
+file said the budget counts from app launch; that was a wrong inference from
+the same symptom. Budget 60 s when desktop-control steps sit between the tap
+and the gesture.
 
 ## Split View on the Duo, as found
 
@@ -87,8 +96,9 @@ desktop-control step sits between launch and the gesture.
   up). When it is tall (669x951) no drop zones appear and the gesture ends in
   the app switcher; rotating a split to tall returns the app to full screen.
 - Waddle is laid out natively there, not scaled: the debug HUD reads
-  `win=469x669` in the pane and `win=951x669` full screen. Dragging the
-  divider did not change the pane width.
+  `win=469x669` in the pane and `win=951x669` full screen. Two drags on the
+  divider left the pane at 469; whether the split is fixed or the drags missed
+  the handle is not established.
 - A device held upside-down and opened still shows Waddle upright at 951x669
   although the iPhone orientation list omits upside-down, and adding
   upside-down to the list changed neither figure.
