@@ -59,6 +59,7 @@ NON_BINARY_PATHS=(
     ':(exclude)*.md'
     ':(exclude)COPYING'
     ':(exclude)renovate.json'
+    ':(exclude).coderabbit.yaml'
     ':(exclude)orca.yaml'
 )
 

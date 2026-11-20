@@ -215,6 +215,7 @@ commit_path .revyl/config.yaml "ci: the Revyl config"
 commit_path Design/source/x.svg "design: a glyph source"
 commit_path README.md "docs: readme"
 commit_path renovate.json "chore: renovate"
+commit_path .coderabbit.yaml "chore: the CodeRabbit config"
 run
 [ "$RUN_STATUS" -eq 0 ] || fail "13: exited $RUN_STATUS: $RUN_ERR"
 [ "$RUN_OUT" = "no" ] || fail "13: said '$RUN_OUT', want no -- none of these paths reaches the binary"
