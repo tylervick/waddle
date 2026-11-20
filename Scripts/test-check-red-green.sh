@@ -93,7 +93,7 @@ STUB
 }
 
 # A stubbed xcrun that enumerates RG_DESTINATION's hermetic default (iPhone
-# 17 Pro / iOS 26.2) as available, so cases that reach test-without-building
+# 18 Pro / iOS 27.0) as available, so cases that reach test-without-building
 # but are not specifically testing the simulator-availability guard don't
 # trip it.
 stub_xcrun_available() { # dir
@@ -103,8 +103,8 @@ stub_xcrun_available() { # dir
 if [ "$1" = "simctl" ] && [ "$2" = "list" ]; then
 cat <<'EOF'
 == Devices ==
--- iOS 26.2 --
-    iPhone 17 Pro (AAAA1111-2222-3333-4444-555566667777) (Shutdown)
+-- iOS 27.0 --
+    iPhone 18 Pro (AAAA1111-2222-3333-4444-555566667777) (Shutdown)
 -- tvOS 17.2 --
 EOF
 exit 0
@@ -124,7 +124,7 @@ stub_xcrun_unavailable() { # dir
 if [ "$1" = "simctl" ] && [ "$2" = "list" ]; then
 cat <<'EOF'
 == Devices ==
--- iOS 26.2 --
+-- iOS 27.0 --
 -- tvOS 17.2 --
 EOF
 exit 0
@@ -378,7 +378,7 @@ pass "swift: a changed test file declaring no XCTestCase class is error, not vac
 
 # 19. A test-without-building failure must not read as `proved` when the
 #     simulator itself never became available. CI run 31427755601 hit
-#     exactly this against this same RG_DESTINATION default (see
+#     exactly this against an earlier RG_DESTINATION default (see
 #     docs/learnings/simulator-enumeration-race.md): build-for-testing can
 #     succeed while CoreSimulator has enumerated nothing, and only
 #     test-without-building actually needs a live device. The whole run must

@@ -129,7 +129,7 @@ Then build/run the `Waddle` scheme in Xcode, or from the command line
 
 ```sh
 xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
+  -destination 'platform=iOS Simulator,name=iPhone 18 Pro' test
 ```
 
 `Scripts/build-deps.sh` also applies any patches under `Scripts/patches/<dep>/`
