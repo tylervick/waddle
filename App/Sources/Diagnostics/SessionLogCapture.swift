@@ -153,6 +153,13 @@ final class SessionLogCapture {
         for capture in captures {
             dup2(capture.saved, capture.target)
         }
+        // A pump waiting out `stallGrace` for room in its queue would
+        // otherwise still be waiting when the log is closed below, and what
+        // is left in the tee would never be logged. From here on it reads
+        // the tee straight through to EOF.
+        for capture in captures {
+            capture.passThrough.stopWaiting()
+        }
         // Wait for the pumps and their writers to drain -- bounded, never
         // indefinite: EOF is already in flight, but a pathological blocked
         // pass-through write must not hang session teardown on the main
@@ -237,6 +244,7 @@ private final class PassThrough: @unchecked Sendable {
     private var stalled = false
     private var dropped = 0
     private var finishing = false
+    private var waits = true
     private var thread: Thread!
 
     init(to fd: Int32, stallGrace: TimeInterval, name: String) {
@@ -258,12 +266,10 @@ private final class PassThrough: @unchecked Sendable {
         defer { condition.unlock() }
         if !stalled && pending.count + bytes.count > Self.capacity {
             let deadline = Date.now.addingTimeInterval(stallGrace)
-            while pending.count + bytes.count > Self.capacity {
-                if !condition.wait(until: deadline) {
-                    stalled = pending.count + bytes.count > Self.capacity
-                    break
-                }
+            while waits && pending.count + bytes.count > Self.capacity {
+                if !condition.wait(until: deadline) { break }
             }
+            stalled = pending.count + bytes.count > Self.capacity
         }
         // While stalled everything is dropped, room or no room, so that what
         // is missing is one run of bytes and the note below can stand
@@ -274,6 +280,16 @@ private final class PassThrough: @unchecked Sendable {
         }
         pending.append(contentsOf: bytes)
         condition.broadcast()
+    }
+
+    /// The session is ending: a full queue no longer earns the reader any
+    /// grace, now or in an `offer` already waiting. What does not fit is
+    /// dropped at once, so the pump is never kept from the tee.
+    func stopWaiting() {
+        condition.lock()
+        waits = false
+        condition.broadcast()
+        condition.unlock()
     }
 
     /// Nothing more will be offered: write what is queued, then exit.

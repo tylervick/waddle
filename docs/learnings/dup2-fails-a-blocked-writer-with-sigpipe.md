@@ -99,6 +99,13 @@ Three things to know before changing it:
   followed by a blocking `write` is a race against the other captured
   descriptor: stdout and stderr are usually the same pty.
 
+- **`end()` has to call the grace period off.** A pump waiting for room
+  outlives a `drainDeadline` shorter than `stallGrace`, and `end()` then
+  closed the log with part of the session still in the tee: 73,728 of
+  122,880 bytes logged, found in review of pull request 399. `end()` now
+  tells each writer to stop waiting, so the pump reads the tee straight
+  through to EOF.
+
 A device was not tested, for the reason the issue gives: nothing there holds
 a pty on the app's stderr. The CI stall itself was not reproduced either;
 the check is a pipe nobody reads.

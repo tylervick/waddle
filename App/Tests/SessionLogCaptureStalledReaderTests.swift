@@ -55,6 +55,35 @@ final class SessionLogCaptureStalledReaderTests: XCTestCase {
         XCTAssertTrue(log == Data(payload), "the session log lost or reordered bytes while the reader was stalled")
     }
 
+    /// Ending a session while the pump is still giving the reader its grace
+    /// period: what the tee holds at that moment was accepted from its
+    /// writer, so it belongs in the log, and `end()` must not sit the grace
+    /// period out to get it there.
+    func testEndingInsideTheGracePeriodStillLogsWhatTheTeeHolds() throws {
+        let sink = try Sink(full: true)
+        let capture = SessionLogCapture(directory: tmp, targetFDs: [sink.writeEnd],
+                                        drainDeadline: 0.3, stallGrace: 30)
+        try capture.begin(name: "ends-in-grace")
+
+        // More than the pass-through takes before its queue is full (one
+        // 4 KiB write in flight and 64 KiB queued), less than that plus the
+        // tee's 64 KiB: the writer finishes without sleeping and leaves the
+        // difference in the tee, behind a pump that is waiting for room.
+        let payload = Self.pattern(count: 120 * 1024)
+        let writer = PayloadWriter(fd: sink.writeEnd, payload: payload)
+        defer { writer.finish(draining: sink) }
+        XCTAssertTrue(writer.waitUntilReturned(timeout: 10), "the payload did not fit; the case proves nothing")
+        XCTAssertEqual(writer.written, payload.count)
+
+        let start = Date.now
+        capture.end()
+        XCTAssertLessThan(Date.now.timeIntervalSince(start), 5, "end() waited out the grace period")
+
+        let log = try Data(contentsOf: tmp.appendingPathComponent("session-ends-in-grace.log"))
+        XCTAssertEqual(log.count, payload.count, "bytes still in the tee when the session ended never reached the log")
+        XCTAssertTrue(log == Data(payload))
+    }
+
     /// The other half of the bargain: a reader that keeps reading loses
     /// nothing, however much is written.
     func testAReaderThatDrainsGetsEveryByteInOrder() throws {
@@ -77,6 +106,7 @@ final class SessionLogCaptureStalledReaderTests: XCTestCase {
         XCTAssertTrue(reader.collected == payload, "pass-through lost, added or reordered bytes")
         let log = try Data(contentsOf: tmp.appendingPathComponent("session-draining.log"))
         XCTAssertTrue(log == Data(payload), "the session log lost or reordered bytes")
+        if writer.hasReturned { reader.shutDown(closing: sink) }
     }
 
     /// A stall is not for good. Once the reader reads again the original
@@ -105,6 +135,7 @@ final class SessionLogCaptureStalledReaderTests: XCTestCase {
         XCTAssertTrue(reader.contains(marker), "nothing reached the original after its reader came back")
         XCTAssertTrue(reader.contains(Array("bytes not passed through".utf8)),
                       "the original was not told that bytes are missing")
+        if writer.hasReturned { reader.shutDown(closing: sink) }
     }
 
     /// Bytes whose value depends on their position, so a dropped or
@@ -139,9 +170,10 @@ private struct Sink {
         while read(readEnd, &buffer, buffer.count) > 0 {}
     }
 
-    // No close(), for the reason SessionLogCaptureBlockedWriterTests gives:
-    // a writer the capture abandoned may still be asleep on this pipe, and
-    // closing the read end under it raises SIGPIPE.
+    // No close() here, for the reason SessionLogCaptureBlockedWriterTests
+    // gives: a writer the capture abandoned may still be asleep on this
+    // pipe, and closing the read end under it raises SIGPIPE. The cases with
+    // a reader close through `CollectingReader.shutDown`, which can tell.
 }
 
 /// A thread that writes one payload to a descriptor in 4 KiB writes and
@@ -175,6 +207,7 @@ private final class PayloadWriter: @unchecked Sendable {
     }
 
     var written: Int { locked { count } }
+    var hasReturned: Bool { locked { returned } }
     var failure: Int32? { locked { failedWith } }
 
     func waitUntilReturned(timeout: TimeInterval) -> Bool {
@@ -204,16 +237,17 @@ private final class PayloadWriter: @unchecked Sendable {
     }
 }
 
-/// A thread that reads a sink for the rest of the process's life and keeps
-/// what it read.
+/// A thread that reads a sink until its write end closes and keeps what it
+/// read.
 private final class CollectingReader: @unchecked Sendable {
     private let lock = NSLock()
     private var bytes: [UInt8] = []
+    private var thread: Thread!
 
     init(sink: Sink) {
         let fd = sink.readEnd
         _ = fcntl(fd, F_SETFL, 0)
-        let thread = Thread { [self] in
+        thread = Thread { [self] in
             var buffer = [UInt8](repeating: 0, count: 65536)
             while true {
                 let n = read(fd, &buffer, buffer.count)
@@ -241,6 +275,20 @@ private final class CollectingReader: @unchecked Sendable {
             Thread.sleep(forTimeInterval: 0.02)
         }
         return collected.count >= count
+    }
+
+    /// Ends the thread and gives the pipe back, once the capture has ended
+    /// and nothing of the case's own still writes to the sink. Closing the
+    /// case's write end is EOF for the reader unless the capture abandoned a
+    /// writer, which holds a duplicate of it; then the reader never exits,
+    /// and the read end stays open rather than be closed under that writer.
+    func shutDown(closing sink: Sink) {
+        Darwin.close(sink.writeEnd)
+        let deadline = Date.now.addingTimeInterval(2)
+        while !thread.isFinished, Date.now < deadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        if thread.isFinished { Darwin.close(sink.readEnd) }
     }
 
     func contains(_ needle: [UInt8]) -> Bool {
