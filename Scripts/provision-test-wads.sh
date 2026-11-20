@@ -2,8 +2,12 @@
 # Copies local test WADs into the booted simulator's Waddle Documents dir
 # so the app's loose-file adoption imports them on next launch.
 # Usage: Scripts/provision-test-wads.sh [device-name]
+#
+# The default device is the one the whole-scheme leg of `mise run test` runs
+# RealWADTests on (SIMULATOR_DEVICE in ci.yml); Scripts/check-simulator-pins.sh
+# refuses a tree where the two differ.
 set -euo pipefail
-DEVICE="${1:-iPhone 17 Pro}"
+DEVICE="${1:-iPhone 18 Pro}"
 SRC="$HOME/Downloads/doom-test-wads"
 BUNDLE_ID="com.tylervick.waddle"
 

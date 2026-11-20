@@ -380,8 +380,9 @@ final class ShelfHeroLayoutTests: XCTestCase {
     // MARK: The welcome card's budget (spec §4)
 
     /// The phone `ui-tests.yml` runs `EngineSmokeTests` on, which is where
-    /// the flaky tap was observed: `SIMULATOR_DEVICE` is `iPhone 17 Pro`, so
-    /// 402 x 874 pt less the padding and chrome `SupportedDevice` models.
+    /// the flaky tap was observed: `SIMULATOR_DEVICE` is `iPhone 18 Pro`
+    /// (`iPhone 17 Pro` when this was written; the two have the same screen),
+    /// so 402 x 874 pt less the padding and chrome `SupportedDevice` models.
     ///
     /// Taken from that type rather than written out, because the previous
     /// spelling of it -- 408 pt of content, i.e. a 440 pt device -- carried

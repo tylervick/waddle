@@ -51,7 +51,8 @@ description = "Build and run the test suite (incl. engine smoke check) on iPhone
 # nothing here needs.
 #
 # Both device names are the ones ci.yml pins (SIMULATOR_DEVICE_IPAD and
-# SIMULATOR_DEVICE); move them together. The OS is left unpinned here, where
+# SIMULATOR_DEVICE); Scripts/check-simulator-pins.sh refuses a phone that
+# differs. The OS is left unpinned here, where
 # ci.yml pins SIMULATOR_OS, so a machine whose runtimes differ from the
 # runner image's can still run this.
 run = """
