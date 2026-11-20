@@ -156,7 +156,9 @@ final class SessionLogCapture {
         // A pump waiting out `stallGrace` for room in its queue would
         // otherwise still be waiting when the log is closed below, and what
         // is left in the tee would never be logged. From here on it reads
-        // the tee straight through to EOF.
+        // the tee straight through to EOF, and the queue takes what the
+        // tee held however full it is: nothing can be written to the tee
+        // any more, so that is one pipe's worth at most.
         for capture in captures {
             capture.passThrough.stopWaiting()
         }
@@ -260,16 +262,27 @@ private final class PassThrough: @unchecked Sendable {
     var isFinished: Bool { thread.isFinished }
 
     /// Queues `bytes` for the destination, or drops them if its reader has
-    /// stalled. Waits at most `stallGrace`, and not at all while stalled.
+    /// stalled. Waits at most `stallGrace`, and not at all while stalled or
+    /// once the session is ending.
     func offer(_ bytes: UnsafeRawBufferPointer) {
         condition.lock()
         defer { condition.unlock() }
         if !stalled && pending.count + bytes.count > Self.capacity {
             let deadline = Date.now.addingTimeInterval(stallGrace)
+            var graceRanOut = false
             while waits && pending.count + bytes.count > Self.capacity {
-                if !condition.wait(until: deadline) { break }
+                if !condition.wait(until: deadline) {
+                    graceRanOut = true
+                    break
+                }
             }
-            stalled = pending.count + bytes.count > Self.capacity
+            // Only a reader that used up its grace has stalled. A wait cut
+            // short by `stopWaiting()` says nothing about the reader, which
+            // may be reading and merely behind; its bytes are queued past
+            // `capacity` below instead of being dropped.
+            if graceRanOut {
+                stalled = pending.count + bytes.count > Self.capacity
+            }
         }
         // While stalled everything is dropped, room or no room, so that what
         // is missing is one run of bytes and the note below can stand
@@ -282,9 +295,12 @@ private final class PassThrough: @unchecked Sendable {
         condition.broadcast()
     }
 
-    /// The session is ending: a full queue no longer earns the reader any
-    /// grace, now or in an `offer` already waiting. What does not fit is
-    /// dropped at once, so the pump is never kept from the tee.
+    /// The session is ending: `offer` no longer waits for room, now or in a
+    /// call already waiting, so the pump is never kept from the tee. Unless
+    /// the reader had already stalled, what the pump still offers is queued
+    /// over `capacity`. That is bounded by what the tee held when its write
+    /// end was taken away, and it is what lets a reader that is behind, but
+    /// reading, have the end of the session (pull request 399's review).
     func stopWaiting() {
         condition.lock()
         waits = false

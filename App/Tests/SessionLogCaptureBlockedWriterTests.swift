@@ -47,7 +47,13 @@ final class SessionLogCaptureBlockedWriterTests: XCTestCase {
     /// tee's pipe while another thread is asleep writing into the tee.
     func testEndingASessionDoesNotSignalAWriterAsleepOnTheTee() throws {
         let sink = try FullPipe()
-        let capture = SessionLogCapture(directory: tmp, targetFDs: [sink.writeEnd], drainDeadline: 0.3)
+        // The writer below is only asleep on the tee while the capture is
+        // still giving the full sink its grace period; after that the
+        // capture drops pass-through bytes and the writer runs freely
+        // (issue #394). A grace period far longer than the case keeps
+        // `end()` inside it however slowly this thread gets there.
+        let capture = SessionLogCapture(directory: tmp, targetFDs: [sink.writeEnd], drainDeadline: 0.3,
+                                        stallGrace: 30)
         try capture.begin(name: "writer-asleep-on-the-tee")
 
         // The pump cannot pass anything through to the full sink, so this

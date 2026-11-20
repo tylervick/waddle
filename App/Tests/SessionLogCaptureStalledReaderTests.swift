@@ -109,6 +109,34 @@ final class SessionLogCaptureStalledReaderTests: XCTestCase {
         if writer.hasReturned { reader.shutDown(closing: sink) }
     }
 
+    /// A reader that is reading, only not as fast as the last burst was
+    /// written, has not stalled. Ending the session behind it must cost it
+    /// nothing: what the tee and the queue held still arrives, in order, and
+    /// it is not told that it stopped reading.
+    func testEndingBehindAReaderThatIsStillDrainingDropsNothing() throws {
+        let sink = try Sink(full: false)
+        // 4 KiB every 5 ms: far slower than the burst, half a second for
+        // all of it.
+        let reader = CollectingReader(sink: sink, chunk: 4096, pause: 0.005)
+        let capture = SessionLogCapture(directory: tmp, targetFDs: [sink.writeEnd])
+        try capture.begin(name: "still-draining")
+
+        // Several times what the tee and the queue hold between them, so
+        // the session ends with both full.
+        let payload = Self.pattern(count: 400_000)
+        let writer = PayloadWriter(fd: sink.writeEnd, payload: payload)
+        defer { writer.finish(draining: nil) }
+        XCTAssertTrue(writer.waitUntilReturned(timeout: 30))
+        XCTAssertEqual(writer.written, payload.count)
+
+        capture.end()
+
+        XCTAssertTrue(reader.waitForCount(payload.count, timeout: 10),
+                      "the original got \(reader.collected.count) of \(payload.count) bytes")
+        XCTAssertTrue(reader.collected == payload, "pass-through lost, added or reordered bytes at the end of a session")
+        if writer.hasReturned { reader.shutDown(closing: sink) }
+    }
+
     /// A stall is not for good. Once the reader reads again the original
     /// gets what is written from then on, and is told that there is a gap.
     func testPassThroughResumesWhenTheReaderReadsAgain() throws {
@@ -244,11 +272,13 @@ private final class CollectingReader: @unchecked Sendable {
     private var bytes: [UInt8] = []
     private var thread: Thread!
 
-    init(sink: Sink) {
+    /// Reads at most `chunk` bytes at a time and sleeps `pause` after each
+    /// read; the defaults are a reader that keeps up with anything.
+    init(sink: Sink, chunk: Int = 65536, pause: TimeInterval = 0) {
         let fd = sink.readEnd
         _ = fcntl(fd, F_SETFL, 0)
         thread = Thread { [self] in
-            var buffer = [UInt8](repeating: 0, count: 65536)
+            var buffer = [UInt8](repeating: 0, count: chunk)
             while true {
                 let n = read(fd, &buffer, buffer.count)
                 if n < 0 && errno == EINTR { continue }
@@ -256,6 +286,7 @@ private final class CollectingReader: @unchecked Sendable {
                 lock.lock()
                 bytes.append(contentsOf: buffer[..<n])
                 lock.unlock()
+                if pause > 0 { Thread.sleep(forTimeInterval: pause) }
             }
         }
         thread.name = "collecting reader"

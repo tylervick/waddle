@@ -88,11 +88,15 @@ Three things to know before changing it:
   for up to `stallGrace`, once per stall. Zero would drop output every time
   the runner hiccups.
 - **`testEndingASessionDoesNotSignalAWriterAsleepOnTheTee` needs that
-  window.** It wants a writer asleep on the tee when `end()` runs, and with
-  a stalled original a writer is now only asleep there during the grace
-  period. The test gets there in about 0.3 s. Shorten the default towards
-  that and the case fails on "the writer never blocked", which reads like a
-  broken test and is a real change of behaviour.
+  window, so it sets its own.** It wants a writer asleep on the tee when
+  `end()` runs, and with a stalled original a writer is only asleep there
+  during the grace period. On the 2 s default it reached `end()` in about
+  0.3 s and passed, but 2.2 s of delay failed it 5 times in 6, and not on
+  "the writer never blocked": the writer was awake, raced the `dup2`, and
+  the EPIPE assertion reported errno 9 (EBADF). It now passes
+  `stallGrace: 30`. A writer that is awake when `end()` runs can get EBADF
+  from that race with or without this capture's changes; nothing here
+  prevents it.
 - **Do not replace the second thread with `O_NONBLOCK` or `poll` on the
   saved descriptor.** `O_NONBLOCK` is a property of the open file, which the
   app shares with whoever handed it stderr and gets back at `end()`. `poll`
@@ -105,6 +109,13 @@ Three things to know before changing it:
   122,880 bytes logged, found in review of pull request 399. `end()` now
   tells each writer to stop waiting, so the pump reads the tee straight
   through to EOF.
+- **Calling the wait off is not the reader stalling.** The first version of
+  that treated a queue still full at `end()` as a stall and dropped what
+  the tee held: a reader taking 4 KiB every 5 ms lost about 40 KB of a
+  400 KB burst and was told it had stopped reading. Once the session is
+  ending the queue takes the tee's remainder over its capacity, which is
+  bounded because nothing can write to the tee any more. Only a grace
+  period that ran out marks a reader stalled.
 
 A device was not tested, for the reason the issue gives: nothing there holds
 a pty on the app's stderr. The CI stall itself was not reproduced either;
