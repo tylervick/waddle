@@ -25,6 +25,19 @@ final class ControlHintViewTests: XCTestCase {
         [view] + view.subviews.flatMap(allViews)
     }
 
+    /// Equal to within a millionth of a point. A `UIView` keeps its centre
+    /// and bounds, not its frame, so a frame read back can differ from the
+    /// one set in the last bits (286.22399999999993 for 286.224, on CI).
+    private func assertFrame(_ frame: CGRect?, equals expected: CGRect, _ message: String = "",
+                             file: StaticString = #filePath, line: UInt = #line) {
+        guard let frame else { return XCTFail("no frame. \(message)", file: file, line: line) }
+        for (got, want) in [(frame.minX, expected.minX), (frame.minY, expected.minY),
+                            (frame.width, expected.width), (frame.height, expected.height)] {
+            XCTAssertEqual(got, want, accuracy: 1e-6, "\(frame) is not \(expected). \(message)",
+                           file: file, line: line)
+        }
+    }
+
     func testStartsHidden() {
         let view = makeView()
         XCTAssertEqual(view.alpha, 0)
@@ -33,7 +46,7 @@ final class ControlHintViewTests: XCTestCase {
 
     func testWeaponsHintTakesTheZonesFrameInBothStyles() {
         for style in WeaponSelectorStyle.allCases {
-            XCTAssertEqual(makeView(style).weaponsFrameForTesting, geometry(style).weaponsFrame, "\(style)")
+            assertFrame(makeView(style).weaponsFrameForTesting, equals: geometry(style).weaponsFrame, "\(style)")
         }
     }
 
@@ -49,8 +62,8 @@ final class ControlHintViewTests: XCTestCase {
         let view = makeView()
         view.show(.init(weapons: true, moveAndAim: true))
         XCTAssertEqual(view.alpha, 1)
-        XCTAssertEqual(view.moveFrameForTesting, geometry(.ring).moveFrame)
-        XCTAssertEqual(view.aimFrameForTesting, geometry(.ring).aimFrame)
+        assertFrame(view.moveFrameForTesting, equals: geometry(.ring).moveFrame)
+        assertFrame(view.aimFrameForTesting, equals: geometry(.ring).aimFrame)
     }
 
     func testHidingIsImmediate() {
