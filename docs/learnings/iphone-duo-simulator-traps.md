@@ -37,6 +37,10 @@ every Duo pose.
 
 ## Nothing Apple ships folds it from a script
 
+Device Hub can be driven by desktop control instead, hinge and drags included:
+see `driving-device-hub-by-desktop-control.md` (2026-11-20). What follows is
+still true of scripts.
+
 `simctl`, `devicectl` and XCUITest have no hinge command; the hinge lives only
 in the Device Hub window. The third-party `hinge` script
 (github.com/artemnovichkov/hinge) does it by spawning a small helper inside
