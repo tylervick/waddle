@@ -111,9 +111,12 @@ pass "queries unfiltered, requests labels, and selects on needs:owner alone"
 #    with only whitespace under it, which is the same as not having it.
 make_fixture "$TMP/d"
 mkdir -p "$TMP/d/bin"
-BODY_OK=$(printf '## Definition of done\nx\n## Needs the owner\nA device. Unblocks when measured.\n## Provenance\nx\n' | base64)
-BODY_BAD=$(printf '## Definition of done\nx\n## Verification\nx\n## Provenance\nx\n' | base64)
-BODY_EMPTY=$(printf '## Needs the owner\n\n  \n## Provenance\nx\n' | base64)
+# `tr -d '\n'`: GNU base64 wraps at 76 characters, and a wrapped body would
+# reach the guard as extra records with a chunk of base64 for an issue number.
+# The real query emits one line per issue.
+BODY_OK=$(printf '## Definition of done\nx\n## Needs the owner\nA device. Unblocks when measured.\n## Provenance\nx\n' | base64 | tr -d '\n')
+BODY_BAD=$(printf '## Definition of done\nx\n## Verification\nx\n## Provenance\nx\n' | base64 | tr -d '\n')
+BODY_EMPTY=$(printf '## Needs the owner\n\n  \n## Provenance\nx\n' | base64 | tr -d '\n')
 cat > "$TMP/d/bin/gh" <<STUB
 #!/bin/bash
 if [ "\$1" = "auth" ] && [ "\$2" = "status" ]; then exit 0; fi
@@ -133,6 +136,8 @@ grep -q "#222" "$TMP/dout" || fail "the failure did not name #222: $(cat "$TMP/d
 grep -q "#333" "$TMP/dout" || fail "the failure did not name #333, whose section is whitespace: $(cat "$TMP/dout")"
 grep -q "Needs the owner" "$TMP/dout" || fail "the failure did not name the missing heading"
 grep -q "#111" "$TMP/dout" && fail "reported #111, which says what needs the owner"
+[ "$(grep -c '^error: ' "$TMP/dout")" -eq 2 ] \
+    || fail "expected exactly two errors (#222, #333), got: $(cat "$TMP/dout")"
 pass "reports a needs:owner issue that does not say what needs the owner"
 
 echo "All check-issue-format tests passed."

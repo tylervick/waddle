@@ -48,8 +48,8 @@ pull request.
 — "no test may read a constant another test's subject also reads" — would fire
 on most of `ShelfHeroLayoutTests` and forbid the shared-constant style the whole
 layout suite is built on. What went wrong was a claim in an issue body, and
-`Scripts/check-issue-format.sh` (which might otherwise host such a check) is
-itself on the never-modify list.
+`Scripts/check-issue-format.sh` (which might otherwise host such a check) was
+at the time on the loop's never-modify list, a rule retired with the loop.
 
 **Provenance:** agent loop run 58, issue #199, 2026-08-21.
 
