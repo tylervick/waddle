@@ -25,9 +25,10 @@
 #     so one Xcode cannot be assumed to hold all three simulators. Where 27.1
 #     is not installed (or its license not accepted), run the leg on CI:
 #     .github/workflows/capture-duo-screenshots.yml.
-#   * XCUIDevice does not rotate a Duo, so the test's own forceLandscape() is
-#     a no-op there. This script rotates the device from the host instead,
-#     with `devicectl device orientation set`, before the test starts.
+#   * XCUIDevice does not rotate a Duo. This script rotates the device from
+#     the host instead, with `devicectl device orientation set`: once before
+#     the test, and again whenever the test finds its interface is not
+#     landscape and asks (see the rotate-request loop in capture()).
 #   * A simulator boots closed and nothing Apple ships opens it from a script,
 #     so this leg photographs the OUTER display only. XCUIScreen always
 #     returns the outer display, which is exactly right for a closed device
@@ -145,6 +146,20 @@ ensure_duo() {
     fi
 }
 
+# Stops the rotate-on-request loop and leaves the Duo in portrait. Runs from
+# the EXIT trap as well, so a failed test run does not leave either behind.
+DUO_UDID=""; DUO_ROTATOR_PID=""
+duo_cleanup() {
+    if [ -n "$DUO_ROTATOR_PID" ]; then
+        kill "$DUO_ROTATOR_PID" 2>/dev/null || true
+        wait "$DUO_ROTATOR_PID" 2>/dev/null || true
+        DUO_ROTATOR_PID=""
+    fi
+    if [ -n "$DUO_UDID" ]; then
+        xcrun devicectl device orientation set --device "$DUO_UDID" portrait >/dev/null 2>&1 || true
+    fi
+}
+
 prepare() {  # $1 = iphone (default) | duo -- the simulator the build names
     local kind="${1:-iphone}" name
     require_kind "$kind"
@@ -233,12 +248,13 @@ capture() {  # $1 = iphone | ipad | duo
     xcrun simctl boot "$udid" 2>/dev/null || true
     xcrun simctl bootstatus "$udid"
     if [ "$kind" = duo ]; then
-        # XCUIDevice cannot rotate a Duo; devicectl can. Done before anything
-        # is launched, and again just before the test, since nothing here
-        # proves a launch leaves it alone. Put back to portrait on the way
-        # out: a simulator keeps its orientation, and the next suite to use
-        # this one would start sideways (issue #382).
-        trap 'xcrun devicectl device orientation set --device "'"$udid"'" portrait >/dev/null 2>&1 || true' EXIT
+        # XCUIDevice cannot rotate a Duo; devicectl can. Done here, before
+        # anything is launched, and again on request from the test (below).
+        # Put back to portrait on the way out: a simulator keeps its
+        # orientation, and the next suite to use this one would start
+        # sideways (issue #382).
+        DUO_UDID="$udid"
+        trap duo_cleanup EXIT
         xcrun devicectl device orientation set --device "$udid" "$DUO_ORIENTATION"
     fi
     # Marketing-clean status bar (Apple's own screenshot convention).
@@ -254,7 +270,30 @@ capture() {  # $1 = iphone | ipad | duo
     result="$RESULTS_ROOT/$slug.xcresult"
     rm -rf "$result"; mkdir -p "$RESULTS_ROOT"
     if [ "$kind" = duo ]; then
+        # A rotation made while no app is frontmost does not reliably reach
+        # the app that launches next: two CI runs of this leg with the same
+        # commands produced one landscape set and one portrait. So the test
+        # checks its own interface after each launch and, if it is not
+        # landscape, creates this file; the loop below then turns the device
+        # away and back while the app is on screen, which is the case
+        # docs/learnings/iphone-duo-simulator-traps.md measured as working.
+        ROTATE_REQUEST="$RESULTS_ROOT/rotate-request"
+        rm -f "$ROTATE_REQUEST"
+        export TEST_RUNNER_WADDLE_SCREENSHOT_ROTATE_REQUEST="$ROTATE_REQUEST"
         xcrun devicectl device orientation set --device "$udid" "$DUO_ORIENTATION"
+        (
+            while :; do
+                if [ -e "$ROTATE_REQUEST" ]; then
+                    echo "== rotating $name on request from the test" >&2
+                    xcrun devicectl device orientation set --device "$udid" portrait >&2 || true
+                    sleep 1
+                    xcrun devicectl device orientation set --device "$udid" "$DUO_ORIENTATION" >&2 || true
+                    rm -f "$ROTATE_REQUEST"
+                fi
+                sleep 1
+            done
+        ) &
+        DUO_ROTATOR_PID=$!
     fi
     # TEST_RUNNER_ is how xcodebuild hands a variable to the test process;
     # ScreenshotCaptureTests skips without WADDLE_SCREENSHOT_CAPTURE.
@@ -267,6 +306,7 @@ capture() {  # $1 = iphone | ipad | duo
         -resultBundlePath "$result" -quiet
 
     if [ "$kind" = duo ]; then
+        duo_cleanup
         export_shots "$result" "$OUT_ROOT/$slug" "$DUO_SIZES"
     else
         export_shots "$result" "$OUT_ROOT/$slug"

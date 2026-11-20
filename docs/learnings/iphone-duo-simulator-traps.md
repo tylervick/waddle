@@ -83,6 +83,38 @@ each pose.
    host (`xcrun simctl io <udid> screenshot`, which follows the active
    display), taken while the test holds the screen still.
 
+## Capturing store screenshots on the closed device
+
+Measured 2026-11-20 on the `xcode-27` CI image, while capturing the outer
+display for issue #409 (`Scripts/capture-screenshots.sh capture duo`).
+
+- **`devicectl device orientation set --device <udid> landscapeLeft` rotates
+  a closed Duo on a headless runner, but a rotation made while no app is
+  frontmost does not reliably reach the app launched next.** Two runs with
+  identical commands, both printing `New Device Orientation: landscapeLeft`:
+  in one the app came up landscape (678x466 pt), in the other portrait.
+  Nothing failed in the second; it produced six portrait shots that the
+  export turned a quarter turn, so a green run uploaded a sideways set at
+  exactly the right pixel size. `ScreenshotCaptureTests` now asserts the
+  interface is landscape, and asks the script (through a file) to turn the
+  device away and back while the app is on screen.
+- **`XCUIScreen.main.screenshot()` still hands back a portrait buffer**,
+  1398x2034 px, with the picture turned a quarter turn clockwise. It is the
+  same thing the capture script already corrects on a device that was
+  portrait when the shot was taken, so the same `sips --rotate 270` rights
+  it, to 2034x1398.
+- **The attachment carries an `eXIf` chunk before `sips` ever touches it.**
+  A viewer that honours it shows a different picture from one that does not,
+  which makes an eyeball check of a raw attachment worthless. Strip the chunk
+  first, then look; the export step does.
+- **The unlabelled back button is in sheets too**, not only on pushed pages.
+  Settings > Files on the closed Duo has `BackButton` in the status column
+  and no "Settings"-titled button in the Files navigation bar, and the
+  sheet's Done is in a toolbar rather than a navigation bar. `closeSettings`
+  falls back to the identifier.
+- An in-game shot fills the display. The partial render that kept two slots
+  of the 2026-09-23 re-capture on their iOS 26 shots did not appear here.
+
 ## What the engine did
 
 A session started on the open device survived close, reopen, rotate and
