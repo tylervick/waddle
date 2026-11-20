@@ -178,6 +178,16 @@ variant no-uuid -e '/^Delivery UUID:/d'
 refused no-uuid "UPLOAD SUCCEEDED with no Delivery UUID"
 pass "still refuses a success line that no Delivery UUID follows"
 
+# 9b. A Delivery UUID that is not a whole UUID (8-4-4-4-12 hex): a cut-off
+#     success block is not a confirmed delivery.
+variant short-uuid -e 's/^Delivery UUID: .*/Delivery UUID: 2b3803a9/'
+refused short-uuid "UPLOAD SUCCEEDED with a truncated Delivery UUID"
+variant odd-uuid -e 's/^Delivery UUID: .*/Delivery UUID: 2b3803a9-1144-4110-aa1f-a180096dd90/'
+refused odd-uuid "UPLOAD SUCCEEDED with a Delivery UUID one digit short"
+variant dashes-uuid -e 's/^Delivery UUID: .*/Delivery UUID: 2b3803a91144-4110-aa1f-a180-096dd901/'
+refused dashes-uuid "UPLOAD SUCCEEDED with a Delivery UUID grouped wrongly"
+pass "still refuses a Delivery UUID that is not a complete 8-4-4-4-12 UUID"
+
 # 10. An error that is not a 5xx from an App Store Connect call. A 4xx is an
 #     answer (401: the key is wrong; 409: the build is refused), not a hiccup.
 variant client-error -e '3s/status code 500; internal server error\./status code 401; unauthorized./'
@@ -228,5 +238,28 @@ grep -q "MAY be in" "$TMP/out" && grep -q "push that tag by hand" "$TMP/out" \
     && grep -q "docs/app-store/submission-checklist.md" "$TMP/out" \
     || fail "a refusal after UPLOAD SUCCEEDED did not give the tag repair; got: $(cat "$TMP/out")"
 pass "a refusal after UPLOAD SUCCEEDED says the build may be uploaded and how to tag it"
+
+# 16. The same guidance on the OTHER refusal path: altool exits non-zero
+#     after printing UPLOAD SUCCEEDED. The status reported is still altool's.
+set +e
+upload "$TMP/transient-then-delivered.txt" 3; rc=$?
+set -e
+[ "$rc" -eq 3 ] || fail "altool exit 3 was reported as exit $rc"
+grep -q "altool exited 3" "$TMP/out" || fail "non-zero altool exit not reported; got: $(cat "$TMP/out")"
+grep -q "MAY be in" "$TMP/out" && grep -q "push that tag by hand" "$TMP/out" \
+    || fail "a non-zero exit after UPLOAD SUCCEEDED did not give the tag repair; got: $(cat "$TMP/out")"
+pass "a non-zero altool exit after UPLOAD SUCCEEDED also gives the tag repair"
+
+# 17. ...and neither path offers it when nothing says the upload succeeded.
+set +e
+upload "$TMP/closed-train.txt" 1; rc=$?
+set -e
+[ "$rc" -eq 1 ] || fail "altool exit 1 was reported as exit $rc"
+grep -q "MAY be in" "$TMP/out" \
+    && fail "a failed upload with no UPLOAD SUCCEEDED line was told its build may be uploaded"
+upload "$TMP/closed-train.txt" 0 && fail "the closed-train rejection passed"
+grep -q "MAY be in" "$TMP/out" \
+    && fail "the closed-train rejection was told its build may be uploaded"
+pass "no tag repair is offered when altool never printed UPLOAD SUCCEEDED"
 
 echo "All upload tests passed."

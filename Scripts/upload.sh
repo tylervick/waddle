@@ -32,6 +32,22 @@ if [ -n "${ASC_KEY_PATH:-}" ]; then
 fi
 
 echo "${ACTION#--} $IPA"
+
+# Said on every refusal of an upload whose transcript contains UPLOAD
+# SUCCEEDED, whichever check refused it. A refusal stops the job before
+# "Tag the shipped build", and that step is the only other place the repair
+# is printed (issue 390).
+warn_possible_delivery() {
+    [ "$ACTION" = "--upload-app" ] || return 0
+    grep -q 'UPLOAD SUCCEEDED' <<<"$OUT" || return 0
+    echo "error: altool ALSO printed UPLOAD SUCCEEDED, so the build MAY be in" >&2
+    echo "       App Store Connect. If it is, this run stopped before it could" >&2
+    echo "       record the build-N tag: push that tag by hand at the commit" >&2
+    echo "       that shipped (docs/app-store/submission-checklist.md, \"A CI" >&2
+    echo "       upload whose tag failed to push\") BEFORE the next merge, or" >&2
+    echo "       that merge derives the same build number and is refused as" >&2
+    echo "       a duplicate." >&2
+}
 # Capture rather than stream: Xcode 26's altool has been observed printing an
 # ITMS error and STILL exiting 0, reporting "Successfully uploaded" for an
 # upload that did not happen. Trusting the exit code alone would make a
@@ -45,6 +61,7 @@ set -e
 printf '%s\n' "$OUT"
 if [ "$RC" -ne 0 ]; then
     echo "error: altool exited $RC" >&2
+    warn_possible_delivery
     exit "$RC"
 fi
 # Herestring rather than a pipe: `grep -q` can exit before its producer
@@ -83,13 +100,21 @@ if grep -qiE 'ITMS-|UPLOAD FAILED|VALIDATION FAILED|(^|[^[:alnum:]_/-])error:' <
     #     received status code 5xx`) -- a 4xx is an answer, not a hiccup;
     #   - after the last of them altool printed exactly one
     #     `UPLOAD SUCCEEDED with no errors`, and the very next line is a
-    #     `Delivery UUID:`.
+    #     `Delivery UUID:` carrying a whole UUID.
     # Anything else -- the issue 240 rejection, a 5xx with no success block,
     # an error after the success block, --validate (which has no delivery
     # to confirm) -- falls through to the refusal below, as before.
     DELIVERY=""
     if [ "$ACTION" = "--upload-app" ]; then
         DELIVERY="$(awk '
+            # 8-4-4-4-12 hex, checked by group length rather than with
+            # {n} intervals, which not every awk this runs under supports.
+            function whole_uuid(s,    g, n) {
+                if (s !~ /^Delivery UUID: [0-9A-Fa-f-]+$/) return 0
+                n = split(substr(s, 16), g, "-")
+                return n == 5 && length(g[1]) == 8 && length(g[2]) == 4 \
+                    && length(g[3]) == 4 && length(g[4]) == 4 && length(g[5]) == 12
+            }
             { line = tolower($0) }
             line ~ /itms-|upload failed|validation failed/ { bad = 1 }
             line ~ /(^|[^[:alnum:]_\/-])error:/ {
@@ -100,7 +125,7 @@ if grep -qiE 'ITMS-|UPLOAD FAILED|VALIDATION FAILED|(^|[^[:alnum:]_/-])error:' <
                 }
             }
             prev == "UPLOAD SUCCEEDED with no errors" {
-                if ($0 ~ /^Delivery UUID: [0-9A-Fa-f-]+$/) { uuid = $0 } else { bad = 1 }
+                if (whole_uuid($0)) { uuid = $0 } else { bad = 1 }
             }
             $0 == "UPLOAD SUCCEEDED with no errors" { succeeded++ }
             { prev = $0 }
@@ -121,14 +146,6 @@ if grep -qiE 'ITMS-|UPLOAD FAILED|VALIDATION FAILED|(^|[^[:alnum:]_/-])error:' <
     fi
     echo "error: altool reported an error but exited 0 (known Xcode 26 behaviour)." >&2
     echo "       treating this as a FAILED upload. Verify in App Store Connect." >&2
-    if [ "$ACTION" = "--upload-app" ] && grep -q 'UPLOAD SUCCEEDED' <<<"$OUT"; then
-        echo "error: altool ALSO printed UPLOAD SUCCEEDED, so the build MAY be in" >&2
-        echo "       App Store Connect. If it is, this run stopped before it could" >&2
-        echo "       record the build-N tag: push that tag by hand at the commit" >&2
-        echo "       that shipped (docs/app-store/submission-checklist.md, \"A CI" >&2
-        echo "       upload whose tag failed to push\") BEFORE the next merge, or" >&2
-        echo "       that merge derives the same build number and is refused as" >&2
-        echo "       a duplicate." >&2
-    fi
+    warn_possible_delivery
     exit 1
 fi
