@@ -539,6 +539,89 @@ applies: at the original capture the app was landscape-only and
 ignored; support for all orientations will soon be required" — which is
 what motivated fixing this properly.
 
+### iPhone Duo screenshots and the product-page badge (#361)
+
+**Read from Apple's public pages on 2026-11-20. App Store Connect itself has
+not been read; that is outstanding, and described last.** Waddle has no Duo
+screenshot set: the two device classes above are the only ones captured, and
+`Scripts/upload-screenshots.sh` uploads only `APP_IPHONE_67` and
+`APP_IPAD_PRO_3GEN_129`.
+
+**Apple documents an iPhone Duo screenshot set.**
+[Screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/)
+lists "iPhone Duo" as the first entry under iPhone, with four accepted sizes:
+
+| Display | Portrait | Landscape |
+|---------|----------|-----------|
+| Outer | 1398 × 2034 | 2034 × 1398 |
+| Inner | 2007 × 2853 | 2853 × 2007 |
+
+The page does not say whether a set needs both displays or either one, and
+gives no count beyond the general "up to 10 screenshots per device size".
+
+**It is not required today, and Apple says it will be from April 2027 for a
+build like ours.** The entry has no "Requirement" line. Its note reads:
+
+> Starting in April 2027, screenshots will be required for any app using the
+> iOS 27.1 SDK or later.
+
+The same page's "Required device sizes" section does not list the Duo. It
+names two: "At least one screenshot for iPhone with Dynamic Island (medium
+display)" and, for an iPad app, "At least one screenshot for iPad 13-inch
+display". Waddle is inside the note's condition: every workflow that builds
+it, `testflight.yml` included, pins `XCODE_VERSION: "27.1"`, so the store
+binary is built against the iOS 27.1 SDK. Apple gives a month and no day.
+
+**Apple documents a badge, and submitting Duo screenshots is what earns it.**
+Two Apple pages say so, in nearly the same sentence. The specifications page:
+
+> When you submit iPhone Duo screenshots in App Store Connect, your App Store
+> product page will display a badge to let people know your app is made for
+> iPhone Duo.
+
+[Three steps to make your app shine on iPhone Duo](https://developer.apple.com/iphone-duo/prepare/),
+under "Go further: Stand out on the App Store", ends the sentence "…your app
+is optimized for iPhone Duo" instead. No other condition is stated on either
+page: no review step, no capability and no Info.plist key. Neither page gives
+the badge's wording or shows it, so the "Made for iPhone Duo" label that
+third-party guides quote is not Apple's text as far as these pages go. The
+second page also mentions a "new preview tool in App Store Connect to see how
+your assets … look on iPhone Duo".
+
+**The App Store Connect API documents no Duo display type.**
+[`ScreenshotDisplayType`](https://developer.apple.com/documentation/appstoreconnectapi/screenshotdisplaytype)
+lists 33 values and none names the Duo. The iPhone ones are `APP_IPHONE_67`,
+`_65`, `_61`, `_58`, `_55`, `_47`, `_40` and `_35`. The page renders only with
+JavaScript; the values were read from
+[its JSON](https://developer.apple.com/tutorials/data/documentation/appstoreconnectapi/screenshotdisplaytype.json).
+So from the documentation alone a Duo set cannot be uploaded by
+`upload-screenshots.sh`: either the API accepts a type its reference does not
+list yet, or a Duo set is uploaded by hand. Only the read-back settles which.
+
+**Pages checked that say nothing about Duo screenshots or a badge:**
+[Creating Your Product Page](https://developer.apple.com/app-store/product-page/)
+and the
+[App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/)
+(neither contains the word "Duo"), the Tech Talk
+[Prepare your app for iPhone Duo](https://developer.apple.com/videos/play/tech-talks/111461),
+and the forum summary of the
+[iPhone Duo group lab](https://developer.apple.com/forums/thread/847644).
+[Get ready for iPhone Duo](https://developer.apple.com/iphone-duo/) only links
+to the specifications page.
+
+**Outstanding: the App Store Connect read-back (owner).** Nothing above was
+read from App Store Connect. Still to establish, from the media section of the
+next version (1.5) or from `GET /v1/appStoreVersionLocalizations/{id}/appScreenshotSets`:
+
+- whether the version offers an iPhone Duo screenshot slot, and whether it is
+  marked required now, ahead of April 2027;
+- the `screenshotDisplayType` values the API returns or accepts for it, given
+  that the reference lists none.
+
+Paste the display types it lists into #361. Until a Duo set is uploaded the
+listing earns no badge. The captures in the Duo gallery came from a Debug
+build and are not store screenshots.
+
 ## 13. Decisions log (filled at the user gate)
 
 | Decision | Choice | Date |
