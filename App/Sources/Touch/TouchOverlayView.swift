@@ -719,12 +719,10 @@ final class TouchOverlayView: UIView {
                            onPress: @escaping (Bool) -> Void) {
         // baseDiameter is the starting size only; layoutSubviews resizes it
         // per device via TouchOverlayLayout.
-        let button = OverlayButton(title: title, size: control.baseDiameter) { [weak self] down in
-            // A press on a button is a touch on the overlay as far as the
-            // control hints go; the button, not this view, gets its touches.
-            if down { self?.noteTouchDownForControlHints() }
-            onPress(down)
-        }
+        let button = OverlayButton(title: title, size: control.baseDiameter, onPress: onPress)
+        // A finger on a button is a touch on the overlay as far as the
+        // control hints go; the button, not this view, gets its touches.
+        button.onTouchDown = { [weak self] in self?.noteTouchDownForControlHints() }
         button.accessibilityIdentifier = control.rawValue
         buttons.append(button)
         addSubview(button)
@@ -1390,18 +1388,20 @@ final class TouchOverlayView: UIView {
 
     /// Any finger coming down, here or on a button: the hints go at once.
     private func noteTouchDownForControlHints() {
-        hintModel.touchDown(at: ProcessInfo.processInfo.systemUptime)
+        hintModel.touchDown()
         showControlHints()
     }
 
     /// From the policy timer. The hints may show while the selector could
     /// open and is not open already, which is the hotspot's own condition,
     /// and while no finger is down: `summonTouches` is every touch this view
-    /// is tracking, and a button knows whether it is held. With the setting
-    /// off the engine is not asked.
+    /// is tracking, and a button knows whether a finger is on it (which is
+    /// not whether it is pressed: opening the selector releases a held FIRE
+    /// while the finger stays where it was). With the setting off the engine
+    /// is not asked.
     private func pollControlHints() {
         let canOpen = hintModel.enabled && !weaponSelectorOpen && weaponGridSlots() != nil
-        let touching = !summonTouches.isEmpty || buttons.contains { $0.isPressed }
+        let touching = !summonTouches.isEmpty || buttons.contains { $0.isTouched }
         hintModel.tick(at: ProcessInfo.processInfo.systemUptime, canOpen: canOpen, touching: touching)
         showControlHints()
     }
@@ -1598,9 +1598,16 @@ final class OverlayButton: UIView {
     // replaced item must not release the new press.
     private var pendingRelease: (id: UUID, work: DispatchWorkItem)?
     /// A finger is on the button and its release has not been sent or
-    /// scheduled. Read by `forceRelease()`, and by the overlay's control
-    /// hints, which stay away while anything is held.
-    private(set) var isPressed = false
+    /// scheduled. Read only by `forceRelease()`.
+    private var isPressed = false
+    /// A finger is physically on the button, from its touch-down to its lift
+    /// or cancellation, whatever became of the press: swallowed under the
+    /// weapon selector, or let go early by `forceRelease()`. The overlay's
+    /// control hints read it; they stay away while anything is held.
+    private(set) var isTouched = false
+    /// Called for every finger that comes down on the button, a swallowed
+    /// one included, before anything else happens.
+    var onTouchDown: (() -> Void)?
     /// `forceRelease()` already sent the up for the finger still on the
     /// button, so that finger's lift must send nothing.
     private var releaseAlreadySent = false
@@ -1613,6 +1620,8 @@ final class OverlayButton: UIView {
         // so it is swallowed whole: nothing is sent now, the pressed and
         // pending bookkeeping is untouched (nothing is down, nothing owed),
         // and its lift is marked to send nothing either.
+        isTouched = true
+        onTouchDown?()
         guard isUserInteractionEnabled else {
             releaseAlreadySent = true
             return
@@ -1627,10 +1636,12 @@ final class OverlayButton: UIView {
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        isTouched = false
         endPress()
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        isTouched = false
         endPress()
     }
 

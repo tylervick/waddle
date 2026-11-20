@@ -39,24 +39,27 @@ final class ControlHintModelTests: XCTestCase {
         m.tick(at: 104, canOpen: true, touching: false)
         XCTAssertEqual(m.hints, weaponsOnly)
 
-        m.touchDown(at: 105)
+        m.touchDown()
         XCTAssertEqual(m.hints, .hidden, "hidden by the touch-down itself, before any tick")
-        // A tap: the finger is already up again at the next tick.
+        // A tap: the finger is already up again at the next tick, which is
+        // where the new count starts.
         m.tick(at: 105.25, canOpen: true, touching: false)
         XCTAssertEqual(m.hints, .hidden)
-        m.tick(at: 108.75, canOpen: true, touching: false)
-        XCTAssertEqual(m.hints, .hidden, "four seconds from the touch-down, not from the first tick")
         m.tick(at: 109, canOpen: true, touching: false)
+        XCTAssertEqual(m.hints, .hidden, "four seconds from the first idle tick, not from the old count")
+        m.tick(at: 109.25, canOpen: true, touching: false)
         XCTAssertEqual(m.hints, weaponsOnly)
     }
 
     func testATouchDownBeforeItShowsRestartsTheCount() {
         var m = model()
         m.tick(at: 100, canOpen: true, touching: false)
-        m.touchDown(at: 103)
+        m.touchDown()
         m.tick(at: 104, canOpen: true, touching: false)
         XCTAssertEqual(m.hints, .hidden)
-        m.tick(at: 107, canOpen: true, touching: false)
+        m.tick(at: 107.75, canOpen: true, touching: false)
+        XCTAssertEqual(m.hints, .hidden)
+        m.tick(at: 108, canOpen: true, touching: false)
         XCTAssertEqual(m.hints, weaponsOnly)
     }
 
@@ -64,15 +67,17 @@ final class ControlHintModelTests: XCTestCase {
     /// been down: the count starts when it lifts.
     func testNeverVisibleWhileAFingerIsDown() {
         var m = model()
-        m.touchDown(at: 100)
+        m.touchDown()
         for t in stride(from: 100.25, through: 120, by: 0.25) {
             m.tick(at: t, canOpen: true, touching: true)
             XCTAssertEqual(m.hints, .hidden, "at \(t)")
         }
+        // The finger lifted somewhere between 120 and 120.25. Counting from
+        // the last held tick would show the hint a quarter-second early.
         m.tick(at: 120.25, canOpen: true, touching: false)
-        m.tick(at: 123.75, canOpen: true, touching: false)
-        XCTAssertEqual(m.hints, .hidden)
         m.tick(at: 124, canOpen: true, touching: false)
+        XCTAssertEqual(m.hints, .hidden, "four whole idle seconds, counted from the first idle tick")
+        m.tick(at: 124.25, canOpen: true, touching: false)
         XCTAssertEqual(m.hints, weaponsOnly)
     }
 
@@ -96,9 +101,9 @@ final class ControlHintModelTests: XCTestCase {
         m.tick(at: 110, canOpen: false, touching: false)
         m.tick(at: 110.25, canOpen: true, touching: false)
         XCTAssertEqual(m.hints, .hidden, "the idle time under the menu does not count")
-        m.tick(at: 113.75, canOpen: true, touching: false)
-        XCTAssertEqual(m.hints, .hidden)
         m.tick(at: 114, canOpen: true, touching: false)
+        XCTAssertEqual(m.hints, .hidden, "nor does the part-tick before it closed")
+        m.tick(at: 114.25, canOpen: true, touching: false)
         XCTAssertEqual(m.hints, weaponsOnly)
     }
 
@@ -118,7 +123,7 @@ final class ControlHintModelTests: XCTestCase {
         XCTAssertEqual(m.hints, .hidden)
         m.tick(at: 104, canOpen: true, touching: false)
         XCTAssertEqual(m.hints, all)
-        m.touchDown(at: 105)
+        m.touchDown()
         XCTAssertEqual(m.hints, .hidden, "Move and Aim leave with Weapons")
     }
 

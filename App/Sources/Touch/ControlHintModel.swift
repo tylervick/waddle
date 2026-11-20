@@ -38,10 +38,12 @@ enum ControlHintsSetting {
 /// a simulator session. `TouchOverlayView` feeds it and shows what it says.
 ///
 /// The count runs only while the selector could open and nothing is held.
-/// A touch-down restarts it, and so does every tick on which a finger is
+/// A touch-down clears it, and so does every tick on which a finger is
 /// still down or the selector cannot open (a menu, a prompt, the automap,
-/// attract mode, the soft keyboard, the selector itself): the hint follows
-/// four idle seconds, not four seconds since something else ended.
+/// attract mode, the soft keyboard, the selector itself). It starts again
+/// at the first tick that finds the overlay idle, so the hint follows four
+/// whole idle seconds: never fewer because a finger lifted, or a menu
+/// closed, part-way between two ticks.
 struct ControlHintModel: Equatable {
     /// Seconds without a touch before the hints appear. A default to tune on
     /// a device, like the copy (issue #392's provenance).
@@ -59,7 +61,8 @@ struct ControlHintModel: Equatable {
     let enabled: Bool
     let scheme: TouchControlScheme
     private(set) var hints = Hints.hidden
-    /// When the current idle stretch began; nil before the first tick.
+    /// The first tick of the current idle stretch; nil when the last thing
+    /// seen was a touch-down, a held finger or a selector that cannot open.
     private var idleSince: TimeInterval?
 
     init(enabled: Bool, scheme: TouchControlScheme) {
@@ -68,9 +71,9 @@ struct ControlHintModel: Equatable {
     }
 
     /// A finger came down anywhere on the overlay, a button included: the
-    /// hints go at once and the count starts again.
-    mutating func touchDown(at now: TimeInterval) {
-        idleSince = now
+    /// hints go at once, and the count starts again at the next idle tick.
+    mutating func touchDown() {
+        idleSince = nil
         hints = .hidden
     }
 
@@ -78,7 +81,7 @@ struct ControlHintModel: Equatable {
     /// open right now; `touching` is whether any finger is still down.
     mutating func tick(at now: TimeInterval, canOpen: Bool, touching: Bool) {
         guard enabled, canOpen, !touching else {
-            idleSince = now
+            idleSince = nil
             hints = .hidden
             return
         }
