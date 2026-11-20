@@ -22,6 +22,9 @@ DEFERRED='2026-11-20 01:45:12.069 E  PosterBoard[1:2] [com.apple.PosterBoard:Dat
 #   uptime        host uptime in seconds (the stub date says "now" is 2000000000)
 #   stream.<n>    lines the log stream delivers during the n-th poll sleep
 #   stream.dies   if present, the log stream exits at once with a failure
+#   stream.dies.once  the same, for the first stream only
+#   state.<n>     what the n-th `simctl list devices` says the device's state
+#                 is (default Booted)
 #   backfill      what the one `log show` from boot prints; the single word
 #                 FAIL makes that query fail
 #   boot.status   exit status of `simctl bootstatus` (default 0)
@@ -33,7 +36,16 @@ make_fixture() { # dest uptime
 #!/bin/bash
 F="$(cd "$(dirname "$0")/.." && pwd)"
 echo "xcrun $*" >> "$F/calls"
-if [ "$1 $2" = "simctl list" ]; then
+if [ "$*" = "simctl list devices" ]; then
+    n=$(( $(cat "$F/statecalls" 2>/dev/null || echo 0) + 1 ))
+    echo "$n" > "$F/statecalls"
+    state=Booted
+    if [ -f "$F/state.$n" ]; then state="$(cat "$F/state.$n")"; fi
+    echo "-- iOS 27.0 --"
+    echo "    iPhone 18 Pro (AAAA1111-2222-3333-4444-555566667777) ($state)"
+    exit 0
+fi
+if [ "$*" = "simctl list devices available" ]; then
 cat <<'LIST'
 == Devices ==
 -- iOS 26.3 --
@@ -52,6 +64,7 @@ if [ "$1 $2" = "simctl bootstatus" ] && [ "$4" = "-b" ]; then
 fi
 if [ "$1 $2 $4 $5" = "simctl spawn log stream" ]; then
     if [ -f "$F/stream.dies" ]; then echo "log: stream failed" >&2; exit 1; fi
+    if [ -f "$F/stream.dies.once" ]; then rm "$F/stream.dies.once"; echo "log: stream failed" >&2; exit 1; fi
     exec /bin/sleep 20
 fi
 if [ "$1 $2 $4 $5" = "simctl spawn log show" ]; then
@@ -160,6 +173,20 @@ out="$(prepare "$TMP/e" "iPhone 18 Pro" 27.0)" || fail "dead log readers must no
 echo "$out" | grep -q "reason=timeout" || fail "no timeout warning; got: $out"
 echo "$out" | grep -q "log stream exited, log show from boot failed" || fail "did not say the readers died; got: $out"
 pass "says so when the silence is the log readers' and not the simulator's"
+
+# 5a. The device shut down under the wait (run 44786994189: bootstatus said
+#     booted, and minutes later simctl said "device is not booted"). The wait
+#     must notice, boot it again and go on reading, or xcodebuild boots it
+#     itself and the renders land on the first test after all.
+make_fixture "$TMP/e1" 700
+: > "$TMP/e1/stream.dies.once"
+echo Shutdown > "$TMP/e1/state.1"
+printf '%s\n%s\n' "$IMMEDIATE" "$DONE" > "$TMP/e1/stream.1"
+out="$(prepare "$TMP/e1" "iPhone 18 Pro" 27.0)" || fail "exited non-zero: $out"
+echo "$out" | grep -q "the simulator is 'Shutdown', not Booted" || fail "did not notice the shut-down device; got: $out"
+[ "$(grep -c '^xcrun simctl bootstatus' "$TMP/e1/calls")" = 2 ] || fail "expected a second boot; calls: $(cat "$TMP/e1/calls")"
+echo "$out" | grep -q "WADDLE_SIMULATOR_SETTLED.*booted again 1 time(s)" || fail "did not settle after the second boot, or did not say it booted again; got: $out"
+pass "boots a device that shut down under the wait, and says so"
 
 # 5b. A line written BEFORE the stream attached reaches the wait through the
 #     one `log show` from boot. Without that reader a gallery that arrives

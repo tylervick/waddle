@@ -15,7 +15,8 @@ pass() { echo "ok - $1"; }
 # A fixture directory steers the stubs:
 #   poster.txt, launches.txt   what `log show` prints for each predicate
 #   session.log                the session log `xcresulttool export` produces
-#   collect.status             exit status of `log collect` (default 0)
+#   collect.status             exit status of every `log collect` (default 0)
+#   collect.fails.once         the first `log collect` fails as on a shut-down device
 make_fixture() { # dest
     mkdir -p "$1/bin" "$1/bundle.xcresult"
     cat > "$1/bin/xcrun" <<'STUB'
@@ -23,9 +24,11 @@ make_fixture() { # dest
 F="$(cd "$(dirname "$0")/.." && pwd)"
 if [ "$1 $2 $4 $5 $6" = "simctl spawn log collect --output" ]; then
     if [ -f "$F/collect.status" ]; then echo "log: collect failed"; exit "$(cat "$F/collect.status")"; fi
+    if [ -f "$F/collect.fails.once" ]; then rm "$F/collect.fails.once"; echo "Process spawn via launchd failed because device is not booted."; exit 149; fi
     mkdir -p "$7"
     exit 0
 fi
+if [ "$1 $2 $4" = "simctl bootstatus -b" ]; then echo "booted $3" >> "$F/boots"; exit 0; fi
 if [ "$1 $2 $3 $4" = "xcresulttool export diagnostics --path" ] && [ "$6" = "--output-path" ]; then
     if [ ! -f "$F/session.log" ]; then echo "no diagnostics"; exit 1; fi
     mkdir -p "$7/0_Test/WaddleUITests"
@@ -140,5 +143,17 @@ if report "$TMP/e" >"$TMP/out5" 2>&1; then fail "reported on a log it could not 
 grep -q "could not collect the simulator log" "$TMP/out5" || fail "wrong message: $(cat "$TMP/out5")"
 if grep -q "no launch lagged" "$TMP/out5"; then fail "printed a verdict without a log"; fi
 pass "fails, with simctl's words, when the log cannot be collected"
+
+# 6. The device was shut down when the run ended (xcodebuild does that to a
+#    device it booted itself; run 44786994189 lost its log this way). The log
+#    store is on disk: boot once more, collect, and report as usual.
+make_fixture "$TMP/f"
+: > "$TMP/f/collect.fails.once"
+{ tracked 2026-11-20 02:01:00.000 100; update 2026-11-20 02:01:00.100 100; } > "$TMP/f/launches.txt"
+out="$(report "$TMP/f")" || fail "gave up on a shut-down device: $out"
+echo "$out" | grep -q "booting it to read its log" || fail "did not say it booted the device; got: $out"
+grep -q "^booted UDID-1$" "$TMP/f/boots" || fail "did not boot the device"
+echo "$out" | grep -q "launches tracked: 1  with an update: 1" || fail "no report after the second collect; got: $out"
+pass "boots a shut-down device to read its log"
 
 echo "All ui-test-launch-report tests passed."

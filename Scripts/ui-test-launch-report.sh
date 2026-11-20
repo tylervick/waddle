@@ -45,10 +45,27 @@ ARCHIVE="$OUT/simulator.logarchive"
 rm -rf "$ARCHIVE"
 
 # `log` here is /usr/bin/log; bash has no builtin of that name (zsh does).
-if ! xcrun simctl spawn "$UDID" log collect --output "$ARCHIVE" >"$OUT/log-collect.txt" 2>&1; then
-    echo "::warning::could not collect the simulator log from $UDID:"
+# CoreSimulator's own log is the only record of a device being shut down or
+# failing to boot, and it is small.
+if [ -f "$HOME/Library/Logs/CoreSimulator/CoreSimulator.log" ]; then
+    cp "$HOME/Library/Logs/CoreSimulator/CoreSimulator.log" "$OUT/CoreSimulator.log"
+fi
+
+collect() { xcrun simctl spawn "$UDID" log collect --output "$ARCHIVE" >"$OUT/log-collect.txt" 2>&1; }
+if ! collect; then
+    # `log collect` runs inside the simulator, so it needs the device booted,
+    # and xcodebuild shuts down a device it had to boot itself (run
+    # 44786994189). The log store is on disk and survives that: boot the
+    # device once more only to read it.
+    echo "could not collect the simulator log from $UDID on the first try:"
     cat "$OUT/log-collect.txt"
-    exit 1
+    echo "booting it to read its log"
+    rm -rf "$ARCHIVE"
+    if ! xcrun simctl bootstatus "$UDID" -b >"$OUT/bootstatus.txt" 2>&1 || ! collect; then
+        echo "::warning::could not collect the simulator log from $UDID:"
+        cat "$OUT/log-collect.txt"
+        exit 1
+    fi
 fi
 
 show() { # predicate -> the matching lines, compact, header and footer dropped

@@ -122,11 +122,24 @@ fi
 WORK="${SIMULATOR_READY_WORK_DIR:-$(mktemp -d)}"
 mkdir -p "$WORK"
 log_start="$(date '+%Y-%m-%d %H:%M:%S')"
-if ! xcrun simctl bootstatus "$UDID" -b > "$WORK/bootstatus.txt" 2>&1; then
-    cat "$WORK/bootstatus.txt"
-    echo "::error::simulator $UDID did not boot"
-    exit 1
-fi
+boot_device() {
+    if ! xcrun simctl bootstatus "$UDID" -b > "$WORK/bootstatus.txt" 2>&1; then
+        cat "$WORK/bootstatus.txt"
+        echo "::error::simulator $UDID did not boot"
+        exit 1
+    fi
+}
+# Booted / Shutdown / ..., or "unknown" when simctl cannot say.
+device_state() {
+    local listing state
+    if listing="$(xcrun simctl list devices 2>/dev/null)"; then
+        state="$(printf '%s\n' "$listing" | grep -F "($UDID)" | head -1 | sed -E 's/.*\(([A-Za-z ]+)\)[[:space:]]*$/\1/')"
+        echo "${state:-unknown}"
+    else
+        echo unknown
+    fi
+}
+boot_device
 say "boot finished"
 booted_at="$(date +%s)"
 
@@ -135,29 +148,60 @@ booted_at="$(date +%s)"
 # and sees every line from now on, but not one written before it attached. A
 # `log show` from the boot sees those, but on a runner in the middle of a first
 # boot one query took four minutes (run 44771876139, load average 510), so it
-# runs once, in the background, and is never waited on. The stream starts
-# first, so between them no line is missed.
+# runs in the background and is never waited on. The stream starts first, so
+# between them no line is missed.
 PREDICATE='process == "PosterBoard" AND (eventMessage CONTAINS "requested snapshot prewarm" OR eventMessage CONTAINS "Calling prewarmSnapshotsForRequests" OR eventMessage CONTAINS "Successfully prewarmed gallery snapshots")'
 STREAM="$WORK/stream.txt"
 BACKFILL="$WORK/backfill.txt"
 : > "$STREAM"
 : > "$BACKFILL"
-rm -f "$WORK/backfill.status"
-xcrun simctl spawn "$UDID" log stream --style compact --predicate "$PREDICATE" >> "$STREAM" 2>/dev/null &
-stream_pid=$!
-(
-    if xcrun simctl spawn "$UDID" log show --start "$log_start" --style compact --predicate "$PREDICATE" > "$BACKFILL.tmp" 2>/dev/null; then
-        mv "$BACKFILL.tmp" "$BACKFILL"
-        echo ok > "$WORK/backfill.status"
-    else
-        echo failed > "$WORK/backfill.status"
-    fi
-) &
-backfill_pid=$!
+stream_pid=""
+backfill_pid=""
+start_readers() {
+    rm -f "$WORK/backfill.status"
+    xcrun simctl spawn "$UDID" log stream --style compact --predicate "$PREDICATE" >> "$STREAM" 2>/dev/null &
+    stream_pid=$!
+    (
+        if xcrun simctl spawn "$UDID" log show --start "$log_start" --style compact --predicate "$PREDICATE" > "$BACKFILL.tmp" 2>/dev/null; then
+            mv "$BACKFILL.tmp" "$BACKFILL"
+            echo ok > "$WORK/backfill.status"
+        else
+            echo failed > "$WORK/backfill.status"
+        fi
+    ) &
+    backfill_pid=$!
+}
 cleanup() {
-    kill "$stream_pid" "$backfill_pid" 2>/dev/null || true
+    kill $stream_pid $backfill_pid 2>/dev/null || true
 }
 trap cleanup EXIT
+start_readers
+
+# A stream that has exited is the first sign the device is no longer there to
+# be read. In run 44786994189 it had shut down within the wait although
+# bootstatus had reported it booted; both readers died, the wait ran out blind,
+# and xcodebuild booted the device again itself, straight into the first test.
+# So: when the stream is gone, ask simctl what state the device is in, boot it
+# again if it is not Booted, and attach the readers again. Bounded, so a device
+# that will not stay up ends as NOT_SETTLED and not as a loop.
+reboots=0
+restarts=0
+revive_readers() {
+    local state
+    if kill -0 "$stream_pid" 2>/dev/null; then return 0; fi
+    state="$(device_state)"
+    if [ "$state" != "Booted" ] && [ "$reboots" -lt 2 ]; then
+        reboots=$(( reboots + 1 ))
+        say "the simulator is '$state', not Booted, $(( $(date +%s) - booted_at ))s after it finished booting; booting it again"
+        boot_device
+        say "boot finished again"
+    fi
+    if [ "$restarts" -lt 5 ]; then
+        restarts=$(( restarts + 1 ))
+        kill $backfill_pid 2>/dev/null || true
+        start_readers
+    fi
+}
 
 polls=$(( TIMEOUT / POLL ))
 if [ "$polls" -lt 1 ]; then polls=1; fi
@@ -167,6 +211,7 @@ announced=""
 i=0
 while [ "$i" -lt "$polls" ]; do
     i=$(( i + 1 ))
+    revive_readers
     lines="$(cat "$STREAM" "$BACKFILL")"
     case "$lines" in
         *"deferring to -prewarm"*)
@@ -195,7 +240,7 @@ waited=$(( $(date +%s) - booted_at ))
 if ! load="$(sysctl -n vm.loadavg 2>/dev/null)"; then load="unknown"; fi
 case "$outcome" in
     settled)
-        say "WADDLE_SIMULATOR_SETTLED gallery snapshots rendered ${waited}s after boot (waited ${wait_s}s for the boot window first; load $load)" ;;
+        say "WADDLE_SIMULATOR_SETTLED gallery snapshots rendered ${waited}s after boot (waited ${wait_s}s for the boot window first; booted again $reboots time(s); load $load)" ;;
     deferred)
         echo "::warning::WADDLE_SIMULATOR_NOT_SETTLED reason=deferred -- PosterBoard put the gallery renders off to its prewarm although the host was past the boot window; they will run during the tests (issue 396). Its line: $deferral" ;;
     *)
@@ -203,6 +248,6 @@ case "$outcome" in
         # simulator, so say which it was.
         if kill -0 "$stream_pid" 2>/dev/null; then stream_state="running"; else stream_state="exited"; fi
         if [ -f "$WORK/backfill.status" ]; then backfill_state="$(cat "$WORK/backfill.status")"; else backfill_state="unfinished"; fi
-        echo "::warning::WADDLE_SIMULATOR_NOT_SETTLED reason=timeout -- no gallery-render line in the simulator log ${waited}s after boot (log stream $stream_state, log show from boot $backfill_state). The tests run anyway; if a launch fails, read it as issues 386/396." ;;
+        echo "::warning::WADDLE_SIMULATOR_NOT_SETTLED reason=timeout -- no gallery-render line in the simulator log ${waited}s after boot (log stream $stream_state, log show from boot $backfill_state, simulator '$(device_state)', booted again $reboots time(s)). The tests run anyway; if a launch fails, read it as issues 386/396." ;;
 esac
 exit 0
