@@ -137,6 +137,57 @@ final class SessionLogCaptureStalledReaderTests: XCTestCase {
         if writer.hasReturned { reader.shutDown(closing: sink) }
     }
 
+    /// Issue #410: `end()` takes the tee's write end away from the captured
+    /// descriptor, but not from a duplicate of it made during the session.
+    /// Whatever is written to such a duplicate afterwards still reaches the
+    /// pump, and must not pile up in memory behind a reader that is not
+    /// reading.
+    func testWritesToADuplicateAfterTheSessionDoNotPileUpInMemory() throws {
+        let sink = try Sink(full: true)
+        // A grace period longer than the case: the reader has not been
+        // found stalled when the session ends, which is the state in which
+        // nothing used to be dropped at all.
+        let capture = SessionLogCapture(directory: tmp, targetFDs: [sink.writeEnd],
+                                        drainDeadline: 0.3, stallGrace: 30)
+        try capture.begin(name: "duplicate")
+        let duplicate = dup(sink.writeEnd)
+        XCTAssertGreaterThanOrEqual(duplicate, 0)
+        capture.end()
+
+        let payload = Self.pattern(count: 8 * 1024 * 1024)
+        let writer = PayloadWriter(fd: duplicate, payload: payload)
+        defer {
+            writer.finish(draining: sink)
+            // Only once the writer is done with it. This is EOF for the
+            // abandoned pump, which then lets its writer thread go.
+            if writer.hasReturned { Darwin.close(duplicate) }
+        }
+        XCTAssertTrue(writer.waitUntilReturned(timeout: 20),
+                      "the bound put a thread to sleep; it must drop, not block")
+        XCTAssertEqual(writer.written, payload.count)
+
+        // What the pass-through kept is what comes out once somebody reads,
+        // after the sink's own filler. The figures are spelled out here and
+        // not read from the capture, so that changing them there shows up.
+        let pipe = 65_536           // the sink's filler; also the queue's capacity
+        let remainder = 69_632      // the over-capacity allowance: a pipe and a 4 KiB chunk
+        let note = 128              // room for the "bytes not passed through" line
+        // The queue cannot have dropped before it was full and the whole
+        // allowance was spent.
+        let floor = pipe + (pipe + remainder)
+        // The most it can have kept: a full queue with the allowance spent,
+        // plus one batch of up to `pipe` the writer took before the queue
+        // filled. Then, once the reader un-stalls it, whatever the pump had
+        // not yet taken from the tee, which is another `remainder` at most.
+        let ceiling = pipe + (2 * pipe + remainder) + remainder + note
+        let reader = CollectingReader(sink: sink)
+        let arrived = reader.countOnceQuiet(for: 0.5, timeout: 20)
+        XCTAssertGreaterThanOrEqual(arrived, floor,
+            "the reader got less than a full queue; either it never read or the allowance was not granted")
+        XCTAssertLessThanOrEqual(arrived, ceiling,
+            "\(arrived) bytes were waiting for the reader, more than the queue's bound allows it to have held")
+    }
+
     /// A stall is not for good. Once the reader reads again the original
     /// gets what is written from then on, and is told that there is a gap.
     func testPassThroughResumesWhenTheReaderReadsAgain() throws {
@@ -320,6 +371,19 @@ private final class CollectingReader: @unchecked Sendable {
             Thread.sleep(forTimeInterval: 0.01)
         }
         if thread.isFinished { Darwin.close(sink.readEnd) }
+    }
+
+    /// How many bytes have arrived, once no more have for `quiet` seconds.
+    func countOnceQuiet(for quiet: TimeInterval, timeout: TimeInterval) -> Int {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        var last = collected.count
+        var lastChange = Date.now
+        while Date.now < deadline, Date.now.timeIntervalSince(lastChange) < quiet {
+            Thread.sleep(forTimeInterval: 0.02)
+            let count = collected.count
+            if count != last { (last, lastChange) = (count, Date.now) }
+        }
+        return last
     }
 
     func contains(_ needle: [UInt8]) -> Bool {
