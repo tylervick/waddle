@@ -539,6 +539,113 @@ applies: at the original capture the app was landscape-only and
 ignored; support for all orientations will soon be required" — which is
 what motivated fixing this properly.
 
+### iPhone Duo screenshots and the product-page badge (#361)
+
+**Read on 2026-11-20 from Apple's public pages and, read-only, from the App
+Store Connect API. The web UI's media section has not been looked at.** Waddle
+has no Duo
+screenshot set: the two device classes above are the only ones captured, and
+`Scripts/upload-screenshots.sh` uploads only `APP_IPHONE_67` and
+`APP_IPAD_PRO_3GEN_129`.
+
+**Apple documents an iPhone Duo screenshot set.**
+[Screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/)
+lists "iPhone Duo" as the first entry under iPhone, with four accepted sizes:
+
+| Display | Portrait | Landscape |
+|---------|----------|-----------|
+| Outer | 1398 × 2034 | 2034 × 1398 |
+| Inner | 2007 × 2853 | 2853 × 2007 |
+
+The page does not say whether a set needs both displays or either one, and
+gives no count beyond the general "up to 10 screenshots per device size".
+
+**It is not required today, and Apple says it will be from April 2027 for a
+build like ours.** The entry has no "Requirement" line. Its note reads:
+
+> Starting in April 2027, screenshots will be required for any app using the
+> iOS 27.1 SDK or later.
+
+The same page's "Required device sizes" section does not list the Duo. It
+names two: "At least one screenshot for iPhone with Dynamic Island (medium
+display)" and, for an iPad app, "At least one screenshot for iPad 13-inch
+display". Waddle is inside the note's condition: every workflow that builds
+it, `testflight.yml` included, pins `XCODE_VERSION: "27.1"`, so the store
+binary is built against the iOS 27.1 SDK. Apple gives a month and no day.
+
+**Apple documents a badge, and submitting Duo screenshots is what earns it.**
+Two Apple pages say so, in nearly the same sentence. The specifications page:
+
+> When you submit iPhone Duo screenshots in App Store Connect, your App Store
+> product page will display a badge to let people know your app is made for
+> iPhone Duo.
+
+[Three steps to make your app shine on iPhone Duo](https://developer.apple.com/iphone-duo/prepare/),
+under "Go further: Stand out on the App Store", ends the sentence "…your app
+is optimized for iPhone Duo" instead. No other condition is stated on either
+page: no review step, no capability and no Info.plist key. Neither page gives
+the badge's wording or shows it, so the "Made for iPhone Duo" label that
+third-party guides quote is not Apple's text as far as these pages go. The
+second page also mentions a "new preview tool in App Store Connect to see how
+your assets … look on iPhone Duo".
+
+**The App Store Connect API documents no Duo display type.**
+[`ScreenshotDisplayType`](https://developer.apple.com/documentation/appstoreconnectapi/screenshotdisplaytype)
+lists 33 values and none names the Duo. The iPhone ones are `APP_IPHONE_67`,
+`_65`, `_61`, `_58`, `_55`, `_47`, `_40` and `_35`. The page renders only with
+JavaScript; the values were read from
+[its JSON](https://developer.apple.com/tutorials/data/documentation/appstoreconnectapi/screenshotdisplaytype.json).
+The read-back below agrees, and shows where the Duo slot lives instead.
+
+**Pages checked that say nothing about Duo screenshots or a badge:**
+[Creating Your Product Page](https://developer.apple.com/app-store/product-page/)
+and the
+[App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/)
+(neither contains the word "Duo"), the Tech Talk
+[Prepare your app for iPhone Duo](https://developer.apple.com/videos/play/tech-talks/111461),
+and the forum summary of the
+[iPhone Duo group lab](https://developer.apple.com/forums/thread/847644).
+[Get ready for iPhone Duo](https://developer.apple.com/iphone-duo/) only links
+to the specifications page.
+
+**App Store Connect read-back, 2026-11-20 (API, GET requests only).** Version
+1.5 was `WAITING_FOR_REVIEW`, so it is the version read; it has one
+localization, en-US.
+
+- `GET /v1/appStoreVersionLocalizations/{id}/appScreenshotSets` returns two
+  sets, the same two as released 1.4: `APP_IPHONE_67` (six screenshots,
+  2868×1320) and `APP_IPAD_PRO_3GEN_129` (six, 2752×2064). There is no Duo set,
+  and this resource has no way to name one: `ScreenshotDisplayType` in Apple's
+  OpenAPI specification (version 4.6.1, file dated 2026-11-18) has the same 33
+  values as the reference page.
+- **The Duo slot is offered through the asset library API, not through
+  screenshot sets.** `GET /v1/appAssetLibraryRefData` lists a placement group
+  `IPHONE_DUO_PROFILE` (platform `IPHONE_APP_STORE`, display class
+  `IPHONE_DUO`, screen dimensions `2853x2007` and `2034x1398`), and four image
+  specs for the `APP_SCREENSHOT` placement type: 1398×2034, 2034×1398,
+  2007×2853 and 2853×2007, each an exact size. For the `APP_STORE_VERSIONS`
+  feature the `APP_SCREENSHOT` policy allows up to 10 in that group, as in
+  every other. An `IMESSAGE_IPHONE_DUO_PROFILE` exists too.
+- **Nothing marks it required, and a submission without it was accepted.** The
+  reference data carries a maximum per group and no minimum or required flag
+  for any group, so the API cannot say "required". The evidence is 1.5 itself:
+  built by a workflow pinned to Xcode 27.1, submitted with no Duo screenshot,
+  and accepted into `WAITING_FOR_REVIEW`. That matches the specifications page: not required
+  until April 2027. Whether the web UI shows a required marker on the slot was
+  not read.
+- Waddle's own library (`GET /v1/appAssetLibraries/{appId}/images`) holds 44
+  images, every one placed in `IPHONE_DYNAMIC_ISLAND_LARGE_PROFILE` or
+  `IPAD_13_PROFILE`. None is in `IPHONE_DUO_PROFILE`.
+
+**What this means for uploading.** `Scripts/upload-screenshots.sh` cannot
+upload a Duo set as written: it creates `appScreenshotSets`, which have no Duo
+type. A Duo set goes through `POST /v1/appAssetLibraryImages` and
+`POST /v1/appAssetLibraryPlacements` with the `IPHONE_DUO_PROFILE` group, or
+through the web UI. Neither write has been tried. Until a Duo set is uploaded
+the listing earns no badge, and from April 2027 a submission needs one. The
+captures in the Duo gallery came from a Debug build and are not store
+screenshots.
+
 ## 13. Decisions log (filled at the user gate)
 
 | Decision | Choice | Date |
