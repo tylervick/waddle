@@ -742,6 +742,11 @@ final class TouchControlsTests: XCTestCase {
         // Explicit start orientation: the suite shares a simulator, so don't
         // inherit whatever a previous test (or the screenshot script) left.
         XCUIDevice.shared.orientation = .portrait
+        // And don't leave one either (issue #382): a failed tap ends the test
+        // where it stands, so the rotations back below are not enough. When
+        // this failed in landscape, the simulator stayed there and both
+        // TouchLayoutEditorTests cases failed after it.
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
         let app = XCUIApplication()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "25"
         app.holdAutoquit()
