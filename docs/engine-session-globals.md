@@ -32,7 +32,7 @@ the issue's 402-variable count came from. `GlobalsDiffProbeTests` now takes
 TEST_RUNNER_WADDLE_GLOBALS_DIFF_AUTOQUIT=40 \
 TEST_RUNNER_WADDLE_GLOBALS_DIFF_GAMES="Freedoom Phase 2,Freedoom Phase 2" \
 xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -destination 'platform=iOS Simulator,name=iPhone 18 Pro' \
   -only-testing:WaddleUITests/GlobalsDiffProbeTests test
 Scripts/globals-diff.py --container <udid>
 ```
