@@ -181,6 +181,13 @@ EOF
         esac
         echo "$w $h" > "$WORK/duo-size-$slot"
     done
+    # Said here, before the version is looked at, so that a dry run against a
+    # version that cannot be edited still shows what it was asked to place.
+    echo "iPhone Duo set, in slot order:"
+    for slot in $SLOTS; do
+        read -r w h < "$WORK/duo-size-$slot"
+        echo "  $(device_dir duo)/$slot.png ${w}x${h} -> $DUO_PLACEMENT_TYPE in $DUO_GROUP"
+    done
 fi
 echo "ok - local files: $(( $(echo $DEVICES | wc -w) + DUO )) device set(s) x 6, sizes and orientation checked"
 
@@ -279,10 +286,6 @@ if [ "$DUO" = 1 ]; then
         || die "placement $(head -1 "$WORK/duo-foreign") was listed for version $VERSION but does not name its localization and $DUO_GROUP -- refusing to touch it"
     json "[p['id'] for p in d['data']]" < "$WORK/duo-old.json" > "$WORK/old-duo" || die "could not read the $DUO_GROUP placements"
     echo "ok - duo: asset library $LIBRARY_ID; localization $LOC_ID holds $(grep -c . "$WORK/old-duo" || true) placement(s) in $DUO_GROUP (limit $duo_limit)"
-    for slot in $SLOTS; do
-        read -r w h < "$WORK/duo-size-$slot"
-        echo "  $(device_dir duo)/$slot.png ${w}x${h} -> $DUO_PLACEMENT_TYPE in $DUO_GROUP"
-    done
 fi
 
 if [ "$APPLY" = 0 ]; then

@@ -531,6 +531,9 @@ for state in WAITING_FOR_REVIEW IN_REVIEW; do
     [ "$RC" != 0 ] || fail "placed Duo screenshots on a version in $state"
     [ "$(duo_mutations)" = 0 ] || fail "mutated a version in $state: $(cat "$TMP/w/calls.log")"
     echo "$OUT" | grep -q "cannot be edited" || fail "wrong refusal for $state: $OUT"
+    # The refusal still says what was asked for: the file list is local.
+    echo "$OUT" | grep -q "iphone-duo/05-ingame.png 2034x1398 -> APP_SCREENSHOT in IPHONE_DUO_PROFILE" \
+        || fail "a refused run did not list the Duo files: $OUT"
 done
 pass "Duo set refused on a version waiting for or in review"
 
