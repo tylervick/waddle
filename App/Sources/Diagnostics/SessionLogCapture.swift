@@ -5,13 +5,21 @@ import Foundation
 /// per-session log file, while passing every byte through to the original
 /// destination so Xcode's console keeps working. begin/end brackets one
 /// engine session.
+///
+/// The pass-through is best effort and the log is not: when whatever reads
+/// the original destination stops reading, the console loses bytes rather
+/// than the app's threads going to sleep in `write()` (issue #394).
 final class SessionLogCapture {
     /// One captured target: its original fd number, a dup of the original
-    /// destination for pass-through, and the thread pumping the pipe.
+    /// destination for pass-through, the thread pumping the pipe, and the
+    /// writer that owns every write to `saved`.
     private struct Capture {
         let target: Int32
         let saved: Int32
         let thread: Thread
+        let passThrough: PassThrough
+
+        var isFinished: Bool { thread.isFinished && passThrough.isFinished }
     }
 
     let directory: URL
@@ -19,6 +27,7 @@ final class SessionLogCapture {
     let maxFiles: Int
     private let targetFDs: [Int32]
     private let drainDeadline: TimeInterval
+    private let stallGrace: TimeInterval
 
     private var captures: [Capture] = []
     private let logLock = NSLock()
@@ -34,12 +43,14 @@ final class SessionLogCapture {
 
     init(directory: URL, maxFileBytes: Int = 1_000_000, maxFiles: Int = 3,
          targetFDs: [Int32] = [STDOUT_FILENO, STDERR_FILENO],
-         drainDeadline: TimeInterval = 2) {
+         drainDeadline: TimeInterval = 2,
+         stallGrace: TimeInterval = 2) {
         self.directory = directory
         self.maxFileBytes = maxFileBytes
         self.maxFiles = maxFiles
         self.targetFDs = targetFDs
         self.drainDeadline = drainDeadline
+        self.stallGrace = stallGrace
     }
 
     /// `session-*.log` in `directory`, sorted oldest-first by modification
@@ -114,12 +125,19 @@ final class SessionLogCapture {
             if originalSignals { _ = fcntl(saved, F_SETNOSIGPIPE, 0) }
             close(writeEnd) // target now IS the write end; drop our extra ref
 
+            let passThrough = PassThrough(to: saved, stallGrace: stallGrace,
+                                          name: "SessionLogCapture pass-through fd \(target)")
             let thread = Thread { [weak self] in
-                self?.pump(from: readEnd, passThroughTo: saved, epoch: epoch)
+                self?.pump(from: readEnd, passThrough: passThrough, epoch: epoch)
+                // Reached with or without `self`: the writer must always be
+                // told there is nothing more coming, or it never exits.
+                passThrough.finish()
+                close(readEnd)
             }
             thread.name = "SessionLogCapture fd \(target)"
             thread.start()
-            captures.append(Capture(target: target, saved: saved, thread: thread))
+            captures.append(Capture(target: target, saved: saved, thread: thread,
+                                    passThrough: passThrough))
         }
         active = true
     }
@@ -135,24 +153,25 @@ final class SessionLogCapture {
         for capture in captures {
             dup2(capture.saved, capture.target)
         }
-        // Wait for the pumps to drain -- bounded, never indefinite: EOF is
-        // already in flight, but a pathological blocked pass-through write
-        // must not hang session teardown on the main thread.
+        // Wait for the pumps and their writers to drain -- bounded, never
+        // indefinite: EOF is already in flight, but a pathological blocked
+        // pass-through write must not hang session teardown on the main
+        // thread.
         let deadline = Date.now.addingTimeInterval(drainDeadline)
-        while captures.contains(where: { !$0.thread.isFinished }),
+        while captures.contains(where: { !$0.isFinished }),
               Date.now < deadline {
             usleep(1_000)
         }
-        // Close `saved` only for threads that actually finished with it. A
-        // thread still running past the deadline may be mid `write(saved,
+        // Close `saved` only for writers that actually finished with it. A
+        // writer still running past the deadline may be mid `write(saved,
         // ...)`; closing the fd out from under that write would let a LATER
         // open() reuse the same fd number, and the straggler's write could
         // then land in whatever that number now points to (e.g. the very
         // next session's log). A leaked fd on this pathological path is
-        // bounded -- at most one per abandoned pump -- and harmless; a
+        // bounded -- at most one per abandoned writer -- and harmless; a
         // reissued fd number written to by a straggler is silent
         // corruption, which is strictly worse.
-        for capture in captures where capture.thread.isFinished {
+        for capture in captures where capture.passThrough.isFinished {
             close(capture.saved)
         }
         captures.removeAll()
@@ -167,21 +186,15 @@ final class SessionLogCapture {
         active = false
     }
 
-    private func pump(from readEnd: Int32, passThroughTo original: Int32, epoch: Int) {
+    private func pump(from readEnd: Int32, passThrough: PassThrough, epoch: Int) {
         var buffer = [UInt8](repeating: 0, count: 4096)
         while true {
             let n = read(readEnd, &buffer, buffer.count)
             guard n > 0 else { break }
             buffer.withUnsafeBytes { raw in
-                // Pass through first -- the console must never lose bytes
-                // even if the log write fails or the cap has been hit.
-                var offset = 0
-                while offset < n {
-                    let written = write(original, raw.baseAddress! + offset,
-                                        n - offset)
-                    if written <= 0 { break }
-                    offset += written
-                }
+                // The log first: it is a file, so this write returns, where
+                // handing the bytes to the pass-through may wait out
+                // `stallGrace`. Neither depends on the other succeeding.
                 logLock.lock()
                 // epoch == sessionEpoch is what stops a straggler abandoned
                 // by a timed-out end() from writing a prior session's bytes
@@ -192,8 +205,125 @@ final class SessionLogCapture {
                     if writtenToLog > 0 { logBytesWritten += writtenToLog }
                 }
                 logLock.unlock()
+                passThrough.offer(UnsafeRawBufferPointer(rebasing: raw[..<n]))
             }
         }
-        close(readEnd)
+    }
+}
+
+/// Owns every write to one capture's original destination, on a thread of
+/// its own, so that a destination nobody is reading can put only that thread
+/// to sleep.
+///
+/// The pump used to make these writes itself. Under XCUITest the original
+/// stderr is a pty that `xcodebuild` reads; when it stopped reading, the pump
+/// slept in `write()`, the tee filled behind it, and every thread that then
+/// logged slept too, the main thread among them (issue #394).
+///
+/// Bytes wait here in a bounded queue. A pump that finds the queue full
+/// waits up to `stallGrace` for room, which is what keeps a reader that is
+/// merely slow from losing anything. Past that the reader is taken to be
+/// stalled and bytes are dropped without waiting, until a write to the
+/// destination completes again.
+private final class PassThrough: @unchecked Sendable {
+    /// As much as a pipe holds: with the tee's own pipe in front of it, a
+    /// reader can fall about 128 KiB behind before anything waits.
+    private static let capacity = 65536
+
+    private let fd: Int32
+    private let stallGrace: TimeInterval
+    private let condition = NSCondition()
+    private var pending: [UInt8] = []
+    private var stalled = false
+    private var dropped = 0
+    private var finishing = false
+    private var thread: Thread!
+
+    init(to fd: Int32, stallGrace: TimeInterval, name: String) {
+        self.fd = fd
+        self.stallGrace = stallGrace
+        pending.reserveCapacity(Self.capacity)
+        thread = Thread { [self] in run() }
+        thread.name = name
+        thread.start()
+    }
+
+    /// True once the writer has made its last write to the descriptor.
+    var isFinished: Bool { thread.isFinished }
+
+    /// Queues `bytes` for the destination, or drops them if its reader has
+    /// stalled. Waits at most `stallGrace`, and not at all while stalled.
+    func offer(_ bytes: UnsafeRawBufferPointer) {
+        condition.lock()
+        defer { condition.unlock() }
+        if !stalled && pending.count + bytes.count > Self.capacity {
+            let deadline = Date.now.addingTimeInterval(stallGrace)
+            while pending.count + bytes.count > Self.capacity {
+                if !condition.wait(until: deadline) {
+                    stalled = pending.count + bytes.count > Self.capacity
+                    break
+                }
+            }
+        }
+        // While stalled everything is dropped, room or no room, so that what
+        // is missing is one run of bytes and the note below can stand
+        // exactly where it was.
+        if stalled {
+            dropped += bytes.count
+            return
+        }
+        pending.append(contentsOf: bytes)
+        condition.broadcast()
+    }
+
+    /// Nothing more will be offered: write what is queued, then exit.
+    func finish() {
+        condition.lock()
+        finishing = true
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    private func run() {
+        var batch: [UInt8] = []
+        batch.reserveCapacity(Self.capacity)
+        condition.lock()
+        while true {
+            while pending.isEmpty && !finishing { condition.wait() }
+            if pending.isEmpty { break }
+            swap(&batch, &pending)
+            condition.broadcast() // the queue has room again
+            condition.unlock()
+
+            let completed = writeAll(batch)
+            batch.removeAll(keepingCapacity: true)
+
+            condition.lock()
+            if completed && stalled {
+                // The reader is reading again. Say what it missed, in the
+                // place it missed it: after what was queued before the
+                // stall, before anything offered from here on.
+                pending.append(contentsOf:
+                    "\n[SessionLogCapture: \(dropped) bytes not passed through; the reader had stopped reading]\n".utf8)
+                dropped = 0
+                stalled = false
+            }
+        }
+        condition.unlock()
+    }
+
+    /// False if a write failed, in which case the rest of the batch is
+    /// dropped, as the pump always did with a chunk it could not write.
+    private func writeAll(_ bytes: [UInt8]) -> Bool {
+        bytes.withUnsafeBytes { raw in
+            var offset = 0
+            while offset < raw.count {
+                let written = write(fd, raw.baseAddress! + offset, raw.count - offset)
+                if written < 0 && errno == EINTR { continue }
+                if written <= 0 { return false }
+                offset += written
+            }
+            return true
+        }
     }
 }
