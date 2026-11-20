@@ -103,10 +103,16 @@ display for issue #409 (`Scripts/capture-screenshots.sh capture duo`).
   same thing the capture script already corrects on a device that was
   portrait when the shot was taken, so the same `sips --rotate 270` rights
   it, to 2034x1398.
-- **The attachment carries an `eXIf` chunk before `sips` ever touches it.**
-  A viewer that honours it shows a different picture from one that does not,
-  which makes an eyeball check of a raw attachment worthless. Strip the chunk
-  first, then look; the export step does.
+- **The attachment states its orientation twice, and `sips` keeps both.** An
+  `eXIf` chunk, and an XMP packet (`iTXt`, `tiff:Orientation`). This is true
+  of every device's XCUIScreen attachment, not only the Duo's; it was found
+  here. With only `eXIf` removed, `sips` still turned the file on every
+  conversion (a 2034x1398 PNG became a 1398x2034 BMP) and an image viewer
+  showed correct files sideways, so an eyeball check said the opposite of
+  the truth in both directions. The export now drops both chunks. To judge a
+  shot, strip every chunk but `IHDR`, `IDAT` and `IEND` from a copy first, or
+  read the pixels: the status bar's red digits are along the bottom edge of
+  an upright in-game shot.
 - **The unlabelled back button is in sheets too**, not only on pushed pages.
   Settings > Files on the closed Duo has `BackButton` in the status column
   and no "Settings"-titled button in the Files navigation bar, and the

@@ -357,20 +357,34 @@ def png_chunks(data):
 
 
 def strip_exif(path):
-    """Drop any eXIf chunk. `sips --rotate` rewrites the raster AND leaves an
-    EXIF Orientation tag (8, "rotate 90° CCW") behind, so the pixels are
-    upright but the metadata still asks for a rotation. Consumers that honour
-    EXIF apply it a second time -- App Store Connect does exactly that and
-    stores the shot sideways, while git, GitHub and Preview ignore the chunk
-    and look correct, which is how this survived the first capture in July.
-    Removing a chunk is lossless: IDAT and IHDR are untouched."""
+    """Drop every chunk that states an orientation: eXIf, and the XMP packet
+    (an iTXt chunk keyed XML:com.adobe.xmp) that carries the same tag as
+    tiff:Orientation.
+
+    `sips --rotate` rewrites the raster AND leaves an EXIF Orientation tag
+    (8, "rotate 90° CCW") behind, so the pixels are upright but the metadata
+    still asks for a rotation. Consumers that honour EXIF apply it a second
+    time -- App Store Connect does exactly that and stores the shot sideways,
+    while git, GitHub and Preview ignore the chunk and look correct, which is
+    how this survived the first capture in July.
+
+    The XMP copy was found on the iPhone Duo set (issue #409): with eXIf gone
+    and the XMP left, `sips` itself still turned the file a quarter turn on
+    every conversion, and so did the image viewer used to check the shots.
+    App Store Connect has stored files carrying it the right way up, but that
+    is one consumer's behaviour on one path, and the Duo set goes up by
+    another. Removing a chunk is lossless: IDAT and IHDR are untouched."""
     with open(path, "rb") as f:
         data = f.read()
-    if not any(kind == b"eXIf" for kind, _ in png_chunks(data)):
+
+    def states_orientation(kind, blob):
+        return kind == b"eXIf" or (kind == b"iTXt" and blob[8:].startswith(b"XML:com.adobe.xmp\0"))
+
+    if not any(states_orientation(kind, blob) for kind, blob in png_chunks(data)):
         return
     out = bytearray(data[:8])
     for kind, blob in png_chunks(data):
-        if kind != b"eXIf":
+        if not states_orientation(kind, blob):
             out += blob
     with open(path, "wb") as f:
         f.write(bytes(out))

@@ -651,10 +651,13 @@ and are not store screenshots.
 
 **State on 2026-11-20: six outer-display screenshots are committed in
 `docs/app-store/screenshots/iphone-duo/`; nothing has been written to App
-Store Connect.** Version 1.5 was `WAITING_FOR_REVIEW` when the work started and
-`IN_REVIEW` by the time the upload path was dry-run, and
-`Scripts/upload-screenshots.sh` refuses a version in either state. The upload,
-the read-back and the badge are still owed; so are the inner-display shots.
+Store Connect.** Version 1.5 was `WAITING_FOR_REVIEW` when the work started,
+`IN_REVIEW` when the upload path was first dry-run and
+`READY_FOR_DISTRIBUTION` by the end of the day, so at no point was there a
+version the set could be placed on: `Scripts/upload-screenshots.sh` refuses
+all three states. The upload, the read-back and the badge are still owed, on
+the next version that reaches `PREPARE_FOR_SUBMISSION`; so are the
+inner-display shots.
 
 **What the set is.** The same six slots as the other two sets, in the same
 order and under the same filenames, each 2034×1398: the **outer display, in
@@ -687,6 +690,36 @@ The workflow fetches the three map sets the shots show from `/idgames` for
 that job, checked against pinned SHA-256 sums; they are not cached or
 uploaded. Like the other two sets, the build is the Debug configuration with
 no debug HUD, label or counter switched on.
+
+The committed set is the artifact of run 44810299766 (2026-11-20, commit
+`8d99ff6`), with the XMP packet removed as the script now does (below). Every
+file was looked at with its metadata stripped. The in-game and automap shots
+fill the display: the partial render that kept slots 1 and 5 of the other two
+sets on their iOS 26 captures did not appear on the Duo. The in-game shot
+shows the weapon ring's "Weapons" hint over the status bar, which the older
+in-game shots predate. No status bar is drawn in landscape on the closed Duo,
+so the 9:41 override shows in none of them.
+
+Three things went wrong on the way, and each is now a check rather than a
+memory:
+
+- **The first run failed** at "Settings Done missing": on the closed Duo the
+  Files back button has no label and is not in the navigation bar.
+  `closeSettings` now falls back to the `BackButton` identifier.
+- **The second run passed and was wrong.** The same rotate commands left the
+  interface portrait; the six shots were upright portrait buffers, and the
+  export turned each a quarter turn as it would a landscape one. A green run
+  uploaded six sideways images at exactly 2034×1398. The test now asserts the
+  interface is landscape after every launch, on every device, and on the Duo
+  asks the script to rotate again while the app is frontmost.
+- **Removing `eXIf` was not removing the orientation.** XCUIScreen's PNG also
+  carries an XMP packet (an `iTXt` chunk) with `tiff:Orientation`, and after
+  `sips --rotate` that says 8 as well. `sips` honours it on every later
+  conversion, and so did the viewer used to check the shots, which is why
+  correct files looked sideways. The export now drops that chunk too. **The
+  committed 6.9" iPhone and 13" iPad files still carry it** (they were not
+  re-captured here); App Store Connect has stored them the right way up
+  through the screenshot-set path, as each upload's rendition check showed.
 
 **How it will be uploaded.** `Scripts/upload-screenshots.sh --device duo`, dry
 run by default; `--device all`, which the **App Store screenshots** workflow
