@@ -254,10 +254,11 @@ existing version. The dry run only says what it would create; with
 - [ ] **Category:** Games → Action (§7)
 - [ ] **Copyright:** `© 2026 Tyler Vick; engine GPL-2.0` (§10)
 - [ ] **Screenshots:** run the **App Store screenshots** workflow, which
-      replaces both sets (6.9" iPhone, 13" iPad, six each) with
-      `docs/app-store/screenshots/` in the slot order of §12. Dry run first —
-      it changes nothing and proves no target set is shared with the live
-      listing — then again with `apply`, from `main`:
+      replaces all three sets (6.9" iPhone, 13" iPad, iPhone Duo, six each)
+      with `docs/app-store/screenshots/` in the slot order of §12. Dry run
+      first — it changes nothing, proves no target set is shared with the
+      live listing, and lists the Duo files with the placement group they go
+      to — then again with `apply`, from `main`:
 
       ```sh
       gh workflow run app-store-screenshots.yml --ref main
@@ -268,6 +269,17 @@ existing version. The dry run only says what it would create; with
       10), verifies every upload landed landscape, and pins the slot order.
       Locally, `Scripts/upload-screenshots.sh [--apply]` does the same with
       `ASC_KEY_ID`/`ASC_ISSUER_ID`/`ASC_KEY_PATH` set.
+
+      The iPhone Duo set goes last and by a different road: asset-library
+      images placed in `IPHONE_DUO_PROFILE` on the version, not a screenshot
+      set (§12, "The Duo set"). **Until §12 records a first successful Duo
+      upload, those writes are untried**: a failure there leaves the two
+      required sets already replaced and the Duo group empty or part-filled,
+      which blocks nothing before April 2027. Re-run with
+      `Scripts/upload-screenshots.sh --device duo --apply` once the cause is
+      understood, and paste the read-back it prints into §12. Re-capturing
+      the Duo set is the **Capture iPhone Duo screenshots** workflow, not a
+      local run, unless the Mac has the iOS 27.1 runtime.
 
 ## 4. App Privacy + age rating + content rights
 

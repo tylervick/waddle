@@ -511,6 +511,9 @@ Device classes:
   2752×2064 landscape. (The pre-existing "iPad (A16)" simulator is
   11-inch class and cannot produce 13-inch-class images, so the script
   creates the 13-inch device on demand.)
+- **iPhone Duo (required from April 2027):** iPhone Duo simulator, closed —
+  2034×1398 landscape, the outer display. Captured on CI, not on a
+  developer's Mac; see "The Duo set" below.
 
 **iPadOS 26 windowing (fix landed in Plan 4 Task 7b; re-verified
 2026-07-30):** the owner decided at the gate to fix windowed-mode support
@@ -542,11 +545,10 @@ what motivated fixing this properly.
 ### iPhone Duo screenshots and the product-page badge (#361)
 
 **Read on 2026-11-20 from Apple's public pages and, read-only, from the App
-Store Connect API. The web UI's media section has not been looked at.** Waddle
-has no Duo
-screenshot set: the two device classes above are the only ones captured, and
-`Scripts/upload-screenshots.sh` uploads only `APP_IPHONE_67` and
-`APP_IPAD_PRO_3GEN_129`.
+Store Connect API. The web UI's media section has not been looked at.** On
+that date Waddle had no Duo screenshot set, captured or uploaded. A set has
+since been captured and an upload path written (#409, "The Duo set" at the end
+of this section); **the listing still has none.**
 
 **Apple documents an iPhone Duo screenshot set.**
 [Screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/)
@@ -637,14 +639,110 @@ localization, en-US.
   images, every one placed in `IPHONE_DYNAMIC_ISLAND_LARGE_PROFILE` or
   `IPAD_13_PROFILE`. None is in `IPHONE_DUO_PROFILE`.
 
-**What this means for uploading.** `Scripts/upload-screenshots.sh` cannot
-upload a Duo set as written: it creates `appScreenshotSets`, which have no Duo
-type. A Duo set goes through `POST /v1/appAssetLibraryImages` and
-`POST /v1/appAssetLibraryPlacements` with the `IPHONE_DUO_PROFILE` group, or
-through the web UI. Neither write has been tried. Until a Duo set is uploaded
-the listing earns no badge, and from April 2027 a submission needs one. The
-captures in the Duo gallery came from a Debug build and are not store
-screenshots.
+**What this means for uploading.** A Duo set cannot go into an
+`appScreenshotSet`, which has no Duo type. It goes through
+`POST /v1/appAssetLibraryImages` and `POST /v1/appAssetLibraryPlacements` with
+the `IPHONE_DUO_PROFILE` group, or through the web UI. Until a Duo set is
+uploaded the listing earns no badge, and from April 2027 a submission needs
+one. The captures in the Duo gallery (issue 357's sweep) carry the debug HUD
+and are not store screenshots.
+
+### The Duo set: captured, upload path built, not yet uploaded (#409)
+
+**State on 2026-11-20: six outer-display screenshots are committed in
+`docs/app-store/screenshots/iphone-duo/`; nothing has been written to App
+Store Connect.** Version 1.5 was `WAITING_FOR_REVIEW` when the work started and
+`IN_REVIEW` by the time the upload path was dry-run, and
+`Scripts/upload-screenshots.sh` refuses a version in either state. The upload,
+the read-back and the badge are still owed; so are the inner-display shots.
+
+**What the set is.** The same six slots as the other two sets, in the same
+order and under the same filenames, each 2034×1398: the **outer display, in
+landscape**.
+
+- *Outer display*, because it is the only one a script can reach. A simulator
+  boots closed and nothing Apple ships opens it
+  (`docs/learnings/iphone-duo-simulator-traps.md`). The inner display, open and
+  half-open, waits on Xcode 27.1 being usable on the worker Mac, where an
+  agent can drive Device Hub (owner's decision on issue 409, 2026-11-20).
+- *Landscape*, because that is how the game is played and how the other two
+  sets are shot. The app does run in portrait on the closed Duo; a portrait
+  shot of it would show a letterboxed game.
+
+**How it is captured.** `Scripts/capture-screenshots.sh capture duo`, which
+rotates the closed device from the host with `devicectl device orientation
+set` (XCUIDevice does not rotate a Duo), runs the same
+`ScreenshotCaptureTests`, and refuses any exported file that is not one of the
+four store sizes. It is not part of `all`: the Duo lives on the iOS 27.1
+runtime, which runs no other device. Where that runtime is missing, the
+**Capture iPhone Duo screenshots** workflow runs the leg on the `xcode-27`
+image and uploads the six files as an artifact:
+
+```sh
+gh workflow run capture-duo-screenshots.yml --ref <branch>
+gh run download <run-id> -n iphone-duo-screenshots -D docs/app-store/screenshots/iphone-duo
+```
+
+The workflow fetches the three map sets the shots show from `/idgames` for
+that job, checked against pinned SHA-256 sums; they are not cached or
+uploaded. Like the other two sets, the build is the Debug configuration with
+no debug HUD, label or counter switched on.
+
+**How it will be uploaded.** `Scripts/upload-screenshots.sh --device duo`, dry
+run by default; `--device all`, which the **App Store screenshots** workflow
+passes, now includes it and runs it last. Per file it creates an
+`appAssetLibraryImage` (category `APP_SCREENSHOTS_AND_PREVIEWS`) in the app's
+library, uploads the bytes through the returned `uploadOperations`, commits
+with `uploaded: true`, waits for the image to leave `AWAITING_UPLOAD` /
+`UPLOAD_COMPLETE`, checks the stored size and a rendition from `templateUrl`,
+and then creates an `appAssetLibraryPlacement` (`APP_SCREENSHOT`,
+`IPHONE_DUO_PROFILE`) on the version's en-US localization. It pins the order
+with `POST /v1/appAssetLibraryPlacementOrderingRequests` and prints the group
+as read back.
+
+**None of those writes has been sent to Apple.** The request bodies follow
+Apple's OpenAPI specification 4.6.1 and the test suite holds the script to
+them, but a schema is not an answer. Expect the first `--apply` to teach
+something, run it as `--device duo` on its own against an editable version,
+and write what Apple said here. Things the schema leaves open: whether an
+image must reach `COMPLETE` before it can be placed, whether the ordering
+request is needed at all, and what an image's `fileName` must be unique
+against (the script uploads `iphone-duo-<slot>.png`).
+
+**What the reads did establish** (2026-11-20, GET requests only, against
+version 1.5; the script's own dry-run path was run against the live API in a
+scratch copy with the version-state refusal removed, and it resolved the
+library, parsed the reference data and listed the group):
+
+- The app's asset library has the app's id. `GET /v1/apps/{id}/assetLibrary`
+  says so, and the script asks instead of assuming.
+- **A placement belongs to one version localization; an image can be shared
+  by several.** Images on 1.5 carry up to three placements, one
+  per version that used them. So replacing a version's Duo set deletes that
+  version's *placements* and never an image, which is the opposite of the
+  screenshot-set path, where the screenshots themselves are deleted.
+- `GET /v1/appStoreVersionLocalizations/{id}/placements` lists a version's
+  placements; `filter[placementGroup]`, `include=image` and
+  `sort=placementGroupPosition` all work. For 1.5 the Duo group is empty.
+- A placement's `state` came back `ACTIVE` or `INACTIVE`. Neither is in the
+  specification's `AppAssetLibraryPlacementState` enum, so the script reports
+  the state and fails only on `FAILED`.
+- `appAssetLibraryImages` has no `sourceFileChecksum`; the commit is
+  `uploaded: true` alone.
+
+**Is a set with only the outer display accepted? Not established; nothing
+read says it is refused.** Apple's three pages were read again on 2026-11-20
+and none says whether a Duo set must cover both displays, or whether
+orientations may be mixed. The specifications page gives the general rule
+only: at least one screenshot, at most ten, per device size. The reference
+data models the Duo as one group, `IPHONE_DUO_PROFILE`, with four
+interchangeable image specs, a maximum of 10 and no minimum, no per-spec
+count and no "required" flag. That is the same shape as
+`IPHONE_DYNAMIC_ISLAND_LARGE_PROFILE`, which lists six specs (three screen
+sizes, two orientations each); Waddle fills it with one spec, 2868×1320, and
+has shipped that way in five versions (1.0 to 1.4). So the API has no way to say "one of
+each display", and a group filled from a single spec is ordinary. Whether
+review or the badge asks for more is something only an upload will show.
 
 ## 13. Decisions log (filled at the user gate)
 

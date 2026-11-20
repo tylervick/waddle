@@ -316,7 +316,10 @@ final class ScreenshotCaptureTests: XCTestCase {
                       "Control Feel sheet never opened")
         shoot("04-control-feel")
         app.buttons["controlFeelDoneButton"].tap()
-        let settingsDone = app.navigationBars["Settings"].buttons["Done"]
+        // Not scoped to the navigation bar: on a closed iPhone Duo the system
+        // lays the sheet's buttons out in the status column, in a toolbar.
+        // Nothing else on screen is called Done once Control Feel has closed.
+        let settingsDone = app.buttons["Done"].firstMatch
         XCTAssertTrue(settingsDone.waitForExistence(timeout: 5),
                       "Settings sheet did not survive dismissing Control Feel")
         settingsDone.tap()
