@@ -128,6 +128,7 @@ if ! xcrun simctl bootstatus "$UDID" -b > "$WORK/bootstatus.txt" 2>&1; then
     exit 1
 fi
 say "boot finished"
+booted_at="$(date +%s)"
 
 # --- condition 2: the gallery snapshots have been rendered --------------------
 # Two readers, because neither is enough alone. A `log stream` costs nothing
@@ -187,12 +188,14 @@ while [ "$i" -lt "$polls" ]; do
     esac
     sleep "$POLL"
 done
-waited=$(( (i - 1) * POLL ))
+# By the clock, not by counting polls: on a runner this busy a look at the log
+# and its sleep took 15 s, not 10.
+waited=$(( $(date +%s) - booted_at ))
 
 if ! load="$(sysctl -n vm.loadavg 2>/dev/null)"; then load="unknown"; fi
 case "$outcome" in
     settled)
-        say "WADDLE_SIMULATOR_SETTLED gallery snapshots rendered about ${waited}s after boot (waited ${wait_s}s for the boot window first; load $load)" ;;
+        say "WADDLE_SIMULATOR_SETTLED gallery snapshots rendered ${waited}s after boot (waited ${wait_s}s for the boot window first; load $load)" ;;
     deferred)
         echo "::warning::WADDLE_SIMULATOR_NOT_SETTLED reason=deferred -- PosterBoard put the gallery renders off to its prewarm although the host was past the boot window; they will run during the tests (issue 396). Its line: $deferral" ;;
     *)
