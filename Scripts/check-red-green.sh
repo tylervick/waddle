@@ -24,9 +24,10 @@ TMPDIR_RG="$(mktemp -d)"
 # The default is SIMULATOR_DEVICE and SIMULATOR_OS from
 # .github/workflows/ci.yml, the device and runtime the xcode-27 image has.
 # Nothing passes RG_DESTINATION any more (the CI step that did left with the
-# unattended loop), so this default is the only destination a hand run gets:
-# move it together with those two pins and with the stubbed simulator list in
-# Scripts/test-check-red-green.sh.
+# unattended loop), so this default is the only destination a hand run gets.
+# Scripts/check-simulator-pins.sh refuses a tree where it differs from those
+# two pins; the stubbed simulator list in Scripts/test-check-red-green.sh
+# moves with it.
 RG_DESTINATION="${RG_DESTINATION:-platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0}"
 
 BASE_REF="${1:-origin/main}"
