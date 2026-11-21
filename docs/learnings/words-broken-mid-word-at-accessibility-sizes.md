@@ -24,22 +24,30 @@ so each of these has to be seen. What produced them, and what removed them:
   text its plain name as `accessibilityLabel`, or the invisible character is
   in what VoiceOver and XCUITest read.
 - **A word wider than any line the row has.** "Compatibility" is wider than
-  the panel's row at the largest size. `lineLimit` set to the number of
-  pieces, with `minimumScaleFactor`, shrinks the text only then: with a line
-  per piece a text runs out of lines only when a piece has been broken.
-  `WholeWordText` in `Theme.swift` is that. A `minimumScaleFactor` with no
-  line limit does nothing, because the text is never short of lines.
+  the panel's row at the largest size, and so is "Eviternity" beside a list's
+  delete and reorder controls. A SwiftUI `Text` has no "do not hyphenate",
+  so the only sure way to keep a word whole is never to hand it a line
+  narrower than the word. `WholeWordText` in `Theme.swift` picks the size
+  itself: it measures its widest piece with `UIFont` (text alone, which a
+  font does measure exactly) and offers `ViewThatFits` the same text at
+  1, 0.9 ... 0.5 of its size, each declaring that piece's width at that size
+  through `.frame(idealWidth:)`. The first that fits is drawn, and every
+  break the system then makes falls between pieces. Below half size it gives
+  up and wraps as plain text does, broken but never cut.
 
-  Count pieces, not words, and never let it cut. The first version counted
-  words, and a file's name is one unspaced word ("sunlust_final_v13"): it
-  got one line, so at the default size a long hyphenated name that used to
-  wrap shrank instead, and at the largest size a 17-character name shrank to
-  half and was then cut with an ellipsis (review of pull request 435). A
-  piece now also ends after a hyphen or an underscore and starts at a dot,
-  with a zero-width space between pieces. And where the widest piece does
-  not fit even at the smallest scale, `ViewThatFits` falls back to plain
-  wrapping: `.frame(idealWidth:)` on the shrinking text is how it is told
-  the width that version needs.
+  A piece is a word, or a part of one ending at a hyphen or an underscore or
+  starting at a dot, with a zero-width space between the parts: a file's
+  name is usually one unspaced token ("sunlust_final_v13").
+
+  **Do not do this with `lineLimit` and `minimumScaleFactor`.** Two versions
+  did: a line per piece, on the reasoning that the text only runs out of
+  lines when a piece has been broken, and shrinks then. It is true of one
+  piece and false of two. "Eviter-" / "nity II" is two lines for two pieces,
+  because the broken word's tail shares a line with the next word; the limit
+  is never reached and nothing shrinks (second review of pull request 435).
+  It also cut a long unspaced name with an ellipsis once it had shrunk as far
+  as it could. A render on macOS did not show either, because macOS does not
+  hyphenate where iOS does: check this kind of thing in the app.
 - **An icon or a control beside the text.** A `Label`'s icon in Settings, and
   the delete and reorder controls of an always-editing list on the game page,
   come out of the same width. Settings drops the icons at the accessibility
