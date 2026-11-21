@@ -25,8 +25,10 @@
 # So this script waits for a CONDITION, twice, and never for luck:
 #   1. the host has been up for the boot window, so the gallery cannot be
 #      deferred into the test session;
-#   2. after booting, the simulator's log carries the "Successfully prewarmed
-#      gallery snapshots" line.
+#   2. after booting, the simulator's log carries PosterBoard's line ending
+#      the renders: "Successfully prewarmed gallery snapshots", or "Failed to
+#      prewarm gallery snapshots ... exceeded prewarm time" when they outlast
+#      its own limit. The marker quotes the line it matched.
 #
 # Exit status. 0 with a WADDLE_SIMULATOR_SETTLED line when both held. Also 0,
 # with a WADDLE_SIMULATOR_NOT_SETTLED warning naming the reason, when the
@@ -38,7 +40,11 @@
 #
 # Knobs, for the test suite and for a runtime whose numbers move:
 #   SIMULATOR_READY_BOOT_WINDOW  seconds of host uptime to wait for (600)
-#   SIMULATOR_READY_TIMEOUT      seconds to wait for the renders (900)
+#   SIMULATOR_READY_TIMEOUT      seconds after the boot to wait for the
+#                                renders (900). It bounds the waiting only:
+#                                `simctl bootstatus` and `simctl list` are not
+#                                cut short, and the job's timeout-minutes is
+#                                the bound on those.
 #   SIMULATOR_READY_POLL         seconds between looks at the log (10)
 #   SIMULATOR_READY_WORK_DIR     where the log readers write (a temp dir)
 #
@@ -143,24 +149,45 @@ boot_device
 say "boot finished"
 booted_at="$(date +%s)"
 
-# --- condition 2: the gallery snapshots have been rendered --------------------
+# --- condition 2: the gallery renders are over ---------------------------------
+# PosterBoard ends them with one of two lines: "Successfully prewarmed gallery
+# snapshots for role: ...", or, when they outlast its own 120 s limit, "Failed
+# to prewarm gallery snapshots for role ...: exceeded prewarm time" (runs
+# 44786985973 and 44779943032; what is left is done by the later prewarm, which
+# took 17 s there and delayed nothing). Either one means the burst is over.
+#
 # Two readers, because neither is enough alone. A `log stream` costs nothing
-# and sees every line from now on, but not one written before it attached. A
-# `log show` from the boot sees those, but on a runner in the middle of a first
-# boot one query took four minutes (run 44771876139, load average 510), so it
-# runs in the background and is never waited on. The stream starts first, so
-# between them no line is missed.
-PREDICATE='process == "PosterBoard" AND (eventMessage CONTAINS "requested snapshot prewarm" OR eventMessage CONTAINS "Calling prewarmSnapshotsForRequests" OR eventMessage CONTAINS "Successfully prewarmed gallery snapshots")'
+# and sees every line from the moment it attaches, but on CI that moment came
+# 2 to 6 minutes after the boot, sometimes after the line it was started for.
+# A `log show` from the boot sees everything already written, but one query
+# took four minutes on a runner in the middle of a first boot (run
+# 44771876139, load average 510). So the `log show` runs in the background,
+# never waited on, and is run again each time it finishes.
+#
+# ONLY A LOG LINE COUNTS. `log stream` prints the predicate back as its first
+# line of output ("Filtering the log data using ..."), and that line contains
+# every string searched for here. The first version of this wait matched it,
+# and so reported the renders finished the moment the stream attached: before
+# PosterBoard's own line in 5 of 12 runs, by 17 to 53 s. `log_lines` keeps
+# only lines that begin with a timestamp and come from PosterBoard.
+PREDICATE='process == "PosterBoard" AND (eventMessage CONTAINS "requested snapshot prewarm" OR eventMessage CONTAINS "Calling prewarmSnapshotsForRequests" OR eventMessage CONTAINS "Successfully prewarmed gallery snapshots" OR eventMessage CONTAINS "Failed to prewarm gallery snapshots")'
 STREAM="$WORK/stream.txt"
 BACKFILL="$WORK/backfill.txt"
 : > "$STREAM"
 : > "$BACKFILL"
+log_lines() {
+    # grep exits 1 for "no such line yet", which is an answer, not a failure.
+    grep -hE '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:.]+ +[A-Za-z]+ +PosterBoard\[' "$STREAM" "$BACKFILL" || true
+}
 stream_pid=""
 backfill_pid=""
-start_readers() {
-    rm -f "$WORK/backfill.status"
+backfill_passes=0
+start_stream() {
     xcrun simctl spawn "$UDID" log stream --style compact --predicate "$PREDICATE" >> "$STREAM" 2>/dev/null &
     stream_pid=$!
+}
+start_backfill() {
+    backfill_passes=$(( backfill_passes + 1 ))
     (
         if xcrun simctl spawn "$UDID" log show --start "$log_start" --style compact --predicate "$PREDICATE" > "$BACKFILL.tmp" 2>/dev/null; then
             mv "$BACKFILL.tmp" "$BACKFILL"
@@ -187,31 +214,40 @@ stop_readers() {
     rm -f "$BACKFILL.tmp"
 }
 trap stop_readers EXIT
-start_readers
+start_stream
+start_backfill
 
 # A stream that has exited is the first sign the device is no longer there to
 # be read. In run 44786994189 it had shut down within the wait although
 # bootstatus had reported it booted; both readers died, the wait ran out blind,
 # and xcodebuild booted the device again itself, straight into the first test.
 # So: when the stream is gone, ask simctl what state the device is in, boot it
-# again if it is not Booted, and attach the readers again. Bounded, so a device
+# again if it is not Booted, and attach the stream again. Bounded, so a device
 # that will not stay up ends as NOT_SETTLED and not as a loop.
+MAX_REBOOTS=2
+MAX_STREAM_RESTARTS=5
 reboots=0
 restarts=0
 revive_readers() {
     local state
-    if kill -0 "$stream_pid" 2>/dev/null; then return 0; fi
-    state="$(device_state)"
-    if [ "$state" != "Booted" ] && [ "$reboots" -lt 2 ]; then
-        reboots=$(( reboots + 1 ))
-        say "the simulator is '$state', not Booted, $(( $(date +%s) - booted_at ))s after it finished booting; booting it again"
-        boot_device
-        say "boot finished again"
+    if ! kill -0 "$stream_pid" 2>/dev/null; then
+        state="$(device_state)"
+        if [ "$state" != "Booted" ] && [ "$reboots" -lt "$MAX_REBOOTS" ]; then
+            reboots=$(( reboots + 1 ))
+            say "the simulator is '$state', not Booted, $(( $(date +%s) - booted_at ))s after it finished booting; booting it again"
+            boot_device
+            say "boot finished again"
+        fi
+        if [ "$restarts" -lt "$MAX_STREAM_RESTARTS" ]; then
+            restarts=$(( restarts + 1 ))
+            start_stream
+        fi
     fi
-    if [ "$restarts" -lt 5 ]; then
-        restarts=$(( restarts + 1 ))
-        stop_readers
-        start_readers
+    # The log show has finished a pass: start the next, which reads what has
+    # been written since.
+    if ! kill -0 "$backfill_pid" 2>/dev/null; then
+        wait "$backfill_pid" 2>/dev/null || true
+        start_backfill
     fi
 }
 
@@ -220,20 +256,25 @@ revive_readers() {
 # wait run to 1350.
 deadline=$(( booted_at + TIMEOUT ))
 outcome="timeout"
-deferral=""
+evidence=""
 announced=""
 while :; do
     revive_readers
-    lines="$(cat "$STREAM" "$BACKFILL")"
+    lines="$(log_lines)"
     case "$lines" in
         *"deferring to -prewarm"*)
             outcome="deferred"
-            deferral="$(printf '%s\n' "$lines" | grep -F 'deferring to -prewarm' | tail -1)"
+            evidence="$(printf '%s\n' "$lines" | grep -F 'deferring to -prewarm' | tail -1)"
             break ;;
     esac
     case "$lines" in
         *"Successfully prewarmed gallery snapshots"*)
             outcome="settled"
+            evidence="$(printf '%s\n' "$lines" | grep -F 'Successfully prewarmed gallery snapshots' | tail -1)"
+            break ;;
+        *"Failed to prewarm gallery snapshots"*)
+            outcome="cut-short"
+            evidence="$(printf '%s\n' "$lines" | grep -F 'Failed to prewarm gallery snapshots' | tail -1)"
             break ;;
     esac
     case "$lines" in
@@ -249,17 +290,23 @@ while :; do
 done
 waited=$(( $(date +%s) - booted_at ))
 
+# PosterBoard's own line goes into the marker, timestamp and all, so the job
+# log shows what was matched and when, and a marker with no log line behind it
+# cannot be printed.
+evidence="$(printf '%s' "$evidence" | sed -E 's/^([0-9-]+ [0-9:.]+) .*\] /\1 /' | cut -c1-200)"
 if ! load="$(sysctl -n vm.loadavg 2>/dev/null)"; then load="unknown"; fi
 case "$outcome" in
     settled)
-        say "WADDLE_SIMULATOR_SETTLED gallery snapshots rendered ${waited}s after boot (waited ${wait_s}s for the boot window first; booted again $reboots time(s); load $load)" ;;
+        say "WADDLE_SIMULATOR_SETTLED gallery snapshots rendered, seen ${waited}s after boot (waited ${wait_s}s for the boot window first; booted again $reboots time(s); load $load). PosterBoard: $evidence" ;;
+    cut-short)
+        say "WADDLE_SIMULATOR_SETTLED gallery renders ended at PosterBoard's own time limit, seen ${waited}s after boot (waited ${wait_s}s for the boot window first; booted again $reboots time(s); load $load). PosterBoard: $evidence" ;;
     deferred)
-        echo "::warning::WADDLE_SIMULATOR_NOT_SETTLED reason=deferred -- PosterBoard put the gallery renders off to its prewarm although the host was past the boot window; they will run during the tests (issue 396). Its line: $deferral" ;;
+        echo "::warning::WADDLE_SIMULATOR_NOT_SETTLED reason=deferred -- PosterBoard put the gallery renders off to its prewarm although the host was past the boot window; they will run during the tests (issue 396). PosterBoard: $evidence" ;;
     *)
         # Silence from two readers that both died is not silence from the
         # simulator, so say which it was.
         if kill -0 "$stream_pid" 2>/dev/null; then stream_state="running"; else stream_state="exited"; fi
         if [ -f "$WORK/backfill.status" ]; then backfill_state="$(cat "$WORK/backfill.status")"; else backfill_state="unfinished"; fi
-        echo "::warning::WADDLE_SIMULATOR_NOT_SETTLED reason=timeout -- no gallery-render line in the simulator log ${waited}s after boot (log stream $stream_state, log show from boot $backfill_state, simulator '$(device_state)', booted again $reboots time(s)). The tests run anyway; if a launch fails, read it as issues 386/396." ;;
+        echo "::warning::WADDLE_SIMULATOR_NOT_SETTLED reason=timeout -- no line from PosterBoard ending the gallery renders ${waited}s after boot (log stream $stream_state, last log show from boot $backfill_state after $backfill_passes pass(es), simulator '$(device_state)', booted again $reboots time(s)). The tests run anyway; if a launch fails, read it as issues 386/396." ;;
 esac
 exit 0

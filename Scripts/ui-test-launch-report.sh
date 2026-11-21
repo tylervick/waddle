@@ -82,7 +82,7 @@ show() {
 }
 
 echo "== PosterBoard: lock-screen gallery snapshots and prewarm =="
-if show 'process == "PosterBoard" AND (eventMessage CONTAINS "requested snapshot prewarm" OR eventMessage CONTAINS "Calling prewarmSnapshotsForRequests" OR eventMessage CONTAINS "Successfully prewarmed gallery snapshots" OR eventMessage CONTAINS "Starting prewarm" OR eventMessage CONTAINS "prewarmSnapshotsForRequests completed" OR eventMessage CONTAINS "Prewarm is complete")' "$OUT/posterboard-lines.txt"; then
+if show 'process == "PosterBoard" AND (eventMessage CONTAINS "requested snapshot prewarm" OR eventMessage CONTAINS "Calling prewarmSnapshotsForRequests" OR eventMessage CONTAINS "Successfully prewarmed gallery snapshots" OR eventMessage CONTAINS "Failed to prewarm gallery snapshots" OR eventMessage CONTAINS "Starting prewarm" OR eventMessage CONTAINS "prewarmSnapshotsForRequests completed" OR eventMessage CONTAINS "Prewarm is complete")' "$OUT/posterboard-lines.txt"; then
     sed -E 's/^([0-9-]+ [0-9:.]+) .*\] /\1  /' "$OUT/posterboard-lines.txt" | cut -c1-240 > "$OUT/posterboard.txt"
     if [ -s "$OUT/posterboard.txt" ]; then cat "$OUT/posterboard.txt"; else echo "(no lines)"; fi
 else
