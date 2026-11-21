@@ -70,13 +70,15 @@ struct ShelfView: View {
     }
 
     var body: some View {
+        Color.clear
+        }
+        .overlay {
         ScrollView {
             // The content reports the width it was offered and nothing else.
             // The scroll view below is measured to size the hero, and a
             // scroll view follows content that reports wider than offered:
             // without this the measurement fed itself and a launch could
             // spin for ever (issue #437, `ProposedWidthLayout`).
-            ProposedWidthLayout {
             VStack(alignment: .leading,
                    spacing: ShelfHeroLayout.sectionSpacing(compactHeight: compactHeight)) {
                 switch zone {
@@ -97,7 +99,6 @@ struct ShelfView: View {
                 }
             }
             .padding(contentPadding)
-            }
         }
         // Measured on the ScrollView, so this is the viewport: what is visible
         // between the toolbar and the home indicator, less the padding above.
@@ -109,12 +110,6 @@ struct ShelfView: View {
         // the viewport by 150 pt, so the hero zone's budget was spent against
         // a screen 20% shorter than the one it was drawn on. See
         // `docs/learnings/geometry-proxy-size-already-excludes-safe-area.md`.
-        .onGeometryChange(for: CGSize.self) { proxy in
-            CGSize(width: proxy.size.width - contentPadding * 2,
-                   height: proxy.size.height)
-        } action: { size in
-            heroContentWidth = size.width
-            viewportHeight = size.height
         }
         .background(Color.appBackground)
         // The title stays set — it is the back button's label on the game
