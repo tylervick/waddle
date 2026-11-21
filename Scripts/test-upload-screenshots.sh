@@ -15,6 +15,19 @@ pass() { echo "ok - $1"; }
 
 SCRIPT="$ROOT/Scripts/upload-screenshots.sh"
 SLOTS="05-ingame 01-play-tab 02-library 03-preset-editor 06-automap 04-control-feel"
+# The iPhone Duo set, spelt out here and not read from the script: the order
+# and the membership are the owner's choice of 2026-11-20 (issue #409), and a
+# test that read the list it checks would agree with any list. "dir/slot WxH".
+DUO_SET_FILES="iphone-duo-inner/05-ingame=2853x2007
+iphone-duo-inner/07-ingame-half-open=2007x2853
+iphone-duo-inner/01-play-tab=2853x2007
+iphone-duo-inner/03-preset-editor=2853x2007
+iphone-duo-inner/02-library=2853x2007
+iphone-duo-inner/06-automap=2853x2007
+iphone-duo-inner/04-control-feel=2853x2007
+iphone-duo/05-ingame=2034x1398
+iphone-duo/01-play-tab=2034x1398
+iphone-duo/06-automap=2034x1398"
 
 # A PNG that is only a signature, an IHDR and an IEND: enough for every size
 # and chunk check the script makes, and a few dozen bytes on disk.
@@ -35,12 +48,14 @@ PY
 # Fresh world per case: screenshots, fixtures, stub, empty call log.
 setup() {
     rm -rf "$TMP/w"; mkdir -p "$TMP/w/bin" "$TMP/w/fix" "$TMP/w/shots/iphone-6.9" "$TMP/w/shots/ipad-13" \
-        "$TMP/w/shots/iphone-duo"
+        "$TMP/w/shots/iphone-duo" "$TMP/w/shots/iphone-duo-inner"
     for s in $SLOTS; do
         make_png "$TMP/w/shots/iphone-6.9/$s.png" 2868 1320
         make_png "$TMP/w/shots/ipad-13/$s.png" 2752 2064
         make_png "$TMP/w/shots/iphone-duo/$s.png" 2034 1398
+        make_png "$TMP/w/shots/iphone-duo-inner/$s.png" 2853 2007
     done
+    make_png "$TMP/w/shots/iphone-duo-inner/07-ingame-half-open.png" 2007 2853
     F="$TMP/w/fix"
     # The asset library, for the iPhone Duo set. The reference data is cut
     # down to what the script reads, in the shape Apple returned on 2026-11-20:
@@ -196,7 +211,11 @@ def image_dims(image_id):
     if os.path.exists(F + "/duo-dims"):
         w, h = open(F + "/duo-dims").read().split(); return int(w), int(h)
     name = open(f"{F}/image-{image_id}").read().strip()
-    return png_dims(F + "/../shots/iphone-duo/" + name.replace("iphone-duo-", "", 1))
+    # The library name is the directory and the slot joined by a hyphen.
+    for folder in ("iphone-duo-inner", "iphone-duo"):
+        if name.startswith(folder + "-"):
+            return png_dims(F + "/../shots/" + folder + "/" + name[len(folder) + 1:])
+    raise SystemExit("stub: no file for library image " + name)
 if method == "GET" and m(r"/v1/apps/[^/]+/assetLibrary", path): reply(200, {"data": {"type": "appAssetLibraries", "id": "LIB"}})
 if method == "GET" and path == "/v1/appAssetLibraryRefData": reply(200, path=F + "/refdata.json")
 if method == "GET" and (r := m(r"/v1/appStoreVersionLocalizations/([^/]+)/placements", path)):
@@ -451,10 +470,15 @@ setup; run --device duo
 [ "$RC" = 0 ] || fail "duo dry run exited $RC: $OUT"
 [ "$(duo_mutations)" = 0 ] || fail "duo dry run made mutating calls: $(cat "$TMP/w/calls.log")"
 echo "$OUT" | grep -q "dry run" || fail "duo dry run did not say so: $OUT"
-for s in $SLOTS; do
-    echo "$OUT" | grep -q "iphone-duo/$s.png 2034x1398 -> APP_SCREENSHOT in IPHONE_DUO_PROFILE" \
-        || fail "duo dry run did not list $s with its size and group: $OUT"
+for entry in $DUO_SET_FILES; do
+    echo "$OUT" | grep -q "  ${entry%%=*}.png ${entry#*=} -> APP_SCREENSHOT in IPHONE_DUO_PROFILE" \
+        || fail "duo dry run did not list ${entry%%=*} with its size and group: $OUT"
 done
+# The ten, in the chosen order, and nothing else: the three outer shots the
+# owner left out are in the directory and must not be listed.
+listed="$(echo "$OUT" | sed -nE 's/^  (iphone-duo[^ ]*)\.png .*/\1/p' | paste -sd' ' -)"
+[ "$listed" = "$(echo "$DUO_SET_FILES" | sed 's/=.*//' | paste -sd' ' -)" ] || fail "duo dry run listed: $listed"
+echo "$OUT" | grep -q "the iPhone Duo set, 10 file(s)" || fail "duo dry run did not count ten files: $OUT"
 ! grep -q 'appScreenshot' "$TMP/w/calls.log" || fail "duo dry run read a screenshot set: $(cat "$TMP/w/calls.log")"
 pass "duo dry run lists every file and its placement group, and mutates nothing"
 
@@ -471,10 +495,10 @@ last_delete="$(grep -n '^DELETE ' "$TMP/w/calls.log" | tail -1 | cut -d: -f1)"
 [ "$(grep -c '^DELETE .*/v1/appAssetLibraryPlacements/oldp-[12] ' "$TMP/w/calls.log")" = 2 ] || fail "did not delete both old Duo placements"
 [ "$(grep -c '^DELETE ' "$TMP/w/calls.log")" = 2 ] || fail "deleted something other than the two old placements"
 ! grep -q '^DELETE .*/v1/appAssetLibraryImages/' "$TMP/w/calls.log" || fail "deleted a library image"
-[ "$(grep -c '^POST .*/v1/appAssetLibraryImages ' "$TMP/w/calls.log")" = 6 ] || fail "expected 6 image reservations"
-[ "$(grep -c '^PUT https://upload' "$TMP/w/calls.log")" = 12 ] || fail "expected 12 duo part uploads (2 per shot)"
-[ "$(grep -cE '^PATCH .*/v1/appAssetLibraryImages/img-[1-6] ' "$TMP/w/calls.log")" = 6 ] || fail "expected 6 duo upload commits"
-[ "$(grep -c '^POST .*/v1/appAssetLibraryPlacements ' "$TMP/w/calls.log")" = 6 ] || fail "expected 6 placements"
+[ "$(grep -c '^POST .*/v1/appAssetLibraryImages ' "$TMP/w/calls.log")" = 10 ] || fail "expected 10 image reservations"
+[ "$(grep -c '^PUT https://upload' "$TMP/w/calls.log")" = 20 ] || fail "expected 20 duo part uploads (2 per shot)"
+[ "$(grep -cE '^PATCH .*/v1/appAssetLibraryImages/img-[0-9]+ ' "$TMP/w/calls.log")" = 10 ] || fail "expected 10 duo upload commits"
+[ "$(grep -c '^POST .*/v1/appAssetLibraryPlacements ' "$TMP/w/calls.log")" = 10 ] || fail "expected 10 placements"
 python3 - "$TMP/w/calls.log" <<'PY' || fail "a Duo request body is not what Apple's schema asks for (see above)"
 import json, sys
 bodies = [json.loads(l[5:])["data"] for l in open(sys.argv[1]) if l.startswith("BODY ")]
@@ -482,29 +506,37 @@ images = [b for b in bodies if b["type"] == "appAssetLibraryImages" and "id" not
 commits = [b for b in bodies if b["type"] == "appAssetLibraryImages" and "id" in b]
 places = [b for b in bodies if b["type"] == "appAssetLibraryPlacements"]
 orders = [b for b in bodies if b["type"] == "appAssetLibraryPlacementOrderingRequests"]
-slots = "05-ingame 01-play-tab 02-library 03-preset-editor 06-automap 04-control-feel".split()
-assert [b["attributes"]["fileName"] for b in images] == [f"iphone-duo-{s}.png" for s in slots], images
+# Seven of the inner display, then three of the outer, in the chosen order.
+names = ["iphone-duo-inner-05-ingame.png", "iphone-duo-inner-07-ingame-half-open.png",
+         "iphone-duo-inner-01-play-tab.png", "iphone-duo-inner-03-preset-editor.png",
+         "iphone-duo-inner-02-library.png", "iphone-duo-inner-06-automap.png",
+         "iphone-duo-inner-04-control-feel.png", "iphone-duo-05-ingame.png",
+         "iphone-duo-01-play-tab.png", "iphone-duo-06-automap.png"]
+assert [b["attributes"]["fileName"] for b in images] == names, images
 for b in images:
     assert b["attributes"]["category"] == "APP_SCREENSHOTS_AND_PREVIEWS", b
     assert b["attributes"]["fileSize"] > 0, b
     assert b["relationships"]["assetLibrary"]["data"] == {"type": "appAssetLibraries", "id": "LIB"}, b
-assert [(b["id"], b["attributes"]) for b in commits] == [(f"img-{n}", {"uploaded": True}) for n in range(1, 7)], commits
+assert [(b["id"], b["attributes"]) for b in commits] == [(f"img-{n}", {"uploaded": True}) for n in range(1, 11)], commits
 for n, b in enumerate(places, 1):
     assert b["attributes"] == {"placementType": "APP_SCREENSHOT", "placementGroup": "IPHONE_DUO_PROFILE"}, b
     assert b["relationships"]["image"]["data"] == {"type": "appAssetLibraryImages", "id": f"img-{n}"}, b
     assert b["relationships"]["appStoreVersionLocalization"]["data"] == {"type": "appStoreVersionLocalizations", "id": "L12"}, b
 assert len(orders) == 1, orders
 assert orders[0]["attributes"] == {"placementGroup": "IPHONE_DUO_PROFILE"}, orders
-assert [p["id"] for p in orders[0]["relationships"]["orderedPlacements"]["data"]] == [f"plc-{n}" for n in range(1, 7)], orders
+assert [p["id"] for p in orders[0]["relationships"]["orderedPlacements"]["data"]] == [f"plc-{n}" for n in range(1, 11)], orders
 assert orders[0]["relationships"]["appStoreVersionLocalization"]["data"]["id"] == "L12", orders
 PY
 ! grep -q 'appScreenshot' "$TMP/w/calls.log" || fail "duo apply touched a screenshot set"
-echo "$OUT" | grep -q "plc-1 ACTIVE iphone-duo-05-ingame.png 2034x1398" || fail "duo apply did not print the read-back: $OUT"
-echo "$OUT" | grep -q "6 screenshots placed in IPHONE_DUO_PROFILE" || fail "duo apply did not report success: $OUT"
+echo "$OUT" | grep -q "plc-1 ACTIVE iphone-duo-inner-05-ingame.png 2853x2007" || fail "duo apply did not print the read-back: $OUT"
+echo "$OUT" | grep -q "plc-2 ACTIVE iphone-duo-inner-07-ingame-half-open.png 2007x2853" || fail "the half-open shot is not second in the read-back: $OUT"
+echo "$OUT" | grep -q "plc-8 ACTIVE iphone-duo-05-ingame.png 2034x1398" || fail "the outer in-game shot is not eighth in the read-back: $OUT"
+echo "$OUT" | grep -q "uploaded iphone-duo-inner/07-ingame-half-open .*2007 2853, portrait" || fail "the half-open shot was not checked as portrait: $OUT"
+echo "$OUT" | grep -q "10 screenshots placed in IPHONE_DUO_PROFILE" || fail "duo apply did not report success: $OUT"
 pass "duo apply deletes old placements first, uploads, places, orders and reads back"
 
 # 20b. The Duo part uploads carry exactly the file's bytes.
-size="$(wc -c < "$TMP/w/shots/iphone-duo/05-ingame.png" | tr -d ' ')"
+size="$(wc -c < "$TMP/w/shots/iphone-duo-inner/05-ingame.png" | tr -d ' ')"
 parts="$(grep '^PUT https://upload.example.invalid/img-1/' "$TMP/w/calls.log" | awk '{ s += $3 } END { print s }')"
 [ "$parts" = "$size" ] || fail "uploaded $parts bytes of a $size-byte duo file"
 pass "duo part uploads sum to the file size"
@@ -513,7 +545,7 @@ pass "duo part uploads sum to the file size"
 #     wrong sizes: one that is nobody's, and the 6.9" iPhone's, which is a
 #     real store size and the likeliest file to land in the wrong directory.
 for wrong in "2034 1400" "2868 1320"; do
-    setup; make_png "$TMP/w/shots/iphone-duo/02-library.png" $wrong; run --apply --device duo
+    setup; make_png "$TMP/w/shots/iphone-duo/01-play-tab.png" $wrong; run --apply --device duo
     [ "$RC" != 0 ] || fail "accepted a Duo file of size $wrong"
     [ ! -s "$TMP/w/calls.log" ] || fail "made network calls despite a wrongly-sized Duo file ($wrong)"
     echo "$OUT" | grep -q "exactly one of" || fail "wrong failure for size $wrong: $OUT"
@@ -546,7 +578,6 @@ pass "Duo set refused on a version waiting for or in review"
 setup
 make_png "$TMP/w/shots/iphone-duo/05-ingame.png" 1398 2034
 make_png "$TMP/w/shots/iphone-duo/01-play-tab.png" 2853 2007
-make_png "$TMP/w/shots/iphone-duo/02-library.png" 2007 2853
 run --apply --device duo
 [ "$RC" = 0 ] || fail "a mixed-size Duo set failed: $OUT"
 echo "$OUT" | grep -q "uploaded iphone-duo/05-ingame .*1398 2034, portrait" || fail "portrait Duo shot not reported as portrait: $OUT"
@@ -561,7 +592,8 @@ echo "$OUT" | grep -q "transposed" || fail "wrong failure: $OUT"
 setup; echo "portrait" > "$TMP/w/fix/duo-render"; run --apply --device duo
 [ "$RC" != 0 ] || fail "accepted a landscape Duo shot rendered portrait"
 echo "$OUT" | grep -q "stored sideways" || fail "wrong failure: $OUT"
-setup; for s in $SLOTS; do make_png "$TMP/w/shots/iphone-duo/$s.png" 1398 2034; done
+# The first file of the set made portrait, so the sideways one is the first.
+setup; make_png "$TMP/w/shots/iphone-duo-inner/05-ingame.png" 2007 2853
 echo "landscape" > "$TMP/w/fix/duo-render"; run --apply --device duo
 [ "$RC" != 0 ] || fail "accepted a portrait Duo shot rendered landscape"
 echo "$OUT" | grep -q "stored sideways" || fail "wrong failure: $OUT"
@@ -571,7 +603,7 @@ pass "sideways Duo store fails before the image is placed"
 # 26. Apple rejecting the image fails the run, and nothing is placed.
 setup; echo "FAILED" > "$TMP/w/fix/duo-state"; run --apply --device duo
 [ "$RC" != 0 ] || fail "accepted a FAILED Duo image"
-echo "$OUT" | grep -q "rejected iphone-duo/05-ingame" || fail "wrong failure: $OUT"
+echo "$OUT" | grep -q "rejected iphone-duo-inner/05-ingame" || fail "wrong failure: $OUT"
 echo "$OUT" | grep -q "IMAGE_TOOL_FAILURE" || fail "did not show Apple's state details: $OUT"
 [ "$(grep -c '^POST .*/v1/appAssetLibraryPlacements ' "$TMP/w/calls.log")" = 0 ] || fail "placed a FAILED image"
 pass "FAILED Duo image fails"
@@ -602,8 +634,10 @@ setup; sed -i.bak 's/"specs":\["spec-ol",/"specs":[/' "$TMP/w/fix/refdata.json";
 [ "$RC" != 0 ] || fail "uploaded a size the reference data does not list"
 [ "$(duo_mutations)" = 0 ] || fail "mutated with a size the reference data does not list"
 echo "$OUT" | grep -q "lists no 2034x1398 spec" || fail "wrong failure: $OUT"
-setup; sed -i.bak 's/"maxCount":10/"maxCount":5/' "$TMP/w/fix/refdata.json"; run --apply --device duo
-[ "$RC" != 0 ] || fail "uploaded six into a group limited to five"
+# One under the set's ten: the set sits exactly at Apple's limit today.
+setup; sed -i.bak 's/"maxCount":10/"maxCount":9/' "$TMP/w/fix/refdata.json"; run --apply --device duo
+[ "$RC" != 0 ] || fail "uploaded ten into a group limited to nine"
+echo "$OUT" | grep -q "holds at most 9 screenshots; this set has 10" || fail "wrong failure: $OUT"
 [ "$(duo_mutations)" = 0 ] || fail "mutated past the group limit"
 pass "reference data decides the group, the sizes and the limit"
 
@@ -616,10 +650,10 @@ echo "$OUT" | grep -q "HTTP 500" || fail "did not surface the status: $OUT"
 pass "failed placement listing fails closed"
 
 # 30. The 201s are not the evidence; the read-back is. If the group read
-#     back is not the six just placed, in order, the run fails.
+#     back is not the ten just placed, in order, the run fails.
 setup; : > "$TMP/w/fix/readback-drop"; run --apply --device duo
 [ "$RC" != 0 ] || fail "accepted a read-back that is missing a placement"
-echo "$OUT" | grep -q "read back are not the 6 just placed" || fail "wrong failure: $OUT"
+echo "$OUT" | grep -q "read back are not the 10 just placed" || fail "wrong failure: $OUT"
 pass "read-back mismatch fails"
 
 # 31. The Duo writes have never been sent to Apple, so a routine upload must

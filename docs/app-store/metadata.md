@@ -680,9 +680,10 @@ all three states. The upload, the read-back and the badge are still owed, on
 the next version that reaches `PREPARE_FOR_SUBMISSION`. The inner-display
 shots have since been captured (see "The inner display" below).
 
-**What the set is.** The same six slots as the other two sets, in the same
-order and under the same filenames, each 2034×1398: the **outer display, in
-landscape**.
+**What the outer-display shots are.** The same six slots as the other two
+sets, under the same filenames, each 2034×1398: the **outer display, in
+landscape**. Three of them are in the uploaded set, after the seven
+inner-display shots ("The inner display" below has the list).
 
 - *Outer display*, because it is the only one a script can reach. A simulator
   boots closed and nothing Apple ships opens it
@@ -772,7 +773,7 @@ against (the script uploads `iphone-duo-<slot>.png`).
 
 **Known gap: library images accumulate.** The script deletes a version's old
 Duo *placements* and never an *image*, since an image may be placed on
-another version. So each `--apply` adds six images under the same six file
+another version. So each `--apply` adds ten images under the same ten file
 names, and a run that fails between an upload and its placement leaves an
 image nothing points to. No cleanup was written, on purpose: it would be one
 more write never sent to Apple, and the right rule depends on what the first
@@ -817,12 +818,13 @@ has shipped that way in five versions (1.0 to 1.4). So the API has no way to say
 each display", and a group filled from a single spec is ordinary. Whether
 review or the badge asks for more is something only an upload will show.
 
-### The inner display: captured, not yet in the uploaded set (#409)
+### The inner display: captured and in the upload set, not yet uploaded (#409)
 
 **State on 2026-11-20: seven inner-display screenshots are committed in
-`docs/app-store/screenshots/iphone-duo-inner/`.** They are not yet part of
-what `Scripts/upload-screenshots.sh --device duo` uploads: the group holds 10
-and the two displays give 13, and which ten is the owner's choice (below).
+`docs/app-store/screenshots/iphone-duo-inner/`,** and all seven are in the
+set `Scripts/upload-screenshots.sh --device duo` uploads, ahead of three
+outer-display shots (the owner's choice; the list is at the end of this
+subsection). Nothing has been uploaded.
 
 | File | Pose | Size |
 |------|------|------|
@@ -900,12 +902,34 @@ cannot run on CI: the hinge exists only in Device Hub's window.
   so replaces the Freedoom Phase 1 tile it taps with the Continue hero.
 - None of the test's scrolling steps was needed on the 951×669 pt window.
 
-**Which ten go in the set: the owner's choice, not yet made.** `DUO_SET` in
-`Scripts/upload-screenshots.sh` is an ordered list of files across both
-directories and still lists the six outer shots only. A library image is
-named for its directory and slot (`iphone-duo-05-ingame.png` as before,
-`iphone-duo-inner-05-ingame.png` for an inner shot). The candidates and a
-proposed order are on pull request 417.
+**Which ten go in the set: chosen by the owner on 2026-11-20.** The group
+holds 10 and the two displays give 13. `DUO_SET` in
+`Scripts/upload-screenshots.sh` is the list, in store order:
+
+| # | File | Shows |
+|---|------|-------|
+| 1 | `iphone-duo-inner/05-ingame.png` | In-game, open |
+| 2 | `iphone-duo-inner/07-ingame-half-open.png` | In-game, half open (2007×2853, the one portrait file) |
+| 3 | `iphone-duo-inner/01-play-tab.png` | Shelf, open |
+| 4 | `iphone-duo-inner/03-preset-editor.png` | Game page beside the shelf |
+| 5 | `iphone-duo-inner/02-library.png` | Files beside the shelf |
+| 6 | `iphone-duo-inner/06-automap.png` | Automap, open |
+| 7 | `iphone-duo-inner/04-control-feel.png` | Control Feel |
+| 8 | `iphone-duo/05-ingame.png` | In-game, closed |
+| 9 | `iphone-duo/01-play-tab.png` | Shelf, closed |
+| 10 | `iphone-duo/06-automap.png` | Automap, closed |
+
+Every inner-display shot, the game first and the half-open layout second,
+then the closed device's game, shelf and automap. The outer Files, game-page
+and Control Feel shots (`iphone-duo/02-library.png`, `03-preset-editor.png`,
+`04-control-feel.png`) stay committed and are not uploaded; they repeat inner
+ones. The set is exactly at the group's limit, so adding a shot means
+removing one. A library image is named for its directory and slot
+(`iphone-duo-05-ingame.png` as before, `iphone-duo-inner-05-ingame.png` for
+an inner shot). The set mixes both displays and both orientations in one
+group; **whether App Store Connect accepts that is not known** and is one of
+the things the first `--device duo --apply` records here. It is still
+uploaded only by name and alone.
 
 ## 13. Decisions log (filled at the user gate)
 
