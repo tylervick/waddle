@@ -42,18 +42,12 @@ struct ContentView: View {
         }
         .overlay(alignment: .bottom) {
             if let notice = ImportNotices.shared.current {
-                Text(notice)
-                    .font(Theme.Typography.secondary)
-                    .padding(.horizontal, Theme.Spacing.base)
-                    .frame(minHeight: Theme.minimumTapTarget)
-                    .waddleBanner()
+                ImportNoticeBanner(text: notice)
                     .accessibilityIdentifier("importNoticeBanner")
-                    // The banner is tappable to dismiss, so it is one of the
-                    // controls the shell draws itself and owes spec §5's 44 pt
-                    // minimum; `contentShape` makes the whole capsule hittable
-                    // rather than just the glyphs.
-                    .contentShape(Capsule())
                     .onTapGesture { ImportNotices.shared.dismiss() }
+                    // Clear of the window's edges, so a wrapped banner is an
+                    // object on the shelf and not a band across it.
+                    .padding(.horizontal, Theme.Spacing.base)
                     .padding(.bottom, 100)
             }
             if let code = lastExitCode {

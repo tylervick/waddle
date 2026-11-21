@@ -1,0 +1,131 @@
+import SwiftUI
+import XCTest
+@testable import Waddle
+
+/// The import notice's text stays inside its background, however far it
+/// wraps (issue #423).
+///
+/// The banner was a capsule round text with no line limit. A capsule's ends
+/// are half-circles as tall as the banner, so from three lines up they cut
+/// across the first and last lines, and at the largest accessibility size on
+/// a closed iPhone Duo "Imported" and "Import Failed)" began outside the
+/// background altogether, over the tile art.
+///
+/// This is a picture test because the claim is about a picture: no frame the
+/// layout reports says whether a glyph lies over a curved background. The
+/// banner is drawn twice on nothing, once as it ships and once with its text
+/// clear, and the two are compared by coverage. Wherever the second drawing
+/// is empty there is no background, so the first must be empty there too.
+@MainActor
+final class ImportNoticeBannerTests: XCTestCase {
+    /// The longest notice the app posts: an adoption of two add-ons that ends
+    /// with one failure, as the Duo sweep made it.
+    private static let longest = "Imported sweep-patch, sweep-addon as add-ons. "
+        + "Attach them from any game's page. · 1 failed (moved to Import Failed)"
+    private static let oneLine = "Imported Sunlust"
+
+    /// The width the overlay offers the banner: the window less the margin
+    /// `ContentView` keeps on each side. The narrowest supported iPhone, the
+    /// Duo's four windows, and an iPad.
+    private static let windowWidths: [CGFloat] = [360, 466, 669, 678, 951, 1024]
+    private static let scale: CGFloat = 2
+
+    /// How much of each pixel a drawing covers, 0 to 255, and how bright
+    /// the pixel is.
+    private struct Coverage {
+        let width: Int
+        let height: Int
+        let alpha: [UInt8]
+        let red: [UInt8]
+
+        subscript(x: Int, y: Int) -> UInt8 { alpha[y * width + x] }
+        var size: CGSize { CGSize(width: width, height: height) }
+    }
+
+    private func coverage(of text: String, textShown: Bool, windowWidth: CGFloat,
+                          size: DynamicTypeSize) throws -> Coverage {
+        // The banner sets no colour on its text, so it takes the one handed
+        // down, and a clear one leaves the background and hairline alone.
+        let banner = ImportNoticeBanner(text: text)
+            .foregroundStyle(textShown ? Color.white : Color.clear)
+            .environment(\.dynamicTypeSize, size)
+        let renderer = ImageRenderer(content: banner)
+        renderer.scale = Self.scale
+        renderer.proposedSize = ProposedViewSize(width: windowWidth - Theme.Spacing.base * 2, height: nil)
+        let image = try XCTUnwrap(renderer.cgImage, "the banner did not draw at \(size), \(windowWidth) pt")
+        var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let drew = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: image.width, height: image.height,
+                                          bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return true
+        }
+        XCTAssertTrue(drew, "no bitmap context")
+        let count = image.width * image.height
+        return Coverage(width: image.width, height: image.height,
+                        alpha: (0..<count).map { pixels[$0 * 4 + 3] },
+                        red: (0..<count).map { pixels[$0 * 4] })
+    }
+
+    /// Pixels the text marks where there is no background at all.
+    private func pixelsOutsideBackground(_ text: String, windowWidth: CGFloat,
+                                         size: DynamicTypeSize) throws -> Int {
+        let whole = try coverage(of: text, textShown: true, windowWidth: windowWidth, size: size)
+        let background = try coverage(of: text, textShown: false, windowWidth: windowWidth, size: size)
+        XCTAssertEqual(whole.size, background.size, "the text's colour changed the banner's size")
+        // The text is white on a dark surface, so it shows in the red channel
+        // where it lies over the background, which coverage alone cannot say.
+        XCTAssertTrue(whole.red != background.red,
+                      "clearing the text changed nothing, so this compares a drawing with itself")
+        return zip(whole.alpha, background.alpha).reduce(0) { $0 + ($1.1 == 0 && $1.0 != 0 ? 1 : 0) }
+    }
+
+    func testEveryGlyphIsOverTheBackgroundAtEveryTextSizeAndWidth() throws {
+        for size in DynamicTypeSize.allCases {
+            for width in Self.windowWidths {
+                XCTAssertEqual(try pixelsOutsideBackground(Self.longest, windowWidth: width, size: size), 0,
+                               "text outside the banner's background at \(size) in a \(width) pt window")
+            }
+        }
+    }
+
+    /// The case the issue measured: eight lines on a closed Duo. It is in the
+    /// sweep above; this pins that the sweep's hardest case is as hard as it
+    /// is meant to be, since a renderer that ignored the text size would
+    /// leave every case a one- or two-line banner and prove little.
+    func testTheLargestTextSizeWrapsToManyLinesOnAClosedDuo() throws {
+        let large = try coverage(of: Self.longest, textShown: true, windowWidth: 466, size: .large)
+        let largest = try coverage(of: Self.longest, textShown: true, windowWidth: 466, size: .accessibility5)
+        XCTAssertGreaterThan(largest.height, large.height * 4,
+                             "accessibility5 is \(largest.height) px tall against \(large.height) px at large")
+    }
+
+    /// The same corner on one line and on many: the outline does not follow
+    /// the line count.
+    func testCornersAreTheSameOnOneLineAndOnMany() throws {
+        let short = try coverage(of: Self.oneLine, textShown: false, windowWidth: 466, size: .large)
+        let tall = try coverage(of: Self.longest, textShown: false, windowWidth: 466, size: .accessibility5)
+        let corner = Int(Theme.cornerRadius * Self.scale)
+        XCTAssertGreaterThan(tall.height, short.height * 4, "the long notice did not wrap")
+        XCTAssertGreaterThan(min(short.width, short.height), corner, "the short banner is smaller than a corner")
+        XCTAssertEqual(short[0, 0], 0, "the corner is square, so this compares nothing")
+        for y in 0..<corner {
+            // Not exactly equal: a continuous corner of this radius wants a
+            // little more than half of a 44 pt banner to itself, so on one
+            // line it is drawn a shade tighter (11 of 255 at one edge pixel,
+            // measured). A capsule's corner differs by full coverage.
+            for x in 0..<corner where abs(Int(short[x, y]) - Int(tall[x, y])) > 32 {
+                return XCTFail("the corner differs at \(x),\(y): \(short[x, y]) on one line, "
+                               + "\(tall[x, y]) on \(tall.height / Int(Self.scale)) pt of text")
+            }
+        }
+    }
+
+    /// It is dismissed by a tap, so it is never shorter than a tap target.
+    func testAOneLineBannerIsATapTargetTall() throws {
+        let short = try coverage(of: Self.oneLine, textShown: false, windowWidth: 466, size: .xSmall)
+        XCTAssertGreaterThanOrEqual(CGFloat(short.height) / Self.scale, Theme.minimumTapTarget)
+    }
+}
