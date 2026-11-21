@@ -126,6 +126,11 @@ overlay to remain visible even when input devices are connected.
       save and answer the confirmation with the on-screen No, then Yes;
       choose Quit and confirm that a tap anywhere on the prompt does nothing
       while Yes/No answer it
+- [ ] Save slots under the buttons (issue #430): on a closed iPhone Duo in
+      landscape, or opened, where USE and FIRE are drawn over the save list,
+      open Save Game and touch the right-hand end of the two lowest slots,
+      on USE and on FIRE: the keyboard comes up for that slot each time and
+      the list stays up. ≡ still leaves the entry and then the menu
 - [ ] Overlay hides/shows when a controller connects/disconnects mid-session
 - [ ] Cheats do not carry into the next game: type iddqd (four-finger tap for
       the keyboard) in one game, quit to the shelf, start a different game;

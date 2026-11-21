@@ -117,6 +117,17 @@ window, or an older copy of the hook). The slow part of a touch, compiling
 A sweep makes hundreds of touches. Do not run one while another session is
 using Device Hub with a hook older than this.
 
+**A touch that waits for the lock can outlast the test's wait for it.**
+Seen 2026-11-21 (issue #430) with another session sweeping its own simulator:
+one `touch` took 27 to 82 s where an idle Mac takes 5, about 40 s of it
+waiting for the lock and 20 s reading Device Hub's window. The test waited
+60 s, gave up, and went on; the touch then landed during the next step, so
+"the touch on slot 7 did nothing" and "the menu closed before the touch on
+slot 8" were both the same late touch. A test's wait for a host touch has to
+be longer than the hook's own wait for the lock (120 s); `tap` in
+`DuoLayoutSweepTests` now waits 200 s. A failure that reads "the host did not
+serve 'touch ...'" means every result after it in that run is suspect.
+
 `Scripts/duo-layout-sweep.sh` also refuses to run without
 `WADDLE_DUO_SIMULATOR`, and refuses the stock name `iPhone Duo`: it reinstalls
 the app on that simulator and folds it, and one match for a default name was

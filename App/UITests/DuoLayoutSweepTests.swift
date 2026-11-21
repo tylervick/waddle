@@ -251,6 +251,8 @@ final class DuoLayoutSweepTests: XCTestCase {
         let save = waitForMenu(hud, "save")
         guard !save.isEmpty else { XCTFail("[\(pose)] the save list never opened"); return }
         shoot("22-engine-save-list")
+        touchSlotsUnderButtons(app, hud, slots: save)
+        guard menuName(hud) == "save" else { XCTFail("[\(pose)] the save list is no longer up"); return }
 
         tap(app, save[0])
         if waitFor(app.otherElements["softKeyboardActive"], "the save-name keyboard", timeout: 10) {
@@ -282,26 +284,67 @@ final class DuoLayoutSweepTests: XCTestCase {
         return targets
     }
 
+    /// Issue #430, and the one step of the sweep that judges anything: where
+    /// a button is drawn over a slot of the save list (closed landscape and
+    /// both open poses), a touch on that part of the slot must begin naming
+    /// the slot and leave the list up. It is here because only the sweep can
+    /// pose a Duo and touch its open display; `TouchMenuTests` makes the same
+    /// check on a phone XCUITest can turn. Each entry is left through ≡, as
+    /// below, so nothing is saved.
+    @MainActor
+    private func touchSlotsUnderButtons(_ app: XCUIApplication, _ hud: XCUIElement, slots: [CGPoint]) {
+        let (aims, measured) = app.saveSlotAimsUnderButtons(slots: slots, slotWidth: menuState(hud).itemWidth)
+        XCTContext.runActivity(named: "[\(pose)] save slots under buttons: \(aims.map(\.what)); \(measured)") { _ in }
+        let naming = app.otherElements["softKeyboardActive"]
+        for aim in aims {
+            guard menuName(hud) == "save" else {
+                XCTFail("[\(pose)] the save list was not up before the touch on \(aim.what)")
+                return
+            }
+            tap(app, aim.point)
+            guard naming.waitForExistence(timeout: 8) else {
+                Thread.sleep(forTimeInterval: 1)
+                XCTFail("[\(pose)] a touch on \(aim.what) did not begin naming the slot; the menu is now '\(menuName(hud))'")
+                continue
+            }
+            XCTAssertEqual(menuName(hud), "save", "[\(pose)] a touch on \(aim.what) must leave the save list up")
+            app.buttons["menuButton"].tap()
+            let deadline = Date().addingTimeInterval(8)
+            while naming.exists && Date() < deadline { Thread.sleep(forTimeInterval: 0.25) }
+            XCTAssertFalse(naming.exists, "[\(pose)] ≡ did not leave the save-name entry after \(aim.what)")
+            Thread.sleep(forTimeInterval: 1) // the HUD's next refresh
+        }
+    }
+
     /// A tap at a point of the app's window. On an open device the host
     /// makes it: XCUITest believes the wide window is tall there, and a tap
     /// aimed by coordinate (not by element) did not open the menu item under
     /// it.
+    ///
+    /// The wait is long because Device Hub is shared: with another session
+    /// sweeping its own simulator, one touch waited 40 s for the hook's lock
+    /// and 20 s more reading the window (2026-11-21, 27 to 82 s a touch
+    /// where an idle Mac takes 5). A wait shorter than the touch does not
+    /// stop the touch; it lands during the next step, which is then judged
+    /// by it. The hook gives up on the lock after 120 s.
     @MainActor
     private func tap(_ app: XCUIApplication, _ p: CGPoint) {
         if isOpen {
-            ask("touch \(Int(p.x)),\(Int(p.y)),250", timeout: 60)
+            ask("touch \(Int(p.x)),\(Int(p.y)),250", timeout: 200)
         } else {
             app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: p.x, dy: p.y)).tap()
         }
     }
 
-    /// The `cm=` and `tgt=` fields of the debug HUD: which menu is up and
-    /// where its items' centres are, in window points.
+    /// The `cm=`, `iw=` and `tgt=` fields of the debug HUD: which menu is
+    /// up, how wide its items are and where their centres are, in window
+    /// points.
     @MainActor
-    private func menuState(_ hud: XCUIElement) -> (name: String, targets: [CGPoint]) {
-        var name = "", targets: [CGPoint] = []
+    private func menuState(_ hud: XCUIElement) -> (name: String, targets: [CGPoint], itemWidth: CGFloat) {
+        var name = "", targets: [CGPoint] = [], itemWidth: CGFloat = 0
         for word in (labelIfPresent(hud) ?? "").split(whereSeparator: { $0 == " " || $0 == "\n" }) {
             if word.hasPrefix("cm=") { name = String(word.dropFirst(3)) }
+            if word.hasPrefix("iw=") { itemWidth = CGFloat(Double(word.dropFirst(3)) ?? 0) }
             if word.hasPrefix("tgt=") {
                 targets = word.dropFirst(4).split(separator: "|").compactMap { pair in
                     let xy = pair.split(separator: ",")
@@ -310,7 +353,7 @@ final class DuoLayoutSweepTests: XCTestCase {
                 }
             }
         }
-        return (name, targets)
+        return (name, targets, itemWidth)
     }
 
     @MainActor
