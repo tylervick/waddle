@@ -62,7 +62,7 @@ SIMCTL_CHILD_WADDLE_FORCE_TOUCH_OVERLAY=1 \
 The debug HUD's `win=WxH` field then reads the engine's own window size in
 each pose.
 
-## Five ways XCUITest misleads on the Duo
+## Seven ways XCUITest misleads on the Duo
 
 1. **Synthesized drags do nothing while the device is open.** Taps land;
    swipes and `press(forDuration:thenDragTo:)` do not. The control was Apple's
@@ -84,8 +84,27 @@ each pose.
 5. **`XCUIScreen.main.screenshot()` is always the outer display.** On an open
    device it returns 1398x2034 px of a screen that is switched off, and the
    test still passes. A capture of what the player sees has to come from the
-   host (`xcrun simctl io <udid> screenshot`, which follows the active
-   display), taken while the test holds the screen still.
+   host, taken while the test holds the screen still, and the host has to
+   name the display: `xcrun simctl io <udid> screenshot --display=LCD-1`.
+   This file used to say a bare `simctl io screenshot` follows the active
+   display. It does not (measured 2026-11-20): with no `--display` it prints
+   "Defaulting to display: … name: LCD" and takes the outer one, and
+   `--display=LCD-1` on a closed device returns 2007x2853 px of black. So
+   neither the size nor the exit status of a host shot says what pose the
+   device was in; check that the picture is not one flat colour. The PNG is
+   RGBA whatever `--mask` says, with the buffer the way up the panel is.
+   A shot of the open inner display is upright in both poses; one of the
+   closed outer display is the panel's own way up.
+   `Scripts/capture-screenshots.sh capture duo-inner` is the consumer.
+6. **`app.frame` is wrong on the open device.** With the Duo open and held
+   upright the app's window is 951x669 pt, the host photographs it wide
+   (2853x2007 px), and `XCUIApplication.frame` says 669x951 (two runs,
+   2026-11-20). An assertion that the interface is landscape fails on a
+   correctly posed device, and one that it is tall passes on anything. Judge
+   the window's shape from a host shot's size.
+7. **On the wide window a pushed page is a column.** A game's page and
+   Settings open beside the shelf, closed by `Done`; there is no back button
+   to find. `returnToShelf` looks for `Done` when there is none.
 
 ## Capturing store screenshots on the closed device
 

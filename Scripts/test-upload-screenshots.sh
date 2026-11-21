@@ -549,8 +549,8 @@ make_png "$TMP/w/shots/iphone-duo/01-play-tab.png" 2853 2007
 make_png "$TMP/w/shots/iphone-duo/02-library.png" 2007 2853
 run --apply --device duo
 [ "$RC" = 0 ] || fail "a mixed-size Duo set failed: $OUT"
-echo "$OUT" | grep -q "uploaded duo/05-ingame .*1398 2034, portrait" || fail "portrait Duo shot not reported as portrait: $OUT"
-echo "$OUT" | grep -q "uploaded duo/01-play-tab .*2853 2007, landscape" || fail "inner-display shot not accepted: $OUT"
+echo "$OUT" | grep -q "uploaded iphone-duo/05-ingame .*1398 2034, portrait" || fail "portrait Duo shot not reported as portrait: $OUT"
+echo "$OUT" | grep -q "uploaded iphone-duo/01-play-tab .*2853 2007, landscape" || fail "inner-display shot not accepted: $OUT"
 pass "all four Duo sizes accepted, portrait verified as portrait"
 
 # 25. Stored transposed, or rendered the wrong way round, fails -- in both
@@ -571,7 +571,7 @@ pass "sideways Duo store fails before the image is placed"
 # 26. Apple rejecting the image fails the run, and nothing is placed.
 setup; echo "FAILED" > "$TMP/w/fix/duo-state"; run --apply --device duo
 [ "$RC" != 0 ] || fail "accepted a FAILED Duo image"
-echo "$OUT" | grep -q "rejected duo/05-ingame" || fail "wrong failure: $OUT"
+echo "$OUT" | grep -q "rejected iphone-duo/05-ingame" || fail "wrong failure: $OUT"
 echo "$OUT" | grep -q "IMAGE_TOOL_FAILURE" || fail "did not show Apple's state details: $OUT"
 [ "$(grep -c '^POST .*/v1/appAssetLibraryPlacements ' "$TMP/w/calls.log")" = 0 ] || fail "placed a FAILED image"
 pass "FAILED Duo image fails"
@@ -619,7 +619,7 @@ pass "failed placement listing fails closed"
 #     back is not the six just placed, in order, the run fails.
 setup; : > "$TMP/w/fix/readback-drop"; run --apply --device duo
 [ "$RC" != 0 ] || fail "accepted a read-back that is missing a placement"
-echo "$OUT" | grep -q "read back are not the six just placed" || fail "wrong failure: $OUT"
+echo "$OUT" | grep -q "read back are not the 6 just placed" || fail "wrong failure: $OUT"
 pass "read-back mismatch fails"
 
 # 31. The Duo writes have never been sent to Apple, so a routine upload must

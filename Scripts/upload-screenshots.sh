@@ -98,6 +98,16 @@ DUO_GROUP="IPHONE_DUO_PROFILE"
 DUO_PLACEMENT_TYPE="APP_SCREENSHOT"
 DUO_SIZES="1398x2034 2034x1398 2007x2853 2853x2007"
 export DUO_GROUP DUO_PLACEMENT_TYPE
+# The iPhone Duo set, in the order the store shows it: each entry is a file
+# under docs/app-store/screenshots/, without its .png. Unlike the two sets
+# above it is not "the six slots of one directory": the Duo has two displays,
+# captured by two legs of Scripts/capture-screenshots.sh into two directories
+# (iphone-duo = outer display, closed; iphone-duo-inner = inner display, open
+# and half open), and the group holds 10, fewer than the two legs produce
+# together. Which shots are in, and why, is metadata.md §12, "The Duo set".
+DUO_SET="iphone-duo/05-ingame iphone-duo/01-play-tab iphone-duo/02-library iphone-duo/03-preset-editor iphone-duo/06-automap iphone-duo/04-control-feel"
+duo_key() { printf '%s' "$1" | tr '/' '-'; }  # iphone-duo/05-ingame -> iphone-duo-05-ingame
+DUO_COUNT="$(echo $DUO_SET | wc -w | tr -d ' ')"
 
 usage() { echo "usage: $0 [--apply] [--version X.Y] [--device iphone|ipad|all|duo]  (all = iphone + ipad; duo runs alone)" >&2; exit 2; }
 die() { echo "error: $*" >&2; exit 1; }
@@ -137,7 +147,7 @@ export VERSION
 
 # Per device: committed directory, required pixel size (landscape), and the
 # App Store Connect display type the slot is uploaded as.
-device_dir()  { case "$1" in iphone) echo "iphone-6.9" ;; ipad) echo "ipad-13" ;; duo) echo "iphone-duo" ;; esac; }
+device_dir()  { case "$1" in iphone) echo "iphone-6.9" ;; ipad) echo "ipad-13" ;; esac; }
 device_size() { [ "$1" = iphone ] && echo "2868 1320" || echo "2752 2064"; }
 device_type() { [ "$1" = iphone ] && echo "APP_IPHONE_67" || echo "APP_IPAD_PRO_3GEN_129"; }
 
@@ -181,12 +191,12 @@ EOF
         [ "$w $h" = "$want_w $want_h" ] || die "$f is ${w}x${h}, expected ${want_w}x${want_h}"
     done
 done
-# The Duo set: the same six slots, each file exactly one of the four sizes.
-# The size is remembered per slot because, unlike the two sets above, the
-# files need not all be the same way round.
+# The Duo set: every file of DUO_SET, each exactly one of the four sizes.
+# The size is remembered per file because, unlike the two sets above, the
+# files need not all be the same way round, or of the same display.
 if [ "$DUO" = 1 ]; then
-    for slot in $SLOTS; do
-        f="$SHOTS_DIR/$(device_dir duo)/$slot.png"
+    for entry in $DUO_SET; do
+        f="$SHOTS_DIR/$entry.png"
         [ -f "$f" ] || die "missing $f"
         info="$(png_info "$f")" || die "$f is not a readable PNG"
         read -r w h exif <<EOF
@@ -197,17 +207,19 @@ EOF
             *" ${w}x${h} "*) ;;
             *) die "$f is ${w}x${h}; an iPhone Duo screenshot is exactly one of: $DUO_SIZES" ;;
         esac
-        echo "$w $h" > "$WORK/duo-size-$slot"
+        echo "$w $h" > "$WORK/duo-size-$(duo_key "$entry")"
     done
     # Said here, before the version is looked at, so that a dry run against a
     # version that cannot be edited still shows what it was asked to place.
-    echo "iPhone Duo set, in slot order:"
-    for slot in $SLOTS; do
-        read -r w h < "$WORK/duo-size-$slot"
-        echo "  $(device_dir duo)/$slot.png ${w}x${h} -> $DUO_PLACEMENT_TYPE in $DUO_GROUP"
+    echo "iPhone Duo set, in store order:"
+    for entry in $DUO_SET; do
+        read -r w h < "$WORK/duo-size-$(duo_key "$entry")"
+        echo "  $entry.png ${w}x${h} -> $DUO_PLACEMENT_TYPE in $DUO_GROUP"
     done
+    echo "ok - local files: the iPhone Duo set, $DUO_COUNT file(s), sizes checked"
+else
+    echo "ok - local files: $(echo $DEVICES | wc -w | tr -d ' ') device set(s) x 6, sizes and orientation checked"
 fi
-echo "ok - local files: $(( $(echo $DEVICES | wc -w) + DUO )) device set(s) x 6, sizes and orientation checked"
 
 # ---- API ------------------------------------------------------------------
 
@@ -272,19 +284,19 @@ if [ "$DUO" = 1 ]; then
     export LIBRARY_ID
 
     # Each file must match a spec the reference data maps to this group for
-    # this placement type, and the six must fit under the group's limit -- so
+    # this placement type, and the set must fit under the group's limit -- so
     # a size Apple withdraws, or a renamed group, stops the run here rather
     # than at the fourth upload.
     api GET "$API/v1/appAssetLibraryRefData" > "$WORK/refdata.json" || die "could not read the asset library reference data"
     python3 "$ROOT/Scripts/asset-library-specs.py" "$WORK/refdata.json" > "$WORK/duo-specs" \
         || die "the asset library reference data does not offer $DUO_PLACEMENT_TYPE in $DUO_GROUP as expected"
     duo_limit="$(awk '$1 == "limit" { print $2 }' "$WORK/duo-specs")"
-    [ "$(echo $SLOTS | wc -w)" -le "$duo_limit" ] \
-        || die "$DUO_GROUP holds at most $duo_limit screenshots; this set has $(echo $SLOTS | wc -w | tr -d ' ')"
-    for slot in $SLOTS; do
-        read -r w h < "$WORK/duo-size-$slot"
+    [ "$DUO_COUNT" -le "$duo_limit" ] \
+        || die "$DUO_GROUP holds at most $duo_limit screenshots; this set has $DUO_COUNT"
+    for entry in $DUO_SET; do
+        read -r w h < "$WORK/duo-size-$(duo_key "$entry")"
         spec="$(awk -v w="$w" -v h="$h" '$1 == w && $2 == h { print $3; exit }' "$WORK/duo-specs")"
-        [ -n "$spec" ] || die "App Store Connect lists no ${w}x${h} spec for $DUO_GROUP ($slot.png); it lists: $(awk '$1 != "limit" { printf "%sx%s ", $1, $2 }' "$WORK/duo-specs")"
+        [ -n "$spec" ] || die "App Store Connect lists no ${w}x${h} spec for $DUO_GROUP ($entry.png); it lists: $(awk '$1 != "limit" { printf "%sx%s ", $1, $2 }' "$WORK/duo-specs")"
     done
 
     LOC_ID="$(asc_localization_id "$VERSION_ID")" || die "could not list version $VERSION's localizations"
@@ -307,7 +319,11 @@ if [ "$DUO" = 1 ]; then
 fi
 
 if [ "$APPLY" = 0 ]; then
-    echo "dry run: would replace them with $SHOTS_DIR/<device>/{$(echo $SLOTS | tr ' ' ',')}.png in that order."
+    if [ "$DUO" = 1 ]; then
+        echo "dry run: would replace them with the $DUO_COUNT file(s) listed above, from $SHOTS_DIR, in that order."
+    else
+        echo "dry run: would replace them with $SHOTS_DIR/<device>/{$(echo $SLOTS | tr ' ' ',')}.png in that order."
+    fi
     echo "Re-run with --apply to upload."
     exit 0
 fi
@@ -451,7 +467,7 @@ print(json.dumps({"data": doc}))
 
 if [ "$DUO" = 1 ]; then
     # Delete first, for the same reason as a set: the group's limit leaves no
-    # room for six new beside six old. Placements only -- the images stay in
+    # room for the new beside the old. Placements only -- the images stay in
     # the library, where another version's placement may still use them.
     while read -r old; do
         [ -n "$old" ] || continue
@@ -460,53 +476,55 @@ if [ "$DUO" = 1 ]; then
     done < "$WORK/old-duo"
 
     : > "$WORK/new-duo"
-    for slot in $SLOTS; do
-        f="$SHOTS_DIR/$(device_dir duo)/$slot.png"
-        read -r want_w want_h < "$WORK/duo-size-$slot"
+    for entry in $DUO_SET; do
+        f="$SHOTS_DIR/$entry.png"
+        key="$(duo_key "$entry")"
+        read -r want_w want_h < "$WORK/duo-size-$key"
         way=landscape; [ "$want_w" -gt "$want_h" ] || way=portrait
         # The library is one list for every device, and the other two sets'
-        # files are already in it under these slot names; say which this is.
-        body="$(FILE_NAME="iphone-duo-$slot.png" FILE_SIZE="$(wc -c < "$f" | tr -d ' ')" duo_body image)" \
-            || die "could not build the image body for duo/$slot"
-        api POST "$API/v1/appAssetLibraryImages" "$body" > "$WORK/reserved.json" || die "could not reserve duo/$slot"
-        IMAGE_ID="$(json "d['data']['id']" < "$WORK/reserved.json")" || die "no id in the reservation for duo/$slot"
+        # files are already in it under these slot names; the directory in
+        # the name says which device and which display this is.
+        body="$(FILE_NAME="$key.png" FILE_SIZE="$(wc -c < "$f" | tr -d ' ')" duo_body image)" \
+            || die "could not build the image body for $entry"
+        api POST "$API/v1/appAssetLibraryImages" "$body" > "$WORK/reserved.json" || die "could not reserve $entry"
+        IMAGE_ID="$(json "d['data']['id']" < "$WORK/reserved.json")" || die "no id in the reservation for $entry"
         export IMAGE_ID
-        upload_parts "$f" "$WORK/reserved.json" "duo/$slot"
+        upload_parts "$f" "$WORK/reserved.json" "$entry"
         # No sourceFileChecksum here: appAssetLibraryImages has no such field.
         api PATCH "$API/v1/appAssetLibraryImages/$IMAGE_ID" "$(duo_body uploaded)" > /dev/null \
-            || die "could not commit duo/$slot"
+            || die "could not commit $entry"
 
         # Wait for Apple to process it, then verify it is the right way up.
         n=0; state=""
         while :; do
-            api GET "$API/v1/appAssetLibraryImages/$IMAGE_ID" > "$WORK/shot.json" || die "could not read back duo/$slot"
+            api GET "$API/v1/appAssetLibraryImages/$IMAGE_ID" > "$WORK/shot.json" || die "could not read back $entry"
             state="$(json "d['data']['attributes'].get('state') or ''" < "$WORK/shot.json")" \
-                || die "unreadable state for duo/$slot"
+                || die "unreadable state for $entry"
             case "$state" in ''|AWAITING_UPLOAD|UPLOAD_COMPLETE) ;; *) break ;; esac
             n=$((n + 1))
-            [ "$n" -lt "$POLL_ATTEMPTS" ] || die "duo/$slot still ${state:-without a state} after $POLL_ATTEMPTS polls"
+            [ "$n" -lt "$POLL_ATTEMPTS" ] || die "$entry still ${state:-without a state} after $POLL_ATTEMPTS polls"
             sleep "$POLL_DELAY"
         done
         if [ "$state" = FAILED ]; then
-            echo "error: App Store Connect rejected duo/$slot:" >&2
+            echo "error: App Store Connect rejected $entry:" >&2
             json "d['data']['attributes'].get('stateDetails')" < "$WORK/shot.json" >&2 \
                 || echo "(and its state details could not be read)" >&2
             exit 1
         fi
         dims="$(json "f\"{d['data']['attributes']['imageAsset']['width']} {d['data']['attributes']['imageAsset']['height']}\"" < "$WORK/shot.json")" \
-            || die "no imageAsset dimensions for duo/$slot (state $state)"
+            || die "no imageAsset dimensions for $entry (state $state)"
         [ "$dims" = "$want_w $want_h" ] \
-            || die "duo/$slot is stored as ${dims/ /x}, expected ${want_w}x${want_h} -- transposed means sideways"
-        check_rendition "$WORK/shot.json" "duo/$slot" "$way" || exit 1
+            || die "$entry is stored as ${dims/ /x}, expected ${want_w}x${want_h} -- transposed means sideways"
+        check_rendition "$WORK/shot.json" "$entry" "$way" || exit 1
 
         api POST "$API/v1/appAssetLibraryPlacements" "$(duo_body placement)" > "$WORK/placed.json" \
-            || die "could not place duo/$slot in $DUO_GROUP (its image $IMAGE_ID stays in the library, unplaced)"
-        placement_id="$(json "d['data']['id']" < "$WORK/placed.json")" || die "no id in the placement of duo/$slot"
+            || die "could not place $entry in $DUO_GROUP (its image $IMAGE_ID stays in the library, unplaced)"
+        placement_id="$(json "d['data']['id']" < "$WORK/placed.json")" || die "no id in the placement of $entry"
         echo "$placement_id" >> "$WORK/new-duo"
-        echo "uploaded duo/$slot (image $IMAGE_ID, placement $placement_id), $dims, $way"
+        echo "uploaded $entry (image $IMAGE_ID, placement $placement_id), $dims, $way"
     done
 
-    # Pin the slot order rather than trusting creation order.
+    # Pin the order rather than trusting creation order.
     PLACEMENT_IDS="$(paste -sd' ' - < "$WORK/new-duo")"
     export PLACEMENT_IDS
     api POST "$API/v1/appAssetLibraryPlacementOrderingRequests" "$(duo_body order)" > /dev/null \
@@ -522,8 +540,8 @@ if [ "$DUO" = 1 ]; then
     cat "$WORK/duo-readback"
     json "[p['id'] for p in d['data']]" < "$WORK/duo-now.json" > "$WORK/duo-now-ids" || die "could not read the $DUO_GROUP read-back"
     cmp -s "$WORK/new-duo" "$WORK/duo-now-ids" \
-        || die "the $DUO_GROUP placements read back are not the six just placed, in slot order (see above)"
+        || die "the $DUO_GROUP placements read back are not the $DUO_COUNT just placed, in order (see above)"
     ! grep -q ' FAILED ' "$WORK/duo-readback" || die "a $DUO_GROUP placement is FAILED (see above)"
-    echo "ok - duo: 6 screenshots placed in $DUO_GROUP in slot order"
+    echo "ok - duo: $DUO_COUNT screenshots placed in $DUO_GROUP in order"
 fi
 echo "Done. Check the listing in App Store Connect before submitting."
