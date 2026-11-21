@@ -46,9 +46,11 @@ struct GamePageView: View {
     @State private var deleteCandidate: Game?
     @State private var artContentWidth: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
-    /// Read so the header's `UIFont` measurements are taken again when the
-    /// reader changes the text size with the page open.
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// The widest unbreakable thing in the hero's caption, from
+    /// `captionProbe`. Nil until measured, and until then the hero stacks.
+    @State private var captionWordWidth: CGFloat?
+    /// The hero row's measured width; zero until measured.
+    @State private var heroRowWidth: CGFloat = 0
 
     private var continuableSlot: Int? { EngineSaveSlot.newestLoadGameArgument(in: saves) }
 
@@ -140,31 +142,53 @@ struct GamePageView: View {
             primaryButtonCount: continuableSlot != nil ? 2 : 1)
     }
 
-    /// The widest thing in the caption that cannot wrap: the longest word of
-    /// the title with its pencil, or the longest word of a button's label
-    /// with its icon and the button's padding. Measured from `UIFont`, like
-    /// `captionHeight`, so it grows with the reader's text size.
-    private var minimumCaptionWidth: CGFloat {
-        _ = dynamicTypeSize
-        let titleFont = UIFont.preferredFont(forTextStyle: .title2)
-        let boldTitle = titleFont.fontDescriptor.withSymbolicTraits(.traitBold)
-            .map { UIFont(descriptor: $0, size: 0) } ?? titleFont
-        let pencil = UIFont.preferredFont(forTextStyle: .subheadline).pointSize
-        let title = Self.widestWord(in: game.name, font: boldTitle) + Theme.Spacing.sm + pencil
-
-        let body = UIFont.preferredFont(forTextStyle: .body)
-        let buttonFont = UIFont.systemFont(ofSize: body.pointSize, weight: .semibold)
-        let labels = continuableSlot != nil ? "Continue New Game" : "Play"
-        // A label's icon is about one em wide and sits a word space off.
-        let button = Self.widestWord(in: labels, font: buttonFont)
-            + body.pointSize * 1.5 + Theme.Spacing.base * 2
-        return max(title, button)
+    /// Measures the widest thing in the caption that cannot wrap: a word of
+    /// the title beside its pencil, or a word of a button's label beside its
+    /// icon, inside the button's padding. Drawn hidden at its natural size
+    /// and read back, because the first version worked this out from
+    /// `UIFont` and came out too wide: a font cannot say how wide a symbol
+    /// is drawn or how far a `Label` sets it from its title, and on a closed
+    /// iPhone Duo held sideways the over-count stacked a page whose caption
+    /// fitted beside the art with 13 pt to spare (review of pull request 435).
+    private var captionProbe: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(game.name.split(whereSeparator: \.isWhitespace).enumerated()), id: \.offset) { _, word in
+                titleLabel(String(word))
+            }
+            ForEach(Array(primaryActionWords.enumerated()), id: \.offset) { _, action in
+                Label(action.word, systemImage: action.systemImage)
+                    .font(Theme.Typography.button)
+                    .padding(.horizontal, Theme.Spacing.base)
+            }
+        }
+        .lineLimit(1)
+        .fixedSize()
+        .hidden()
+        .accessibilityHidden(true)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            captionWordWidth = width
+        }
     }
 
-    private static func widestWord(in text: String, font: UIFont) -> CGFloat {
-        text.split(whereSeparator: \.isWhitespace)
-            .map { ceil((String($0) as NSString).size(withAttributes: [.font: font]).width) }
-            .max() ?? 0
+    /// Each word of each primary button's label, with that button's icon.
+    private var primaryActionWords: [(word: String, systemImage: String)] {
+        if continuableSlot != nil {
+            return [("Continue", "clock.arrow.circlepath"), ("New", "play.fill"), ("Game", "play.fill")]
+        }
+        return [("Play", "play.fill")]
+    }
+
+    /// The title as the page draws it, shared with `captionProbe` so the
+    /// measurement cannot drift from the thing measured.
+    private func titleLabel(_ name: String) -> some View {
+        HStack(spacing: Theme.Spacing.sm) {
+            Text(name).font(Theme.Typography.heroTitle)
+            Image(systemName: "pencil")
+                .font(Theme.Typography.secondary)
+                .foregroundStyle(Color.appSecondaryText)
+        }
     }
 
     /// The hero row: art, title, actions. Zero row insets and a clear row
@@ -178,7 +202,8 @@ struct GamePageView: View {
             Group {
                 switch PlayableDetailLayout.arrangement(contentWidth: artContentWidth,
                                                         viewportHeight: viewportHeight,
-                                                        minimumCaptionWidth: minimumCaptionWidth) {
+                                                        minimumCaptionWidth: captionWordWidth ?? .infinity,
+                                                        rowWidth: heroRowWidth) {
                 case .stacked:
                     VStack(alignment: .leading, spacing: PlayableDetailLayout.captionSpacing) {
                         heroArt(height: PlayableDetailLayout.artHeight(
@@ -206,6 +231,18 @@ struct GamePageView: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // The row's own width, which is what the caption really has to
+            // fit in. It is not always the form's width less the insets the
+            // art is sized from: on a closed iPhone Duo held sideways the row
+            // is about 11 pt wider than that, and the caption fitted in the
+            // difference.
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                heroRowWidth = width
+            }
+            .background(alignment: .topLeading) { captionProbe }
             .padding(.top, PlayableDetailLayout.captionTopPadding)
             .padding(.bottom, PlayableDetailLayout.captionBottomPadding)
             .listRowInsets(EdgeInsets())
@@ -232,12 +269,7 @@ struct GamePageView: View {
             draftName = game.name
             showRename = true
         } label: {
-            HStack(spacing: Theme.Spacing.sm) {
-                Text(game.name).font(Theme.Typography.heroTitle)
-                Image(systemName: "pencil")
-                    .font(Theme.Typography.secondary)
-                    .foregroundStyle(Color.appSecondaryText)
-            }
+            titleLabel(game.name)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("gameNameButton")
@@ -492,8 +524,9 @@ struct GamePageView: View {
 /// and sizes the row as if the value were one line: a value that wraps
 /// ("Freedoom" / "Phase 2") spilled out of the row both ways, and pushed the
 /// title against the top edge of its card (issue #425). So there the row is
-/// built here, a title over a `Menu` whose label is ordinary text the list
-/// can measure. The menu holds the same picker, so choosing is unchanged.
+/// built here: a `Menu` whose label is the title over the value, ordinary
+/// text the list can measure. The menu holds the same picker, so choosing is
+/// unchanged.
 private struct MenuPickerRow<Value: Hashable, Options: View>: View {
     let title: String
     /// The selected option's name, for the hand-built row to show.
@@ -505,20 +538,29 @@ private struct MenuPickerRow<Value: Hashable, Options: View>: View {
 
     var body: some View {
         if dynamicTypeSize.isAccessibilitySize {
-            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                WholeWordText(title)
-                    .accessibilityHidden(true)
-                Menu {
-                    Picker(title, selection: $selection) { options }
-                } label: {
+            // The whole row is the menu's label, so a touch anywhere on it
+            // opens the menu, as it does on the system's row.
+            Menu {
+                Picker(title, selection: $selection) { options }
+            } label: {
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                    WholeWordText(title)
+                        .foregroundStyle(Color.primary)
                     HStack(spacing: Theme.Spacing.sm) {
                         Text(current).multilineTextAlignment(.leading)
                         Image(systemName: "chevron.up.chevron.down").imageScale(.small)
                     }
+                    .foregroundStyle(Color.appAccent)
                 }
-                .accessibilityLabel("\(title), \(current)")
-                .accessibilityIdentifier(identifier)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            // What the system's menu picker reads: "Touch layout, Default
+            // (Classic)" as the label and no value (read off the default-size
+            // row by `GamePageTests`, which holds this row to it).
+            .accessibilityLabel("\(title), \(current)")
+            .accessibilityIdentifier(identifier)
         } else {
             Picker(title, selection: $selection) { options }
                 .pickerStyle(.menu)
@@ -569,7 +611,7 @@ struct AddFilePicker: View {
                 dismiss()
             } label: {
                 VStack(alignment: .leading, spacing: Theme.Spacing.xs / 2) {
-                    Text(file.displayName)
+                    WholeWordText(file.displayName)
                     Text(GamePage.roleLabel(for: file))
                         .font(Theme.Typography.caption)
                         .foregroundStyle(Color.appSecondaryText)

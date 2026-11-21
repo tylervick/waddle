@@ -213,12 +213,45 @@ final class FilesViewTests: XCTestCase {
         }
     }
 
-    /// `WholeWordText` allows a line per word, which is what makes running
-    /// out of lines mean "a word was broken".
-    func testWholeWordTextAllowsOneLinePerWord() {
-        XCTAssertEqual(WholeWordText.wordCount("Compatibility"), 1)
-        XCTAssertEqual(WholeWordText.wordCount("Eviternity II"), 2)
-        XCTAssertEqual(WholeWordText.wordCount("  Maps  &  Add-ons "), 3)
-        XCTAssertEqual(WholeWordText.wordCount(""), 1, "a line limit of zero is not a limit SwiftUI accepts")
+    /// The metadata line may wrap after its dot and never before it.
+    func testTheMetadataDotStaysWithTheSizeInFrontOfIt() {
+        XCTAssertEqual(FilesView.metadataSeparator, "\u{00A0}· ")
+    }
+
+    /// `WholeWordText` allows a line per piece, which is what makes running
+    /// out of lines mean "a piece was broken".
+    func testWholeWordTextCountsWordsAsPieces() {
+        XCTAssertEqual(WholeWordText.pieces("Compatibility"), ["Compatibility"])
+        XCTAssertEqual(WholeWordText.pieces("Eviternity II"), ["Eviternity", "II"])
+        XCTAssertEqual(WholeWordText.pieces("  Touch   layout "), ["Touch", "layout"])
+        XCTAssertEqual(WholeWordText.pieces(""), [])
+    }
+
+    /// A file's name is one unspaced token, and as one piece it got one line:
+    /// it shrank where it used to wrap, and was cut where it could not shrink
+    /// enough (review of pull request 435). It may end a line after a hyphen
+    /// or an underscore and in front of a dot.
+    func testAnUnspacedNameBreaksAtHyphensUnderscoresAndDots() {
+        XCTAssertEqual(WholeWordText.pieces("sunlust_final_v13"), ["sunlust_", "final_", "v13"])
+        XCTAssertEqual(WholeWordText.pieces("Back-to-Saturn-X-E1"), ["Back-", "to-", "Saturn-", "X-", "E1"])
+        XCTAssertEqual(WholeWordText.pieces("mod.v1.2"), ["mod", ".v1", ".2"])
+        XCTAssertEqual(WholeWordText.pieces("-_."), ["-", "_", "."])
+    }
+
+    /// The drawn string offers a break between pieces and nowhere else, and
+    /// is the original once the breaks are taken out.
+    func testTheDrawnStringOnlyAddsBreaksBetweenPieces() {
+        XCTAssertEqual(WholeWordText.wrapping("sunlust_final_v13"), "sunlust_\u{200B}final_\u{200B}v13")
+        XCTAssertEqual(WholeWordText.wrapping("Eviternity II"), "Eviternity II")
+        XCTAssertEqual(WholeWordText.wrapping("Compatibility"), "Compatibility")
+        for name in ["sunlust_final_v13", "Back-to-Saturn-X-E1-Get-Out-Of-My-Stations", "a  b", " lead", "mod.v1.2", ""] {
+            XCTAssertEqual(WholeWordText.wrapping(name).replacingOccurrences(of: "\u{200B}", with: ""), name)
+        }
+    }
+
+    /// Shrinking has a floor, so that a piece too wide for it wraps instead
+    /// of being cut.
+    func testShrinkingStopsAtHalfSize() {
+        XCTAssertEqual(WholeWordText.smallestScale, 0.5)
     }
 }

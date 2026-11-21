@@ -35,10 +35,15 @@ struct FilesView: View {
     /// ("freedoom1.wa" / "d", issue #425). A zero-width space before the last
     /// dot gives the line somewhere better to end; it draws nothing, and the
     /// row's accessibility label is the name without it.
-    static func wrappingFilename(_ filename: String) -> String {
+    nonisolated static func wrappingFilename(_ filename: String) -> String {
         guard let dot = filename.lastIndex(of: "."), dot != filename.startIndex else { return filename }
         return filename[..<dot] + "\u{200B}" + filename[dot...]
     }
+
+    /// Between a file's size and its status on the one metadata line. The
+    /// space before the dot does not break, so a wrapped line ends "28.8 MB ·"
+    /// and never starts with the dot.
+    nonisolated static let metadataSeparator = "\u{00A0}· "
 
     /// Merges game names, dropping repeats.
     static func blockedNames(_ existing: [String], adding names: [String]) -> [String] {
@@ -168,8 +173,7 @@ struct FilesView: View {
         let state = Text(statusLabel(status))
             .foregroundStyle(status == .missing ? Color.appDanger : Color.appSecondaryText)
         guard let size else { return state }
-        // A no-break space before the dot, so a line never starts with it.
-        return Text("\(Text(size, format: .byteCount(style: .file)))\u{00A0}· \(state)")
+        return Text("\(Text(size, format: .byteCount(style: .file)))\(Self.metadataSeparator)\(state)")
     }
 
     private func statusLabel(_ status: LibraryFileStatus) -> String {

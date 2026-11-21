@@ -183,6 +183,31 @@ final class PlayableDetailLayoutTests: XCTestCase {
         }
     }
 
+    /// Review of pull request 435: on a closed iPhone Duo held sideways the
+    /// hero row measured about 11 pt wider than the width the art is sized
+    /// from, and "SCYTHE" with its pencil fitted beside the art in that
+    /// difference. Judged against the narrower width it was stacked, with
+    /// the art on its 96 pt floor, where `main` drew it side by side.
+    func testTheCaptionIsJudgedAgainstTheRowsOwnWidth() {
+        let contentWidth: CGFloat = 538, viewport: CGFloat = 390, word: CGFloat = 270
+        XCTAssertEqual(PlayableDetailLayout.arrangement(contentWidth: contentWidth, viewportHeight: viewport,
+                                                        minimumCaptionWidth: word),
+                       .stacked, "the unmeasured row no longer vetoes, so this case no longer describes the defect")
+        XCTAssertEqual(PlayableDetailLayout.arrangement(contentWidth: contentWidth, viewportHeight: viewport,
+                                                        minimumCaptionWidth: word, rowWidth: 549),
+                       .sideBySide)
+        // The row's width changes what is left for the caption and nothing
+        // about the art.
+        XCTAssertEqual(PlayableDetailLayout.sideBySideCaptionWidth(contentWidth: contentWidth, viewportHeight: viewport,
+                                                                   rowWidth: 549)
+                       - PlayableDetailLayout.sideBySideCaptionWidth(contentWidth: contentWidth, viewportHeight: viewport),
+                       11, accuracy: 0.01)
+        // An unmeasured row is the content width, not a zero-width column.
+        XCTAssertEqual(PlayableDetailLayout.sideBySideCaptionWidth(contentWidth: contentWidth, viewportHeight: viewport,
+                                                                   rowWidth: 0),
+                       PlayableDetailLayout.sideBySideCaptionWidth(contentWidth: contentWidth, viewportHeight: viewport))
+    }
+
     /// The art and the caption column share the row with one gap between.
     func testTheCaptionColumnIsWhatTheArtLeaves() {
         for sheet in [Sheet.landscapePhone, Self.landscapePad] {

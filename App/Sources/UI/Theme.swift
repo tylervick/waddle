@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The shell's visual system (spec §5, extended by
 /// `2026-09-30-design-system-design.md`): always dark, art-forward, native
@@ -328,23 +329,97 @@ struct WaddleRowLabelStyle: LabelStyle {
 /// Text that keeps its words whole. Wrapping breaks a word that is wider
 /// than its line ("Compatibili-" / "ty" and "SCYTH" / "E" in the shelf's panel
 /// at the largest accessibility size, issue #425). Given as many lines as it
-/// has words, a text only runs out of lines when a word has been broken, and
-/// then it shrinks until none is. Text that fits is not touched, so this
+/// has pieces, a text only runs out of lines when a piece has been broken,
+/// and then it shrinks until none is. Text that fits is not touched, so this
 /// costs nothing at the ordinary sizes.
+///
+/// A piece is a word, or a part of one that ends at a hyphen or an underscore
+/// or starts at a dot: a file's name is usually one unspaced token
+/// ("sunlust_final_v13"), and counted as one word it got one line, shrank at
+/// the default size where it used to wrap, and was cut with an ellipsis at
+/// the largest (review of pull request 435). So the text may wrap at those
+/// characters too, and each piece gets its line.
+///
+/// And nothing is ever cut. Shrinking stops at `smallestScale`; where the
+/// widest piece does not fit even then, the text is left to wrap as plain
+/// text does, broken but all there.
 struct WholeWordText: View {
     let string: String
+    /// The text style the caller draws this in, for measuring the widest
+    /// piece. It does not set the font.
+    var textStyle: UIFont.TextStyle = .body
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    init(_ string: String) {
+    init(_ string: String, textStyle: UIFont.TextStyle = .body) {
         self.string = string
+        self.textStyle = textStyle
     }
 
-    static func wordCount(_ string: String) -> Int {
-        max(1, string.split(whereSeparator: \.isWhitespace).count)
+    nonisolated static let smallestScale: CGFloat = 0.5
+
+    /// The parts no line may end inside: split at whitespace, after "-" and
+    /// "_", and before ".".
+    nonisolated static func pieces(_ string: String) -> [String] {
+        var pieces: [String] = []
+        var current = ""
+        func end() {
+            if !current.isEmpty { pieces.append(current) }
+            current = ""
+        }
+        for character in string {
+            if character.isWhitespace {
+                end()
+            } else if character == "." {
+                end()
+                current.append(character)
+            } else {
+                current.append(character)
+                if character == "-" || character == "_" { end() }
+            }
+        }
+        end()
+        return pieces
+    }
+
+    /// The string with a zero-width space between the pieces of each word,
+    /// which is where a line may end. It draws nothing.
+    nonisolated static func wrapping(_ string: String) -> String {
+        var result = ""
+        var previous: Character?
+        for character in string {
+            if let previous, !previous.isWhitespace, !character.isWhitespace,
+               previous == "-" || previous == "_" || character == "." {
+                result.append("\u{200B}")
+            }
+            result.append(character)
+            previous = character
+        }
+        return result
+    }
+
+    /// The width the text needs at its smallest: its widest piece, shrunk as
+    /// far as it may be, with a little over because this is `UIFont`'s
+    /// measure of the piece and not SwiftUI's.
+    private var narrowestWidth: CGFloat {
+        _ = dynamicTypeSize
+        let font = UIFont.preferredFont(forTextStyle: textStyle)
+        let widest = Self.pieces(string)
+            .map { ($0 as NSString).size(withAttributes: [.font: font]).width }
+            .max() ?? 0
+        return ceil(widest * Self.smallestScale * 1.1)
     }
 
     var body: some View {
-        Text(string)
-            .lineLimit(Self.wordCount(string))
-            .minimumScaleFactor(0.5)
+        let text = Self.wrapping(string)
+        // `ViewThatFits` asks each child for its ideal width, so the first is
+        // taken exactly where the widest piece fits at the smallest scale.
+        ViewThatFits(in: .horizontal) {
+            Text(text)
+                .lineLimit(max(1, Self.pieces(string).count))
+                .minimumScaleFactor(Self.smallestScale)
+                .frame(idealWidth: narrowestWidth, alignment: .leading)
+            Text(text)
+        }
+        .accessibilityLabel(string)
     }
 }

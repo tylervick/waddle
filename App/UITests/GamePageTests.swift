@@ -62,4 +62,80 @@ final class GamePageTests: XCTestCase {
         XCTAssertFalse(app.buttons["game-Freedoom Phase 1 copy"].waitForExistence(timeout: 2),
                        "the deleted game is still on the shelf")
     }
+
+    /// A page wider than it is tall puts its art beside the title and the
+    /// buttons (design-system spec §8). Whether it may is decided from a
+    /// measurement of the caption's widest word, taken from a hidden copy of
+    /// it (issue #425), so a measurement that never arrived, or came out too
+    /// wide, would stack every landscape page and nothing else would say so:
+    /// the first version of that rule did exactly that to a closed iPhone
+    /// Duo at the largest text size (review of pull request 435).
+    @MainActor
+    func testTheHeroIsSideBySideOnALandscapePhone() {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
+        app.launch()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let landscape = NSPredicate { _, _ in app.frame.width > app.frame.height }
+        expectation(for: landscape, evaluatedWith: nil)
+        waitForExpectations(timeout: 15)
+
+        openGamePage(app, tile: "playFreedoom1")
+        let title = app.buttons["gameNameButton"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5), "the page's title is missing")
+        // Stacked, the title starts at the page's leading edge, under the
+        // art. Beside the art it starts past the art, which is up to half
+        // the row and never less than its 96 pt floor's width.
+        let beside = NSPredicate { _, _ in title.frame.minX > app.frame.width * 0.25 }
+        expectation(for: beside, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        let play = app.buttons["playButton"]
+        XCTAssertGreaterThan(play.frame.minX, app.frame.width * 0.25,
+                             "the Play button is not beside the art; frame \(play.frame)")
+    }
+
+    /// At an accessibility text size the page builds its menu rows by hand
+    /// (issue #425: the system's row is sized for a one-line value). A
+    /// hand-built row has to stay the control the system's is: the same
+    /// label and value for VoiceOver, a touch anywhere on the row opening
+    /// the menu, and a choice from it taking effect.
+    @MainActor
+    func testTheMenuRowsAtAnAccessibilitySizeBehaveLikeTheSystemPicker() {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
+        app.launch()
+        openGamePage(app, tile: "playFreedoom1")
+        let system = app.buttons["schemePicker"]
+        scrollTo(system, in: app)
+        let systemLabel = system.label
+        let systemValue = system.value as? String
+        XCTAssertTrue(systemLabel.contains("Touch layout") && systemLabel.contains("Default"),
+                      "the system picker no longer reads its title and choice as its label; label '\(systemLabel)', value '\(systemValue ?? "nil")'")
+        app.terminate()
+
+        app.launchArguments += ["-UIPreferredContentSizeCategoryName",
+                                "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+        openGamePage(app, tile: "playFreedoom1")
+        let row = app.buttons["schemePicker"]
+        scrollTo(row, in: app)
+        XCTAssertEqual(row.label, systemLabel, "the hand-built row is labelled differently from the system picker")
+        XCTAssertEqual(row.value as? String, systemValue, "the hand-built row's value differs from the system picker's")
+
+        // The row spans its card, not just the words of the value: the
+        // system's row opens from anywhere on it.
+        XCTAssertGreaterThan(row.frame.width, app.frame.width * 0.6,
+                             "only part of the row is the control; frame \(row.frame)")
+        // The far end of the title's line, where the row has no text at all.
+        row.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.2)).tap()
+        let modern = app.buttons["Modern"]
+        XCTAssertTrue(modern.waitForExistence(timeout: 5), "a touch on the row's empty end did not open the menu")
+        modern.tap()
+        XCTAssertTrue(app.buttons["schemePicker"].waitForExistence(timeout: 5))
+        let chosen = app.buttons["schemePicker"]
+        let predicate = NSPredicate(format: "value CONTAINS 'Modern' OR label CONTAINS 'Modern'")
+        expectation(for: predicate, evaluatedWith: chosen)
+        waitForExpectations(timeout: 5)
+    }
 }

@@ -124,18 +124,26 @@ enum PlayableDetailLayout {
     /// "YT" / "HE", issue #425). `minimumCaptionWidth` is the widest thing in
     /// the caption that cannot wrap, a word of the title or of a button, and
     /// a column narrower than that stacks.
+    ///
+    /// `rowWidth` is the hero row's own measured width where the caller has
+    /// it; the art is sized from `contentWidth`, and what is left of the row
+    /// beside it is the caption's. Zero means not measured, and the row is
+    /// taken to be `contentWidth` wide.
     static func arrangement(contentWidth: CGFloat,
                             viewportHeight: CGFloat,
-                            minimumCaptionWidth: CGFloat = 0) -> HeroArrangement {
+                            minimumCaptionWidth: CGFloat = 0,
+                            rowWidth: CGFloat = 0) -> HeroArrangement {
         guard viewportHeight.isFinite, viewportHeight > 0 else { return .stacked }
         guard contentWidth > viewportHeight else { return .stacked }
-        let caption = sideBySideCaptionWidth(contentWidth: contentWidth, viewportHeight: viewportHeight)
+        let caption = sideBySideCaptionWidth(contentWidth: contentWidth, viewportHeight: viewportHeight,
+                                             rowWidth: rowWidth)
         return caption >= minimumCaptionWidth ? .sideBySide : .stacked
     }
 
     /// The width left for the caption beside the art.
-    static func sideBySideCaptionWidth(contentWidth: CGFloat, viewportHeight: CGFloat) -> CGFloat {
-        max(0, contentWidth
+    static func sideBySideCaptionWidth(contentWidth: CGFloat, viewportHeight: CGFloat,
+                                       rowWidth: CGFloat = 0) -> CGFloat {
+        max(0, (rowWidth > 0 ? rowWidth : contentWidth)
             - sideBySideArtWidth(contentWidth: contentWidth, viewportHeight: viewportHeight)
             - captionSpacing)
     }
