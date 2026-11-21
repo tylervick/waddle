@@ -18,14 +18,20 @@
 #   1. .github/workflows/ui-tests.yml pins the same two values.
 #   2. Scripts/check-red-green.sh defaults RG_DESTINATION to that device AND
 #      that OS (its suite's stubbed simulator list follows the default; the
-#      suite itself fails if those two part).
+#      suite itself fails if those two part), and assigns it nowhere else.
 #   3. mise.toml's whole-scheme leg names that device.
 #   4. README.md's copy of that command names that device.
 #   5. Scripts/provision-test-wads.sh defaults to that device, so the
 #      documented no-argument provisioning step lands on the simulator
 #      RealWADTests then runs on.
+#   6. ui-tests.yml's workflow_dispatch `device` input defaults to that
+#      device. A manual dispatch always has inputs.device set to this default,
+#      and the workflow reads `inputs.device || env.SIMULATOR_DEVICE`, so on a
+#      dispatch this line, not the env pin of rule 1, picks the phone
+#      (issue #416).
+#   7. README.md's description of that input states the same default.
 #
-# 3-5 carry no OS on purpose (see the note in mise.toml), so only the device
+# 3-7 carry no OS on purpose (see the note in mise.toml), so only the device
 # name is compared there.
 #
 # There is no skip path. Every input is a tracked file in this repository; if
@@ -91,6 +97,43 @@ read_pin() { # file key
     PIN="$values"
 }
 
+# Sets PIN to the single line in `values`, or records a violation naming
+# `what` in `file`. For the values that are not `KEY: "value"` pins.
+read_one() { # file what values
+    local count
+    PIN=""
+    if [ -z "$3" ]; then
+        err "$1 has no $2; it must have exactly one"
+        return 0
+    fi
+    count="$(printf '%s\n' "$3" | wc -l | tr -d ' ')"
+    if [ "$count" -ne 1 ]; then
+        err "$1 has $count $2 lines; it must have exactly one"
+        return 0
+    fi
+    PIN="$3"
+}
+
+# Prints the quoted `default:` of the `device` input under
+# `on.workflow_dispatch.inputs`, one per match. Scoped by indentation: the
+# block opens at a two-space `workflow_dispatch:` and a six-space `device:`,
+# and closes at the next line indented no deeper than its opener, so another
+# input's default, or a `device:` key elsewhere in the file, is not read for
+# it. Blank lines and comments neither close a block nor count as a default.
+dispatch_device_defaults() { # file
+    awk '
+        /^[[:space:]]*(#|$)/ { next }
+        { match($0, /^ */); indent = RLENGTH }
+        indent <= 2 { in_dispatch = 0; in_device = 0 }
+        /^  workflow_dispatch:[[:space:]]*$/ { in_dispatch = 1; next }
+        in_dispatch && indent <= 6 { in_device = 0 }
+        in_dispatch && /^      device:[[:space:]]*$/ { in_device = 1; next }
+        in_device && /^        default: "[^"]*"[[:space:]]*$/ {
+            sub(/^        default: "/, ""); sub(/"[[:space:]]*$/, ""); print
+        }
+    ' "$1"
+}
+
 read_pin "$CI_FILE" SIMULATOR_DEVICE; device="$PIN"
 read_pin "$CI_FILE" SIMULATOR_OS; os="$PIN"
 # Without the source of truth there is nothing to compare the rest against.
@@ -107,9 +150,15 @@ if [ -n "$PIN" ] && [ "$PIN" != "$os" ]; then
 fi
 
 # 2. check-red-green.sh's default. Matched as the whole assignment so a
-#    mention of the destination in a comment does not satisfy it.
+#    mention of the destination in a comment does not satisfy it, and exactly
+#    one line may begin `RG_DESTINATION=`: a later reassignment would win over
+#    a correct default line. grep -c exits 1 on a count of zero, which is an
+#    answer here, not a failure; the file was proven readable above.
 want="RG_DESTINATION=\"\${RG_DESTINATION:-platform=iOS Simulator,name=$device,OS=$os}\""
-if ! grep -Fxq "$want" "$RG_FILE"; then
+assignments="$(grep -c '^RG_DESTINATION=' "$RG_FILE" || true)"
+if [ "$assignments" -gt 1 ]; then
+    err "$RG_FILE assigns RG_DESTINATION on $assignments lines; expected only the default: $want"
+elif ! grep -Fxq "$want" "$RG_FILE"; then
     err "$RG_FILE does not default to ci.yml's simulator; expected the line: $want"
 fi
 
@@ -137,5 +186,21 @@ if ! grep -Fxq "$want" "$PROVISION_FILE"; then
     err "$PROVISION_FILE does not default to ci.yml's simulator; expected the line: $want"
 fi
 
+# 6. The device a manual UI Tests dispatch runs on.
+read_one "$UI_FILE" "workflow_dispatch 'device' input with a '        default: \"...\"' line" \
+    "$(dispatch_device_defaults "$UI_FILE")"
+if [ -n "$PIN" ] && [ "$PIN" != "$device" ]; then
+    err "$UI_FILE defaults the dispatch 'device' input to \"$PIN\", but ci.yml pins \"$device\""
+fi
+
+# 7. The README's statement of that default. The line is found by its
+#    opening "- `device` " and read up to its closing "Default `...`.", so a
+#    reworded line reports as missing instead of passing unread.
+read_one "$README_FILE" "'- \`device\` ... Default \`...\`.' line documenting the dispatch input" \
+    "$(sed -n -E 's/^- `device` .* Default `([^`]*)`\.[[:space:]]*$/\1/p' "$README_FILE")"
+if [ -n "$PIN" ] && [ "$PIN" != "$device" ]; then
+    err "$README_FILE documents the dispatch 'device' default as \"$PIN\", but ci.yml pins \"$device\""
+fi
+
 finish_if_violations
-echo "check-simulator-pins: ok - \"$device\" (iOS $os) in ci.yml, ui-tests.yml, check-red-green.sh, mise.toml, README.md and provision-test-wads.sh"
+echo "check-simulator-pins: ok - \"$device\" (iOS $os) in ci.yml, ui-tests.yml (pin and dispatch default), check-red-green.sh, mise.toml, README.md (command and dispatch default) and provision-test-wads.sh"
