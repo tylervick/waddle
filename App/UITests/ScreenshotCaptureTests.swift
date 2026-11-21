@@ -89,12 +89,46 @@ final class ScreenshotCaptureTests: XCTestCase {
         Thread.sleep(forTimeInterval: 1.0)  // let a late rotation finish animating
     }
 
+    /// Takes the shot called `name`.
+    ///
+    /// On every device but an open iPhone Duo that is `XCUIScreen`. On an open
+    /// Duo `XCUIScreen` returns the OUTER display, 1398x2034 px of a screen
+    /// that is switched off, and nothing fails
+    /// (docs/learnings/iphone-duo-simulator-traps.md). So when
+    /// `WADDLE_SCREENSHOT_HOST_SHOT_REQUEST` names a file, the shot is asked
+    /// of the script instead: this writes the shot's name there, the script
+    /// photographs the active display from the host with `simctl io
+    /// screenshot` and deletes the file, and the test goes on only once it is
+    /// gone. A shot the host never took fails here, by name.
     private func shoot(_ name: String) {
         Thread.sleep(forTimeInterval: 1.5)  // settle transitions/animations
+        if let request = ProcessInfo.processInfo.environment["WADDLE_SCREENSHOT_HOST_SHOT_REQUEST"] {
+            askHost(request, for: name, timeout: 60, what: "photograph \(name)")
+            return
+        }
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    /// Writes `word` into the file at `path` and waits for the script to
+    /// delete it, which is how the script says it has done what was asked.
+    /// (A test in the simulator shares the host's filesystem.) Written to a
+    /// temporary name and moved into place, so the script never reads a
+    /// half-written request.
+    private func askHost(_ path: String, for word: String, timeout: TimeInterval, what: String) {
+        let staged = path + ".staged"
+        XCTAssertNoThrow(try word.write(toFile: staged, atomically: true, encoding: .utf8),
+                         "could not ask the host to \(what) (\(staged))")
+        XCTAssertNoThrow(try FileManager.default.moveItem(atPath: staged, toPath: path),
+                         "could not ask the host to \(what) (\(path))")
+        let deadline = Date().addingTimeInterval(timeout)
+        while FileManager.default.fileExists(atPath: path) && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path),
+                       "the host did not \(what) within \(Int(timeout)) s (request still at \(path))")
     }
 
     /// Navigation MUST fail loudly. The predecessor of these two helpers tapped
@@ -241,6 +275,58 @@ final class ScreenshotCaptureTests: XCTestCase {
         shoot("06-automap")
 
         app.terminate()  // don't leave the engine session running
+    }
+
+    /// 07-ingame-half-open: an open iPhone Duo standing half open, the game
+    /// on the upper half and the touch controls below the fold (issue #373),
+    /// which `listing/whats-new.txt` tells the store about. Only the
+    /// inner-display leg of the script runs it, by naming a pose-request file.
+    ///
+    /// Nothing in a test can bend the device: the hinge lives in Device Hub.
+    /// The test asks the script for a pose by name, and the script hands the
+    /// name to whatever is operating Device Hub, a hook or a person. What the
+    /// test then waits for is the app's own evidence, not the script's word:
+    /// the window turned tall (the fold runs across it only that way up) and
+    /// the overlay's `halfOpenSplit` marker, which exists only while the
+    /// hinge reads partly open and the division band is active
+    /// (docs/learnings/iphone-duo-half-open-pose.md). A shot taken without
+    /// both would be an ordinary in-game shot under the half-open name.
+    ///
+    /// Runs after testB (selector order), so the session it starts cannot
+    /// change what the shelf shots show. It ends by asking for the device to
+    /// be opened flat again, pass or fail.
+    @MainActor
+    func testC_HalfOpenInGame() throws {
+        guard let request = ProcessInfo.processInfo.environment["WADDLE_SCREENSHOT_POSE_REQUEST"] else {
+            throw XCTSkip("no WADDLE_SCREENSHOT_POSE_REQUEST: only the script's inner-display leg takes this shot")
+        }
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launch()
+
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 20))
+        play.tap()
+        let fire = app.buttons["fireButton"]
+        XCTAssertTrue(fire.waitForExistence(timeout: 30), "overlay never installed")
+        Thread.sleep(forTimeInterval: 5)  // level load + screen wipe
+
+        addTeardownBlock { [self] in
+            askHost(request, for: "open", timeout: 120, what: "open the device flat again")
+        }
+        askHost(request, for: "half-open", timeout: 120, what: "stand the device half open")
+
+        let marker = app.otherElements["halfOpenSplit"]
+        XCTAssertTrue(marker.waitForExistence(timeout: 120),
+                      "the overlay never split: the device is not standing half open with the fold across the window")
+        XCTAssertTrue(app.frame.height > app.frame.width,
+                      "the window is \(app.frame.size), not tall, so the fold does not run across it")
+        XCTAssertTrue(fire.exists, "the session ended before the half-open shot")
+        Thread.sleep(forTimeInterval: 2)  // the controls and the picture finish moving
+        shoot("07-ingame-half-open")
+
+        app.terminate()
     }
 
     /// 02-library, 03-preset-editor, 01-play-tab, 04-control-feel.

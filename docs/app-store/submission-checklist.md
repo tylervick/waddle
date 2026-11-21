@@ -292,7 +292,12 @@ existing version. The dry run only says what it would create; with
       and decide before submitting. Paste the read-back a successful run
       prints into §12. Re-capturing the set is the **Capture iPhone Duo
       screenshots** workflow, not a local run, unless the Mac has the
-      iOS 27.1 runtime.
+      iOS 27.1 runtime. That workflow covers the outer display only. The
+      inner display (`Scripts/capture-screenshots.sh capture duo-inner`)
+      needs Device Hub's hinge and so a Mac with a screen; **as of
+      2026-11-20 it has never been run on an open device and no inner shot
+      is in the set** (§12, "The inner display: tooling written, not yet
+      run").
 
 ## 4. App Privacy + age rating + content rights
 

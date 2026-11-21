@@ -18,6 +18,8 @@
 #             device type — the pre-provisioned "iPad (A16)" is 11" class and
 #             can't produce 13" images)
 #   duo    -> "iPhone Duo", closed     (outer display; 2034x1398 landscape)
+#   duo-inner -> "iPhone Duo", open    (inner display; 2853x2007 landscape,
+#             and one 2007x2853 shot of the device standing half open)
 #
 # The Duo leg (issue #409) is not part of `all`, for three reasons that are
 # all in docs/learnings/iphone-duo-simulator-traps.md:
@@ -36,6 +38,29 @@
 #     this path unchanged.
 # Every Duo file must come out at one of the four sizes the store accepts for
 # the device; the export refuses anything else rather than commit it.
+#
+# The inner-display leg (`capture duo-inner`, issue #409) is the same test on
+# the same simulator, opened. Two things about it are not like any other leg:
+#   * SOMETHING ELSE HAS TO WORK THE HINGE. The hinge and the rotate button
+#     exist only in Device Hub's window. This script says which pose it needs
+#     and waits until the device is in it; WADDLE_DUO_POSE_HOOK names a
+#     program that puts it there (none is committed yet: an agent pressing
+#     Device Hub's buttons by desktop control is the intended one), and
+#     without one the script prints the request and a person presses the
+#     button. Either way the pose is then checked, not trusted: `open` by the
+#     inner display being lit, and `half-open` by the app itself, in the test.
+#   * The shots are taken from the HOST. The test writes each shot's name to
+#     a request file and this script photographs the inner display with
+#     `simctl io screenshot --display=LCD-1`, because XCUIScreen would return
+#     the outer display, switched off, at a valid store size.
+#   * NOT YET RUN AGAINST AN OPEN DEVICE (2026-11-20: the Mac was locked, so
+#     Device Hub could not be driven). Two things are therefore unmeasured:
+#     whether the test's steps all work on the open display, and which way up
+#     the inner display's pixel buffer is in each pose. The second is a
+#     setting with no default (WADDLE_DUO_INNER_TURN_WIDE / _TALL): until
+#     both are given, the leg keeps its raw host shots and exports nothing.
+# Synthesized drags do nothing on an open Duo, so the test's scrolling steps
+# must not be needed there; taps land.
 #
 # WAD provisioning: copies the same real test WADs as
 # Scripts/provision-test-wads.sh but deliberately NOT the synthetic
@@ -56,6 +81,8 @@
 #   Scripts/capture-screenshots.sh capture ipad
 #   Scripts/capture-screenshots.sh prepare duo  # build against the Duo instead
 #   Scripts/capture-screenshots.sh capture duo
+#   Scripts/capture-screenshots.sh capture duo-inner   # needs Device Hub; see above
+#   Scripts/capture-screenshots.sh export duo-inner    # re-export the last run's host shots
 #
 # Env:
 #   WADDLE_TEST_WADS           directory holding the WADs, in the layout of
@@ -63,6 +90,16 @@
 #   WADDLE_DUO_SIMULATOR       name of the iPhone Duo simulator to use
 #                              (default "iPhone Duo"); created if missing
 #   WADDLE_SCREENSHOT_RESULTS  where the .xcresult bundles are written
+#   WADDLE_DUO_POSE_HOOK       duo-inner: program run as `<hook> <pose> <udid>
+#                              <simulator name>` to put the device in a pose
+#                              (open | half-open | closed)
+#   WADDLE_DUO_POSE_WAIT       duo-inner: seconds to wait for the device to be
+#                              opened (default 300)
+#   WADDLE_DUO_INNER_TURN_WIDE duo-inner: clockwise quarter turns, in degrees
+#   WADDLE_DUO_INNER_TURN_TALL (0, 90, 180 or 270), that put a host shot of the
+#                              inner display upright when the app's window is
+#                              wide (the six slots) and tall (the half-open
+#                              shot). No default: not yet measured.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -97,15 +134,32 @@ DUO_ORIENTATION="landscapeLeft"
 # The store's four iPhone Duo sizes (metadata.md §12); a closed device can
 # only produce the first two.
 DUO_SIZES="1398x2034 2034x1398 2007x2853 2853x2007"
+# What the inner-display leg must produce: each shot's name and its exact
+# size. The six slots are the open device held so its window is wide, which
+# is how the game is played; the seventh is the half-open play layout, where
+# the fold has to run across the window, so the window is tall.
+DUO_INNER_SHOTS="01-play-tab=2853x2007=WIDE 02-library=2853x2007=WIDE 03-preset-editor=2853x2007=WIDE 04-control-feel=2853x2007=WIDE 05-ingame=2853x2007=WIDE 06-automap=2853x2007=WIDE 07-ingame-half-open=2007x2853=TALL"
+# How far a host shot has to be turned in each pose. A wrong value gives a
+# picture of exactly the right size, on its side or upside down, so there is
+# no default to be wrong: export_host_shots refuses until both are set.
+DUO_INNER_TURN_WIDE="${WADDLE_DUO_INNER_TURN_WIDE:-}"
+DUO_INNER_TURN_TALL="${WADDLE_DUO_INNER_TURN_TALL:-}"
+# The inner display's name to `simctl io` (`simctl io <udid> enumerate`).
+DUO_INNER_DISPLAY="LCD-1"
+DUO_POSE_HOOK="${WADDLE_DUO_POSE_HOOK:-}"
+DUO_POSE_WAIT="${WADDLE_DUO_POSE_WAIT:-300}"
+case "$DUO_POSE_WAIT" in
+    ''|*[!0-9]*) echo "error: WADDLE_DUO_POSE_WAIT must be a non-negative integer, got '$DUO_POSE_WAIT'" >&2; exit 2 ;;
+esac
 
 require_kind() {
-    case "$1" in iphone|ipad|duo) ;; *) echo "unknown device '$1' (iphone, ipad or duo)" >&2; exit 1 ;; esac
+    case "$1" in iphone|ipad|duo|duo-inner) ;; *) echo "unknown device '$1' (iphone, ipad, duo or duo-inner)" >&2; exit 1 ;; esac
 }
 device_name() {
-    case "$1" in iphone) echo "$IPHONE_NAME" ;; ipad) echo "$IPAD_NAME" ;; duo) echo "$DUO_NAME" ;; esac
+    case "$1" in iphone) echo "$IPHONE_NAME" ;; ipad) echo "$IPAD_NAME" ;; duo|duo-inner) echo "$DUO_NAME" ;; esac
 }
 device_slug() {
-    case "$1" in iphone) echo "iphone-6.9" ;; ipad) echo "ipad-13" ;; duo) echo "iphone-duo" ;; esac
+    case "$1" in iphone) echo "iphone-6.9" ;; ipad) echo "ipad-13" ;; duo) echo "iphone-duo" ;; duo-inner) echo "iphone-duo-inner" ;; esac
 }
 
 udid_for() {
@@ -146,18 +200,119 @@ ensure_duo() {
     fi
 }
 
-# Stops the rotate-on-request loop and leaves the Duo in portrait. Runs from
+# Stops the background loop that serves the test's requests (a rotation on
+# the closed leg; shots and poses on the inner one) and leaves the Duo in
+# portrait. Runs from
 # the EXIT trap as well, so a failed test run does not leave either behind.
-DUO_UDID=""; DUO_ROTATOR_PID=""
+DUO_UDID=""; DUO_HELPER_PID=""
 duo_cleanup() {
-    if [ -n "$DUO_ROTATOR_PID" ]; then
-        kill "$DUO_ROTATOR_PID" 2>/dev/null || true
-        wait "$DUO_ROTATOR_PID" 2>/dev/null || true
-        DUO_ROTATOR_PID=""
+    if [ -n "$DUO_HELPER_PID" ]; then
+        kill "$DUO_HELPER_PID" 2>/dev/null || true
+        wait "$DUO_HELPER_PID" 2>/dev/null || true
+        DUO_HELPER_PID=""
     fi
     if [ -n "$DUO_UDID" ]; then
         xcrun devicectl device orientation set --device "$DUO_UDID" portrait >/dev/null 2>&1 || true
     fi
+}
+
+# ---- the inner-display leg's dealings with the hinge and the host ----------
+
+# True if the picture is one flat colour, which is what a display that is
+# switched off photographs as. Sixteen by sixteen is enough to tell.
+png_is_blank() {  # path
+    local small="$RESULTS_ROOT/blank-probe.$$.bmp"
+    sips -s format bmp -z 16 16 "$1" --out "$small" >/dev/null 2>&1 || return 2
+    python3 - "$small" <<'PYEOF'
+import sys
+raw = open(sys.argv[1], "rb").read()
+step = int.from_bytes(raw[28:30], "little") // 8      # 4 when sips keeps an alpha byte
+pixels = raw[int.from_bytes(raw[10:14], "little"):]
+colour = bytes(b for i, b in enumerate(pixels) if step != 4 or i % 4 != 3)
+sys.exit(0 if max(colour) - min(colour) < 8 else 1)
+PYEOF
+    local rc=$?
+    rm -f "$small"
+    return $rc
+}
+
+# Photographs the Duo's INNER display, whatever the device is doing. `simctl
+# io screenshot` does not follow the active display: with no `--display` it
+# takes the outer one ("LCD") even while the device is open, and asked for
+# the inner one ("LCD-1") on a closed device it returns 2007x2853 px of black.
+# So the size of a host shot says nothing about the pose, and every shot is
+# checked for being blank instead. `--mask=ignored` keeps the corners square,
+# as XCUIScreen's shots of the other sets are.
+duo_host_shot() {  # udid, path
+    xcrun simctl io "$1" screenshot --type=png --display="$DUO_INNER_DISPLAY" --mask=ignored "$2" >/dev/null 2>&1
+}
+
+# Asks for a pose. A hook is told and expected to act; with no hook the
+# request goes to whoever is watching the terminal. Neither is believed:
+# every caller goes on to check the pose some other way.
+duo_ask_pose() {  # pose, udid, simulator name
+    if [ -n "$DUO_POSE_HOOK" ]; then
+        echo "== pose '$1': running $DUO_POSE_HOOK" >&2
+        "$DUO_POSE_HOOK" "$1" "$2" "$3" >&2 || echo "warning: the pose hook failed for '$1' (exit $?)" >&2
+        return 0
+    fi
+    case "$1" in
+        open) echo "== ACTION NEEDED: in Device Hub, select '$3', hold it upright (portrait) and press Open." >&2 ;;
+        half-open) echo "== ACTION NEEDED: in Device Hub, press Rotate Right once on '$3', then Partially Open." >&2 ;;
+        closed) echo "== ACTION NEEDED (optional): in Device Hub, turn '$3' upright again and press Closed." >&2 ;;
+    esac
+}
+
+# Blocks until the inner display is lit, which is what "open" looks like from
+# the host. Which way up the open device is held is not visible from here;
+# the test asserts its window is wide before the first shot.
+duo_wait_open() {  # udid, simulator name
+    local probe="$RESULTS_ROOT/pose-probe.png" deadline=$((SECONDS + DUO_POSE_WAIT))
+    while :; do
+        if duo_host_shot "$1" "$probe" && ! png_is_blank "$probe"; then
+            rm -f "$probe"
+            return 0
+        fi
+        if [ $SECONDS -ge $deadline ]; then
+            echo "error: '$2' is not open after ${DUO_POSE_WAIT}s: its inner display ($DUO_INNER_DISPLAY) is dark or unreadable." >&2
+            echo "       Nothing Apple ships opens the simulator from a script: docs/learnings/driving-device-hub-by-desktop-control.md" >&2
+            exit 1
+        fi
+        sleep 2
+    done
+}
+
+# Serves the test's two kinds of request until killed. A shot that cannot be
+# taken leaves its request in place, so the test fails by name on its own
+# timeout instead of going on without the picture.
+duo_serve_requests() {  # udid, simulator name, shots dir
+    local word
+    while :; do
+        if [ -e "$DUO_SHOT_REQUEST" ]; then
+            word="$(cat "$DUO_SHOT_REQUEST")"
+            case "$word" in
+                *[!0-9a-z-]*|'') echo "error: refusing a shot request that is not a shot name: '$word'" >&2 ;;
+                *)
+                    if duo_host_shot "$1" "$3/$word.png"; then
+                        echo "== shot $word" >&2
+                        rm -f "$DUO_SHOT_REQUEST"
+                    else
+                        echo "warning: could not photograph $word; will try again" >&2
+                        sleep 1
+                    fi
+                    ;;
+            esac
+        fi
+        if [ -e "$DUO_POSE_REQUEST" ]; then
+            word="$(cat "$DUO_POSE_REQUEST")"
+            case "$word" in
+                open|half-open|closed) duo_ask_pose "$word" "$1" "$2" ;;
+                *) echo "error: ignoring an unknown pose request: '$word'" >&2 ;;
+            esac
+            rm -f "$DUO_POSE_REQUEST"
+        fi
+        sleep 0.2
+    done
 }
 
 prepare() {  # $1 = iphone (default) | duo -- the simulator the build names
@@ -169,7 +324,7 @@ prepare() {  # $1 = iphone (default) | duo -- the simulator the build names
     # there may be no iPhone 17 Pro Max to name; `prepare duo` builds against
     # the Duo itself. The products are the same arm64 simulator binaries.
     case "$kind" in
-        duo) ensure_duo ;;
+        duo|duo-inner) kind=duo; ensure_duo ;;
         *) kind=iphone; ensure_iphone ;;
     esac
     name="$(device_name "$kind")"
@@ -227,7 +382,7 @@ warm_up() {  # $1 = udid — launch once so loose-file adoption imports the WADs
     xcrun simctl terminate "$1" "$BUNDLE_ID" 2>/dev/null || true
 }
 
-capture() {  # $1 = iphone | ipad | duo
+capture() {  # $1 = iphone | ipad | duo | duo-inner
     local kind="$1" name udid slug result
     require_kind "$kind"
     name="$(device_name "$kind")"
@@ -239,7 +394,7 @@ capture() {  # $1 = iphone | ipad | duo
         # Prints the UDID on stdout and its progress on stderr.
         udid="$(Scripts/ensure-ipad-simulator.sh)"
     fi
-    if [ -z "$udid" ] && [ "$kind" = duo ]; then
+    if [ -z "$udid" ] && { [ "$kind" = duo ] || [ "$kind" = duo-inner ]; }; then
         ensure_duo
         udid="$(udid_for "$name")"
     fi
@@ -256,6 +411,13 @@ capture() {  # $1 = iphone | ipad | duo
         DUO_UDID="$udid"
         trap duo_cleanup EXIT
         xcrun devicectl device orientation set --device "$udid" "$DUO_ORIENTATION"
+    fi
+    if [ "$kind" = duo-inner ]; then
+        # Upright: opened from portrait, the inner display gives the app a
+        # wide window (951x669 pt) with no rotation at all.
+        DUO_UDID="$udid"
+        trap duo_cleanup EXIT
+        xcrun devicectl device orientation set --device "$udid" portrait >/dev/null 2>&1 || true
     fi
     # Marketing-clean status bar (Apple's own screenshot convention).
     xcrun simctl status_bar "$udid" override --time "9:41" \
@@ -293,7 +455,20 @@ capture() {  # $1 = iphone | ipad | duo
                 sleep 1
             done
         ) &
-        DUO_ROTATOR_PID=$!
+        DUO_HELPER_PID=$!
+    fi
+    if [ "$kind" = duo-inner ]; then
+        local shots="$RESULTS_ROOT/$slug-host-shots"
+        rm -rf "$shots"; mkdir -p "$shots"
+        duo_ask_pose open "$udid" "$name"
+        duo_wait_open "$udid" "$name"
+        DUO_SHOT_REQUEST="$RESULTS_ROOT/shot-request"
+        DUO_POSE_REQUEST="$RESULTS_ROOT/pose-request"
+        rm -f "$DUO_SHOT_REQUEST" "$DUO_POSE_REQUEST" "$DUO_SHOT_REQUEST.staged" "$DUO_POSE_REQUEST.staged"
+        export TEST_RUNNER_WADDLE_SCREENSHOT_HOST_SHOT_REQUEST="$DUO_SHOT_REQUEST"
+        export TEST_RUNNER_WADDLE_SCREENSHOT_POSE_REQUEST="$DUO_POSE_REQUEST"
+        duo_serve_requests "$udid" "$name" "$shots" &
+        DUO_HELPER_PID=$!
     fi
     # TEST_RUNNER_ is how xcodebuild hands a variable to the test process;
     # ScreenshotCaptureTests skips without WADDLE_SCREENSHOT_CAPTURE.
@@ -308,6 +483,11 @@ capture() {  # $1 = iphone | ipad | duo
     if [ "$kind" = duo ]; then
         duo_cleanup
         export_shots "$result" "$OUT_ROOT/$slug" "$DUO_SIZES"
+    elif [ "$kind" = duo-inner ]; then
+        duo_cleanup
+        # Back to the pose a simulator boots in, for whoever uses it next.
+        duo_ask_pose closed "$udid" "$name"
+        export_host_shots "$RESULTS_ROOT/$slug-host-shots" "$OUT_ROOT/$slug" "$DUO_INNER_SHOTS"
     else
         export_shots "$result" "$OUT_ROOT/$slug"
     fi
@@ -411,13 +591,82 @@ PYEOF
     rm -rf "$tmp"
 }
 
+# The inner-display leg's export. A host shot is the display's own pixel
+# buffer: RGBA, and the way up the PANEL is, not the way up the picture is.
+# Each shot is rewritten opaque and turned by the amount its pose needs
+# (Scripts/opaque-png.swift; no `sips --rotate`, so no orientation tag to
+# strip, though any that appears is still dropped), then held to its exact
+# size, to not being blank, and to having no alpha channel.
+export_host_shots() {  # $1 = dir of host shots, $2 = dest dir, $3 = "name=WxH=turn ..."
+    local entry name size turn raw out problems=""
+    for turn in "WADDLE_DUO_INNER_TURN_WIDE=$DUO_INNER_TURN_WIDE" "WADDLE_DUO_INNER_TURN_TALL=$DUO_INNER_TURN_TALL"; do
+        case "${turn#*=}" in
+            0|90|180|270) ;;
+            *)
+                echo "error: ${turn%%=*} is '${turn#*=}', and must be 0, 90, 180 or 270." >&2
+                echo "       It has no default because it has not been measured. The raw host shots are in" >&2
+                echo "       $1" >&2
+                echo "       Look at one of each pose, set both variables to the clockwise turn that puts it" >&2
+                echo "       upright, and run: $0 export duo-inner. Then write the two values in as defaults." >&2
+                exit 1
+                ;;
+        esac
+    done
+    mkdir -p "$2"
+    for entry in $3; do
+        name="${entry%%=*}"; size="${entry#*=}"; turn="${size#*=}"; size="${size%%=*}"
+        case "$turn" in WIDE) turn="$DUO_INNER_TURN_WIDE" ;; TALL) turn="$DUO_INNER_TURN_TALL" ;; esac
+        raw="$1/$name.png"; out="$2/$name.png"
+        if [ ! -f "$raw" ]; then
+            problems="$problems
+  $name: the test never asked for it"
+            continue
+        fi
+        if png_is_blank "$raw"; then
+            problems="$problems
+  $name is one flat colour: the inner display was switched off (the device was closed)"
+            continue
+        fi
+        xcrun swift Scripts/opaque-png.swift "$raw" "$out.tmp" "$turn" || { echo "error: could not rewrite $raw" >&2; exit 1; }
+        python3 - "$out.tmp" "$out" "$size" <<'PYEOF' || { rm -f "$out.tmp"; problems="$problems
+  $name is not ${size} without alpha after a ${turn} degree turn: the device was not in the pose this shot needs"; continue; }
+import sys
+data = open(sys.argv[1], "rb").read()
+got = "%dx%d" % (int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big"))
+# Colour type 2 is RGB with no alpha channel.
+if got != sys.argv[3] or data[25] != 2:
+    sys.exit(1)
+out, i = bytearray(data[:8]), 8
+while i < len(data):
+    length = int.from_bytes(data[i:i + 4], "big")
+    kind, blob = data[i + 4:i + 8], data[i:i + 12 + length]
+    if not (kind == b"eXIf" or (kind == b"iTXt" and blob[8:].startswith(b"XML:com.adobe.xmp\0"))):
+        out += blob
+    i += 12 + length
+    if kind == b"IEND":
+        break
+open(sys.argv[2], "wb").write(bytes(out))
+PYEOF
+        rm -f "$out.tmp"
+    done
+    if [ -n "$problems" ]; then
+        echo "error: inner-display capture refused:$problems" >&2
+        exit 1
+    fi
+    echo "exported $(echo $3 | wc -w | tr -d ' ') screenshots -> $2"
+}
+
 case "${1:-all}" in
     prepare) prepare "${2:-iphone}" ;;
-    capture) capture "${2:?usage: capture iphone|ipad|duo}" ;;
+    capture) capture "${2:?usage: capture iphone|ipad|duo|duo-inner}" ;;
+    export)
+        [ "${2:-}" = duo-inner ] || { echo "usage: $0 export duo-inner" >&2; exit 1; }
+        export_host_shots "$RESULTS_ROOT/iphone-duo-inner-host-shots" "$OUT_ROOT/iphone-duo-inner" "$DUO_INNER_SHOTS"
+        ;;
     all)
         prepare
         capture iphone
         capture ipad
         ;;
-    *) echo "usage: $0 [prepare [iphone|duo] | capture iphone|ipad|duo]" >&2; exit 1 ;;
+    *) echo "usage: $0 [prepare [iphone|duo] | capture iphone|ipad|duo|duo-inner | export duo-inner]" >&2; exit 1 ;;
 esac
