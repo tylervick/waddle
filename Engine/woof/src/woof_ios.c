@@ -929,6 +929,25 @@ bool WoofIOS_InjectMenuTap(bool down)
     return true;
 }
 
+bool WoofIOS_IsSaveSlotAtPoint(float x_points, float y_points)
+{
+    extern boolean MN_PointOnSaveLoadSlot(int, int);
+    extern boolean I_MenuPointFromWindow(float, float, float *, float *);
+    extern boolean I_PictureRectInWindow(float *, float *, float *, float *);
+    float px, py, pw, ph, mx, my;
+    // I_MenuPointFromWindow clamps to the picture's edge, as the mouse path
+    // does. A point beside the picture is not on anything drawn in it.
+    if (!menuactive || !I_PictureRectInWindow(&px, &py, &pw, &ph)
+        || x_points < px || x_points > px + pw
+        || y_points < py || y_points > py + ph
+        || !I_MenuPointFromWindow(x_points, y_points, &mx, &my))
+    {
+        return false;
+    }
+    // Truncated to int exactly as the pointer is when mn_menu.c reads it.
+    return MN_PointOnSaveLoadSlot((int)mx, (int)my) != 0;
+}
+
 void WoofIOS_InjectMenuAnswer(bool yes)
 {
     extern boolean MN_MenuMessageShowing(void);
@@ -1172,11 +1191,23 @@ const char *WoofIOS_DebugMenuState(void)
     extern boolean MN_DebugMenuItemCenter(int, float *, float *);
     extern boolean I_WindowPointFromMenu(float, float, float *, float *);
 
+    extern boolean MN_DebugMenuItemWidth(int, float *);
+
+    // iw=: the first item's rect width in window points (every item of a
+    // menu has the same one), 0 where there are no item rects to report.
+    int item_width = 0;
+    float iw, left, right, unused;
+    if (MN_DebugMenuItemWidth(0, &iw) && I_WindowPointFromMenu(0.0f, 0.0f, &left, &unused)
+        && I_WindowPointFromMenu(iw, 0.0f, &right, &unused))
+    {
+        item_width = (int)(right - left);
+    }
+
     static char buf[256];
-    size_t len = snprintf(buf, sizeof(buf), "cm=%s msg=%d mp=%d mt=%d md=%d tgt=",
+    size_t len = snprintf(buf, sizeof(buf), "cm=%s msg=%d mp=%d mt=%d md=%d iw=%d tgt=",
                           MN_DebugCurrentMenuName(), MN_MenuMessageShowing() ? 1 : 0,
                           touch_menu_pointer_writes, touch_menu_tap_writes,
-                          touch_menu_tap_dropped);
+                          touch_menu_tap_dropped, item_width);
     for (int i = 0; i < 12 && len < sizeof(buf) - 16; i++)
     {
         float mx, my, wx, wy;

@@ -2370,6 +2370,48 @@ boolean MN_DebugMenuItemCenter(int index, float *x, float *y)
     return true;
 }
 
+// Debug/test telemetry (WoofIOS_DebugMenuState's iw= field): the width of
+// item `index`'s rect in menu space, under the same conditions as its
+// centre. With the centre it says how far along a row a tap still lands on
+// the item, which is what the issue 430 UI test needs to aim at the part of
+// a save slot that lies under an overlay button.
+boolean MN_DebugMenuItemWidth(int index, float *w)
+{
+    float x, y;
+    if (!MN_DebugMenuItemCenter(index, &x, &y))
+    {
+        return false;
+    }
+    *w = currentMenu->menuitems[index].rect.w;
+    return true;
+}
+
+// Touch menus (iOS), a product seam: is this menu-space point on a slot of
+// the Load or Save list? The same rects CursorPosition and MouseResponder
+// test, refused in the same cases. The host asks before it gives a touch to
+// one of its own on-screen buttons drawn over the picture, so a slot whose
+// frame runs under a button is still chosen by a touch on it (issue 430).
+// Only these two menus: a slot's rect is the frame the player sees, while a
+// main-menu item's rect is the whole width of the screen with the item's
+// graphic in the middle of it, and a button over the empty part of that must
+// stay a button.
+boolean MN_PointOnSaveLoadSlot(int x, int y)
+{
+    if (!menuactive || messageToPrint || delete_verify || setup_active
+        || (currentMenu != &LoadDef && currentMenu != &SaveDef))
+    {
+        return false;
+    }
+    for (int i = 0; i < currentMenu->numitems; i++)
+    {
+        if (MN_PointInsideRect(&currentMenu->menuitems[i].rect, x, y))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 const char *MN_DebugMenuGeometry(void)
 {
     static char buf[64];

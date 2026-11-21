@@ -651,6 +651,15 @@ only ever runs once):
   `TouchMenuTests` reads. `WoofIOS_IsAttractMode` (title or demo, no menu)
   lets the overlay open the menu on a tap by injecting a paired
   `KEY_ESCAPE`.
+  Issue 430 added `MN_PointOnSaveLoadSlot` / `WoofIOS_IsSaveSlotAtPoint`: is
+  this window point on a slot of the Load or Save list (the rects
+  `CursorPosition` tests, refused during a prompt, on the setup screens and
+  beside the picture). The overlay asks it before giving a touch to one of
+  its buttons, because where the picture fills the window the buttons are
+  drawn over the slots' right-hand end. Only those two menus: a main-menu
+  item's rect is the full screen width, most of it empty. The HUD segment
+  gained `iw=`, an item's rect width in window points
+  (`MN_DebugMenuItemWidth`), which the test for it aims by.
 
 - `src/i_video.c`, `src/woof_ios.c` / `src/woof_ios.h` -- the picture's rect
   for the overlay's layout (issue 351). `I_PictureRectInWindow` returns
