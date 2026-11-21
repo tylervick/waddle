@@ -96,6 +96,8 @@ jobs:
           Scripts/test-engine-fingerprint.sh
           Scripts/test-check-engine-fresh.sh
           Scripts/test-check-simulator-available.sh
+          Scripts/test-prepare-ui-test-simulator.sh
+          Scripts/test-ui-test-launch-report.sh
           Scripts/test-ensure-ipad-simulator.sh
           Scripts/test-check-red-green.sh
           Scripts/test-release-args.sh

@@ -105,6 +105,22 @@ jobs:
           SIM_DEVICE: ${{ inputs.device || env.SIMULATOR_DEVICE }}
         run: Scripts/check-simulator-available.sh "$SIM_DEVICE" "$SIMULATOR_OS"
 
+      # Issues #386 and #396: a fresh runner's simulator renders every
+      # lock-screen wallpaper once, and the runner is too busy to launch an app
+      # on time while it does. Left to xcodebuild, the boot lands that work on
+      # the first test, or (when the host has been up under ten minutes) the
+      # simulator defers it into the middle of the session. This step boots the
+      # device itself and waits, by condition, until the renders are done; its
+      # WADDLE_SIMULATOR_SETTLED / WADDLE_SIMULATOR_NOT_SETTLED line says which
+      # kind of run this was. It costs minutes on every run; the script's
+      # header and docs/learnings/ui-test-launch-flakes-and-the-wallpaper-
+      # gallery.md say why that is the price.
+      - name: Boot the simulator and wait for it to settle
+        id: simulator
+        env:
+          SIM_DEVICE: ${{ inputs.device || env.SIMULATOR_DEVICE }}
+        run: Scripts/prepare-ui-test-simulator.sh "$SIM_DEVICE" "$SIMULATOR_OS"
+
       # Inputs go through env rather than direct ${{ }} interpolation into
       # the script body, so a value containing shell metacharacters cannot
       # break out of the command.
@@ -143,6 +159,26 @@ jobs:
             ARGS+=(-only-testing:WaddleUITests)
           fi
           xcodebuild "${ARGS[@]}" test
+
+      # The simulator's own log, on every run. A result bundle carries it only
+      # when a test failed, which is why nobody could say how a launch behaves
+      # in a run that passes. The step prints the wallpaper-render timeline and
+      # every app launch's lag to the job log; the archive is uploaded below.
+      # A measurement, so it never decides the job's result.
+      - name: Collect the simulator log
+        if: always() && steps.simulator.outputs.udid != ''
+        continue-on-error: true
+        env:
+          SIM_UDID: ${{ steps.simulator.outputs.udid }}
+        run: Scripts/ui-test-launch-report.sh "$SIM_UDID" UITestResults.xcresult simulator-log
+
+      - name: Upload simulator log
+        if: always() && steps.simulator.outputs.udid != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: simulator-log
+          path: simulator-log
+          retention-days: 7
 
       # Always, not just on failure: a passing UI run is also the artifact
       # you want when checking whether a flake reproduced.
