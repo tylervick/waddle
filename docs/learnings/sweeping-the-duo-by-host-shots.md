@@ -74,30 +74,35 @@ had selected its row a moment before the other one pressed.
 
 The hook now does two things, and it takes both:
 
-- **A lock** at a path every session agrees on
-  (`/tmp/waddle-device-hub.lock`, not under a per-session `TMPDIR`), held for
-  one invocation. A live holder is waited for and then the hook stops, having
-  pressed nothing. This binds only sessions that run this version of the hook.
+- **A lock**, the kernel's: `flock(2)` on a file every session agrees on
+  (`/tmp/waddle-device-hub.flock`, not under a per-session `TMPDIR`), taken
+  with macOS's `/usr/bin/lockf` on a descriptor the hook keeps open
+  (`exec 9>>"$LOCK"`, then `lockf -s -t 0 9` tried every 0.2 s until the
+  wait is up) and held for one invocation. A
+  live holder is waited for and then the hook stops, having pressed nothing.
+  This binds only sessions that run this version of the hook.
 
-  The first version of it was a directory with the holder's pid in a file,
-  and a waiter that found the pid dead renamed the directory away and took
-  the lock. That let two waiters both win: each had read the dead pid, the
-  first cleared the lock and took it, and the second then cleared the
-  first's live lock, acting on what it had read earlier. The review's stress
-  test (six waiters behind a killed holder) saw 5 overlapping holders in 150
-  rounds, and the suite's own stress case fails against that code in 12.
-  "Rename it away first" is not a guard when the thing renamed may no longer
-  be the thing that was judged. What holds:
-  - the lock is a symbolic link whose target is the holder's name (pid, time
-    taken, a random number), so making it and naming its holder are one step
-    and a lock with no holder cannot exist;
-  - to take over a dead holder's lock a waiter must first make a second
-    link, named after that dead lock's own name, the same atomic way. A name
-    is never reused, so one waiter ever wins that, and only it replaces the
-    lock, by renaming its own link over it, so the path is never empty;
-  - a lock older than ten minutes is treated as dead whatever its pid now
-    answers, because a pid is reused; and letting go removes the lock only
-    if it still carries the name of the process letting go.
+  **Do not build this lock by hand.** The first three versions were made of
+  a directory, then links, with the holder's pid inside, and each had to
+  decide when a lock was abandoned and who may take it over. Three reviews
+  found three ways that went wrong: two waiters that had both read a dead
+  pid each cleared the lock and took it; a lock with no pid in it, or a pid
+  since reused, wedged every later run; and a waiter's claim on a dead lock
+  was dated from when the waiter began waiting, so after 30 s in a queue
+  every live claim looked abandoned and two waiters took the lock (16 of 120
+  rounds). The kernel releases a lock when its holder dies, however it dies,
+  so there is nothing stale to recognise and none of that code exists now.
+
+  Two things about the kernel lock that are not obvious. A program the hook
+  started inherits the descriptor, so a hook that is killed mid-press holds
+  the lock until that program ends (the suite's own fixture tripped on this:
+  a `sleep` left behind by a killed stand-in kept the lock for a minute).
+  `lockf -t <seconds>` on a descriptor does not sleep while it waits, it
+  spins: one waiter used a whole core for its four-second wait, which is why
+  the hook does the waiting itself.
+  And the lock file is left in place and means nothing; only a held
+  descriptor is a lock, so `lockf -s -t 0 <file> true` is how to ask whether
+  anyone holds it.
 - **The selection is read again immediately before every press of a device
   button and before a touch is posted**, and must still be this simulator's
   row (`outline row (selected) <name> <version> Simulator`). During the same
