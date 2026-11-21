@@ -249,14 +249,26 @@ extension View {
     }
 }
 
+extension Theme {
+    /// The outline of a floating banner. A rounded rectangle with the cards'
+    /// radius rather than a capsule: a capsule's ends are half-circles as
+    /// tall as the banner, so once the text wraps they cut across its first
+    /// and last lines (issue #423). The radius is the same however many lines
+    /// there are; a banner under twice the radius tall (the exit label) still
+    /// comes out as a capsule, because the shape clamps its radius.
+    static var bannerShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+    }
+}
+
 extension View {
     /// A floating banner over the shelf: the import notice and the engine's
-    /// exit label. A capsule in the surface tone with the hairline, so it is
-    /// an object on the page the way a card is, rather than a smear of
-    /// whatever art happens to be under it.
+    /// exit label. `Theme.bannerShape` in the surface tone with the hairline,
+    /// so it is an object on the page the way a card is, rather than a smear
+    /// of whatever art happens to be under it.
     func waddleBanner() -> some View {
-        background(Color.appSurface, in: Capsule())
-            .overlay(Capsule().strokeBorder(Color.appHairline, lineWidth: Theme.tileHairlineWidth))
+        background(Color.appSurface, in: Theme.bannerShape)
+            .overlay(Theme.bannerShape.strokeBorder(Color.appHairline, lineWidth: Theme.tileHairlineWidth))
     }
 }
 
