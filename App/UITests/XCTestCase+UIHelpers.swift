@@ -133,9 +133,22 @@ extension XCTestCase {
     /// labels with its parent's title, also "Settings") and raises "Multiple
     /// matching elements found". Same scoping HiddenGamesScreenTests uses.
     /// See docs/learnings/sheet-leaves-presenter-navbar-in-the-tree.md.
+    ///
+    /// On a closed iPhone Duo that button is not there to find: the system
+    /// moves it to the status column, in a toolbar, with the identifier
+    /// `BackButton` and no label (the same layout `returnToShelf` meets,
+    /// issue #352), so the titled query came up empty, nothing was tapped, and
+    /// the Done assertion below failed on the Files screen (issue #409's first
+    /// Duo capture). The shelf under the sheet is a navigation root and has no
+    /// back button of its own, so the bare identifier is unambiguous here.
     func closeSettings(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         let back = app.navigationBars["Files"].buttons["Settings"]
-        if back.waitForExistence(timeout: 2) { back.tap() }
+        let unlabelledBack = app.buttons.matching(identifier: "BackButton").firstMatch
+        if back.waitForExistence(timeout: 2) {
+            back.tap()
+        } else if unlabelledBack.exists {
+            unlabelledBack.tap()
+        }
         let done = app.buttons["Done"]
         XCTAssertTrue(done.waitForExistence(timeout: 5), "Settings Done missing", file: file, line: line)
         done.tap()

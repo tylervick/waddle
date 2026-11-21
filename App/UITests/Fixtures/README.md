@@ -61,8 +61,10 @@ there passes `Scripts/check-engine-fresh.sh`):
 git worktree add --detach ../waddle-1.3 d943691 && cd ../waddle-1.3
 # provide Vendor/out, App/Resources/GameData and woof.pk3, then:
 (cd App && xcodegen generate)
+# Any iPhone simulator the machine has will do. d943691 itself pinned Xcode
+# 26.2 and iPhone 17 Pro; whether it builds under a newer Xcode is untested.
 xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
-  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -destination 'platform=iOS Simulator,name=iPhone 18 Pro' \
   -only-testing:WaddleUITests/BackgroundSuspendTests/testBackgroundingALiveLevelOpensTheMenuAndWritesASave test
 # the save is left in the app's data container:
 find ~/Library/Developer/CoreSimulator/Devices/<udid>/data/Containers/Data/Application \

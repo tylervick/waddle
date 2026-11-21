@@ -20,7 +20,15 @@ cd "$ROOT"
 TMPDIR_RG="$(mktemp -d)"
 
 # Overridable so the hermetic suite never needs a real simulator.
-RG_DESTINATION="${RG_DESTINATION:-platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2}"
+#
+# The default is SIMULATOR_DEVICE and SIMULATOR_OS from
+# .github/workflows/ci.yml, the device and runtime the xcode-27 image has.
+# Nothing passes RG_DESTINATION any more (the CI step that did left with the
+# unattended loop), so this default is the only destination a hand run gets.
+# Scripts/check-simulator-pins.sh refuses a tree where it differs from those
+# two pins; the stubbed simulator list in Scripts/test-check-red-green.sh
+# moves with it.
+RG_DESTINATION="${RG_DESTINATION:-platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0}"
 
 BASE_REF="${1:-origin/main}"
 
@@ -353,7 +361,7 @@ run_swift_domain() { # src, test
 
     # `test-without-building` genuinely launches the test bundle on a
     # simulator; `build-for-testing` above only needs the SDK to compile
-    # against, so it can (and, on this exact `RG_DESTINATION` default, once
+    # against, so it can (and, on an earlier `RG_DESTINATION` default, once
     # did -- CI run 31427755601, docs/learnings/simulator-enumeration-race.md)
     # succeed while CoreSimulator has enumerated nothing. A nonzero
     # `test-without-building` exit in that state is not "the tests noticed

@@ -22,12 +22,23 @@ build:
                 #
                 # KNOWN TO TRAIL since 2026-11-09: the workflows moved to
                 # Xcode 27.1 and this did not, because no Revyl image key for
-                # Xcode 27 could be confirmed (the CLI has no image listing
-                # and the docs name none). A guessed key fails the remote
-                # build, so it stays on the last key known to work. It only
-                # governs `revyl build --remote`; CI builds on the GitHub
-                # runner and uploads the artifact. Move it when Revyl
-                # publishes a 27.1 key.
+                # Xcode 27.1 could be confirmed. A guessed key fails the
+                # remote build, so it stays on the last key known to work. It
+                # only governs `revyl build --remote`; CI builds on the GitHub
+                # runner and uploads the artifact. Move it when a 27.1 key is
+                # confirmed by a green remote build.
+                #
+                # Last checked 2026-11-20 (issue #360): still no published
+                # 27.1 key. The CLI (v0.2.35) has no image listing and its
+                # only example is the key below; docs.revyl.ai names no image
+                # key at all. Revyl's own public repositories do pin two
+                # Xcode 27 keys, ios-macos-26-xcode-27.0
+                # (RevylAI/seven-eleven-clone) and ios-macos-26-xcode-27.2
+                # (RevylAI/shiptok), so the key shape is
+                # ios-macos-26-xcode-<version> and Xcode 27 images exist --
+                # but neither is 27.1, and ios-macos-26-xcode-27.1 appears
+                # nowhere. It is the first key to try once Revyl is switched
+                # back on (REVYL-PAUSED below).
                 image: ios-macos-26-xcode-26.2
                 # build-deps.sh clones and compiles SDL3, OpenAL Soft,
                 # sonivox, ogg, vorbis, sndfile, FLAC and opus from source for

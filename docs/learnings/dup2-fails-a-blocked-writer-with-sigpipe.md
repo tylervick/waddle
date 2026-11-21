@@ -61,5 +61,146 @@ normally four times out of four. The link between the kernel behaviour and
 the CI deaths is the timing in the logs and the absence of any other
 descriptor swap at session end, not a local replay.
 
+## 2026-11-20: the same condition, once it stopped being fatal
+
+With SIGPIPE out of the way the app survived a backed-up pty, and froze
+instead (issue #394). In run 44572978942 `xcodebuild`'s copy of the app's
+output stops in the middle of a line, XCTest's query thread logs its last
+message six seconds later, the main thread three seconds after that, and the
+test fails with `Timed out while evaluating UI query` over an app stuck on
+its last frame. Nothing was killed: the pump was asleep in its pass-through
+`write()`, the tee was full behind it, and every thread that logged joined
+the queue.
+
+The pump no longer writes to the original. A second thread per descriptor
+does, fed through a 64 KiB queue, so a destination nobody reads can put only
+that thread to sleep. A pump that finds the queue full waits up to
+`stallGrace` (2 s) for room, then takes the reader for stalled and drops
+pass-through bytes without waiting, until a write to the original completes
+again; a note saying how many bytes are missing goes down the original at
+that point. The session log is written before the pass-through is offered
+anything, so it keeps every byte either way.
+
+Three things to know before changing it:
+
+- **The grace period is what keeps a slow reader from losing bytes, and it
+  is also a bound on the first freeze.** A thread can still sleep on the tee
+  for up to `stallGrace`, once per stall. Zero would drop output every time
+  the runner hiccups.
+- **`testEndingASessionDoesNotSignalAWriterAsleepOnTheTee` needs that
+  window, so it sets its own.** It wants a writer asleep on the tee when
+  `end()` runs, and with a stalled original a writer is only asleep there
+  during the grace period. On the 2 s default it reached `end()` in about
+  0.3 s and passed, but 2.2 s of delay failed it 5 times in 6, and not on
+  "the writer never blocked": the writer was awake, raced the `dup2`, and
+  the EPIPE assertion reported errno 9 (EBADF). It now passes
+  `stallGrace: 30`. A writer that is awake when `end()` runs can get EBADF
+  from that race with or without this capture's changes; nothing here
+  prevents it.
+- **Do not replace the second thread with `O_NONBLOCK` or `poll` on the
+  saved descriptor.** `O_NONBLOCK` is a property of the open file, which the
+  app shares with whoever handed it stderr and gets back at `end()`. `poll`
+  followed by a blocking `write` is a race against the other captured
+  descriptor: stdout and stderr are usually the same pty.
+
+- **`end()` has to call the grace period off.** A pump waiting for room
+  outlives a `drainDeadline` shorter than `stallGrace`, and `end()` then
+  closed the log with part of the session still in the tee: 73,728 of
+  122,880 bytes logged, found in review of pull request 399. `end()` now
+  tells each writer to stop waiting, so the pump reads the tee straight
+  through to EOF.
+- **Calling the wait off is not the reader stalling.** The first version of
+  that treated a queue still full at `end()` as a stall and dropped what
+  the tee held: a reader taking 4 KiB every 5 ms lost about 40 KB of a
+  400 KB burst and was told it had stopped reading. Once the session is
+  ending the queue takes the tee's remainder over its capacity. A wait cut
+  short by `end()` never marks a reader stalled; a grace period that ran
+  out does, and so does the case in the next bullet.
+
+- **`end()` does not take the tee away from everybody.** Its `dup2` drops
+  the target's reference to the tee's write end, and a duplicate of the
+  target made during the session keeps its own. The pump then never sees
+  EOF, and what is written to the duplicate afterwards keeps arriving. With
+  the wait called off and nothing marking the reader stalled, 32 MiB written
+  that way was all held in memory (issue #410). Nothing in the app, the
+  engine or the vendored libraries makes such a duplicate; system frameworks
+  were not searched. The queue now takes exactly what the tee can have held
+  at `end()` over its capacity, a pipe and the pump's chunk in hand
+  (69,632 bytes), and after that a full queue marks the reader stalled and
+  drops. The first version of the previous bullet's fix said the remainder
+  was bounded "because nothing can write to the tee any more"; that was the
+  mistake.
+
+A device was not tested, for the reason the issue gives: nothing there holds
+a pty on the app's stderr. The CI stall itself was not reproduced either;
+the check is a pipe nobody reads.
+
+## 2026-11-20: a writer that is awake loses its write to the swap, and stays that way
+
+Everything above is about a writer asleep in `write()`. A writer that is
+awake has a different problem with the same two `dup2` calls: for a moment
+during the swap the descriptor number is not open at all, and a `write()`
+that lands then fails with EBADF (issue #410).
+
+Measured with four threads that never block, each writing one byte at a time
+to a descriptor on `/dev/null`, while the main thread replaces it 20,000
+times:
+
+| Swap | Writes that succeeded | EBADF |
+|---|---|---|
+| `dup2(src, target)` | 79,256 and 79,773 | 1,793,796 and 1,442,428 |
+| `close(target)` then `fcntl(src, F_DUPFD, target)` | 79,801 and 79,829 | 2,068,011 and 2,352,376 |
+
+The review that raised this ran the same shape of probe and also counted
+EPIPE, about 50,000 against 2.4 million EBADF. Through the capture itself it
+saw a thread writing flat out get EBADF in 4 sessions of 20, at the same
+rate before any of the 2026-11 changes.
+
+The effect is one failed `write()`: those bytes are in neither the log nor
+the console. Nothing crashes. EBADF raises no signal, EPIPE is kept from
+signalling as described above, and the engine never looks at the stdio
+error flag.
+
+**It is not fixed, and this is why.** Darwin has no call that replaces a
+descriptor without that window: `dup2` is the atomic one on paper and is the
+first row of the table, and there is no `dup3`. Given a swap per session,
+what is left is keeping writers out for the length of it, and the capture
+cannot:
+
+- `ftrylockfile(stdout)` and `(stderr)` around the swap would hold off stdio
+  writers only. The engine's `printf`s are stdio, but they run on the main
+  thread, which is the thread calling `begin()` and `end()`, so they were
+  never in the race. The writers that are, XCTest's logging and anything
+  using `os_log` or `NSLog` to stderr, call `write()` directly.
+- A blocking `flockfile` would be worse than the loss: a stdio writer asleep
+  on a full original holds that lock, and `begin()` would wait for it for
+  ever, where today its `dup2` wakes it.
+
+**The route not taken: do not swap per session.** The tee could be put over
+stdout and stderr once, at launch, before any other thread exists, and stay
+there, with only the log file opened and closed per session. No swap, no
+window. It has not been tried, and it is open. What it would cost, from
+reading and not from measurement:
+
+- Every byte the app prints, in or out of a session, would go through the
+  pump and the pass-through thread, so the stalled-reader handling above
+  would apply for the whole life of the process and not just a session.
+- Output still in the tee or the queue when the process dies would never
+  reach the console. Today that is true only during a session.
+- "Before any other thread exists" has to be shown, not assumed, in an app
+  whose `main` is SwiftUI's.
+
+That is a larger change than one lost line at each end of a session has so
+far been worth.
+
+So a line of another thread's output can go missing at each end of a
+session, and a test that needs a writer's errno across `end()` must put the
+writer to sleep first, as `SessionLogCaptureBlockedWriterTests` does.
+
+**The executable check:** `App/Tests/SessionLogCaptureStalledReaderTests.swift`.
+Against the capture as it was on `main` at 61c5b36 the writer stops after
+69,632 of 4,194,304 bytes and the log holds none of them.
+
 **Provenance:** issue #365, found 2026-11-10 from the result bundles of runs
-42775216487 and 42940487234.
+42775216487 and 42940487234; issue #394, found 2026-11-19 from run
+44572978942; issue #410, from the review of pull request 405.

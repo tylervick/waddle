@@ -254,7 +254,7 @@ existing version. The dry run only says what it would create; with
 - [ ] **Category:** Games → Action (§7)
 - [ ] **Copyright:** `© 2026 Tyler Vick; engine GPL-2.0` (§10)
 - [ ] **Screenshots:** run the **App Store screenshots** workflow, which
-      replaces both sets (6.9" iPhone, 13" iPad, six each) with
+      replaces both required sets (6.9" iPhone, 13" iPad, six each) with
       `docs/app-store/screenshots/` in the slot order of §12. Dry run first —
       it changes nothing and proves no target set is shared with the live
       listing — then again with `apply`, from `main`:
@@ -268,6 +268,31 @@ existing version. The dry run only says what it would create; with
       10), verifies every upload landed landscape, and pins the slot order.
       Locally, `Scripts/upload-screenshots.sh [--apply]` does the same with
       `ASC_KEY_ID`/`ASC_ISSUER_ID`/`ASC_KEY_PATH` set.
+
+- [ ] **iPhone Duo screenshots** (required from April 2027; §12, "The Duo
+      set"). A separate run of the same workflow, never part of the one
+      above: the Duo set is uploaded only when asked for by name, and alone.
+
+      ```sh
+      gh workflow run app-store-screenshots.yml --ref main -f device=duo
+      gh workflow run app-store-screenshots.yml --ref main -f device=duo -f apply=true
+      ```
+
+      The dry run lists the six files and the placement group they go to
+      (`IPHONE_DUO_PROFILE`, asset-library images placed on the version, not
+      a screenshot set). **Until §12 records a first successful Duo upload,
+      the `apply` run is an experiment**: its writes have never been sent to
+      Apple. Do it after the two required sets are in, on a version in
+      `PREPARE_FOR_SUBMISSION`, and before the version is submitted, so that
+      whatever it leaves can still be looked at and put right. A run that
+      fails part-way can leave the Duo group empty or part-filled and images
+      in the library that nothing points to; **what a part-filled Duo group
+      does to a submission is not known**, so read the group back
+      (`GET /v1/appStoreVersionLocalizations/{id}/placements?filter[placementGroup]=IPHONE_DUO_PROFILE`)
+      and decide before submitting. Paste the read-back a successful run
+      prints into §12. Re-capturing the set is the **Capture iPhone Duo
+      screenshots** workflow, not a local run, unless the Mac has the
+      iOS 27.1 runtime.
 
 ## 4. App Privacy + age rating + content rights
 

@@ -123,6 +123,11 @@ jobs:
           # is how the first on-merge TestFlight release ran with every
           # secret empty.
           Scripts/test-check-called-workflow-secrets.sh
+          # Hermetic fixtures plus one live case: refuses a hand-run script,
+          # mise.toml or the README naming a different iPhone simulator from
+          # SIMULATOR_DEVICE above, which is how four of them kept naming a
+          # phone the runner image no longer has (issue #360).
+          Scripts/test-check-simulator-pins.sh
           # Hermetic fixtures plus one live case: refuses testflight.yml
           # pushing with the job token, which cannot create a tag once main's
           # workflow files have moved past the tagged commit (build 277).

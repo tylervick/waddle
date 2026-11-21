@@ -123,11 +123,27 @@ final class TouchOverlayView: UIView {
     /// closing each run their side effects exactly once.
     private var weaponSelectorShown = false
 
+    // Control hints (issue #392): the weapon zone above is invisible, so
+    // after a few idle seconds the overlay names it, and in the Modern
+    // scheme the stick and drag-turn sides with it. `ControlHintModel` owns
+    // the idle rule and `ControlHintGeometry` the frames; this view feeds
+    // the model touch-downs and the policy poll, and shows what it says.
+    private var hintModel: ControlHintModel
+    private let hintView = ControlHintView()
+    #if DEBUG
+    /// What the hints are showing, for a UI test to read: the corner-marker
+    /// pattern again, because the hint itself is never an accessibility
+    /// element. In the tree only while a hint is up.
+    private let controlHintsMarker = UIView()
+    #endif
+
     init(gamepad: TouchGamepad, scheme: TouchControlScheme,
          tuning: TouchTuning, debugHUDEnabled: Bool,
          layoutOverrides: TouchOverlayLayoutOverrides = .none,
-         weaponSelectorStyle: WeaponSelectorStyle = .defaultStyle) {
+         weaponSelectorStyle: WeaponSelectorStyle = .defaultStyle,
+         controlHintsEnabled: Bool = ControlHintsSetting.defaultValue) {
         self.weaponSelectorStyle = weaponSelectorStyle
+        hintModel = ControlHintModel(enabled: controlHintsEnabled, scheme: scheme)
         weaponView = weaponSelectorStyle == .grid ? WeaponSelectView() : nil
         ringView = weaponSelectorStyle == .ring ? WeaponRingView() : nil
         self.gamepad = gamepad
@@ -153,6 +169,9 @@ final class TouchOverlayView: UIView {
         backgroundColor = .clear
         isMultipleTouchEnabled = true
         accessibilityIdentifier = "touchOverlay"
+        // First, so it is drawn under everything else on the overlay: a
+        // button that shares a patch of screen with a hint stays readable.
+        addSubview(hintView)
         for button in [promptNoButton, promptYesButton] {
             button.isHidden = true
             addSubview(button)
@@ -299,6 +318,12 @@ final class TouchOverlayView: UIView {
         halfOpenMarker.isHidden = true
         addSubview(halfOpenMarker)
         installHalfOpenTestSeam()
+        controlHintsMarker.frame = CGRect(x: 14, y: 2, width: 2, height: 2)
+        controlHintsMarker.accessibilityIdentifier = "controlHintsVisible"
+        controlHintsMarker.isAccessibilityElement = true
+        controlHintsMarker.isUserInteractionEnabled = false
+        controlHintsMarker.isHidden = true
+        addSubview(controlHintsMarker)
         #endif
         observeHinge()
 
@@ -512,6 +537,7 @@ final class TouchOverlayView: UIView {
             self?.updatePromptButtons()
             self?.dropMenuTouchesIfMenuClosed()
             self?.pollWeaponSelector()
+            self?.pollControlHints()
         }
         RunLoop.main.add(timer, forMode: .common)
         menuPolicyTimer = timer
@@ -694,6 +720,9 @@ final class TouchOverlayView: UIView {
         // baseDiameter is the starting size only; layoutSubviews resizes it
         // per device via TouchOverlayLayout.
         let button = OverlayButton(title: title, size: control.baseDiameter, onPress: onPress)
+        // A finger on a button is a touch on the overlay as far as the
+        // control hints go; the button, not this view, gets its touches.
+        button.onTouchDown = { [weak self] in self?.noteTouchDownForControlHints() }
         button.accessibilityIdentifier = control.rawValue
         buttons.append(button)
         addSubview(button)
@@ -861,6 +890,7 @@ final class TouchOverlayView: UIView {
         // player. The tracking call must still run first so a tap can dismiss
         // while the keyboard is active, not only summon it.
         let wasKeyboardActive = keyboardActive
+        noteTouchDownForControlHints()
         updateSummonTracking(began: touches)
         if wasKeyboardActive || keyboardActive { return }
         // Built once for the whole batch: the button frames it reads cannot
@@ -1115,6 +1145,10 @@ final class TouchOverlayView: UIView {
         }
         weaponView?.frame = bounds
         ringView?.frame = bounds
+        hintView.frame = bounds
+        hintView.update(geometry: ControlHintGeometry(
+            style: weaponSelectorStyle, pictureRect: pictureRect, bounds: bounds,
+            controlsArea: halfOpenSplit?.controlsArea, stickRadius: layout.stickRadius))
         if weaponSelectorOpen { updateWeaponSelectorView() }
     }
 
@@ -1350,6 +1384,37 @@ final class TouchOverlayView: UIView {
         ringView?.update(geometry: ringGeometry, model: ringModel, sprites: weaponSprites ?? [])
     }
 
+    // MARK: Control hints (issue #392)
+
+    /// Any finger coming down, here or on a button: the hints go at once.
+    private func noteTouchDownForControlHints() {
+        hintModel.touchDown()
+        showControlHints()
+    }
+
+    /// From the policy timer. The hints may show while the selector could
+    /// open and is not open already, which is the hotspot's own condition,
+    /// and while no finger is down: `summonTouches` is every touch this view
+    /// is tracking, and a button knows whether a finger is on it (which is
+    /// not whether it is pressed: opening the selector releases a held FIRE
+    /// while the finger stays where it was). With the setting off the engine
+    /// is not asked.
+    private func pollControlHints() {
+        let canOpen = hintModel.enabled && !weaponSelectorOpen && weaponGridSlots() != nil
+        let touching = !summonTouches.isEmpty || buttons.contains { $0.isTouched }
+        hintModel.tick(at: ProcessInfo.processInfo.systemUptime, canOpen: canOpen, touching: touching)
+        showControlHints()
+    }
+
+    private func showControlHints() {
+        let hints = hintModel.hints
+        hintView.show(hints)
+        #if DEBUG
+        controlHintsMarker.accessibilityValue = hints.moveAndAim ? "weapons move aim" : "weapons"
+        controlHintsMarker.isHidden = !hints.weapons
+        #endif
+    }
+
     // MARK: Automap gestures (issue #113)
 
     /// One event's worth of drag or pinch, from the tracked touches' current
@@ -1535,6 +1600,14 @@ final class OverlayButton: UIView {
     /// A finger is on the button and its release has not been sent or
     /// scheduled. Read only by `forceRelease()`.
     private var isPressed = false
+    /// A finger is physically on the button, from its touch-down to its lift
+    /// or cancellation, whatever became of the press: swallowed under the
+    /// weapon selector, or let go early by `forceRelease()`. The overlay's
+    /// control hints read it; they stay away while anything is held.
+    private(set) var isTouched = false
+    /// Called for every finger that comes down on the button, a swallowed
+    /// one included, before anything else happens.
+    var onTouchDown: (() -> Void)?
     /// `forceRelease()` already sent the up for the finger still on the
     /// button, so that finger's lift must send nothing.
     private var releaseAlreadySent = false
@@ -1547,6 +1620,8 @@ final class OverlayButton: UIView {
         // so it is swallowed whole: nothing is sent now, the pressed and
         // pending bookkeeping is untouched (nothing is down, nothing owed),
         // and its lift is marked to send nothing either.
+        isTouched = true
+        onTouchDown?()
         guard isUserInteractionEnabled else {
             releaseAlreadySent = true
             return
@@ -1561,10 +1636,12 @@ final class OverlayButton: UIView {
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        isTouched = false
         endPress()
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        isTouched = false
         endPress()
     }
 

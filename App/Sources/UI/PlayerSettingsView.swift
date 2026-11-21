@@ -20,6 +20,7 @@ struct PlayerSettingsView: View {
 
     @AppStorage(TouchControlScheme.userDefaultsKey) private var touchScheme: TouchControlScheme = .defaultScheme
     @AppStorage(WeaponSelectorStyle.userDefaultsKey) private var weaponSelector: WeaponSelectorStyle = .defaultStyle
+    @AppStorage(ControlHintsSetting.userDefaultsKey) private var showControlHints: Bool = ControlHintsSetting.defaultValue
     @AppStorage(debugHUDUserDefaultsKey) private var debugHUD: Bool = false
     @State private var showControlFeel = false
     @Environment(\.dismiss) private var dismiss
@@ -41,6 +42,12 @@ struct PlayerSettingsView: View {
                         }
                     }
                     .accessibilityIdentifier("weaponSelectorPicker")
+
+                    // Names the weapon zone (and, in Modern, the two sides)
+                    // after a few seconds without a touch. Read when a
+                    // session starts, like the two pickers above.
+                    Toggle("Show Control Hints", isOn: $showControlHints)
+                        .accessibilityIdentifier("controlHintsToggle")
 
                     // A sheet, not a push: `ControlFeelView` brings its own
                     // `NavigationStack` and Done button (it was built for this
