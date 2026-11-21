@@ -46,6 +46,9 @@ struct GamePageView: View {
     @State private var deleteCandidate: Game?
     @State private var artContentWidth: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
+    /// Read so the header's `UIFont` measurements are taken again when the
+    /// reader changes the text size with the page open.
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var continuableSlot: Int? { EngineSaveSlot.newestLoadGameArgument(in: saves) }
 
@@ -137,6 +140,33 @@ struct GamePageView: View {
             primaryButtonCount: continuableSlot != nil ? 2 : 1)
     }
 
+    /// The widest thing in the caption that cannot wrap: the longest word of
+    /// the title with its pencil, or the longest word of a button's label
+    /// with its icon and the button's padding. Measured from `UIFont`, like
+    /// `captionHeight`, so it grows with the reader's text size.
+    private var minimumCaptionWidth: CGFloat {
+        _ = dynamicTypeSize
+        let titleFont = UIFont.preferredFont(forTextStyle: .title2)
+        let boldTitle = titleFont.fontDescriptor.withSymbolicTraits(.traitBold)
+            .map { UIFont(descriptor: $0, size: 0) } ?? titleFont
+        let pencil = UIFont.preferredFont(forTextStyle: .subheadline).pointSize
+        let title = Self.widestWord(in: game.name, font: boldTitle) + Theme.Spacing.sm + pencil
+
+        let body = UIFont.preferredFont(forTextStyle: .body)
+        let buttonFont = UIFont.systemFont(ofSize: body.pointSize, weight: .semibold)
+        let labels = continuableSlot != nil ? "Continue New Game" : "Play"
+        // A label's icon is about one em wide and sits a word space off.
+        let button = Self.widestWord(in: labels, font: buttonFont)
+            + body.pointSize * 1.5 + Theme.Spacing.base * 2
+        return max(title, button)
+    }
+
+    private static func widestWord(in text: String, font: UIFont) -> CGFloat {
+        text.split(whereSeparator: \.isWhitespace)
+            .map { ceil((String($0) as NSString).size(withAttributes: [.font: font]).width) }
+            .max() ?? 0
+    }
+
     /// The hero row: art, title, actions. Zero row insets and a clear row
     /// background so it is drawn on the backdrop rather than in a grouped
     /// cell. The Form's own section margin (`rowHorizontalInset`) is the only
@@ -147,7 +177,8 @@ struct GamePageView: View {
         Section {
             Group {
                 switch PlayableDetailLayout.arrangement(contentWidth: artContentWidth,
-                                                        viewportHeight: viewportHeight) {
+                                                        viewportHeight: viewportHeight,
+                                                        minimumCaptionWidth: minimumCaptionWidth) {
                 case .stacked:
                     VStack(alignment: .leading, spacing: PlayableDetailLayout.captionSpacing) {
                         heroArt(height: PlayableDetailLayout.artHeight(
@@ -265,7 +296,8 @@ struct GamePageView: View {
                 // Locked: this game *is* the IWAD (spec §3.2).
                 LabeledContent("Base", value: baseName)
             } else {
-                Picker("Base", selection: $baseSelection) {
+                MenuPickerRow(title: "Base", current: baseSelectionName,
+                              identifier: "basePicker", selection: $baseSelection) {
                     // Only offered while unpaired: once a game has a base,
                     // the picker must not be able to un-pair it back to none.
                     if game.baseID == nil {
@@ -275,8 +307,6 @@ struct GamePageView: View {
                         Text(wad.displayName).tag(UUID?.some(wad.id))
                     }
                 }
-                .pickerStyle(.menu)
-                .accessibilityIdentifier("basePicker")
                 .onChange(of: baseSelection) { _, newValue in
                     guard newValue != game.baseID else { return }
                     attempt(.base(newValue))
@@ -285,6 +315,10 @@ struct GamePageView: View {
         } header: {
             WaddleSectionHeader("Base game")
         }
+    }
+
+    private var baseSelectionName: String {
+        baseGames.first { $0.id == baseSelection }?.displayName ?? "Choose a base game"
     }
 
     private var baseName: String {
@@ -296,7 +330,7 @@ struct GamePageView: View {
         Section {
             ForEach(files, id: \.id) { file in
                 VStack(alignment: .leading, spacing: Theme.Spacing.xs / 2) {
-                    Text(file.displayName)
+                    WholeWordText(file.displayName)
                     Text(GamePage.roleLabel(for: file))
                         .font(Theme.Typography.caption)
                         .foregroundStyle(Color.appSecondaryText)
@@ -329,31 +363,33 @@ struct GamePageView: View {
 
     private var settingsSection: some View {
         Section {
-            Picker("Compatibility", selection: $complevel) {
+            MenuPickerRow(title: "Compatibility", current: complevel ?? "Auto",
+                          identifier: "complevelPicker", selection: $complevel) {
                 Text("Auto").tag(String?.none)
                 ForEach(["vanilla", "boom", "mbf", "mbf21"], id: \.self) {
                     Text($0).tag(String?.some($0))
                 }
             }
-            .pickerStyle(.menu)
-            .accessibilityIdentifier("complevelPicker")
             .onChange(of: complevel) { _, newValue in
                 guard newValue != game.complevel else { return }
                 try? library.setComplevel(game, newValue)
             }
-            Picker("Touch layout", selection: $scheme) {
-                Text("Default (\(TouchControlScheme.current().displayLabel))").tag(TouchControlScheme?.none)
+            MenuPickerRow(title: "Touch layout", current: scheme?.displayLabel ?? defaultSchemeLabel,
+                          identifier: "schemePicker", selection: $scheme) {
+                Text(defaultSchemeLabel).tag(TouchControlScheme?.none)
                 Text("Classic").tag(TouchControlScheme?.some(.classic))
                 Text("Modern").tag(TouchControlScheme?.some(.modern))
             }
-            .pickerStyle(.menu)
-            .accessibilityIdentifier("schemePicker")
             .onChange(of: scheme) { _, newValue in
                 guard newValue?.rawValue != game.schemeOverrideRaw else { return }
                 try? library.setSchemeOverride(newValue?.rawValue, for: game)
                 onChanged()
             }
         }
+    }
+
+    private var defaultSchemeLabel: String {
+        "Default (\(TouchControlScheme.current().displayLabel))"
     }
 
     @ViewBuilder
@@ -446,6 +482,48 @@ struct GamePageView: View {
     // harmless.
     private var pendingEditBinding: Binding<Bool> {
         Binding(get: { pendingEdit != nil }, set: { if !$0 { pendingEdit = nil; reload() } })
+    }
+}
+
+/// A row that picks one value from a menu.
+///
+/// At the ordinary text sizes it is the system's menu `Picker`, untouched. At
+/// the accessibility sizes the system lays that picker's title over its value
+/// and sizes the row as if the value were one line: a value that wraps
+/// ("Freedoom" / "Phase 2") spilled out of the row both ways, and pushed the
+/// title against the top edge of its card (issue #425). So there the row is
+/// built here, a title over a `Menu` whose label is ordinary text the list
+/// can measure. The menu holds the same picker, so choosing is unchanged.
+private struct MenuPickerRow<Value: Hashable, Options: View>: View {
+    let title: String
+    /// The selected option's name, for the hand-built row to show.
+    let current: String
+    let identifier: String
+    @Binding var selection: Value
+    @ViewBuilder var options: Options
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                WholeWordText(title)
+                    .accessibilityHidden(true)
+                Menu {
+                    Picker(title, selection: $selection) { options }
+                } label: {
+                    HStack(spacing: Theme.Spacing.sm) {
+                        Text(current).multilineTextAlignment(.leading)
+                        Image(systemName: "chevron.up.chevron.down").imageScale(.small)
+                    }
+                }
+                .accessibilityLabel("\(title), \(current)")
+                .accessibilityIdentifier(identifier)
+            }
+        } else {
+            Picker(title, selection: $selection) { options }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier(identifier)
+        }
     }
 }
 

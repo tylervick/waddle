@@ -115,9 +115,29 @@ enum PlayableDetailLayout {
     /// the art to its 96 pt floor on every landscape phone: the caption and
     /// the controls' peek left nothing for it. Beside the caption, the art
     /// spends width, which a landscape page has to spare.
-    static func arrangement(contentWidth: CGFloat, viewportHeight: CGFloat) -> HeroArrangement {
+    ///
+    /// Unless the caption would not fit beside it. "Wider than tall" is also
+    /// true of a narrow page that has just lost its height: the shelf's panel
+    /// on an open iPhone Duo is about 340 pt of content, and with the rename
+    /// prompt's keyboard up it is shorter than that. Side by side there left
+    /// the title a column two letters wide at the largest text size ("SC" /
+    /// "YT" / "HE", issue #425). `minimumCaptionWidth` is the widest thing in
+    /// the caption that cannot wrap, a word of the title or of a button, and
+    /// a column narrower than that stacks.
+    static func arrangement(contentWidth: CGFloat,
+                            viewportHeight: CGFloat,
+                            minimumCaptionWidth: CGFloat = 0) -> HeroArrangement {
         guard viewportHeight.isFinite, viewportHeight > 0 else { return .stacked }
-        return contentWidth > viewportHeight ? .sideBySide : .stacked
+        guard contentWidth > viewportHeight else { return .stacked }
+        let caption = sideBySideCaptionWidth(contentWidth: contentWidth, viewportHeight: viewportHeight)
+        return caption >= minimumCaptionWidth ? .sideBySide : .stacked
+    }
+
+    /// The width left for the caption beside the art.
+    static func sideBySideCaptionWidth(contentWidth: CGFloat, viewportHeight: CGFloat) -> CGFloat {
+        max(0, contentWidth
+            - sideBySideArtWidth(contentWidth: contentWidth, viewportHeight: viewportHeight)
+            - captionSpacing)
     }
 
     /// At most this much of the row's width goes to the art when it sits

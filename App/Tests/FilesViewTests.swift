@@ -185,4 +185,40 @@ final class FilesViewTests: XCTestCase {
             FilesView.BlockedFile(filename: "sunlust.wad", games: ["Sunlust MP"]),
         ])
     }
+
+    // MARK: Wrapping (issue #425)
+
+    /// A file name gets one place to wrap, in front of its extension, so a
+    /// line that cannot hold the whole name ends there instead of inside
+    /// ".wad". The break is a zero-width space: it draws nothing.
+    func testAFilenameMayWrapInFrontOfItsExtension() {
+        XCTAssertEqual(FilesView.wrappingFilename("freedoom1.wad"), "freedoom1\u{200B}.wad")
+        XCTAssertEqual(FilesView.wrappingFilename("Eviternity II.wad"), "Eviternity II\u{200B}.wad")
+        XCTAssertEqual(FilesView.wrappingFilename("a.b.deh"), "a.b\u{200B}.deh", "only the last dot is the extension's")
+    }
+
+    /// Nothing to keep whole, nothing added: a name with no extension, and a
+    /// dot-file, whose dot is not in front of an extension.
+    func testANameWithNoExtensionIsLeftAlone() {
+        XCTAssertEqual(FilesView.wrappingFilename("README"), "README")
+        XCTAssertEqual(FilesView.wrappingFilename(".hidden"), ".hidden")
+        XCTAssertEqual(FilesView.wrappingFilename(""), "")
+    }
+
+    /// The row is found and read by its name, so the break must not change
+    /// what the name is once it is taken out again.
+    func testTheWrapPointIsTheOnlyChange() {
+        for name in ["freedoom1.wad", "SCYTHE.WAD", "Eviternity II.wad", "README", "a.b.deh"] {
+            XCTAssertEqual(FilesView.wrappingFilename(name).replacingOccurrences(of: "\u{200B}", with: ""), name)
+        }
+    }
+
+    /// `WholeWordText` allows a line per word, which is what makes running
+    /// out of lines mean "a word was broken".
+    func testWholeWordTextAllowsOneLinePerWord() {
+        XCTAssertEqual(WholeWordText.wordCount("Compatibility"), 1)
+        XCTAssertEqual(WholeWordText.wordCount("Eviternity II"), 2)
+        XCTAssertEqual(WholeWordText.wordCount("  Maps  &  Add-ons "), 3)
+        XCTAssertEqual(WholeWordText.wordCount(""), 1, "a line limit of zero is not a limit SwiftUI accepts")
+    }
 }

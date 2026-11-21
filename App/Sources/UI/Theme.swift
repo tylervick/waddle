@@ -290,3 +290,61 @@ struct WaddleSectionHeader: View {
             .textCase(nil)
     }
 }
+
+/// Children side by side at the ordinary text sizes and one under the other
+/// at the accessibility sizes, where two things on one line each get less
+/// width than their longest word needs (issue #425).
+struct AccessibilityStack<Content: View>: View {
+    var spacing: CGFloat?
+    @ViewBuilder var content: Content
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: spacing) { content }
+        } else {
+            HStack(spacing: spacing) { content }
+        }
+    }
+}
+
+/// A list row's label: icon and title at the ordinary text sizes, the title
+/// alone at the accessibility sizes. In the shelf's panel a row is about
+/// 280 pt wide, and at the largest size the icon left "Hidden Games" less
+/// than "Hidden" needs, so the word was hyphenated (issue #425). The icons
+/// repeat what the titles say; the titles are what has to stay whole.
+struct WaddleRowLabelStyle: LabelStyle {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    func makeBody(configuration: Configuration) -> some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            configuration.title
+        } else {
+            Label(configuration)
+        }
+    }
+}
+
+/// Text that keeps its words whole. Wrapping breaks a word that is wider
+/// than its line ("Compatibili-" / "ty" and "SCYTH" / "E" in the shelf's panel
+/// at the largest accessibility size, issue #425). Given as many lines as it
+/// has words, a text only runs out of lines when a word has been broken, and
+/// then it shrinks until none is. Text that fits is not touched, so this
+/// costs nothing at the ordinary sizes.
+struct WholeWordText: View {
+    let string: String
+
+    init(_ string: String) {
+        self.string = string
+    }
+
+    static func wordCount(_ string: String) -> Int {
+        max(1, string.split(whereSeparator: \.isWhitespace).count)
+    }
+
+    var body: some View {
+        Text(string)
+            .lineLimit(Self.wordCount(string))
+            .minimumScaleFactor(0.5)
+    }
+}
