@@ -16,6 +16,7 @@ pass() { echo "ok - $1"; }
 #   poster.txt, launches.txt   what `log show` prints for each predicate
 #   session.log                the session log `xcresulttool export` produces
 #   collect.status             exit status of every `log collect` (default 0)
+#   show.fails                 every `log show` fails as on an unreadable archive
 #   collect.fails.once         the first `log collect` fails as on a shut-down device
 make_fixture() { # dest
     mkdir -p "$1/bin" "$1/bundle.xcresult"
@@ -42,6 +43,7 @@ STUB
 #!/bin/bash
 F="$(cd "$(dirname "$0")/.." && pwd)"
 if [ "$1 $2 $4 $5 $6" = "show --archive --style compact --predicate" ]; then
+    if [ -f "$F/show.fails" ]; then echo "log: Could not open log archive: The log archive is corrupt" >&2; exit 1; fi
     echo "Timestamp               Ty Process[PID:TID]"
     case "$7" in
         *PosterBoard*)  if [ -f "$F/poster.txt" ]; then cat "$F/poster.txt"; fi ;;
@@ -155,5 +157,29 @@ echo "$out" | grep -q "booting it to read its log" || fail "did not say it boote
 grep -q "^booted UDID-1$" "$TMP/f/boots" || fail "did not boot the device"
 echo "$out" | grep -q "launches tracked: 1  with an update: 1" || fail "no report after the second collect; got: $out"
 pass "boots a shut-down device to read its log"
+
+# 7. The archive was collected but cannot be read. Every section says so, and
+#    none prints a verdict: "no launch lagged more than 10 s" over an unread
+#    log is the masked-exit-status failure this repo has paid for five times.
+make_fixture "$TMP/g"
+: > "$TMP/g/show.fails"
+out="$(report "$TMP/g")" || fail "an unreadable archive must not fail the report: $out"
+[ "$(echo "$out" | grep -c "could not read the archive: log: Could not open log archive")" = 2 ] || fail "did not report both failed reads; got: $out"
+if echo "$out" | grep -qE "no launch lagged|launches tracked|\(no lines\)"; then fail "printed a verdict over an archive it could not read: $out"; fi
+pass "reports an unreadable archive instead of an empty, healthy-looking result"
+
+# 8. The first launch never completed (#386's shape: the test gave up first).
+#    The next test's launch request must not be read as its "launched" line.
+make_fixture "$TMP/h"
+cat > "$TMP/h/session.log" <<'EOF2'
+00:07:24.818 xcodebuild[15229:41869] Test runner session received application launch request: <XCTProcessLaunchParameters: 0x1> bundleID: com.tylervick.waddle
+00:08:17.574 xcodebuild[15229:41869] Stored token 1 for launch of com.tylervick.waddle at /x/Waddle.app
+00:09:31.295 xcodebuild[15229:41869] Test runner session received application launch request: <XCTProcessLaunchParameters: 0x2> bundleID: com.tylervick.waddle
+00:09:31.440 xcodebuild[15229:59537] 0A1B: Launched app with identifier: com.tylervick.waddle (pid = 20782)
+EOF2
+out="$(report "$TMP/h")" || fail "exited non-zero: $out"
+echo "$out" | grep -q "requested 00:07:24.818  (the first launch never completed in the session log)" || fail "did not report the incomplete first launch; got: $out"
+if echo "$out" | grep -q "launch issued after"; then fail "timed a launch that never completed: $out"; fi
+pass "does not borrow the next launch's lines for a first launch that never completed"
 
 echo "All ui-test-launch-report tests passed."

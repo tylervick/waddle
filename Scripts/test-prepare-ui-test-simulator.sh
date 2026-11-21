@@ -19,7 +19,9 @@ DONE='2026-11-19 00:08:04.655 Df PosterBoard[1:2] [com.apple.PosterBoard:DataSto
 DEFERRED='2026-11-20 01:45:12.069 E  PosterBoard[1:2] [com.apple.PosterBoard:DataStore] Gallery controller requested snapshot prewarm for role PRPosterRoleLockScreen, but prewarm has not run and uptime 392s is within 600s boot window; deferring to -prewarm:'
 
 # A fixture is a directory: bin/ holds the stubs, and these files steer them.
-#   uptime        host uptime in seconds (the stub date says "now" is 2000000000)
+#   uptime        host uptime in seconds when the script starts. The stub
+#                 clock starts at 2000000000 and moves only when the stub
+#                 `sleep` is called, by what it was asked to sleep.
 #   stream.<n>    lines the log stream delivers during the n-th poll sleep
 #   stream.dies   if present, the log stream exits at once with a failure
 #   stream.dies.once  the same, for the first stream only
@@ -27,6 +29,7 @@ DEFERRED='2026-11-20 01:45:12.069 E  PosterBoard[1:2] [com.apple.PosterBoard:Dat
 #                 is (default Booted)
 #   backfill      what the one `log show` from boot prints; the single word
 #                 FAIL makes that query fail
+#   backfill.slow if present, that `log show` runs for 23 s instead
 #   boot.status   exit status of `simctl bootstatus` (default 0)
 make_fixture() { # dest uptime
     mkdir -p "$1/bin"
@@ -68,6 +71,7 @@ if [ "$1 $2 $4 $5" = "simctl spawn log stream" ]; then
     exec /bin/sleep 20
 fi
 if [ "$1 $2 $4 $5" = "simctl spawn log show" ]; then
+    if [ -f "$F/backfill.slow" ]; then exec /bin/sleep 23; fi
     if [ ! -f "$F/backfill" ]; then exit 0; fi
     if [ "$(cat "$F/backfill")" = "FAIL" ]; then echo "log: could not open local log store" >&2; exit 1; fi
     cat "$F/backfill"
@@ -90,13 +94,15 @@ exit 64
 STUB
     cat > "$1/bin/date" <<'STUB'
 #!/bin/bash
-if [ "$*" = "+%s" ]; then echo 2000000000; exit 0; fi
+F="$(cd "$(dirname "$0")/.." && pwd)"
+if [ "$*" = "+%s" ]; then echo $(( 2000000000 + $(cat "$F/clock" 2>/dev/null || echo 0) )); exit 0; fi
 exec /bin/date "$@"
 STUB
     cat > "$1/bin/sleep" <<'STUB'
 #!/bin/bash
 F="$(cd "$(dirname "$0")/.." && pwd)"
 echo "sleep $*" >> "$F/calls"
+echo $(( $(cat "$F/clock" 2>/dev/null || echo 0) + $1 )) > "$F/clock"
 if [ "$1" = 10 ]; then
     n=$(( $(cat "$F/polls" 2>/dev/null || echo 0) + 1 ))
     echo "$n" > "$F/polls"
@@ -107,9 +113,9 @@ STUB
     chmod +x "$1/bin/xcrun" "$1/bin/sysctl" "$1/bin/date" "$1/bin/sleep"
 }
 
-prepare() { # dir device os
+prepare() { # dir device os [timeout]
     env PATH="$1/bin:/usr/bin:/bin" GITHUB_OUTPUT="$1/github_output" \
-        SIMULATOR_READY_TIMEOUT=50 SIMULATOR_READY_POLL=10 \
+        SIMULATOR_READY_TIMEOUT="${4:-50}" SIMULATOR_READY_POLL=10 \
         SIMULATOR_READY_WORK_DIR="$1/work" \
         "$ROOT/Scripts/prepare-ui-test-simulator.sh" "$2" "$3"
 }
@@ -122,7 +128,7 @@ printf '%s\n%s\n' "$IMMEDIATE" "$CALLING" > "$TMP/a/stream.1"
 printf '%s\n' "$DONE" > "$TMP/a/stream.2"
 out="$(prepare "$TMP/a" "iPhone 18 Pro" 27.0)" || fail "exited non-zero on the happy path: $out"
 echo "$out" | grep -q "WADDLE_SIMULATOR_SETTLED" || fail "no SETTLED marker; got: $out"
-[ "$(cat "$TMP/a/polls")" = 2 ] || fail "expected to settle on the third look, after 2 poll sleeps; made $(cat "$TMP/a/polls")"
+echo "$out" | grep -q "rendered 20s after boot" || fail "did not report the wait by the clock (two sleeps of 10 s); got: $out"
 echo "$out" | grep -q "rendering the gallery (184 requests)" || fail "did not announce the render; got: $out"
 grep -q "^udid=AAAA1111-2222-3333-4444-555566667777$" "$TMP/a/github_output" || fail "wrong or missing udid output: $(cat "$TMP/a/github_output")"
 grep -q "^xcrun simctl bootstatus AAAA1111-2222-3333-4444-555566667777 -b$" "$TMP/a/calls" || fail "did not boot the matched device"
@@ -164,6 +170,15 @@ echo "$out" | grep -q "log stream running, log show from boot ok" || fail "did n
 [ "$(cat "$TMP/d/polls")" = 5 ] || fail "expected 5 looks at the log (50 s / 10 s), made $(cat "$TMP/d/polls")"
 pass "gives up after the bounded wait with NOT_SETTLED reason=timeout"
 
+# 4b. The bound is seconds, not looks. With 25 s allowed and 10 s between
+#     looks, the last sleep is the 5 s that remain, and the wait ends at 25 s.
+#     Counting looks instead let a 900 s wait run to 1350 on a slow runner.
+make_fixture "$TMP/d2" 700
+out="$(prepare "$TMP/d2" "iPhone 18 Pro" 27.0 25)" || fail "a timeout must not fail the run: $out"
+echo "$out" | grep -q "reason=timeout -- no gallery-render line in the simulator log 25s after boot" || fail "did not stop at 25 s; got: $out"
+[ "$(grep -c '^sleep ' "$TMP/d2/calls")" = 3 ] && grep -q '^sleep 5$' "$TMP/d2/calls" || fail "expected sleeps of 10, 10 and 5; got: $(grep '^sleep' "$TMP/d2/calls" | tr '\n' ' ')"
+pass "bounds the wait in seconds and sleeps only what remains"
+
 # 5. Both readers dead is not a quiet simulator: the run still ends
 #    NOT_SETTLED, and the warning says the silence was the readers'.
 make_fixture "$TMP/e" 700
@@ -204,6 +219,17 @@ printf '%s\n%s\n' "$IMMEDIATE" "$DONE" > "$TMP/e3/stream.1"
 out="$(prepare "$TMP/e3" "iPhone 18 Pro" 27.0)" || fail "exited non-zero: $out"
 echo "$out" | grep -q "WADDLE_SIMULATOR_SETTLED" || fail "a failed log show stopped it settling; got: $out"
 pass "settles from the stream when the log show fails"
+
+# 5d. A `log show` still running when the wait ends is stopped with it. It is
+#     the child of a subshell, which a signal to the subshell does not reach;
+#     left alone it would scan the log under the first test.
+make_fixture "$TMP/e4" 700
+: > "$TMP/e4/backfill.slow"
+printf '%s\n%s\n' "$IMMEDIATE" "$DONE" > "$TMP/e4/stream.1"
+prepare "$TMP/e4" "iPhone 18 Pro" 27.0 >/dev/null || fail "exited non-zero with a slow log show"
+if pgrep -f "/bin/sleep 23" >/dev/null; then pkill -f "/bin/sleep 23"; fail "left the log show running after the wait ended"; fi
+if pgrep -f "/bin/sleep 20" >/dev/null; then pkill -f "/bin/sleep 20"; fail "left the log stream running after the wait ended"; fi
+pass "stops both log readers when the wait ends"
 
 # 6. No such device: exit 1, and nothing is booted.
 make_fixture "$TMP/f" 700

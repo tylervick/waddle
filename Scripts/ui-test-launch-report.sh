@@ -68,18 +68,32 @@ if ! collect; then
     fi
 fi
 
-show() { # predicate -> the matching lines, compact, header and footer dropped
-    log show --archive "$ARCHIVE" --style compact --predicate "$1" 2>/dev/null | grep -E '^[0-9]{4}-' || true
+# show <predicate> <file>: the matching lines, compact, header and footer
+# dropped, into <file>. Returns non-zero when the archive could not be read,
+# which is not the same thing as a query that matched nothing: a section whose
+# read failed prints that, and never a verdict over lines nobody read.
+show() {
+    if ! log show --archive "$ARCHIVE" --style compact --predicate "$1" > "$2.raw" 2> "$2.err"; then
+        : > "$2"
+        return 1
+    fi
+    grep -E '^[0-9]{4}-' "$2.raw" > "$2" || true
+    rm -f "$2.raw" "$2.err"
 }
 
 echo "== PosterBoard: lock-screen gallery snapshots and prewarm =="
-show 'process == "PosterBoard" AND (eventMessage CONTAINS "requested snapshot prewarm" OR eventMessage CONTAINS "Calling prewarmSnapshotsForRequests" OR eventMessage CONTAINS "Successfully prewarmed gallery snapshots" OR eventMessage CONTAINS "Starting prewarm" OR eventMessage CONTAINS "prewarmSnapshotsForRequests completed" OR eventMessage CONTAINS "Prewarm is complete")' \
-    | sed -E 's/^([0-9-]+ [0-9:.]+) .*\] /\1  /' | cut -c1-240 > "$OUT/posterboard.txt"
-if [ -s "$OUT/posterboard.txt" ]; then cat "$OUT/posterboard.txt"; else echo "(no lines)"; fi
+if show 'process == "PosterBoard" AND (eventMessage CONTAINS "requested snapshot prewarm" OR eventMessage CONTAINS "Calling prewarmSnapshotsForRequests" OR eventMessage CONTAINS "Successfully prewarmed gallery snapshots" OR eventMessage CONTAINS "Starting prewarm" OR eventMessage CONTAINS "prewarmSnapshotsForRequests completed" OR eventMessage CONTAINS "Prewarm is complete")' "$OUT/posterboard-lines.txt"; then
+    sed -E 's/^([0-9-]+ [0-9:.]+) .*\] /\1  /' "$OUT/posterboard-lines.txt" | cut -c1-240 > "$OUT/posterboard.txt"
+    if [ -s "$OUT/posterboard.txt" ]; then cat "$OUT/posterboard.txt"; else echo "(no lines)"; fi
+else
+    echo "(could not read the archive: $(head -1 "$OUT/posterboard-lines.txt.err"))"
+fi
 
 echo
 echo "== App launches: lag from process tracked to 'running foreground' reaching the test runner =="
-show "(process == \"testmanagerd\" AND eventMessage CONTAINS \"XCTDProcessMonitor\" AND eventMessage CONTAINS \"passing update\" AND eventMessage CONTAINS \"running foreground\") OR (process == \"runningboardd\" AND eventMessage CONTAINS \"Now tracking process: [app<$BUNDLE_ID\")" > "$OUT/launch-lines.txt"
+if ! show "(process == \"testmanagerd\" AND eventMessage CONTAINS \"XCTDProcessMonitor\" AND eventMessage CONTAINS \"passing update\" AND eventMessage CONTAINS \"running foreground\") OR (process == \"runningboardd\" AND eventMessage CONTAINS \"Now tracking process: [app<$BUNDLE_ID\")" "$OUT/launch-lines.txt"; then
+    echo "(could not read the archive: $(head -1 "$OUT/launch-lines.txt.err")); no launch was measured"
+else
 awk -v app="$BUNDLE_ID" '
     function secs(d, t,    p) { split(t, p, ":"); return substr(d, 9, 2) * 86400 + p[1] * 3600 + p[2] * 60 + p[3] }
     {
@@ -106,6 +120,7 @@ awk -v app="$BUNDLE_ID" '
         if (slow == "") print "no launch lagged more than 10 s"
     }
 ' "$OUT/launch-lines.txt" | tee "$OUT/launch-lag.txt"
+fi
 
 echo
 echo "== First launch, from xcodebuild's session log =="
@@ -124,18 +139,27 @@ SESSION="$(find "$DIAG" -name 'Session-*.log' | head -1)"
 if [ -z "$SESSION" ]; then
     echo "(no session log in $BUNDLE)"
 else
-    grep -E "xcodebuild.*(received application launch request|Stored token 1 for launch|Launched app with identifier: $BUNDLE_ID )" "$SESSION" | head -3 > "$OUT/first-launch-lines.txt" || true
-    awk '
+    # The three lines of the FIRST launch, in order, and only if all three
+    # belong to it: a launch that never completed must not borrow the next
+    # test's request as its own "launched" line.
+    awk -v app="$BUNDLE_ID" '
         function secs(t,    p) { split(t, p, ":"); return p[1] * 3600 + p[2] * 60 + p[3] }
-        { t[NR] = secs($1); at[NR] = $1 }
+        $2 !~ /^xcodebuild/ { next }
+        /received application launch request/ {
+            if (req == "") { req = $1; next }
+            if (done == "") exit
+        }
+        req != "" && tok == "" && /Stored token 1 for launch/ { tok = $1; next }
+        tok != "" && done == "" && index($0, "Launched app with identifier: " app " ") { done = $1; exit }
         END {
-            if (NR < 3) { print "(the session log has no complete first launch)"; exit }
-            a = t[2] - t[1]; b = t[3] - t[2]
+            if (req == "") { print "(the session log has no launch request)"; exit }
+            if (tok == "" || done == "") { printf "requested %s  (the first launch never completed in the session log)\n", req; exit }
+            a = secs(tok) - secs(req); b = secs(done) - secs(tok)
             if (a < 0) a += 86400
             if (b < 0) b += 86400
-            printf "requested %s  launch issued after %.1f s  launched %.1f s later\n", at[1], a, b
+            printf "requested %s  launch issued after %.1f s  launched %.1f s later\n", req, a, b
         }
-    ' "$OUT/first-launch-lines.txt" | tee "$OUT/first-launch.txt"
+    ' "$SESSION" | tee "$OUT/first-launch.txt"
 fi
 # The exported diagnostics of a failed run hold a second copy of the system
 # log; the archive above is the one to upload.

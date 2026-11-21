@@ -135,8 +135,11 @@ was shut down under the wait), which leaves nine with numbers.
 - **The first launch is quicker, and not always.** `xcodebuild` issued the
   first launch after 1.1 to 3.6 s in nine of ten runs and 18.2 s in the tenth,
   although that run had settled seven minutes earlier. Before, the same step
-  took a median of 6.8 s and over 10 s in 16 of 36 passing runs. So the renders
-  are a large part of #386's stall and something else is the rest.
+  took a median of 6.8 s and over 10 s in 16 of 36 passing runs. That fits the
+  renders being a large part of #386's stall, and does not prove it: the wait
+  also sits out the rest of the first boot and starts the tests on an older
+  host, and no run separated those from the renders. The 18.2 s run says
+  something else contributes whichever it is.
 - **The counts prove little alone.** #386 was 9 failures in 70 attempts: ten
   clean whole-suite runs happen by luck about one time in four at that rate.
   #396 was 3 in 70: ten clean runs happen by luck two times in three.

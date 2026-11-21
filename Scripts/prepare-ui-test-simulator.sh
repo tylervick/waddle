@@ -168,13 +168,25 @@ start_readers() {
         else
             echo failed > "$WORK/backfill.status"
         fi
-    ) &
+    ) 2>/dev/null &
     backfill_pid=$!
 }
-cleanup() {
-    kill $stream_pid $backfill_pid 2>/dev/null || true
+# The `log show` is a child of the subshell that records its status, and a
+# signal to the subshell does not reach it, so its children go first. Left
+# alone it would go on scanning the log under the first test.
+stop_readers() {
+    if [ -n "$backfill_pid" ]; then
+        pkill -P "$backfill_pid" 2>/dev/null || true
+        kill "$backfill_pid" 2>/dev/null || true
+        wait "$backfill_pid" 2>/dev/null || true
+    fi
+    if [ -n "$stream_pid" ]; then
+        kill "$stream_pid" 2>/dev/null || true
+        wait "$stream_pid" 2>/dev/null || true
+    fi
+    rm -f "$BACKFILL.tmp"
 }
-trap cleanup EXIT
+trap stop_readers EXIT
 start_readers
 
 # A stream that has exited is the first sign the device is no longer there to
@@ -198,19 +210,19 @@ revive_readers() {
     fi
     if [ "$restarts" -lt 5 ]; then
         restarts=$(( restarts + 1 ))
-        kill $backfill_pid 2>/dev/null || true
+        stop_readers
         start_readers
     fi
 }
 
-polls=$(( TIMEOUT / POLL ))
-if [ "$polls" -lt 1 ]; then polls=1; fi
+# Bounded by the clock, not by a count of looks: on a runner this busy one
+# look and its sleep took 15 s, not 10, and a count would have let a 900 s
+# wait run to 1350.
+deadline=$(( booted_at + TIMEOUT ))
 outcome="timeout"
 deferral=""
 announced=""
-i=0
-while [ "$i" -lt "$polls" ]; do
-    i=$(( i + 1 ))
+while :; do
     revive_readers
     lines="$(cat "$STREAM" "$BACKFILL")"
     case "$lines" in
@@ -231,10 +243,10 @@ while [ "$i" -lt "$polls" ]; do
                 say "PosterBoard is rendering the gallery ($(printf '%s\n' "$lines" | grep -F 'Calling prewarmSnapshotsForRequests' | tail -1 | sed 's/.*Calling prewarmSnapshotsForRequests with //'))"
             fi ;;
     esac
-    sleep "$POLL"
+    remaining=$(( deadline - $(date +%s) ))
+    if [ "$remaining" -le 0 ]; then break; fi
+    if [ "$remaining" -lt "$POLL" ]; then sleep "$remaining"; else sleep "$POLL"; fi
 done
-# By the clock, not by counting polls: on a runner this busy a look at the log
-# and its sleep took 15 s, not 10.
 waited=$(( $(date +%s) - booted_at ))
 
 if ! load="$(sysctl -n vm.loadavg 2>/dev/null)"; then load="unknown"; fi
