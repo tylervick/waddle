@@ -71,6 +71,22 @@ struct ShelfView: View {
 
     var body: some View {
         Color.clear
+        // Measured on the ScrollView, so this is the viewport: what is visible
+        // between the toolbar and the home indicator, less the padding above.
+        // Rotation and window resizing both re-fire it.
+        //
+        // `proxy.size` is already that region -- 724 pt on an iPhone 17 Pro --
+        // with the bars outside it reported separately as `safeAreaInsets`.
+        // Subtracting those again (as this did until 2026-09-30) under-measured
+        // the viewport by 150 pt, so the hero zone's budget was spent against
+        // a screen 20% shorter than the one it was drawn on. See
+        // `docs/learnings/geometry-proxy-size-already-excludes-safe-area.md`.
+        .onGeometryChange(for: CGSize.self) { proxy in
+            CGSize(width: proxy.size.width - contentPadding * 2,
+                   height: proxy.size.height)
+        } action: { size in
+            heroContentWidth = size.width
+            viewportHeight = size.height
         }
         .overlay {
         ScrollView {
@@ -100,16 +116,6 @@ struct ShelfView: View {
             }
             .padding(contentPadding)
         }
-        // Measured on the ScrollView, so this is the viewport: what is visible
-        // between the toolbar and the home indicator, less the padding above.
-        // Rotation and window resizing both re-fire it.
-        //
-        // `proxy.size` is already that region -- 724 pt on an iPhone 17 Pro --
-        // with the bars outside it reported separately as `safeAreaInsets`.
-        // Subtracting those again (as this did until 2026-09-30) under-measured
-        // the viewport by 150 pt, so the hero zone's budget was spent against
-        // a screen 20% shorter than the one it was drawn on. See
-        // `docs/learnings/geometry-proxy-size-already-excludes-safe-area.md`.
         }
         .background(Color.appBackground)
         // The title stays set — it is the back button's label on the game
