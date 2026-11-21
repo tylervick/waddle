@@ -4,8 +4,8 @@
 # app instead of landing on a launch.
 #
 # Issues #386 and #396. On a fresh runner the simulator's PosterBoard renders a
-# snapshot of every lock-screen wallpaper once: 184 to 368 renders, 100 to 210 s
-# of a busy runner. WHEN it does that is decided by the host's uptime at the
+# snapshot of every lock-screen wallpaper once: 184 to 368 renders, 1.5 to 2.5
+# minutes of a busy runner. WHEN it does that is decided by the host's uptime at the
 # moment the gallery arrives, about two minutes after the simulator boots. Its
 # own log says so:
 #

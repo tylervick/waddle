@@ -14,7 +14,7 @@ Two UI-test failures on CI had nothing to do with the app or the tests
 On a device that has never booted, `PosterBoard` (the lock-screen wallpaper
 process) builds its wallpaper gallery about two minutes after boot and then
 renders a snapshot of every item in it: 184 requests at once, or 368 from its
-later "prewarm". That is 100 to 210 s during which the runner is too busy to
+later "prewarm". That is 1.5 to 2.5 minutes during which the runner is too busy to
 launch an app on time.
 
 When the renders happen is decided by **the host's uptime** at the moment the
