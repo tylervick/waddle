@@ -76,7 +76,6 @@ struct ShelfView: View {
             // scroll view follows content that reports wider than offered:
             // without this the measurement fed itself and a launch could
             // spin for ever (issue #437, `ProposedWidthLayout`).
-            ProposedWidthLayout {
             VStack(alignment: .leading,
                    spacing: ShelfHeroLayout.sectionSpacing(compactHeight: compactHeight)) {
                 switch zone {
@@ -97,7 +96,7 @@ struct ShelfView: View {
                 }
             }
             .padding(contentPadding)
-            }
+            .containerRelativeFrame(.horizontal, alignment: .leading)
         }
         // Measured on the ScrollView, so this is the viewport: what is visible
         // between the toolbar and the home indicator, less the padding above.
