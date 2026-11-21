@@ -832,8 +832,9 @@ and the two displays give 13, and which ten is the owner's choice (below).
 Every file was looked at. Both in-game shots and the automap fill the
 display; the partial render that kept slots 1 and 5 of the 6.9" and 13" sets
 on their iOS 26 captures did not appear. On the wide window the Files screen
-and the game page are a column beside the shelf, not a pushed page, so slots
-3 and 4 show the shelf and the column together; that is the app's real layout
+and the game page are a column beside the shelf, not a pushed page, so
+`02-library.png` and `03-preset-editor.png` (slots 3 and 4 in the table
+above) show the shelf and the column together; that is the app's real layout
 there. The status column shows the 9:41 override. Same build as the other
 sets: Debug configuration, no debug HUD, label or counter.
 
@@ -856,8 +857,14 @@ cannot run on CI: the hinge exists only in Device Hub's window.
   and runs `WADDLE_DUO_POSE_HOOK` with it. `Scripts/duo-pose-device-hub.sh`
   is that hook: it presses Device Hub's `Open`, `Partially Open`, `Closed`
   and `Rotate Right` buttons by name through `orca computer`, and reads the
-  turn back from `devicectl device orientation get`. Without a hook the
-  script prints the request and a person presses the buttons.
+  turn back from `devicectl device orientation get`. Device Hub shows a
+  simulator's name and never its UDID, and its buttons fold whichever row is
+  selected, so the hook presses nothing unless `simctl` knows exactly one
+  device by that name, it is the UDID asked for, and exactly one sidebar row
+  reads `<name> <iOS version> Simulator` in full
+  (`Scripts/test-duo-pose-device-hub.sh`). Give the simulator a name no
+  other has. Without a hook the script prints the request and a person
+  presses the buttons.
 - **The shots come from the host.** The test writes each shot's name to a
   request file and the script answers with `simctl io screenshot
   --display=LCD-1 --mask=ignored`. `XCUIScreen` would return the outer
@@ -865,11 +872,16 @@ cannot run on CI: the hinge exists only in Device Hub's window.
 - **A host shot is RGBA, always.** The store takes no alpha channel and
   `sips` cannot remove one from a PNG without going through JPEG, so
   `Scripts/opaque-png.swift` redraws each shot into an opaque bitmap. Its
-  output was compared with its input pixel by pixel: identical.
+  output was compared with its input pixel by pixel: identical. That holds
+  only for a shot whose alpha is 255 throughout, as every host shot's was;
+  the helper refuses one that is not instead of blending it onto black.
 - **The export refuses** a shot that is missing, of the wrong size, still
   carrying alpha, or one flat colour (the inner display of a closed device
   photographs as 2007×2853 px of black). The exact size is also the check on
-  the pose: a wide window gives 2853×2007 and a tall one 2007×2853.
+  the pose: a wide window gives 2853×2007 and a tall one 2007×2853. It is all
+  or nothing: shots are rewritten in a staging directory and moved into the
+  set only when all seven pass, so a refused export leaves the committed
+  files as they were (`Scripts/test-capture-export.sh`).
 
 **What the first runs taught** (four runs; the fourth passed):
 

@@ -12,6 +12,8 @@
 // orientation. ImageIO still writes an eXIf chunk (colour space and pixel
 // size only); the caller drops it, because the upload script refuses any.
 //
+// A picture with any pixel that is not fully opaque is refused, not blended.
+//
 // The turn is clockwise, as seen by someone looking at the picture. Pixels
 // are copied one for one: the context has the source's own colour space and
 // no interpolation, and a quarter turn maps the pixel grid onto itself.
@@ -35,6 +37,30 @@ guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: args[1]) as C
 guard image.bitsPerComponent == 8 else { fail("\(args[1]) is \(image.bitsPerComponent) bits per component, expected 8") }
 
 let (w, h) = (image.width, image.height)
+
+// Refuse anything that is not fully opaque already. Dropping an alpha channel
+// is lossless only when every pixel's alpha is 255; drawing a translucent
+// picture onto black would change its colours and still exit 0 with a valid
+// opaque PNG. A host shot taken with `--mask=ignored` is opaque throughout,
+// so a translucent one means the capture changed, and that should stop here.
+switch image.alphaInfo {
+case .none, .noneSkipFirst, .noneSkipLast:
+    break
+default:
+    // Premultiplying leaves the alpha byte itself as the file has it.
+    guard let probe = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+          let bytes = probe.data?.bindMemory(to: UInt8.self, capacity: w * h * 4)
+    else { fail("cannot inspect the alpha channel of \(args[1])") }
+    probe.setBlendMode(.copy)
+    probe.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+    var translucent = 0
+    for i in stride(from: 3, to: w * h * 4, by: 4) where bytes[i] != 255 { translucent += 1 }
+    guard translucent == 0 else {
+        fail("\(args[1]) has \(translucent) pixel(s) that are not fully opaque; refusing to blend them onto black")
+    }
+}
 let (outW, outH) = turn == 90 || turn == 270 ? (h, w) : (w, h)
 let space = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
 guard let context = CGContext(data: nil, width: outW, height: outH, bitsPerComponent: 8, bytesPerRow: 0,

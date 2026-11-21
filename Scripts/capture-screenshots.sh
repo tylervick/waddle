@@ -89,6 +89,8 @@
 #   WADDLE_DUO_SIMULATOR       name of the iPhone Duo simulator to use
 #                              (default "iPhone Duo"); created if missing
 #   WADDLE_SCREENSHOT_RESULTS  where the .xcresult bundles are written
+#   WADDLE_SCREENSHOT_OUT      where the sets are written, in place of
+#                              docs/app-store/screenshots (the tests use this)
 #   WADDLE_DUO_POSE_HOOK       duo-inner: program run as `<hook> <pose> <udid>
 #                              <simulator name>` to put the device in a pose
 #                              (open | half-open | closed)
@@ -101,7 +103,7 @@ BUNDLE_ID="com.tylervick.waddle"
 WAD_SRC="${WADDLE_TEST_WADS:-$HOME/Downloads/doom-test-wads}"
 DERIVED="App/build"
 APP_PATH="$DERIVED/Build/Products/Debug-iphonesimulator/Waddle.app"
-OUT_ROOT="docs/app-store/screenshots"
+OUT_ROOT="${WADDLE_SCREENSHOT_OUT:-docs/app-store/screenshots}"
 RESULTS_ROOT="${WADDLE_SCREENSHOT_RESULTS:-${TMPDIR:-/tmp}/waddle-screenshots}"
 
 IPHONE_NAME="iPhone 17 Pro Max"
@@ -597,12 +599,17 @@ PYEOF
 # opaque (Scripts/opaque-png.swift, pixel for pixel), then held to its exact
 # size, to not being blank, and to having no alpha channel. The size is the
 # check on the pose: a wide window gives 2853x2007 and a tall one 2007x2853.
+#
+# All or nothing: the shots are rewritten into a staging directory and moved
+# into the set only when every one has passed. A refused export leaves the
+# committed set exactly as it was, not some new files beside some old ones
+# that `git status` would show as a half-finished re-capture.
 export_host_shots() {  # $1 = dir of host shots, $2 = dest dir, $3 = "name=WxH ..."
-    local entry name size raw out problems=""
-    mkdir -p "$2"
+    local entry name size raw out problems="" stage="$RESULTS_ROOT/export-stage.$$"
+    rm -rf "$stage"; mkdir -p "$stage"
     for entry in $3; do
         name="${entry%%=*}"; size="${entry#*=}"
-        raw="$1/$name.png"; out="$2/$name.png"
+        raw="$1/$name.png"; out="$stage/$name.png"
         if [ ! -f "$raw" ]; then
             problems="$problems
   $name: the test never asked for it"
@@ -613,7 +620,12 @@ export_host_shots() {  # $1 = dir of host shots, $2 = dest dir, $3 = "name=WxH .
   $name is one flat colour: the inner display was switched off (the device was closed)"
             continue
         fi
-        xcrun swift Scripts/opaque-png.swift "$raw" "$out.tmp" || { echo "error: could not rewrite $raw" >&2; exit 1; }
+        if ! xcrun swift Scripts/opaque-png.swift "$raw" "$out.tmp"; then
+            rm -f "$out.tmp"
+            problems="$problems
+  $name could not be rewritten without its alpha channel (see above)"
+            continue
+        fi
         python3 - "$out.tmp" "$out" "$size" <<'PYEOF' || { rm -f "$out.tmp"; problems="$problems
   $name is not ${size} without alpha: the device was not in the pose this shot needs"; continue; }
 import sys
@@ -636,9 +648,15 @@ PYEOF
         rm -f "$out.tmp"
     done
     if [ -n "$problems" ]; then
-        echo "error: inner-display capture refused:$problems" >&2
+        rm -rf "$stage"
+        echo "error: inner-display capture refused; $2 is unchanged:$problems" >&2
         exit 1
     fi
+    mkdir -p "$2"
+    for entry in $3; do
+        mv -f "$stage/${entry%%=*}.png" "$2/${entry%%=*}.png"
+    done
+    rm -rf "$stage"
     echo "exported $(echo $3 | wc -w | tr -d ' ') screenshots -> $2"
 }
 
