@@ -36,11 +36,17 @@ Gallery controller requested snapshot prewarm for role PRPosterRoleLockScreen, b
 Deferred, the renders run inside the next prewarm (`Starting prewarm...` to
 `Prewarm is complete; executed in 137.5 seconds`), which started 5 to 20
 minutes after boot in the runs examined, in the middle of the tests. A prewarm
-that finds the snapshots already rendered takes 11 to 15 s and delays nothing.
+that finds the snapshots already rendered takes 10 to 28 s and delays nothing.
 
-A runner VM had been up 2 to 5 minutes when a job started, and `xcodebuild test`
-booted the device itself a minute or two later, so which branch a run took was
-a coin toss.
+The clock is `sysctl kern.boottime`: a probe run printed both, and
+PosterBoard's "uptime 466s" was the runner's 465 s. A runner VM had been up 2
+to 11 minutes when the job reached its test step, and `xcodebuild test` booted
+the device itself a minute or two later, so which branch a run took was a coin
+toss.
+
+While this happens the runner's one-minute load average is 385 to 722 (eleven
+runs, read as the renders finished). That number, more than any log line, is
+why a launch asked for in those minutes is late.
 
 ## How that maps onto the two failures
 
@@ -77,20 +83,78 @@ later prewarm has nothing to render. It prints `WADDLE_SIMULATOR_SETTLED`, or
 as before. Its suite is `Scripts/test-prepare-ui-test-simulator.sh`.
 
 It is a wait on two conditions and it costs real minutes on every run: the
-rest of the boot window, then the gallery and its renders. There is no cheaper
-honest version. Booting earlier puts the gallery inside the window, and nothing
-found makes PosterBoard render on request.
+rest of the boot window (up to 8 minutes), the boot (about 1.5), then the
+gallery and its renders (2 to 4.5). The step took 4.5 to 13.5 minutes in the
+eleven runs measured, and the log collection afterwards about one more.
+
+Things that do not make it cheaper, so nobody tries them twice:
+
+- **Booting earlier.** The gallery then arrives inside the window and is
+  deferred.
+- **Waiting for the prewarm instead.** On a simulator left idle it started 2.5,
+  3.5 and 10 minutes after the boot finished (three probe runs), no sooner on
+  average than the boot window ends and with no bound.
+- **PosterBoard's "keynote mode"**, which its strings say skips gallery updates
+  and the prewarm (`Keynote mode is enabled; we aren't going to prewarm
+  anything`). Writing `KEYNOTE_MODE` or `pbf_keynoteModeEnabled` to
+  `com.apple.PosterBoard` before the first boot is undone at first launch (`We
+  are deleting the keynote mode here and moving on`), and writing them after
+  it changed nothing: the prewarm ran its 368 renders. Whatever sets that mode
+  is not those two defaults.
+- **`simctl bootstatus -b` alone.** It returns when the boot finishes, four
+  minutes before the renders do; `xcodebuild` already waited that long.
+
+Two things the script does that look like fuss and are not:
+
+- It reads the log with a `log stream`, plus one `log show` in the background
+  for lines written before the stream attached. A `log show` in the loop took
+  four minutes for one query at load 510 (run 44771876139).
+- When the stream exits it asks `simctl` for the device's state and boots it
+  again if it is not `Booted`. On some runners the device is shut down seconds
+  after `bootstatus` reports it booted: `CoreSimulator.log` has `Lost
+  connection to com.apple.CoreSimulator.SimLaunchHost-arm64 (interrupted)` at
+  that moment, between two `Sending load request for liblaunch` lines whose
+  runtime mount paths differ, so the runner was still remounting its simulator
+  runtimes. Run 44786994189 lost its whole wait and its log to this before the
+  check existed; run 44824505379 hit it twice in a row, was booted a third
+  time, and settled. `CoreSimulator.log` is kept in the `simulator-log`
+  artifact so the next one can be read the same way.
+
+## What the measurement runs showed, and what they could not
+
+Twelve runs with the step in place, 2026-11-20: two of one test class and ten
+of the whole suite. All twelve passed and none has either failure message. One
+whole-suite run predates the shut-down check and measured nothing (its device
+was shut down under the wait), which leaves nine with numbers.
+
+- **The renders stay out of the session.** In all nine the later prewarm ran
+  during the tests and took 10 to 28 s with nothing to render; the worst launch
+  lag in any of them was 5.5 s, against 75 to 86 s in the three failures. That
+  is the mechanism of #396 removed, shown in each run and not by counting
+  green ones.
+- **The first launch is quicker, and not always.** `xcodebuild` issued the
+  first launch after 1.1 to 3.6 s in nine of ten runs and 18.2 s in the tenth,
+  although that run had settled seven minutes earlier. Before, the same step
+  took a median of 6.8 s and over 10 s in 16 of 36 passing runs. So the renders
+  are a large part of #386's stall and something else is the rest.
+- **The counts prove little alone.** #386 was 9 failures in 70 attempts: ten
+  clean whole-suite runs happen by luck about one time in four at that rate.
+  #396 was 3 in 70: ten clean runs happen by luck two times in three.
 
 ## Reading the next one from a run
 
 Every run now uploads the simulator's log as the `simulator-log` artifact and
 prints three things in its `Collect the simulator log` step
-(`Scripts/ui-test-launch-report.sh`): PosterBoard's gallery and prewarm lines,
+(`Scripts/ui-test-launch-report.sh`, suite
+`Scripts/test-ui-test-launch-report.sh`): PosterBoard's gallery and prewarm lines,
 every app launch's lag with any over 10 s named, and the first launch's
 `xcodebuild` timings. A failed launch with a `SLOW` line inside a prewarm is
 #396 again; a first-test timeout with `launch issued after` in the minutes is
 #386 again. Either one in a run that printed `WADDLE_SIMULATOR_SETTLED` means
-this file is wrong about the cause, and is worth an issue.
+this file is wrong about the cause, and is worth an issue. The
+`Successfully prewarmed` line is sometimes missing from the collected archive
+although the stream saw it; the prewarm lines that follow (a `Prewarm is
+complete` in 10 to 28 s, and no `368 requests`) say the same thing.
 
 Before 2026-11-20 only a failed run carried the log, inside the result bundle:
 
