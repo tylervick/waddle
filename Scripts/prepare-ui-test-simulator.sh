@@ -38,7 +38,14 @@
 #
 # Knobs, for the test suite and for a runtime whose numbers move:
 #   SIMULATOR_READY_BOOT_WINDOW  seconds of host uptime to wait for (600)
-#   SIMULATOR_READY_TIMEOUT      seconds to wait for the renders (900)
+#   SIMULATOR_READY_TIMEOUT      seconds after the boot to wait for the
+#                                renders (900). It bounds the waiting, not a
+#                                boot: `simctl bootstatus` is never cut short,
+#                                because a boot killed half-way is how
+#                                CoreSimulator gets wedged
+#                                (docs/learnings/killed-xcodebuild-wedges-coresimulator.md);
+#                                the job's own timeout-minutes is the bound
+#                                on that.
 #   SIMULATOR_READY_POLL         seconds between looks at the log (10)
 #   SIMULATOR_READY_WORK_DIR     where the log readers write (a temp dir)
 #
@@ -157,34 +164,42 @@ BACKFILL="$WORK/backfill.txt"
 : > "$BACKFILL"
 stream_pid=""
 backfill_pid=""
+generation=0
+# Each start writes its own temporary file and its own status, so a `log show`
+# from before a restart that is slow to die cannot write into its successor's.
 start_readers() {
-    rm -f "$WORK/backfill.status"
+    generation=$(( generation + 1 ))
+    local tmp="$BACKFILL.tmp.$generation" status="$WORK/backfill.status.$generation"
     xcrun simctl spawn "$UDID" log stream --style compact --predicate "$PREDICATE" >> "$STREAM" 2>/dev/null &
     stream_pid=$!
     (
-        if xcrun simctl spawn "$UDID" log show --start "$log_start" --style compact --predicate "$PREDICATE" > "$BACKFILL.tmp" 2>/dev/null; then
-            mv "$BACKFILL.tmp" "$BACKFILL"
-            echo ok > "$WORK/backfill.status"
+        if xcrun simctl spawn "$UDID" log show --start "$log_start" --style compact --predicate "$PREDICATE" > "$tmp" 2>/dev/null; then
+            mv "$tmp" "$BACKFILL"
+            echo ok > "$status"
         else
-            echo failed > "$WORK/backfill.status"
+            echo failed > "$status"
         fi
     ) 2>/dev/null &
     backfill_pid=$!
 }
 # The `log show` is a child of the subshell that records its status, and a
-# signal to the subshell does not reach it, so its children go first. Left
-# alone it would go on scanning the log under the first test.
+# signal to the subshell does not reach it. The subshell goes first, so it
+# cannot record a status for a reader that was stopped rather than finished;
+# then its child, which left alone would go on scanning the log under the
+# first test.
 stop_readers() {
+    local kids=""
     if [ -n "$backfill_pid" ]; then
-        pkill -P "$backfill_pid" 2>/dev/null || true
+        kids="$(pgrep -P "$backfill_pid" 2>/dev/null || true)"
         kill "$backfill_pid" 2>/dev/null || true
         wait "$backfill_pid" 2>/dev/null || true
+        if [ -n "$kids" ]; then kill $kids 2>/dev/null || true; fi
     fi
     if [ -n "$stream_pid" ]; then
         kill "$stream_pid" 2>/dev/null || true
         wait "$stream_pid" 2>/dev/null || true
     fi
-    rm -f "$BACKFILL.tmp"
+    rm -f "$BACKFILL".tmp.*
 }
 trap stop_readers EXIT
 start_readers
@@ -259,7 +274,7 @@ case "$outcome" in
         # Silence from two readers that both died is not silence from the
         # simulator, so say which it was.
         if kill -0 "$stream_pid" 2>/dev/null; then stream_state="running"; else stream_state="exited"; fi
-        if [ -f "$WORK/backfill.status" ]; then backfill_state="$(cat "$WORK/backfill.status")"; else backfill_state="unfinished"; fi
+        if [ -f "$WORK/backfill.status.$generation" ]; then backfill_state="$(cat "$WORK/backfill.status.$generation")"; else backfill_state="unfinished"; fi
         echo "::warning::WADDLE_SIMULATOR_NOT_SETTLED reason=timeout -- no gallery-render line in the simulator log ${waited}s after boot (log stream $stream_state, log show from boot $backfill_state, simulator '$(device_state)', booted again $reboots time(s)). The tests run anyway; if a launch fails, read it as issues 386/396." ;;
 esac
 exit 0

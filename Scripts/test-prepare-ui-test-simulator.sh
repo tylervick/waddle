@@ -22,6 +22,8 @@ DEFERRED='2026-11-20 01:45:12.069 E  PosterBoard[1:2] [com.apple.PosterBoard:Dat
 #   uptime        host uptime in seconds when the script starts. The stub
 #                 clock starts at 2000000000 and moves only when the stub
 #                 `sleep` is called, by what it was asked to sleep.
+#   clock.tick    if present, every reading of the clock also moves it on by
+#                 this many seconds: time spent working, not sleeping
 #   stream.<n>    lines the log stream delivers during the n-th poll sleep
 #   stream.dies   if present, the log stream exits at once with a failure
 #   stream.dies.once  the same, for the first stream only
@@ -95,7 +97,12 @@ STUB
     cat > "$1/bin/date" <<'STUB'
 #!/bin/bash
 F="$(cd "$(dirname "$0")/.." && pwd)"
-if [ "$*" = "+%s" ]; then echo $(( 2000000000 + $(cat "$F/clock" 2>/dev/null || echo 0) )); exit 0; fi
+if [ "$*" = "+%s" ]; then
+    now=$(( $(cat "$F/clock" 2>/dev/null || echo 0) + $(cat "$F/clock.tick" 2>/dev/null || echo 0) ))
+    echo "$now" > "$F/clock"
+    echo $(( 2000000000 + now ))
+    exit 0
+fi
 exec /bin/date "$@"
 STUB
     cat > "$1/bin/sleep" <<'STUB'
@@ -178,6 +185,17 @@ out="$(prepare "$TMP/d2" "iPhone 18 Pro" 27.0 25)" || fail "a timeout must not f
 echo "$out" | grep -q "reason=timeout -- no gallery-render line in the simulator log 25s after boot" || fail "did not stop at 25 s; got: $out"
 [ "$(grep -c '^sleep ' "$TMP/d2/calls")" = 3 ] && grep -q '^sleep 5$' "$TMP/d2/calls" || fail "expected sleeps of 10, 10 and 5; got: $(grep '^sleep' "$TMP/d2/calls" | tr '\n' ' ')"
 pass "bounds the wait in seconds and sleeps only what remains"
+
+# 4c. Time spent working counts against the bound too. Here every reading of
+#     the clock costs 4 s, so the 25 s are used up with far fewer than 25 s of
+#     sleep asked for. A bound that added up its sleeps would run long.
+make_fixture "$TMP/d3" 700
+echo 4 > "$TMP/d3/clock.tick"
+out="$(prepare "$TMP/d3" "iPhone 18 Pro" 27.0 25)" || fail "a timeout must not fail the run: $out"
+echo "$out" | grep -q "reason=timeout" || fail "no timeout warning; got: $out"
+slept=0; for n in $(grep '^sleep ' "$TMP/d3/calls" | cut -d' ' -f2); do slept=$(( slept + n )); done
+[ "$slept" -lt 25 ] || fail "asked for ${slept}s of sleep although the clock was also moving while it worked"
+pass "counts time spent working against the bound, not only time asleep"
 
 # 5. Both readers dead is not a quiet simulator: the run still ends
 #    NOT_SETTLED, and the warning says the silence was the readers'.
