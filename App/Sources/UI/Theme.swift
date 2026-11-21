@@ -327,26 +327,36 @@ struct WaddleRowLabelStyle: LabelStyle {
 }
 
 /// Text that keeps its words whole. Wrapping breaks a word that is wider
-/// than its line ("Compatibili-" / "ty" and "SCYTH" / "E" in the shelf's panel
-/// at the largest accessibility size, issue #425). Given as many lines as it
-/// has pieces, a text only runs out of lines when a piece has been broken,
-/// and then it shrinks until none is. Text that fits is not touched, so this
+/// than its line, and on iOS hyphenates it where it can ("Compatibili-" /
+/// "ty", "Eviter-" / "nity II" in the shelf's panel at the largest
+/// accessibility size, issue #425). So the text is never handed a line
+/// narrower than its widest piece: it is drawn at the largest of a few sizes
+/// at which that piece fits its line, and then every break the system makes
+/// falls between pieces. Text that fits is drawn as it always was, so this
 /// costs nothing at the ordinary sizes.
 ///
 /// A piece is a word, or a part of one that ends at a hyphen or an underscore
 /// or starts at a dot: a file's name is usually one unspaced token
-/// ("sunlust_final_v13"), and counted as one word it got one line, shrank at
-/// the default size where it used to wrap, and was cut with an ellipsis at
-/// the largest (review of pull request 435). So the text may wrap at those
-/// characters too, and each piece gets its line.
+/// ("sunlust_final_v13"), and it may wrap at those characters.
 ///
-/// And nothing is ever cut. Shrinking stops at `smallestScale`; where the
-/// widest piece does not fit even then, the text is left to wrap as plain
-/// text does, broken but all there.
+/// Nothing is ever cut. Shrinking stops at `smallestScale`; where the widest
+/// piece does not fit even then, the text is left to wrap as plain text
+/// does, broken but all there.
+///
+/// ## Why the size is chosen here and not by `minimumScaleFactor`
+///
+/// The first two versions set `lineLimit` to the number of pieces and let
+/// `minimumScaleFactor` shrink the text when it ran out of lines, on the
+/// reasoning that it only runs out when a piece has been broken. That holds
+/// for one piece and fails for two: "Eviter-" / "nity II" is two lines for
+/// two pieces, because the broken word's tail shares a line with the next
+/// word, so the limit is never reached and nothing shrinks (second review of
+/// pull request 435). The system offers no "do not hyphenate" for a SwiftUI
+/// `Text`, so the only sure way to keep a word whole is to give it room.
 struct WholeWordText: View {
     let string: String
-    /// The text style the caller draws this in, for measuring the widest
-    /// piece. It does not set the font.
+    /// The text style this is drawn in. It is what the widest piece is
+    /// measured with, and what the smaller sizes are scaled from.
     var textStyle: UIFont.TextStyle = .body
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -355,7 +365,9 @@ struct WholeWordText: View {
         self.textStyle = textStyle
     }
 
-    nonisolated static let smallestScale: CGFloat = 0.5
+    /// The sizes tried, largest first, as fractions of the text style's own.
+    nonisolated static let scales: [CGFloat] = [1, 0.9, 0.8, 0.7, 0.6, 0.5]
+    nonisolated static var smallestScale: CGFloat { scales.last ?? 1 }
 
     /// The parts no line may end inside: split at whitespace, after "-" and
     /// "_", and before ".".
@@ -397,29 +409,44 @@ struct WholeWordText: View {
         return result
     }
 
-    /// The width the text needs at its smallest: its widest piece, shrunk as
-    /// far as it may be, with a little over because this is `UIFont`'s
-    /// measure of the piece and not SwiftUI's.
-    private var narrowestWidth: CGFloat {
+    /// The text style's font at the reader's size, and the widest piece in
+    /// it. Reads the text size from the environment so that a change of it
+    /// measures again.
+    private var measured: (font: UIFont, widest: CGFloat) {
         _ = dynamicTypeSize
         let font = UIFont.preferredFont(forTextStyle: textStyle)
         let widest = Self.pieces(string)
             .map { ($0 as NSString).size(withAttributes: [.font: font]).width }
             .max() ?? 0
-        return ceil(widest * Self.smallestScale * 1.1)
+        return (font, widest)
     }
 
     var body: some View {
         let text = Self.wrapping(string)
-        // `ViewThatFits` asks each child for its ideal width, so the first is
-        // taken exactly where the widest piece fits at the smallest scale.
+        let (font, widest) = measured
+        // `ViewThatFits` takes the first child whose ideal width fits, and
+        // each child's ideal width is declared as its widest piece at that
+        // child's size. So the choice is the largest size at which no piece
+        // is wider than the line.
         ViewThatFits(in: .horizontal) {
-            Text(text)
-                .lineLimit(max(1, Self.pieces(string).count))
-                .minimumScaleFactor(Self.smallestScale)
-                .frame(idealWidth: narrowestWidth, alignment: .leading)
+            sized(text, widest: widest, font: font, scale: Self.scales[0])
+            sized(text, widest: widest, font: font, scale: Self.scales[1])
+            sized(text, widest: widest, font: font, scale: Self.scales[2])
+            sized(text, widest: widest, font: font, scale: Self.scales[3])
+            sized(text, widest: widest, font: font, scale: Self.scales[4])
+            sized(text, widest: widest, font: font, scale: Self.scales[5])
             Text(text)
         }
         .accessibilityLabel(string)
+    }
+
+    /// The text at one size, saying how wide its widest piece is there. A
+    /// point over, because that width is `UIFont`'s measure and the line is
+    /// SwiftUI's. At full size the font is left alone, so text that fits is
+    /// exactly what a plain `Text` would be.
+    private func sized(_ text: String, widest: CGFloat, font: UIFont, scale: CGFloat) -> some View {
+        Text(text)
+            .font(scale == 1 ? nil : .system(size: font.pointSize * scale))
+            .frame(idealWidth: ceil(widest * scale) + 1, alignment: .leading)
     }
 }

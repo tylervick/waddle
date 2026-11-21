@@ -249,9 +249,13 @@ final class FilesViewTests: XCTestCase {
         }
     }
 
-    /// Shrinking has a floor, so that a piece too wide for it wraps instead
-    /// of being cut.
-    func testShrinkingStopsAtHalfSize() {
+    /// The sizes are tried largest first and start at the text's own, so
+    /// text that fits is not shrunk; and there is a floor, below which a
+    /// piece too wide for its line wraps instead of shrinking further.
+    func testTheSizesTriedStartAtFullSizeAndStopAtHalf() {
+        XCTAssertEqual(WholeWordText.scales.first, 1)
+        XCTAssertEqual(WholeWordText.scales, WholeWordText.scales.sorted(by: >))
         XCTAssertEqual(WholeWordText.smallestScale, 0.5)
+        XCTAssertEqual(WholeWordText.scales.count, 6, "the body lists one child per size by index")
     }
 }
