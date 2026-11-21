@@ -1,0 +1,145 @@
+#!/bin/bash
+# Puts an iPhone Duo simulator in a pose by pressing Device Hub's buttons
+# through Orca's desktop control. It is the WADDLE_DUO_POSE_HOOK that
+# `Scripts/capture-screenshots.sh capture duo-inner` runs (issue #409):
+#
+#   WADDLE_DUO_POSE_HOOK=Scripts/duo-pose-device-hub.sh \
+#       Scripts/capture-screenshots.sh capture duo-inner
+#
+#   Scripts/duo-pose-device-hub.sh <open|half-open|closed> <udid> <simulator name>
+#
+#   open       open flat, held upright: the app's window is wide (951x669 pt)
+#   half-open  turned a quarter turn and standing half open: the window is
+#              tall and the fold runs across it
+#   closed     upright and closed, as a simulator boots
+#
+# Nothing Apple ships folds the simulator from a script; the hinge and the
+# rotate button exist only in Device Hub's window
+# (docs/learnings/driving-device-hub-by-desktop-control.md). So this needs
+# what that file lists: Orca with its accessibility permission, Device Hub
+# running with its window on a Space Orca has seen, and an UNLOCKED Mac. It
+# acts in the background; it does not bring the window forward.
+#
+# It presses buttons by NAME, looked up fresh before each press: element
+# indexes do not survive a change of selection. Device Hub's tree does not
+# carry a simulator's UDID. A sidebar row reads "<name> <iOS version>
+# Simulator", so the device is found by that whole line, and only when it can
+# be nobody else's: `simctl` must know exactly one device by that name, it
+# must be the UDID asked for, and exactly one row must match. A shared Mac
+# has other workers' simulators in the same list ("iPhone Duo" is also how
+# "iPhone Duo of someone else" begins), and the buttons fold whichever row is
+# selected. Anything short of one match presses nothing. It reads the device's
+# orientation back from devicectl, because Rotate Right is relative and
+# `devicectl device orientation set` reports success and changes nothing on
+# an open Duo. The hinge has no read-back here; the caller checks the pose
+# its own way (the inner display lit, the app's half-open marker).
+set -euo pipefail
+
+ORCA="${ORCA_CLI_COMMAND:-orca}"
+# What devicectl calls the two ways up this script uses. One press of Rotate
+# Right from upright reads landscapeRight (measured 2026-11-20).
+DUO_UPRIGHT="portrait"
+DUO_TURNED="landscapeRight"
+APP="com.apple.dt.Devices"
+# How long a fold or a turn is given to finish before the next read.
+SETTLE="${DUO_POSE_SETTLE:-1.5}"
+
+[ $# -eq 3 ] || { echo "usage: $0 <open|half-open|closed> <udid> <simulator name>" >&2; exit 2; }
+POSE="$1"; UDID="$2"; NAME="$3"
+case "$POSE" in
+    open|half-open|closed) ;;
+    *) echo "unknown pose '$POSE' (open, half-open or closed)" >&2; exit 2 ;;
+esac
+
+# The element indexes of every line of Device Hub's tree that matches a
+# regular expression in full, one per line, or nothing.
+elements() {  # regex
+    local state
+    state="$("$ORCA" computer get-app-state --app "$APP" --no-screenshot --json)" \
+        || { echo "error: could not read Device Hub's window (is the Mac unlocked and Device Hub running?)" >&2; return 1; }
+    printf '%s' "$state" | PATTERN="$1" python3 -c '
+import json, os, re, sys
+doc = json.load(sys.stdin)
+if not doc.get("ok"):
+    sys.exit("error: " + json.dumps(doc.get("error")))
+for line in doc["result"]["snapshot"]["treeText"].splitlines():
+    m = re.match(r"\s*(\d+) (.*)", line)
+    if m and re.fullmatch(os.environ["PATTERN"], m.group(2)):
+        print(m.group(1))
+'
+}
+
+press() {  # regex, what it is called in messages
+    local index out count
+    index="$(elements "$1")" || exit 1
+    [ -n "$index" ] || { echo "error: Device Hub shows no $2" >&2; exit 1; }
+    count="$(printf '%s\n' "$index" | wc -l | tr -d ' ')"
+    [ "$count" = 1 ] || { echo "error: Device Hub shows $count of $2; refusing to guess which is meant" >&2; exit 1; }
+    out="$("$ORCA" computer click --app "$APP" --element-index "$index" --no-screenshot --json)" \
+        || { echo "error: could not press $2: $out" >&2; exit 1; }
+    sleep "$SETTLE"  # the fold and the turn are animated
+}
+
+# Prints the device's orientation as devicectl names it. Fails, saying so,
+# when devicectl fails or answers something that is not an orientation: an
+# empty answer must not read as "not there yet, turn again".
+orientation() {
+    local out word
+    out="$(xcrun devicectl device orientation get --device "$UDID" 2>&1)" \
+        || { echo "error: devicectl could not read the orientation of $UDID: $out" >&2; return 1; }
+    word="$(printf '%s\n' "$out" | sed -nE 's/.*[Oo]rientation: *([A-Za-z]+).*/\1/p')"
+    word="${word%%$'\n'*}"
+    [ -n "$word" ] || { echo "error: devicectl gave no orientation for $UDID: $out" >&2; return 1; }
+    printf '%s\n' "$word"
+}
+
+# Rotate Right is a quarter turn each press; four come back to the start.
+turn_to() {  # the orientation wanted, as devicectl names it
+    local n=0 now
+    while :; do
+        now="$(orientation)" || exit 1
+        [ "$now" = "$1" ] && return 0
+        [ "$n" -lt 4 ] || { echo "error: four quarter turns never read '$1' (devicectl says '${now:-nothing}')" >&2; exit 1; }
+        press 'button Rotate Right$' "Rotate Right button"
+        n=$((n + 1))
+    done
+}
+
+# Which simulator: the name must be this UDID's and nobody else's.
+SIMCTL_LIST="$(xcrun simctl list devices)" || { echo "error: simctl could not list the simulators" >&2; exit 1; }
+OWNERS="$(printf '%s\n' "$SIMCTL_LIST" | NAME="$NAME" python3 -c '
+import os, re, sys
+# "    <name> (<UDID>) (<state>)", read from the right: a name may hold parentheses.
+for line in sys.stdin:
+    m = re.match(r"\s+(.*) \(([0-9A-F-]{36})\) \([^()]*\)\s*$", line)
+    if m and m.group(1) == os.environ["NAME"]:
+        print(m.group(2))
+')"
+[ "$OWNERS" = "$UDID" ] || {
+    echo "error: the name '$NAME' does not identify simulator $UDID alone; simctl lists it for: $(echo ${OWNERS:-no device})" >&2
+    echo "       Device Hub shows names, not UDIDs, so give the simulator a name no other has." >&2
+    exit 1
+}
+
+# Select the device first: the buttons act on whichever is selected. The row
+# is matched whole, name to "Simulator", so a longer name that begins the
+# same way is a different row.
+press "outline row (\\(selected\\) )?$(printf '%s' "$NAME" | sed 's/[][\\.*^$()+?{}|]/\\&/g') [0-9][0-9.]* Simulator" "simulator row named '$NAME'"
+
+case "$POSE" in
+    open)
+        press 'button Open$' "Open button"
+        turn_to "$DUO_UPRIGHT"
+        ;;
+    half-open)
+        press 'button Open$' "Open button"
+        turn_to "$DUO_TURNED"
+        press 'button Partially Open$' "Partially Open button"
+        ;;
+    closed)
+        turn_to "$DUO_UPRIGHT"
+        press 'button Closed$' "Closed button"
+        ;;
+esac
+NOW="$(orientation)" || exit 1
+echo "pose '$POSE' asked of Device Hub for $NAME; devicectl reads $NOW"

@@ -278,7 +278,8 @@ existing version. The dry run only says what it would create; with
       gh workflow run app-store-screenshots.yml --ref main -f device=duo -f apply=true
       ```
 
-      The dry run lists the six files and the placement group they go to
+      The dry run lists the ten files (seven of the inner display, then
+      three of the outer; §12 has the list) and the placement group they go to
       (`IPHONE_DUO_PROFILE`, asset-library images placed on the version, not
       a screenshot set). **Until §12 records a first successful Duo upload,
       the `apply` run is an experiment**: its writes have never been sent to
@@ -292,7 +293,13 @@ existing version. The dry run only says what it would create; with
       and decide before submitting. Paste the read-back a successful run
       prints into §12. Re-capturing the set is the **Capture iPhone Duo
       screenshots** workflow, not a local run, unless the Mac has the
-      iOS 27.1 runtime.
+      iOS 27.1 runtime. That workflow covers the outer display only. The
+      inner display (`Scripts/capture-screenshots.sh capture duo-inner`)
+      needs Device Hub's hinge, so an unlocked Mac with Orca, not CI; its
+      seven shots are in `docs/app-store/screenshots/iphone-duo-inner/`
+      (§12, "The inner display"). **Which shots the Duo set uploads is the
+      list `DUO_SET` in `Scripts/upload-screenshots.sh`**, ten chosen by the
+      owner from the thirteen; read the dry run's file list before applying.
 
 ## 4. App Privacy + age rating + content rights
 

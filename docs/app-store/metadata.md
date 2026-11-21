@@ -677,18 +677,19 @@ Store Connect.** Version 1.5 was `WAITING_FOR_REVIEW` when the work started,
 `READY_FOR_DISTRIBUTION` by the end of the day, so at no point was there a
 version the set could be placed on: `Scripts/upload-screenshots.sh` refuses
 all three states. The upload, the read-back and the badge are still owed, on
-the next version that reaches `PREPARE_FOR_SUBMISSION`; so are the
-inner-display shots.
+the next version that reaches `PREPARE_FOR_SUBMISSION`. The inner-display
+shots have since been captured (see "The inner display" below).
 
-**What the set is.** The same six slots as the other two sets, in the same
-order and under the same filenames, each 2034×1398: the **outer display, in
-landscape**.
+**What the outer-display shots are.** The same six slots as the other two
+sets, under the same filenames, each 2034×1398: the **outer display, in
+landscape**. Three of them are in the uploaded set, after the seven
+inner-display shots ("The inner display" below has the list).
 
 - *Outer display*, because it is the only one a script can reach. A simulator
   boots closed and nothing Apple ships opens it
   (`docs/learnings/iphone-duo-simulator-traps.md`). The inner display, open and
-  half-open, waits on Xcode 27.1 being usable on the worker Mac, where an
-  agent can drive Device Hub (owner's decision on issue 409, 2026-11-20).
+  half-open, is a second leg run on a Mac where an agent or a person can work
+  Device Hub; see "The inner display" below.
 - *Landscape*, because that is how the game is played and how the other two
   sets are shot. The app does run in portrait on the closed Duo; a portrait
   shot of it would show a letterboxed game.
@@ -772,7 +773,7 @@ against (the script uploads `iphone-duo-<slot>.png`).
 
 **Known gap: library images accumulate.** The script deletes a version's old
 Duo *placements* and never an *image*, since an image may be placed on
-another version. So each `--apply` adds six images under the same six file
+another version. So each `--apply` adds ten images under the same ten file
 names, and a run that fails between an upload and its placement leaves an
 image nothing points to. No cleanup was written, on purpose: it would be one
 more write never sent to Apple, and the right rule depends on what the first
@@ -816,6 +817,119 @@ sizes, two orientations each); Waddle fills it with one spec, 2868×1320, and
 has shipped that way in five versions (1.0 to 1.4). So the API has no way to say "one of
 each display", and a group filled from a single spec is ordinary. Whether
 review or the badge asks for more is something only an upload will show.
+
+### The inner display: captured and in the upload set, not yet uploaded (#409)
+
+**State on 2026-11-20: seven inner-display screenshots are committed in
+`docs/app-store/screenshots/iphone-duo-inner/`,** and all seven are in the
+set `Scripts/upload-screenshots.sh --device duo` uploads, ahead of three
+outer-display shots (the owner's choice; the list is at the end of this
+subsection). Nothing has been uploaded.
+
+| File | Pose | Size |
+|------|------|------|
+| the six slots, under the same names as every other set | open flat, held upright, so the window is wide (951×669 pt) | 2853×2007 |
+| `07-ingame-half-open.png` | turned a quarter turn and standing half open: the game above the fold, the controls below it (#373; what `listing/whats-new.txt` advertises) | 2007×2853 |
+
+Every file was looked at. Both in-game shots and the automap fill the
+display; the partial render that kept slots 1 and 5 of the 6.9" and 13" sets
+on their iOS 26 captures did not appear. On the wide window the Files screen
+and the game page are a column beside the shelf, not a pushed page, so
+`02-library.png` and `03-preset-editor.png` (slots 3 and 4 in the table
+above) show the shelf and the column together; that is the app's real layout
+there. The status column shows the 9:41 override. Same build as the other
+sets: Debug configuration, no debug HUD, label or counter.
+
+**How it is captured.** On a Mac with Xcode 27.1, the iOS 27.1 runtime, Orca
+and an unlocked screen:
+
+```sh
+export DEVELOPER_DIR=/Applications/Xcode-27.1.0.app/Contents/Developer   # if 27.1 is not the selected Xcode
+export WADDLE_DUO_SIMULATOR="<a simulator name of your own>"
+mise run bootstrap
+Scripts/capture-screenshots.sh prepare duo
+WADDLE_DUO_POSE_HOOK=Scripts/duo-pose-device-hub.sh Scripts/capture-screenshots.sh capture duo-inner
+```
+
+It took about seven minutes and ran with Device Hub in the background. It
+cannot run on CI: the hinge exists only in Device Hub's window.
+
+- **The hinge.** The script asks for a pose by name (`open` before the test,
+  `half-open` and `open` again on request from the test, `closed` at the end)
+  and runs `WADDLE_DUO_POSE_HOOK` with it. `Scripts/duo-pose-device-hub.sh`
+  is that hook: it presses Device Hub's `Open`, `Partially Open`, `Closed`
+  and `Rotate Right` buttons by name through `orca computer`, and reads the
+  turn back from `devicectl device orientation get`. Device Hub shows a
+  simulator's name and never its UDID, and its buttons fold whichever row is
+  selected, so the hook presses nothing unless `simctl` knows exactly one
+  device by that name, it is the UDID asked for, and exactly one sidebar row
+  reads `<name> <iOS version> Simulator` in full
+  (`Scripts/test-duo-pose-device-hub.sh`). Give the simulator a name no
+  other has. Without a hook the script prints the request and a person
+  presses the buttons.
+- **The shots come from the host.** The test writes each shot's name to a
+  request file and the script answers with `simctl io screenshot
+  --display=LCD-1 --mask=ignored`. `XCUIScreen` would return the outer
+  display, switched off, at a valid store size.
+- **A host shot is RGBA, always.** The store takes no alpha channel and
+  `sips` cannot remove one from a PNG without going through JPEG, so
+  `Scripts/opaque-png.swift` redraws each shot into an opaque bitmap. Its
+  output was compared with its input pixel by pixel: identical. That holds
+  only for a shot whose alpha is 255 throughout, as every host shot's was;
+  the helper refuses one that is not instead of blending it onto black.
+- **The export refuses** a shot that is missing, of the wrong size, still
+  carrying alpha, or one flat colour (the inner display of a closed device
+  photographs as 2007×2853 px of black). The exact size is also the check on
+  the pose: a wide window gives 2853×2007 and a tall one 2007×2853. It is all
+  or nothing: shots are rewritten in a staging directory and moved into the
+  set only when all seven pass, so a refused export leaves the committed
+  files as they were (`Scripts/test-capture-export.sh`).
+
+**What the first runs taught** (four runs; the fourth passed):
+
+- `simctl io screenshot` does **not** follow the active display. With no
+  `--display` it takes the outer one even while the device is open.
+- A host shot of the *open inner* display comes back upright in both poses,
+  so the export turns nothing. (One of the closed outer display is the
+  panel's own way up, on its side when the device is in landscape.)
+- **XCUITest misreports the open Duo's window.** `app.frame` read 669×951
+  while the host photographed the same window 2853×2007 px, wide. The
+  capture test's landscape assertion therefore failed on a correctly posed
+  device; on this leg the script checks the pose from the host instead.
+- On the wide window a game's page is a column closed by `Done`, with no back
+  button; `returnToShelf` now handles both.
+- The half-open test has to run before the menu test, which seeds a save and
+  so replaces the Freedoom Phase 1 tile it taps with the Continue hero.
+- None of the test's scrolling steps was needed on the 951×669 pt window.
+
+**Which ten go in the set: chosen by the owner on 2026-11-20.** The group
+holds 10 and the two displays give 13. `DUO_SET` in
+`Scripts/upload-screenshots.sh` is the list, in store order:
+
+| # | File | Shows |
+|---|------|-------|
+| 1 | `iphone-duo-inner/05-ingame.png` | In-game, open |
+| 2 | `iphone-duo-inner/07-ingame-half-open.png` | In-game, half open (2007×2853, the one portrait file) |
+| 3 | `iphone-duo-inner/01-play-tab.png` | Shelf, open |
+| 4 | `iphone-duo-inner/03-preset-editor.png` | Game page beside the shelf |
+| 5 | `iphone-duo-inner/02-library.png` | Files beside the shelf |
+| 6 | `iphone-duo-inner/06-automap.png` | Automap, open |
+| 7 | `iphone-duo-inner/04-control-feel.png` | Control Feel |
+| 8 | `iphone-duo/05-ingame.png` | In-game, closed |
+| 9 | `iphone-duo/01-play-tab.png` | Shelf, closed |
+| 10 | `iphone-duo/06-automap.png` | Automap, closed |
+
+Every inner-display shot, the game first and the half-open layout second,
+then the closed device's game, shelf and automap. The outer Files, game-page
+and Control Feel shots (`iphone-duo/02-library.png`, `03-preset-editor.png`,
+`04-control-feel.png`) stay committed and are not uploaded; they repeat inner
+ones. The set is exactly at the group's limit, so adding a shot means
+removing one. A library image is named for its directory and slot
+(`iphone-duo-05-ingame.png` as before, `iphone-duo-inner-05-ingame.png` for
+an inner shot). The set mixes both displays and both orientations in one
+group; **whether App Store Connect accepts that is not known** and is one of
+the things the first `--device duo --apply` records here. It is still
+uploaded only by name and alone.
 
 ## 13. Decisions log (filled at the user gate)
 
