@@ -25,10 +25,21 @@ so each of these has to be seen. What produced them, and what removed them:
   in what VoiceOver and XCUITest read.
 - **A word wider than any line the row has.** "Compatibility" is wider than
   the panel's row at the largest size. `lineLimit` set to the number of
-  words, with `minimumScaleFactor`, shrinks the text only then: with a line
-  per word a text runs out of lines only when a word has been broken.
+  pieces, with `minimumScaleFactor`, shrinks the text only then: with a line
+  per piece a text runs out of lines only when a piece has been broken.
   `WholeWordText` in `Theme.swift` is that. A `minimumScaleFactor` with no
   line limit does nothing, because the text is never short of lines.
+
+  Count pieces, not words, and never let it cut. The first version counted
+  words, and a file's name is one unspaced word ("sunlust_final_v13"): it
+  got one line, so at the default size a long hyphenated name that used to
+  wrap shrank instead, and at the largest size a 17-character name shrank to
+  half and was then cut with an ellipsis (review of pull request 435). A
+  piece now also ends after a hyphen or an underscore and starts at a dot,
+  with a zero-width space between pieces. And where the widest piece does
+  not fit even at the smallest scale, `ViewThatFits` falls back to plain
+  wrapping: `.frame(idealWidth:)` on the shrinking text is how it is told
+  the width that version needs.
 - **An icon or a control beside the text.** A `Label`'s icon in Settings, and
   the delete and reorder controls of an always-editing list on the game page,
   come out of the same width. Settings drops the icons at the accessibility
@@ -51,9 +62,9 @@ Two things that did not fix it:
 - Leaving the style to the `Form`'s default gave a correct row with the
   value on one line, truncated in the middle ("Free…ase 2").
 
-What did: at the accessibility sizes only, build the row by hand, a title
-over a `Menu` whose label is an ordinary `Text` and whose content is the same
-`Picker` (`MenuPickerRow` in `GamePageView.swift`). At the ordinary sizes it
+What did: at the accessibility sizes only, build the row by hand: a `Menu`
+whose label is the whole row, the title over the value as ordinary text, and
+whose content is the same `Picker` (`MenuPickerRow` in `GamePageView.swift`). At the ordinary sizes it
 is still the system's picker, so nothing there moved.
 
 ## "Wider than tall" is also a narrow page that lost its height
@@ -64,3 +75,33 @@ content, and with the rename prompt's keyboard up it is shorter than that:
 the title got a column two letters wide ("SC" / "YT" / "HE").
 `PlayableDetailLayout.arrangement` now also takes the widest word the
 caption holds and stacks when the column beside the art is narrower.
+
+Both sides of that comparison have to be measured, not worked out. The first
+version got them from `UIFont` and from the form's width, and stacked a
+closed iPhone Duo held sideways at the largest size, where `main` drew the
+page side by side with every word whole (review of pull request 435):
+
+- A font cannot say how wide a symbol is drawn or how far a `Label` sets it
+  from its title. The page now draws a hidden copy of each word with its
+  pencil or icon at its natural size (`.lineLimit(1).fixedSize().hidden()`
+  in a `.background`) and reads the width with `onGeometryChange`.
+- The hero row is not always the form's width less the insets the art is
+  sized from. On that device it is about 11 pt wider, and the caption fitted
+  in the difference. The row's own width is measured too.
+
+`GamePageTests.testTheHeroIsSideBySideOnALandscapePhone` is the check that
+the measurement arrives at all: until it does the page stacks.
+
+## What the system's menu picker tells VoiceOver
+
+Read off the row with XCUITest: its label is the title and the choice
+together, "Touch layout, Default (Classic)", and its value is empty. A
+hand-built replacement that sets a label and a separate value is therefore
+not "what the system does". `GamePageTests` reads the system's row at the
+default size and holds the hand-built one to the same label and value, and
+taps the row's empty end to prove the whole row opens the menu.
+
+A UI test gets an accessibility text size for one launch with the launch
+arguments `-UIPreferredContentSizeCategoryName
+UICTContentSizeCategoryAccessibilityXXXL`; the simulator's own setting is
+not touched.
