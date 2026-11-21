@@ -106,8 +106,17 @@ extension XCTestCase {
     /// "Waddle" found nothing while the button was on screen.
     func returnToShelf(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         let back = app.buttons.matching(identifier: "BackButton").firstMatch
-        XCTAssertTrue(back.waitForExistence(timeout: 5), "no back button — navigation is broken", file: file, line: line)
-        back.tap()
+        // Where the window is wide enough for it (an open iPhone Duo held
+        // upright), the page is not pushed at all: it is a column beside the
+        // shelf, closed by its own Done button, and there is no back button
+        // to find (issue #409). Only when there is none is Done looked for.
+        let panelDone = app.buttons["Done"].firstMatch
+        if !back.waitForExistence(timeout: 5), panelDone.exists {
+            panelDone.tap()
+        } else {
+            XCTAssertTrue(back.exists, "no back button — navigation is broken", file: file, line: line)
+            back.tap()
+        }
         XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 10),
                       "left the page but never landed back on the shelf", file: file, line: line)
     }

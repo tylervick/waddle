@@ -33,6 +33,12 @@ needed a person, without bringing a window forward or moving the pointer.
   a button can be pressed by name (`Details`, `Done`, `Files`) instead of by
   coordinate.
 - **Captures** still come from `xcrun simctl io <udid> screenshot --display=LCD-1`.
+- **It can be scripted.** `Scripts/duo-pose-device-hub.sh` presses the hinge
+  and rotate buttons by name and reads the turn back from `devicectl device
+  orientation get`, which stays truthful on the open device even though
+  `set` does nothing there. It is the pose hook of
+  `Scripts/capture-screenshots.sh capture duo-inner` (issue 409), which took
+  the store's inner-display screenshots with Device Hub in the background.
 
 Mapping device points to window coordinates, with the Device Hub window at
 its default 1100x800 and zoom-to-fit: 0.529 window points per device point,

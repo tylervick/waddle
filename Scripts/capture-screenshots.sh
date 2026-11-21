@@ -40,25 +40,24 @@
 # the device; the export refuses anything else rather than commit it.
 #
 # The inner-display leg (`capture duo-inner`, issue #409) is the same test on
-# the same simulator, opened. Two things about it are not like any other leg:
+# the same simulator, opened. Three things about it are not like any other leg:
 #   * SOMETHING ELSE HAS TO WORK THE HINGE. The hinge and the rotate button
 #     exist only in Device Hub's window. This script says which pose it needs
 #     and waits until the device is in it; WADDLE_DUO_POSE_HOOK names a
-#     program that puts it there (none is committed yet: an agent pressing
-#     Device Hub's buttons by desktop control is the intended one), and
-#     without one the script prints the request and a person presses the
-#     button. Either way the pose is then checked, not trusted: `open` by the
-#     inner display being lit, and `half-open` by the app itself, in the test.
+#     program that puts it there (Scripts/duo-pose-device-hub.sh presses
+#     Device Hub's buttons through Orca's desktop control), and without one
+#     the script prints the request and a person presses the button.
+#     Either way the pose is then checked, not trusted: `open` by a host
+#     shot of the inner display, lit and wide, and `half-open` by the app
+#     itself, in the test.
 #   * The shots are taken from the HOST. The test writes each shot's name to
 #     a request file and this script photographs the inner display with
 #     `simctl io screenshot --display=LCD-1`, because XCUIScreen would return
 #     the outer display, switched off, at a valid store size.
-#   * NOT YET RUN AGAINST AN OPEN DEVICE (2026-11-20: the Mac was locked, so
-#     Device Hub could not be driven). Two things are therefore unmeasured:
-#     whether the test's steps all work on the open display, and which way up
-#     the inner display's pixel buffer is in each pose. The second is a
-#     setting with no default (WADDLE_DUO_INNER_TURN_WIDE / _TALL): until
-#     both are given, the leg keeps its raw host shots and exports nothing.
+#   * A host shot of the inner display comes back upright in both poses
+#     (measured 2026-11-20), unlike one of the outer display, which is the
+#     panel's own way up. So the export turns nothing; it only removes the
+#     alpha channel every host shot has.
 # Synthesized drags do nothing on an open Duo, so the test's scrolling steps
 # must not be needed there; taps land.
 #
@@ -95,11 +94,6 @@
 #                              (open | half-open | closed)
 #   WADDLE_DUO_POSE_WAIT       duo-inner: seconds to wait for the device to be
 #                              opened (default 300)
-#   WADDLE_DUO_INNER_TURN_WIDE duo-inner: clockwise quarter turns, in degrees
-#   WADDLE_DUO_INNER_TURN_TALL (0, 90, 180 or 270), that put a host shot of the
-#                              inner display upright when the app's window is
-#                              wide (the six slots) and tall (the half-open
-#                              shot). No default: not yet measured.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -138,12 +132,7 @@ DUO_SIZES="1398x2034 2034x1398 2007x2853 2853x2007"
 # size. The six slots are the open device held so its window is wide, which
 # is how the game is played; the seventh is the half-open play layout, where
 # the fold has to run across the window, so the window is tall.
-DUO_INNER_SHOTS="01-play-tab=2853x2007=WIDE 02-library=2853x2007=WIDE 03-preset-editor=2853x2007=WIDE 04-control-feel=2853x2007=WIDE 05-ingame=2853x2007=WIDE 06-automap=2853x2007=WIDE 07-ingame-half-open=2007x2853=TALL"
-# How far a host shot has to be turned in each pose. A wrong value gives a
-# picture of exactly the right size, on its side or upside down, so there is
-# no default to be wrong: export_host_shots refuses until both are set.
-DUO_INNER_TURN_WIDE="${WADDLE_DUO_INNER_TURN_WIDE:-}"
-DUO_INNER_TURN_TALL="${WADDLE_DUO_INNER_TURN_TALL:-}"
+DUO_INNER_SHOTS="01-play-tab=2853x2007 02-library=2853x2007 03-preset-editor=2853x2007 04-control-feel=2853x2007 05-ingame=2853x2007 06-automap=2853x2007 07-ingame-half-open=2007x2853"
 # The inner display's name to `simctl io` (`simctl io <udid> enumerate`).
 DUO_INNER_DISPLAY="LCD-1"
 DUO_POSE_HOOK="${WADDLE_DUO_POSE_HOOK:-}"
@@ -218,6 +207,10 @@ duo_cleanup() {
 
 # ---- the inner-display leg's dealings with the hinge and the host ----------
 
+png_dims() {  # path -> "WxH"
+    python3 -c 'import sys; d = open(sys.argv[1], "rb").read(24); print("%dx%d" % (int.from_bytes(d[16:20], "big"), int.from_bytes(d[20:24], "big")))' "$1"
+}
+
 # True if the picture is one flat colour, which is what a display that is
 # switched off photographs as. Sixteen by sixteen is enough to tell.
 png_is_blank() {  # path
@@ -263,18 +256,26 @@ duo_ask_pose() {  # pose, udid, simulator name
     esac
 }
 
-# Blocks until the inner display is lit, which is what "open" looks like from
-# the host. Which way up the open device is held is not visible from here;
-# the test asserts its window is wide before the first shot.
+# Blocks until the device is open and held so the app's window is wide: the
+# inner display is lit, and a host shot of it comes back 2853x2007. (A host
+# shot of the open inner display is the way up the picture is, so its shape
+# is the window's. The test cannot check this itself: XCUITest reports the
+# open Duo's wide window as 669x951.)
 duo_wait_open() {  # udid, simulator name
-    local probe="$RESULTS_ROOT/pose-probe.png" deadline=$((SECONDS + DUO_POSE_WAIT))
+    local probe="$RESULTS_ROOT/pose-probe.png" why="" deadline=$((SECONDS + DUO_POSE_WAIT))
     while :; do
-        if duo_host_shot "$1" "$probe" && ! png_is_blank "$probe"; then
+        if ! duo_host_shot "$1" "$probe"; then
+            why="its inner display ($DUO_INNER_DISPLAY) cannot be photographed"
+        elif png_is_blank "$probe"; then
+            why="its inner display is dark (the device is closed)"
+        elif [ "$(png_dims "$probe")" != 2853x2007 ]; then
+            why="its inner display reads $(png_dims "$probe"), not 2853x2007 (the device is turned on its side)"
+        else
             rm -f "$probe"
             return 0
         fi
         if [ $SECONDS -ge $deadline ]; then
-            echo "error: '$2' is not open after ${DUO_POSE_WAIT}s: its inner display ($DUO_INNER_DISPLAY) is dark or unreadable." >&2
+            echo "error: '$2' is not open and upright after ${DUO_POSE_WAIT}s: $why." >&2
             echo "       Nothing Apple ships opens the simulator from a script: docs/learnings/driving-device-hub-by-desktop-control.md" >&2
             exit 1
         fi
@@ -591,31 +592,16 @@ PYEOF
     rm -rf "$tmp"
 }
 
-# The inner-display leg's export. A host shot is the display's own pixel
-# buffer: RGBA, and the way up the PANEL is, not the way up the picture is.
-# Each shot is rewritten opaque and turned by the amount its pose needs
-# (Scripts/opaque-png.swift; no `sips --rotate`, so no orientation tag to
-# strip, though any that appears is still dropped), then held to its exact
-# size, to not being blank, and to having no alpha channel.
-export_host_shots() {  # $1 = dir of host shots, $2 = dest dir, $3 = "name=WxH=turn ..."
-    local entry name size turn raw out problems=""
-    for turn in "WADDLE_DUO_INNER_TURN_WIDE=$DUO_INNER_TURN_WIDE" "WADDLE_DUO_INNER_TURN_TALL=$DUO_INNER_TURN_TALL"; do
-        case "${turn#*=}" in
-            0|90|180|270) ;;
-            *)
-                echo "error: ${turn%%=*} is '${turn#*=}', and must be 0, 90, 180 or 270." >&2
-                echo "       It has no default because it has not been measured. The raw host shots are in" >&2
-                echo "       $1" >&2
-                echo "       Look at one of each pose, set both variables to the clockwise turn that puts it" >&2
-                echo "       upright, and run: $0 export duo-inner. Then write the two values in as defaults." >&2
-                exit 1
-                ;;
-        esac
-    done
+# The inner-display leg's export. A host shot of the open device is upright
+# already, but it is RGBA, which the store refuses. Each shot is rewritten
+# opaque (Scripts/opaque-png.swift, pixel for pixel), then held to its exact
+# size, to not being blank, and to having no alpha channel. The size is the
+# check on the pose: a wide window gives 2853x2007 and a tall one 2007x2853.
+export_host_shots() {  # $1 = dir of host shots, $2 = dest dir, $3 = "name=WxH ..."
+    local entry name size raw out problems=""
     mkdir -p "$2"
     for entry in $3; do
-        name="${entry%%=*}"; size="${entry#*=}"; turn="${size#*=}"; size="${size%%=*}"
-        case "$turn" in WIDE) turn="$DUO_INNER_TURN_WIDE" ;; TALL) turn="$DUO_INNER_TURN_TALL" ;; esac
+        name="${entry%%=*}"; size="${entry#*=}"
         raw="$1/$name.png"; out="$2/$name.png"
         if [ ! -f "$raw" ]; then
             problems="$problems
@@ -627,9 +613,9 @@ export_host_shots() {  # $1 = dir of host shots, $2 = dest dir, $3 = "name=WxH=t
   $name is one flat colour: the inner display was switched off (the device was closed)"
             continue
         fi
-        xcrun swift Scripts/opaque-png.swift "$raw" "$out.tmp" "$turn" || { echo "error: could not rewrite $raw" >&2; exit 1; }
+        xcrun swift Scripts/opaque-png.swift "$raw" "$out.tmp" || { echo "error: could not rewrite $raw" >&2; exit 1; }
         python3 - "$out.tmp" "$out" "$size" <<'PYEOF' || { rm -f "$out.tmp"; problems="$problems
-  $name is not ${size} without alpha after a ${turn} degree turn: the device was not in the pose this shot needs"; continue; }
+  $name is not ${size} without alpha: the device was not in the pose this shot needs"; continue; }
 import sys
 data = open(sys.argv[1], "rb").read()
 got = "%dx%d" % (int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big"))

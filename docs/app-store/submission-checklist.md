@@ -294,10 +294,11 @@ existing version. The dry run only says what it would create; with
       screenshots** workflow, not a local run, unless the Mac has the
       iOS 27.1 runtime. That workflow covers the outer display only. The
       inner display (`Scripts/capture-screenshots.sh capture duo-inner`)
-      needs Device Hub's hinge and so a Mac with a screen; **as of
-      2026-11-20 it has never been run on an open device and no inner shot
-      is in the set** (§12, "The inner display: tooling written, not yet
-      run").
+      needs Device Hub's hinge, so an unlocked Mac with Orca, not CI; its
+      seven shots are in `docs/app-store/screenshots/iphone-duo-inner/`
+      (§12, "The inner display"). **Which shots the Duo set uploads is the
+      list `DUO_SET` in `Scripts/upload-screenshots.sh`**; read the dry
+      run's file list before applying.
 
 ## 4. App Privacy + age rating + content rights
 

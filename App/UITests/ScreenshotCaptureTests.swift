@@ -19,11 +19,13 @@ import XCTest
 /// multitasking flip have no place in a routine run, and a red suite there
 /// would only teach people to ignore it.
 ///
-/// The two tests are ordered deliberately (XCTest runs methods in selector
-/// order): the in-game one runs FIRST because playing a base game stamps
+/// The tests are ordered deliberately (XCTest runs methods in selector
+/// order): the in-game ones run FIRST because playing a base game stamps
 /// `lastPlayed` (LibraryService.markPlayed saves synchronously, before the
 /// blocking engine session starts), and that is what gives the menu test's
-/// Play-tab shot a populated "Recently Played" section.
+/// Play-tab shot a populated "Recently Played" section. The half-open shot,
+/// which only the inner-display leg takes, runs before both; its own comment
+/// says why.
 final class ScreenshotCaptureTests: XCTestCase {
 
     /// The modded game in the marketing shots. SCYTHE is a Doom-2-format map
@@ -70,6 +72,15 @@ final class ScreenshotCaptureTests: XCTestCase {
     /// the host's filesystem, which is what makes a file a workable signal.)
     @MainActor
     private func forceLandscape(_ app: XCUIApplication) {
+        // The inner-display leg (the one that names a host-shot request file)
+        // turns nothing and asserts nothing here. An open iPhone Duo held
+        // upright already gives the app a wide window, 951x669 pt, and
+        // `app.frame` cannot say so: on the open device XCUITest reported
+        // 669x951 for that window on two runs while the host photographed it
+        // 2853x2007 px, wide (issue #409). So the script checks the pose from
+        // the host instead, before the test starts and again on every
+        // exported shot, whose exact size is the window's shape.
+        if ProcessInfo.processInfo.environment["WADDLE_SCREENSHOT_HOST_SHOT_REQUEST"] != nil { return }
         addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
         XCUIDevice.shared.orientation = .landscapeLeft
         Thread.sleep(forTimeInterval: 1.0)  // rotation animation
@@ -286,17 +297,22 @@ final class ScreenshotCaptureTests: XCTestCase {
     /// The test asks the script for a pose by name, and the script hands the
     /// name to whatever is operating Device Hub, a hook or a person. What the
     /// test then waits for is the app's own evidence, not the script's word:
-    /// the window turned tall (the fold runs across it only that way up) and
     /// the overlay's `halfOpenSplit` marker, which exists only while the
-    /// hinge reads partly open and the division band is active
-    /// (docs/learnings/iphone-duo-half-open-pose.md). A shot taken without
-    /// both would be an ordinary in-game shot under the half-open name.
+    /// hinge reads partly open and the division band is active and runs
+    /// across the window (docs/learnings/iphone-duo-half-open-pose.md). A
+    /// shot taken without it would be an ordinary in-game shot under the
+    /// half-open name. (`app.frame` is no evidence of the window's shape on
+    /// an open Duo; the script holds the exported shot to 2007x2853 instead.)
     ///
-    /// Runs after testB (selector order), so the session it starts cannot
-    /// change what the shelf shots show. It ends by asking for the device to
-    /// be opened flat again, pass or fail.
+    /// Runs before testB, and by its name before the other in-game test
+    /// (selector order: `testA_H` sorts ahead of `testA_I`). After testB it
+    /// could not start: testB seeds a save, the shelf then shows Freedoom
+    /// Phase 1 as the Continue hero, and the `playFreedoom1` tile this taps
+    /// is gone, which is how the first full inner-display run failed. It ends
+    /// by asking for the device to be opened flat again, pass or fail, so the
+    /// tests after it find the wide window they need.
     @MainActor
-    func testC_HalfOpenInGame() throws {
+    func testA_HalfOpenInGame() throws {
         guard let request = ProcessInfo.processInfo.environment["WADDLE_SCREENSHOT_POSE_REQUEST"] else {
             throw XCTSkip("no WADDLE_SCREENSHOT_POSE_REQUEST: only the script's inner-display leg takes this shot")
         }
@@ -306,7 +322,7 @@ final class ScreenshotCaptureTests: XCTestCase {
         app.launch()
 
         let play = app.buttons["playFreedoom1"]
-        XCTAssertTrue(play.waitForExistence(timeout: 20))
+        XCTAssertTrue(play.waitForExistence(timeout: 20), "no Freedoom Phase 1 tile on the shelf")
         play.tap()
         let fire = app.buttons["fireButton"]
         XCTAssertTrue(fire.waitForExistence(timeout: 30), "overlay never installed")
@@ -320,8 +336,6 @@ final class ScreenshotCaptureTests: XCTestCase {
         let marker = app.otherElements["halfOpenSplit"]
         XCTAssertTrue(marker.waitForExistence(timeout: 120),
                       "the overlay never split: the device is not standing half open with the fold across the window")
-        XCTAssertTrue(app.frame.height > app.frame.width,
-                      "the window is \(app.frame.size), not tall, so the fold does not run across it")
         XCTAssertTrue(fire.exists, "the session ended before the half-open shot")
         Thread.sleep(forTimeInterval: 2)  // the controls and the picture finish moving
         shoot("07-ingame-half-open")
