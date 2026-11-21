@@ -37,7 +37,14 @@ the points onto Device Hub's picture of the display and posts the path with
 | scroll | `x,y1,60 x,y2,500 x,y2,300` | A slow drag with a pause before the lift, so the list is not flicked past the row. |
 
 The first touch of a run compiles `timed-drag.c`, which once took longer than
-the test's 30 s wait for an answer; the waits are 60 s now.
+the test's wait for an answer. That exposed a hole in the request file's
+protocol, which was "the script deletes the file when it has served it": the
+test gave up and wrote its next request, the slow handler finished and
+deleted *that*, and the test read the deletion as service. A lost shot shows
+up as a missing file; a lost touch showed up as nothing. A request now
+carries an id and is answered by writing the id to `<request>.done`, so an
+answer that arrives late names an id nobody is waiting for. The request file
+is deleted only by the side that wrote it.
 
 **The display's place in Device Hub's window is a measurement.** At the
 default 1100x800 window and zoom-to-fit: 0.529 window points per app point,
@@ -49,6 +56,50 @@ the tall display covers about 360x468 window points from (490, 170), where
 flat it covers 354x503. A straight-line fit to that (0.538 across, 0.492
 down) was good enough to hit the engine's menu rows, which are 37 app points
 apart, and a tile; nothing finer was tried.
+
+## Device Hub is one window, and every session on the Mac shares it
+
+The hinge buttons and a posted touch act on whichever simulator's row is
+SELECTED in the sidebar, and selecting is a separate press from acting. The
+hook has always checked that the name it was given is its own simulator's and
+nobody else's; what it did not have was anything between "select my row" and
+"press Open".
+
+Seen 2026-11-21, with two other sessions driving their own Duo simulators
+through the same Device Hub while this one did a hand check: this session's
+simulator was turned a quarter turn twice and closed once by presses it never
+made, and a game was started on it by a tap that was aimed at another
+simulator. Each time the cause was the same from the other side: this session
+had selected its row a moment before the other one pressed.
+
+The hook now does two things, and it takes both:
+
+- **A lock**, a directory at a path every session agrees on
+  (`/tmp/waddle-device-hub.lock`, not under a per-session `TMPDIR`), held for
+  one invocation. A holder that died is cleared by its pid; a live one is
+  waited for and then the hook stops, having pressed nothing. This binds only
+  sessions that run this version of the hook.
+- **The selection is read again immediately before every press of a device
+  button and before a touch is posted**, and must still be this simulator's
+  row (`outline row (selected) <name> <version> Simulator`). During the same
+  hand check this fired for real: `'Duo357 Review' is no longer the simulator
+  selected in Device Hub; not going on to post the touch`.
+
+What is left is the time between that read and the press, a fraction of a
+second, against a session that does not take the lock (a person at the
+window, or an older copy of the hook). The slow part of a touch, compiling
+`timed-drag`, is done before the lock is taken and before the row is selected.
+
+A sweep makes hundreds of touches. Do not run one while another session is
+using Device Hub with a hook older than this.
+
+`Scripts/duo-layout-sweep.sh` also refuses to run without
+`WADDLE_DUO_SIMULATOR`, and refuses the stock name `iPhone Duo`: it reinstalls
+the app on that simulator and folds it, and one match for a default name was
+being taken as "mine". And it closes the device again on every way out, not
+only at the end of a clean run; a run that died in an opened pose used to
+leave the device open and turned, because its trap asked `devicectl` for
+portrait, which (next section) does nothing here.
 
 ## `devicectl device orientation set` turned nothing here, closed or open
 

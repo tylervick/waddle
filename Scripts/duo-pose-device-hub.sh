@@ -36,6 +36,21 @@
 # The path is posted by timed-drag.c, which rides private interfaces; see
 # the learning for why Orca's own drag will not do.
 #
+# Two sessions must not work Device Hub at once, and neither may act on the
+# other's simulator. The buttons and a touch go to whichever row is SELECTED,
+# and selecting is a separate press from acting. So:
+#   * One invocation at a time holds a lock, a directory every session on
+#     this Mac agrees on (DUO_HUB_LOCK). A holder that has died is cleared;
+#     a live one is waited for, DUO_HUB_LOCK_WAIT seconds, and then this
+#     stops having pressed nothing.
+#   * The lock binds only callers of this script. A person, or a session
+#     with an older copy, can still change the selection. So immediately
+#     before every press of a device button, and before a touch is posted,
+#     the tree is read again and this simulator's row must be the one marked
+#     selected. If it is not, nothing more is pressed.
+# What remains is the time between that read and the press, a fraction of a
+# second, against someone who is not using the lock.
+#
 # Nothing Apple ships folds the simulator from a script; the hinge and the
 # rotate button exist only in Device Hub's window
 # (docs/learnings/driving-device-hub-by-desktop-control.md). So this needs
@@ -66,6 +81,10 @@ DUO_TURNED="landscapeRight"
 APP="com.apple.dt.Devices"
 # How long a fold or a turn is given to finish before the next read.
 SETTLE="${DUO_POSE_SETTLE:-1.5}"
+# One path for every session on the Mac, so not under a per-session TMPDIR.
+LOCK="${DUO_HUB_LOCK:-/tmp/waddle-device-hub.lock}"
+LOCK_WAIT="${DUO_HUB_LOCK_WAIT:-120}"
+case "$LOCK_WAIT" in ''|*[!0-9]*) echo "DUO_HUB_LOCK_WAIT must be a whole number of seconds, got '$LOCK_WAIT'" >&2; exit 2 ;; esac
 # Where Device Hub draws the open inner display, in window points: the window
 # size this holds for, the screen points per app point, and the display's
 # top-left corner when the app's window is wide (951x669) and when it is tall
@@ -133,6 +152,64 @@ press() {  # regex, what it is called in messages
     sleep "$SETTLE"  # the fold and the turn are animated
 }
 
+# This simulator's row in the sidebar, whole: name to "Simulator", so a
+# longer name that begins the same way is a different row.
+ROW_NAME="$(printf '%s' "$NAME" | sed 's/[][\\.*^$()+?{}|]/\\&/g') [0-9][0-9.]* Simulator"
+
+# Succeeds only if this simulator's row is the selected one, read now.
+selected() {
+    local index
+    index="$(elements "outline row \\(selected\\) $ROW_NAME")" || return 1
+    [ -n "$index" ] && [ "$(printf '%s\n' "$index" | wc -l | tr -d ' ')" = 1 ]
+}
+require_selected() {  # what is about to be done
+    selected && return 0
+    echo "error: '$NAME' is no longer the simulator selected in Device Hub; not going on to $1." >&2
+    echo "       Someone else changed the selection. Nothing further was pressed." >&2
+    exit 1
+}
+
+# A press of one of the buttons under the device, which acts on whichever
+# simulator is selected: so the selection is read again first.
+act() {  # regex, what it is called in messages
+    require_selected "press the $2"
+    press "$1" "$2"
+}
+
+# Takes the lock, or stops. `mkdir` is the atomic step; the holder's pid is
+# inside, so a holder that died without letting go can be told from one that
+# is at work.
+LOCKED=""
+unlock() { [ -n "$LOCKED" ] && rm -rf "$LOCK"; LOCKED=""; }
+lock() {
+    local deadline=$((SECONDS + LOCK_WAIT)) holder
+    while ! mkdir "$LOCK" 2>/dev/null; do
+        holder="$(cat "$LOCK/pid" 2>/dev/null || true)"
+        case "$holder" in
+            ''|*[!0-9]*)
+                # No pid yet: the holder is between its mkdir and its write.
+                ;;
+            *)
+                if ! kill -0 "$holder" 2>/dev/null; then
+                    echo "note: clearing a Device Hub lock left by process $holder, which is gone" >&2
+                    # Renamed away first, so two waiters cannot both clear it
+                    # and then both take it.
+                    mv "$LOCK" "$LOCK.stale.$$" 2>/dev/null && rm -rf "$LOCK.stale.$$"
+                    continue
+                fi
+                ;;
+        esac
+        [ $SECONDS -lt $deadline ] || {
+            echo "error: another session has held Device Hub (${LOCK}, process ${holder:-unknown}) for ${LOCK_WAIT}s; nothing was pressed." >&2
+            exit 1
+        }
+        sleep 0.2
+    done
+    LOCKED=1
+    trap unlock EXIT
+    echo $$ > "$LOCK/pid"
+}
+
 # Prints the device's orientation as devicectl names it. Fails, saying so,
 # when devicectl fails or answers something that is not an orientation: an
 # empty answer must not read as "not there yet, turn again".
@@ -153,7 +230,7 @@ turn_to() {  # the orientation wanted, as devicectl names it
         now="$(orientation)" || exit 1
         [ "$now" = "$1" ] && return 0
         [ "$n" -lt 4 ] || { echo "error: four quarter turns never read '$1' (devicectl says '${now:-nothing}')" >&2; exit 1; }
-        press 'button Rotate Right$' "Rotate Right button"
+        act 'button Rotate Right$' "Rotate Right button"
         n=$((n + 1))
     done
 }
@@ -174,10 +251,29 @@ for line in sys.stdin:
     exit 1
 }
 
-# Select the device first: the buttons act on whichever is selected. The row
-# is matched whole, name to "Simulator", so a longer name that begins the
-# same way is a different row.
-press "outline row (\\(selected\\) )?$(printf '%s' "$NAME" | sed 's/[][\\.*^$()+?{}|]/\\&/g') [0-9][0-9.]* Simulator" "simulator row named '$NAME'"
+# Everything a touch needs that takes time is done BEFORE the row is selected
+# (and outside the lock): the build of timed-drag once took half a minute.
+if [ "$POSE" = touch ]; then
+    # DUO_TIMED_DRAG names a built timed-drag (the tests name a stub).
+    DRAG="${DUO_TIMED_DRAG:-}"
+    SOURCE="$(dirname "$0")/../docs/learnings/assets/duo-device-hub-2026-11-20/timed-drag.c"
+    if [ -z "$DRAG" ]; then
+        DRAG="${TMPDIR:-/tmp}/waddle-timed-drag"
+        if [ ! -x "$DRAG" ] || [ "$SOURCE" -nt "$DRAG" ]; then
+            # Built beside its place and moved in, so a second invocation
+            # never runs half a binary.
+            xcrun clang -O2 "$SOURCE" -o "$DRAG.$$" -framework ApplicationServices \
+                -F/System/Library/PrivateFrameworks -framework SkyLight \
+                && mv -f "$DRAG.$$" "$DRAG" \
+                || { rm -f "$DRAG.$$"; echo "error: could not build timed-drag" >&2; exit 1; }
+        fi
+    fi
+fi
+
+lock
+
+# Select the device first: the buttons act on whichever is selected.
+press "outline row (\\(selected\\) )?$ROW_NAME" "simulator row named '$NAME'"
 
 if [ "$POSE" = touch ]; then
     WINDOWS="$("$ORCA" computer list-windows --app "$APP" --json)" \
@@ -201,15 +297,6 @@ EOF
         echo "error: Device Hub's window is ${HUB_W}x${HUB_H}, and the display's place in it was measured at ${DISPLAY_WINDOW/ /x}; refusing to aim a touch by it" >&2
         exit 1
     }
-    # DUO_TIMED_DRAG names a built timed-drag (the tests name a stub).
-    DRAG="${DUO_TIMED_DRAG:-}"
-    SOURCE="$(dirname "$0")/../docs/learnings/assets/duo-device-hub-2026-11-20/timed-drag.c"
-    if [ -z "$DRAG" ]; then DRAG="${TMPDIR:-/tmp}/waddle-timed-drag"; fi
-    if [ -z "${DUO_TIMED_DRAG:-}" ] && { [ ! -x "$DRAG" ] || [ "$SOURCE" -nt "$DRAG" ]; }; then
-        xcrun clang -O2 "$SOURCE" -o "$DRAG" -framework ApplicationServices \
-            -F/System/Library/PrivateFrameworks -framework SkyLight \
-            || { echo "error: could not build timed-drag" >&2; exit 1; }
-    fi
     case "$WINDOW" in wide) PLACE="$DISPLAY_WIDE" ;; tall) PLACE="$DISPLAY_TALL" ;; tall-bent) PLACE="$DISPLAY_TALL_BENT" ;; esac
     # App points to screen points.
     PATH_ARGS="$(HUB_X="$HUB_X" HUB_Y="$HUB_Y" PLACE="$PLACE" python3 -c '
@@ -220,6 +307,9 @@ for point in sys.argv[1:]:
     x, y, ms = (float(v) for v in point.split(","))
     print("%.1f,%.1f,%d" % (hx + ox + x * kx, hy + oy + y * ky, ms))
 ' "$@")" || exit 1
+    # The touch lands on whatever the window shows, so this is the last
+    # thing before it.
+    require_selected "post the touch"
     # shellcheck disable=SC2086
     "$DRAG" "$HUB_PID" "$HUB_WINDOW" "$HUB_X" "$HUB_Y" $PATH_ARGS \
         || { echo "error: timed-drag failed" >&2; exit 1; }
@@ -229,24 +319,24 @@ fi
 
 case "$POSE" in
     open)
-        press 'button Open$' "Open button"
+        act 'button Open$' "Open button"
         turn_to "$DUO_UPRIGHT"
         ;;
     open-turned)
-        press 'button Open$' "Open button"
+        act 'button Open$' "Open button"
         turn_to "$DUO_TURNED"
         ;;
     half-open)
-        press 'button Open$' "Open button"
+        act 'button Open$' "Open button"
         turn_to "$DUO_TURNED"
-        press 'button Partially Open$' "Partially Open button"
+        act 'button Partially Open$' "Partially Open button"
         ;;
     closed)
         turn_to "$DUO_UPRIGHT"
-        press 'button Closed$' "Closed button"
+        act 'button Closed$' "Closed button"
         ;;
     closed-turned)
-        press 'button Closed$' "Closed button"
+        act 'button Closed$' "Closed button"
         turn_to "$DUO_TURNED"
         ;;
 esac

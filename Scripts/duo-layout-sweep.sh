@@ -45,8 +45,13 @@
 # Scripts/provision-test-wads.sh.
 #
 # Env:
-#   WADDLE_DUO_SIMULATOR     name of the iPhone Duo simulator (default "iPhone
-#                            Duo"). On a shared Mac give it one nobody else has.
+#   WADDLE_DUO_SIMULATOR     name of the iPhone Duo simulator to use. REQUIRED,
+#                            and it has no default: this script changes the
+#                            simulator's text size, reinstalls the app on it
+#                            and folds it, and a name is all that says whose
+#                            it is. Create one for the purpose, under a name
+#                            nobody else on the Mac has. The stock name
+#                            "iPhone Duo" is refused.
 #   WADDLE_DUO_SWEEP_SIZES   text sizes, as `simctl ui content_size` names them
 #                            (default: the default size, the largest standard
 #                            size and the largest accessibility size)
@@ -63,9 +68,11 @@ cd "$(dirname "$0")/.."
 
 BUNDLE_ID="com.tylervick.waddle"
 DERIVED="App/build"
-APP_PATH="$DERIVED/Build/Products/Debug-iphonesimulator/Waddle.app"
+APP_PATH="${WADDLE_DUO_SWEEP_APP:-$DERIVED/Build/Products/Debug-iphonesimulator/Waddle.app}"
 WAD_SRC="${WADDLE_TEST_WADS:-$HOME/Downloads/doom-test-wads}"
-NAME="${WADDLE_DUO_SIMULATOR:-iPhone Duo}"
+NAME="${WADDLE_DUO_SIMULATOR:-}"
+# How long the map sets are given to be adopted (the suite shortens it).
+ADOPT_WAIT="${WADDLE_DUO_SWEEP_ADOPT_WAIT:-240}"
 OUT="${WADDLE_DUO_SWEEP_OUT:-${TMPDIR:-/tmp}/waddle-duo-sweep}"
 SIZES="${WADDLE_DUO_SWEEP_SIZES:-large extra-extra-extra-large accessibility-extra-extra-extra-large}"
 POSE_HOOK="${WADDLE_DUO_POSE_HOOK:-}"
@@ -80,6 +87,30 @@ SHOTS="01-import-banner 02-shelf 03-tile-menu 04-game-page 05-game-page-lower
 31-launcher-error-alert 40-document-picker 50-shelf-continue-hero"
 # Taken only where the screen is taller than the window and had to be scrolled.
 OPTIONAL_SHOTS="11-settings-lower 16-control-feel-lower"
+
+# The one simulator this run may touch, by name. Nothing here can know whose
+# a simulator is, so the caller has to say, and say it in a way that cannot
+# be someone else's by accident: no default, not the name every Xcode gives
+# its own Duo, and exactly one device by that name.
+THE_UDID=""
+require_simulator() {
+    if [ -z "$NAME" ]; then
+        echo "error: WADDLE_DUO_SIMULATOR is not set. Name the iPhone Duo simulator this sweep may use;" >&2
+        echo "       it changes that simulator's text size, reinstalls the app on it and folds it." >&2
+        echo "       xcrun simctl create '<a name of your own>' 'iPhone Duo'" >&2
+        exit 2
+    fi
+    if [ "$NAME" = "iPhone Duo" ]; then
+        echo "error: 'iPhone Duo' is the name Xcode gives the stock simulator, which may be anyone's." >&2
+        echo "       Create one of your own under another name and set WADDLE_DUO_SIMULATOR to it." >&2
+        exit 2
+    fi
+    THE_UDID="$(udid_of)"
+    case "$THE_UDID" in
+        '') echo "error: no available simulator is named '$NAME'" >&2; exit 1 ;;
+        *$'\n'*) echo "error: more than one simulator is named '$NAME'" >&2; exit 1 ;;
+    esac
+}
 
 udid_of() {
     xcrun simctl list devices available | NAME="$NAME" python3 -c '
@@ -164,54 +195,80 @@ orientation_of() {  # udid
         | sed -nE 's/.*[Oo]rientation: *([A-Za-z]+).*/\1/p' | head -1
 }
 
-# Serves the test's requests until killed. A request that cannot be served
-# is left in place, so the test fails on it by name.
+# Serves the test's requests until killed.
+#
+# A request is one line, "<id> <what>", and is answered by writing its id to
+# "<request>.done". The request file is the test's: it is never deleted
+# here. It used to be, as the acknowledgement, and a handler that outlived
+# the test's wait (a touch that had to compile timed-drag first) then
+# deleted the NEXT request, which the test took for served. Now a late
+# answer carries an id nobody is waiting for and is ignored.
+#
+# A shot that cannot be taken is not answered, so the test fails on it by
+# name; everything else is answered whether or not it could be done, and the
+# test finds out from the screen.
 serve() {  # pose, udid, raw dir, request file
-    local line word rest
+    local line id word rest last="" answer
     while :; do
-        if [ -e "$4" ]; then
-            line="$(cat "$4")"
-            word="${line%% *}"; rest="${line#* }"
-            case "$word" in
-                shot)
-                    case "$rest" in
-                        *[!0-9a-z-]*|'') echo "error: refusing a shot request that is not a shot name: '$rest'" >&2 ;;
-                        *)
-                            if xcrun simctl io "$2" screenshot --type=png --display="$(pose_display "$1")" \
-                                    --mask=ignored "$3/$rest.png" >/dev/null 2>&1; then
-                                echo "   shot $rest" >&2
-                                rm -f "$4"
-                            else
-                                echo "warning: could not photograph $rest; trying again" >&2
-                                sleep 1
-                            fi
-                            ;;
-                    esac
+        line="$(cat "$4" 2>/dev/null || true)"
+        id="${line%% *}"
+        if [ -n "$line" ] && [ "$id" != "$last" ]; then
+            answer=1
+            # An id is eight or more of [0-9A-Za-z-] (the test sends a
+            # UUID). Anything shorter is the first word of a request written
+            # without one, which must not be served under that word as its id.
+            case "$id" in
+                *[!0-9A-Za-z-]*|"$line"|?|??|???|????|?????|??????|???????|loose-files)
+                    echo "error: ignoring a request with no id: '$line'" >&2
+                    answer=""; last="$id"
                     ;;
-                turn) turn_closed "$1" "$2" || true; rm -f "$4" ;;
-                touch)
-                    # Acknowledged either way: where the touch could not be
-                    # made the test finds nothing moved and says which
-                    # surface it could not reach.
-                    case "$rest" in
-                        *[!0-9,\ ]*|'') echo "error: ignoring a touch request that is not waypoints: '$rest'" >&2 ;;
-                        *)
-                            if [ -n "$POSE_HOOK" ]; then
-                                # shellcheck disable=SC2086
-                                "$POSE_HOOK" touch "$2" "$NAME" "$(pose_window "$1")" $rest >&2 || true
-                            else
-                                echo "warning: no WADDLE_DUO_POSE_HOOK to make a touch with" >&2
-                            fi
-                            ;;
-                    esac
-                    rm -f "$4"
-                    ;;
-                loose-files) loose_files "$2" || true; rm -f "$4" ;;
-                *) echo "error: ignoring an unknown request: '$line'" >&2; rm -f "$4" ;;
+                *) serve_one "$1" "$2" "$3" "${line#* }" || answer="" ;;
             esac
+            if [ -n "$answer" ]; then
+                last="$id"
+                printf '%s\n' "$id" > "$4.done.new" && mv -f "$4.done.new" "$4.done"
+            fi
         fi
         sleep 0.1
     done
+}
+
+# One request. Fails only when it should be asked again (a shot not taken).
+serve_one() {  # pose, udid, raw dir, what
+    local word="${4%% *}" rest="${4#* }"
+    case "$word" in
+        shot)
+            case "$rest" in
+                *[!0-9a-z-]*|''|shot) echo "error: refusing a shot request that is not a shot name: '$rest'" >&2 ;;
+                *)
+                    if xcrun simctl io "$2" screenshot --type=png --display="$(pose_display "$1")" \
+                            --mask=ignored "$3/$rest.png" >/dev/null 2>&1; then
+                        echo "   shot $rest" >&2
+                    else
+                        echo "warning: could not photograph $rest; trying again" >&2
+                        sleep 1
+                        return 1
+                    fi
+                    ;;
+            esac
+            ;;
+        turn) turn_closed "$1" "$2" || true ;;
+        touch)
+            case "$rest" in
+                *[!0-9,\ ]*|''|touch) echo "error: ignoring a touch request that is not waypoints: '$rest'" >&2 ;;
+                *)
+                    if [ -n "$POSE_HOOK" ]; then
+                        # shellcheck disable=SC2086
+                        "$POSE_HOOK" touch "$2" "$NAME" "$(pose_window "$1")" $rest >&2 || true
+                    else
+                        echo "warning: no WADDLE_DUO_POSE_HOOK to make a touch with" >&2
+                    fi
+                    ;;
+            esac
+            ;;
+        loose-files) loose_files "$2" || true ;;
+        *) echo "error: ignoring an unknown request: '$4'" >&2 ;;
+    esac
 }
 
 provision() {  # udid: the map sets, adopted by one launch
@@ -220,7 +277,7 @@ provision() {  # udid: the map sets, adopted by one launch
     mkdir -p "$docs"
     cp "$WAD_SRC/scythe/SCYTHE.WAD" "$WAD_SRC/sunlust/sunlust/sunlust.wad" "$WAD_SRC/eviternityii/Eviternity II.wad" "$docs/"
     xcrun simctl launch "$1" "$BUNDLE_ID" >/dev/null
-    deadline=$((SECONDS + 240))
+    deadline=$((SECONDS + ADOPT_WAIT))
     while [ -e "$docs/SCYTHE.WAD" ] || [ -e "$docs/sunlust.wad" ] || [ -e "$docs/Eviternity II.wad" ]; do
         [ $SECONDS -lt $deadline ] || { echo "error: the map sets were never adopted; left in $docs" >&2; exit 1; }
         sleep 2
@@ -286,7 +343,7 @@ run_one() {  # pose, size, udid
     [ -n "$ONLY" ] || rm -rf "$raw"
     rm -rf "$OUT/results/$1-$2.xcresult"
     mkdir -p "$raw" "$OUT/results"
-    rm -f "$request" "$request.staged"
+    rm -f "$request" "$request.staged" "$request.done" "$request.done.new"
     xcrun simctl ui "$3" content_size "$2"
     xcrun simctl uninstall "$3" "$BUNDLE_ID" 2>/dev/null || true
     xcrun simctl install "$3" "$APP_PATH"
@@ -308,28 +365,50 @@ run_one() {  # pose, size, udid
     finish "$1" "$2" "$raw" "$OUT/shots/$1/$2"
 }
 
+# Puts the simulator back the way a simulator boots, on EVERY way out of a
+# run: the text size, and the pose. A run that stops in an opened pose (the
+# hook failing after it pressed Open, the map sets never adopted, Ctrl-C)
+# used to leave the device open and turned in Device Hub, because the only
+# closing was the last line of a successful run and the trap asked devicectl
+# for portrait, which changes nothing while Device Hub is running.
+POSED=""
+restore() {
+    local status=$?
+    trap - EXIT INT TERM
+    stop_helper
+    [ -n "$THE_UDID" ] || exit "$status"
+    xcrun simctl ui "$THE_UDID" content_size large >/dev/null 2>&1 || true
+    if [ -n "$POSED" ]; then
+        if [ -n "$POSE_HOOK" ]; then
+            "$POSE_HOOK" closed "$THE_UDID" "$NAME" >&2 \
+                || echo "warning: could not close '$NAME' again; it may be left open or turned in Device Hub" >&2
+        else
+            xcrun devicectl device orientation set --device "$THE_UDID" portrait >/dev/null 2>&1 || true
+        fi
+    fi
+    exit "$status"
+}
+
 run() {  # poses
-    local udid pose size
-    udid="$(udid_of)"
-    case "$udid" in
-        '') echo "error: no available simulator is named '$NAME'" >&2; exit 1 ;;
-        *$'\n'*) echo "error: more than one simulator is named '$NAME'" >&2; exit 1 ;;
-    esac
+    local pose size
+    require_simulator
     [ -d "$APP_PATH" ] || { echo "error: no build at $APP_PATH; run '$0 prepare' first" >&2; exit 1; }
     mkdir -p "$OUT"
     xcrun swiftc -O Scripts/opaque-png.swift -o "$OUT/opaque-png"
-    xcrun simctl boot "$udid" 2>/dev/null || true
-    xcrun simctl bootstatus "$udid" >/dev/null
-    # Expanded now: `udid` is this function's, and the trap runs after it.
-    # shellcheck disable=SC2064
-    trap "stop_helper; xcrun simctl ui '$udid' content_size large >/dev/null 2>&1 || true; xcrun devicectl device orientation set --device '$udid' portrait >/dev/null 2>&1 || true" EXIT
+    xcrun simctl boot "$THE_UDID" 2>/dev/null || true
+    xcrun simctl bootstatus "$THE_UDID" >/dev/null
+    trap restore EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
     for pose in "$@"; do
-        set_pose "$pose" "$udid"
+        # Set before the pose is asked for: a hook that fails half way has
+        # already pressed something.
+        POSED=1
+        set_pose "$pose" "$THE_UDID"
         for size in $SIZES; do
-            run_one "$pose" "$size" "$udid"
+            run_one "$pose" "$size" "$THE_UDID"
         done
     done
-    if [ -n "$POSE_HOOK" ]; then "$POSE_HOOK" closed "$udid" "$NAME" >&2 || true; fi
     echo "shots are in $OUT/shots; anything missing is listed in $OUT/problems.txt"
 }
 
@@ -352,8 +431,8 @@ sheets() {
 
 case "${1:-}" in
     prepare)
-        udid="$(udid_of)"
-        [ -n "$udid" ] || { echo "error: no available simulator is named '$NAME'" >&2; exit 1; }
+        require_simulator
+        udid="$THE_UDID"
         (cd App && xcodegen generate)
         xcodebuild build-for-testing -project App/Waddle.xcodeproj -scheme Waddle \
             -destination "platform=iOS Simulator,id=$udid" -derivedDataPath "$DERIVED" -quiet

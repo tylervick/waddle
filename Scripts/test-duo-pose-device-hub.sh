@@ -19,7 +19,9 @@ trap 'rm -rf "$TMP"' EXIT
 fail() { echo "FAIL: $1" >&2; exit 1; }
 pass() { echo "ok - $1"; }
 
-HOOK="$ROOT/Scripts/duo-pose-device-hub.sh"
+# HOOK names the script under test, so a deliberately broken copy can be run
+# through the same cases to show that they fail.
+HOOK="${HOOK:-$ROOT/Scripts/duo-pose-device-hub.sh}"
 MINE="AAAAAAAA-0000-0000-0000-000000000001"
 OTHER="BBBBBBBB-0000-0000-0000-000000000002"
 
@@ -54,6 +56,21 @@ W="$(cd "$(dirname "$0")/.." && pwd)"
 [ "$1 $2" = "computer click" ] && {
     while [ $# -gt 0 ]; do [ "$1" = --element-index ] && index="$2"; shift; done
     echo "$index" >> "$W/clicks"
+    # A press on a sidebar row selects it, and the tree says so, as the real
+    # one does: "outline row (selected) <name> ...". `steal-after` holds a
+    # number of presses after which someone else selects row 8 instead.
+    python3 - "$W/tree" "$index" <<'PY'
+import re, sys
+path, index = sys.argv[1], sys.argv[2]
+lines = open(path).read().split("\n")
+if any(re.match(r"\s*%s outline row " % index, l) for l in lines):
+    lines = [l.replace("outline row (selected) ", "outline row ") for l in lines]
+    lines = [re.sub(r"^(\s*%s outline row )" % index, r"\1(selected) ", l) for l in lines]
+    open(path, "w").write("\n".join(lines))
+PY
+    if [ -e "$W/steal-after" ] && [ "$(wc -l < "$W/clicks" | tr -d ' ')" -ge "$(cat "$W/steal-after")" ]; then
+        sed -i.bak -e 's/outline row (selected) /outline row /' -e 's/\(8 outline row \)/\1(selected) /' "$W/tree"
+    fi
     # Rotate Right: a quarter turn, as devicectl then reports it.
     if [ "$index" = 87 ]; then
         case "$(cat "$W/orientation")" in
@@ -88,6 +105,7 @@ STUB
 run() { # pose [udid] [name]
     set +e
     OUT="$(PATH="$W/bin:$PATH" ORCA_CLI_COMMAND="$W/bin/orca" DUO_POSE_SETTLE=0 \
+        DUO_HUB_LOCK="$W/lock" DUO_HUB_LOCK_WAIT="${LOCK_WAIT:-5}" \
         "$HOOK" "$1" "${2:-$MINE}" "${3:-iPhone Duo}" 2>&1)"
     RC=$?
     set -e
@@ -96,6 +114,7 @@ clicks() { paste -sd' ' - < "$W/clicks"; }
 run_touch() { # window, waypoints...
     set +e
     OUT="$(PATH="$W/bin:$PATH" ORCA_CLI_COMMAND="$W/bin/orca" DUO_POSE_SETTLE=0 DUO_TIMED_DRAG="$W/bin/timed-drag" \
+        DUO_HUB_LOCK="$W/lock" DUO_HUB_LOCK_WAIT="${LOCK_WAIT:-5}" \
         "$HOOK" touch "$MINE" "iPhone Duo" "$@" 2>&1)"
     RC=$?
     set -e
@@ -249,5 +268,52 @@ setup '8|iPhone Duo 27.1 Simulator
 [ "$RC" != 0 ] || fail "touched although two rows carry the name"
 [ ! -s "$W/drags" ] || fail "posted '$(cat "$W/drags")' with two rows by the name"
 pass "a touch is not made when the row is ambiguous"
+
+# 17. The selection is someone else's by the time the button would be
+#     pressed: another session selected its own row after this one selected
+#     ours. The button folds whichever row is selected, so it is not pressed.
+setup "$ROWS"; echo 1 > "$W/steal-after"; run open
+[ "$RC" != 0 ] || fail "pressed Open although the selection had moved"
+[ "$(clicks)" = "14" ] || fail "pressed '$(clicks)' after losing the selection, expected only the row (14)"
+echo "$OUT" | grep -q "no longer the simulator selected" || fail "the lost selection was not reported: $OUT"
+pass "a selection lost before the first button presses no button"
+
+# 18. Lost in the middle of a pose, after Open: the turn is not pressed.
+setup "$ROWS"; echo 2 > "$W/steal-after"; run half-open
+[ "$RC" != 0 ] || fail "went on although the selection moved after Open"
+[ "$(clicks)" = "14 90" ] || fail "pressed '$(clicks)', expected the row and Open and nothing after"
+pass "a selection lost mid-pose stops the pose there"
+
+# 19. A touch is posted to whatever the window shows, so it is checked last.
+setup "$ROWS"; echo 1 > "$W/steal-after"; run_touch wide 10,10,80
+[ "$RC" != 0 ] || fail "posted a touch although the selection had moved"
+[ ! -s "$W/drags" ] || fail "posted '$(cat "$W/drags")' at another session's simulator"
+pass "a selection lost before a touch posts no touch"
+
+# 20. The lock. Held by a live process, the hook waits its time out and
+#     presses nothing; this suite's own pid stands in for the holder.
+setup "$ROWS"; mkdir "$W/lock"; echo $$ > "$W/lock/pid"; LOCK_WAIT=1 run open
+[ "$RC" != 0 ] || fail "went ahead while another session held Device Hub"
+[ ! -s "$W/clicks" ] || fail "pressed '$(clicks)' while another session held Device Hub"
+echo "$OUT" | grep -q "another session has held Device Hub" || fail "the held lock was not reported: $OUT"
+[ -d "$W/lock" ] || fail "removed a lock that was someone else's"
+pass "a lock held by a live process is waited for, then nothing is pressed"
+
+# 21. Left behind by a process that is gone, the lock is cleared and taken,
+#     and it is let go at the end, after success and after failure alike.
+setup "$ROWS"; mkdir "$W/lock"
+( exit 0 ) & DEAD=$!; wait "$DEAD"
+echo "$DEAD" > "$W/lock/pid"; run open
+[ "$RC" = 0 ] || fail "a stale lock stopped the hook: $OUT"
+[ "$(clicks)" = "14 90" ] || fail "pressed '$(clicks)' after clearing a stale lock"
+[ ! -e "$W/lock" ] || fail "the lock was left behind after a successful run"
+setup "$ROWS"; echo 1 > "$W/steal-after"; run open
+[ ! -e "$W/lock" ] || fail "the lock was left behind after a failed run"
+pass "a stale lock is cleared, and the lock is released on every way out"
+
+# 22. A refusal that comes before the lock (not our simulator) takes none.
+setup "$ROWS"; run open "$OTHER"
+[ "$RC" != 0 ] && [ ! -e "$W/lock" ] && [ ! -s "$W/clicks" ] || fail "an ownership refusal took the lock or pressed something"
+pass "an ownership refusal neither locks nor presses"
 
 echo "All duo-pose-device-hub tests passed."

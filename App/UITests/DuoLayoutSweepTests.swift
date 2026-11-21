@@ -14,7 +14,7 @@ import XCTest
 /// Shots are asked of the host and never taken with `XCUIScreen`, which
 /// returns the outer display whatever the device is doing
 /// (docs/learnings/iphone-duo-simulator-traps.md). The test writes `shot
-/// <name>` to the request file and goes on once the script has deleted it.
+/// <name>` to the request file and goes on once the script has answered it.
 ///
 /// A sweep is worth more complete than strict: a surface that cannot be
 /// reached in one pose must not cost the surfaces after it. So each surface
@@ -48,24 +48,38 @@ final class DuoLayoutSweepTests: XCTestCase {
 
     // MARK: talking to the script
 
-    /// Writes one request and waits for the script to delete the file. Moved
-    /// into place so the script never reads half a line.
+    /// Asks the script for one thing and waits for its answer.
+    ///
+    /// A request is the line `<id> <what>` in the request file; the script
+    /// answers by writing that id to `<request>.done`. The id is what makes a
+    /// late answer harmless: when this gives up on a request and asks for the
+    /// next thing, the script's answer to the old one names an id nobody is
+    /// waiting for. (The script used to answer by deleting the request file,
+    /// and a slow handler then deleted the next request, which read here as
+    /// served.) The file is moved into place so the script never reads half a
+    /// line, and is removed here, by the side that wrote it.
     @discardableResult
     private func ask(_ line: String, timeout: TimeInterval) -> Bool {
-        let staged = requestPath + ".staged"
+        let id = UUID().uuidString
+        let staged = requestPath + ".staged", done = requestPath + ".done"
         do {
-            try line.write(toFile: staged, atomically: true, encoding: .utf8)
+            try? FileManager.default.removeItem(atPath: requestPath)
+            try "\(id) \(line)".write(toFile: staged, atomically: true, encoding: .utf8)
             try FileManager.default.moveItem(atPath: staged, toPath: requestPath)
         } catch {
             XCTFail("could not ask the host for '\(line)': \(error)")
             return false
         }
+        defer { try? FileManager.default.removeItem(atPath: requestPath) }
+        func answered() -> Bool {
+            (try? String(contentsOfFile: done, encoding: .utf8))?
+                .trimmingCharacters(in: .whitespacesAndNewlines) == id
+        }
         let deadline = Date().addingTimeInterval(timeout)
-        while FileManager.default.fileExists(atPath: requestPath) && Date() < deadline {
+        while !answered() && Date() < deadline {
             Thread.sleep(forTimeInterval: 0.1)
         }
-        if FileManager.default.fileExists(atPath: requestPath) {
-            try? FileManager.default.removeItem(atPath: requestPath)
+        if !answered() {
             XCTFail("the host did not serve '\(line)' within \(Int(timeout)) s")
             return false
         }
