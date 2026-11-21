@@ -49,6 +49,11 @@ struct ShelfView: View {
     @State private var heroContentWidth: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
 
+    /// What the wider of the hero's two button labels needs on one line, as
+    /// SwiftUI lays it out at the reader's text size (`heroButtonLabelGauge`).
+    /// Zero until measured, which asks nothing of the art.
+    @State private var heroButtonLabelWidth: CGFloat = 0
+
     /// Adaptive, and re-derived from the current Dynamic Type size rather than
     /// fixed: at accessibility sizes the wider floor fits fewer columns, which
     /// is spec §5's "drops columns rather than shrinking text".
@@ -66,6 +71,12 @@ struct ShelfView: View {
 
     var body: some View {
         ScrollView {
+            // The content reports the width it was offered and nothing else.
+            // The scroll view below is measured to size the hero, and a
+            // scroll view follows content that reports wider than offered:
+            // without this the measurement fed itself and a launch could
+            // spin for ever (issue #437, `ProposedWidthLayout`).
+            ProposedWidthLayout {
             VStack(alignment: .leading,
                    spacing: ShelfHeroLayout.sectionSpacing(compactHeight: compactHeight)) {
                 switch zone {
@@ -86,6 +97,7 @@ struct ShelfView: View {
                 }
             }
             .padding(contentPadding)
+            }
         }
         // Measured on the ScrollView, so this is the viewport: what is visible
         // between the toolbar and the home indicator, less the padding above.
@@ -455,9 +467,11 @@ struct ShelfView: View {
                         play(game, mode: .continueNewest)
                     } label: {
                         heroArt(game, height: ShelfHeroLayout.sideBySideArtHeight(
-                            contentWidth: heroContentWidth, viewportHeight: viewportHeight))
+                            contentWidth: heroContentWidth, viewportHeight: viewportHeight,
+                            captionMinimumWidth: heroButtonMinimumWidth))
                             .frame(width: ShelfHeroLayout.sideBySideArtWidth(
-                                contentWidth: heroContentWidth, viewportHeight: viewportHeight))
+                                contentWidth: heroContentWidth, viewportHeight: viewportHeight,
+                                captionMinimumWidth: heroButtonMinimumWidth))
                     }
                     .buttonStyle(.plain)
                     // The art is a second, larger target for the Continue
@@ -466,6 +480,7 @@ struct ShelfView: View {
                     sideBySideHeroCaption(game)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .background { heroButtonLabelGauge }
             }
         }
         .contextMenu { contextMenuItems(for: game) }
@@ -505,27 +520,71 @@ struct ShelfView: View {
                     .font(Theme.Typography.secondary)
                     .foregroundStyle(Color.appSecondaryText)
             }
-            // In a row where the caption is wide enough for both at their
-            // natural width, stacked where it is not. The closed Duo in
-            // landscape leaves 279 pt beside the art, three short of the row,
-            // and squeezing the pair in broke "Continue" across two lines.
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: Theme.Spacing.md) { heroButtons(game) }
-                VStack(spacing: Theme.Spacing.sm) { heroButtons(game) }
+            // In a row where the caption holds two buttons as wide as the
+            // wider label, stacked where it does not. `ShelfHeroLayout`
+            // owns the rule and is where it is tested; `ViewThatFits` asked
+            // a different question and let through rows that cut "New Game".
+            Group {
+                switch ShelfHeroLayout.buttonArrangement(
+                    captionWidth: ShelfHeroLayout.sideBySideCaptionWidth(
+                        contentWidth: heroContentWidth, viewportHeight: viewportHeight,
+                        captionMinimumWidth: heroButtonMinimumWidth),
+                    buttonMinimumWidth: heroButtonMinimumWidth) {
+                case .row:
+                    HStack(spacing: ShelfHeroLayout.buttonRowSpacing) { heroButtons(game) }
+                case .column:
+                    VStack(spacing: Theme.Spacing.sm) { heroButtons(game) }
+                }
             }
             .padding(.top, Theme.Spacing.sm)
         }
     }
 
+    /// The narrowest caption column that shows either button's label whole:
+    /// the wider label plus the button style's padding either side of it.
+    /// `ShelfHeroLayout.sideBySideArtHeight` takes it out of the art's half.
+    private var heroButtonMinimumWidth: CGFloat {
+        heroButtonLabelWidth > 0 ? heroButtonLabelWidth + Theme.Spacing.base * 2 : 0
+    }
+
+    private var heroContinueLabel: some View {
+        Label("Continue", systemImage: "clock.arrow.circlepath").lineLimit(1)
+    }
+
+    private var heroNewGameLabel: some View {
+        Label("New Game", systemImage: "play.fill").lineLimit(1)
+    }
+
+    /// The two labels at their natural width, never drawn: measured from the
+    /// views themselves rather than from `UIFont`, because a `Label`'s icon
+    /// and the gap after it are SwiftUI's to size and both grow with the text.
+    /// At the largest accessibility size a label is wider than half the row
+    /// of an open iPhone Duo turned tall, and the buttons were cut to
+    /// "Contin…" and "New Ga…" (issue #424).
+    private var heroButtonLabelGauge: some View {
+        VStack {
+            heroContinueLabel
+            heroNewGameLabel
+        }
+        .font(Theme.Typography.button)
+        .fixedSize()
+        .hidden()
+        .accessibilityHidden(true)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            ceil(proxy.size.width)
+        } action: { width in
+            heroButtonLabelWidth = width
+        }
+    }
+
     /// Continue and New Game, for whichever stack `sideBySideHeroCaption`
-    /// has room for. Labels stay on one line: a button that wraps is the
-    /// signal that the other arrangement should have been chosen.
+    /// chose. Labels stay on one line.
     @ViewBuilder
     private func heroButtons(_ game: Game) -> some View {
         Button {
             play(game, mode: .continueNewest)
         } label: {
-            Label("Continue", systemImage: "clock.arrow.circlepath").lineLimit(1)
+            heroContinueLabel
         }
         .buttonStyle(.waddlePrimary)
         .disabled(game.baseID == nil)
@@ -534,7 +593,7 @@ struct ShelfView: View {
         Button {
             play(game, mode: .newGame)
         } label: {
-            Label("New Game", systemImage: "play.fill").lineLimit(1)
+            heroNewGameLabel
         }
         .buttonStyle(.waddleSecondary)
         .disabled(game.baseID == nil)
@@ -554,20 +613,42 @@ struct ShelfView: View {
     private func heroCaption(_ game: Game) -> some View {
         VStack(alignment: .leading, spacing: heroCaptionSpacing) {
             Text(game.name).font(Theme.Typography.heroTitle)
-            HStack(spacing: Theme.Spacing.xs) {
-                Group {
-                    Image(systemName: "play.fill")
-                    Text("Continue")
+            // On one line where it fits, Continue over the date where it does
+            // not. Squeezed into one row at the largest accessibility size on
+            // a closed iPhone Duo, the two halves became columns and the
+            // hero's own action was broken as "Con-" / "tinue" (issue #424).
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: Theme.Spacing.xs) {
+                    heroCaptionAction
+                    if let played = game.lastPlayed {
+                        Text("·")
+                        Text(played, format: .relative(presentation: .named))
+                    }
                 }
-                .foregroundStyle(Color.appAccent)
-                if let played = game.lastPlayed {
-                    Text("·")
-                    Text(played, format: .relative(presentation: .named))
+                VStack(alignment: .leading, spacing: 0) {
+                    heroCaptionAction
+                    if let played = game.lastPlayed {
+                        Text(played, format: .relative(presentation: .named))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
             .font(Theme.Typography.secondary)
             .foregroundStyle(Color.appSecondaryText)
         }
+    }
+
+    /// The word Continue and its glyph, in the accent. One line at its own
+    /// width wherever it is put: this is the hero's action, and it is never
+    /// the half that gives way.
+    private var heroCaptionAction: some View {
+        HStack(spacing: Theme.Spacing.xs) {
+            Image(systemName: "play.fill")
+            Text("Continue")
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .foregroundStyle(Color.appAccent)
     }
 
     /// The ghost tile closing a small library's grid (spec §5, amended
