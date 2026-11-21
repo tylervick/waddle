@@ -50,6 +50,7 @@ W="$(cd "$(dirname "$0")/.." && pwd)"
     python3 -c 'import json, sys; print(json.dumps({"ok": True, "result": {"snapshot": {"treeText": open(sys.argv[1]).read()}}}))' "$W/tree"
     exit 0
 }
+[ "$1 $2" = "computer list-windows" ] && { cat "$W/windows"; exit 0; }
 [ "$1 $2" = "computer click" ] && {
     while [ $# -gt 0 ]; do [ "$1" = --element-index ] && index="$2"; shift; done
     echo "$index" >> "$W/clicks"
@@ -76,7 +77,12 @@ W="$(cd "$(dirname "$0")/.." && pwd)"
 }
 echo "xcrun stub: unexpected call: $*" >&2; exit 97
 STUB
-    chmod +x "$W/bin/orca" "$W/bin/xcrun"
+    # Device Hub's one window, where it was on 2026-11-20, and a timed-drag
+    # that only writes down what it was asked to post.
+    echo '{"ok": true, "result": {"windows": [{"id": 215, "x": 314, "y": 175, "width": 1100, "height": 800, "app": {"pid": 3972}}]}}' > "$W/windows"
+    printf '#!/bin/bash\necho "$*" >> "%s/drags"\n' "$W" > "$W/bin/timed-drag"
+    : > "$W/drags"
+    chmod +x "$W/bin/orca" "$W/bin/xcrun" "$W/bin/timed-drag"
 }
 
 run() { # pose [udid] [name]
@@ -87,6 +93,13 @@ run() { # pose [udid] [name]
     set -e
 }
 clicks() { paste -sd' ' - < "$W/clicks"; }
+run_touch() { # window, waypoints...
+    set +e
+    OUT="$(PATH="$W/bin:$PATH" ORCA_CLI_COMMAND="$W/bin/orca" DUO_POSE_SETTLE=0 DUO_TIMED_DRAG="$W/bin/timed-drag" \
+        "$HOOK" touch "$MINE" "iPhone Duo" "$@" 2>&1)"
+    RC=$?
+    set -e
+}
 
 ROWS='8|iPhone 18 Pro 27.0 Simulator
 14|iPhone Duo 27.1 Simulator'
@@ -104,6 +117,18 @@ setup "$ROWS"; run half-open
 [ "$(clicks)" = "14 90 87 89" ] || fail "half-open pressed '$(clicks)', expected 14 90 87 89"
 echo "$OUT" | grep -q "devicectl reads landscapeRight" || fail "half-open did not report the turn: $OUT"
 pass "half-open opens, turns once and presses Partially Open"
+
+setup "$ROWS"; run open-turned
+[ "$RC" = 0 ] || fail "open-turned exited $RC: $OUT"
+[ "$(clicks)" = "14 90 87" ] || fail "open-turned pressed '$(clicks)', expected 14 90 87"
+echo "$OUT" | grep -q "devicectl reads landscapeRight" || fail "open-turned did not report the turn: $OUT"
+pass "open-turned opens and turns once, and leaves the device flat"
+
+setup "$ROWS"; run closed-turned
+[ "$RC" = 0 ] || fail "closed-turned exited $RC: $OUT"
+[ "$(clicks)" = "14 88 87" ] || fail "closed-turned pressed '$(clicks)', expected 14 88 87"
+echo "$OUT" | grep -q "devicectl reads landscapeRight" || fail "closed-turned did not report the turn: $OUT"
+pass "closed-turned closes and turns once"
 
 # 3. Closed, from the turned pose: three more quarter turns to upright, then
 #    Closed. The turn is read back, not counted.
@@ -181,5 +206,48 @@ setup "$ROWS"; run sideways
 [ "$RC" != 0 ] || fail "accepted an unknown pose"
 [ ! -s "$W/clicks" ] || fail "pressed '$(clicks)' for an unknown pose"
 pass "an unknown pose presses nothing"
+
+# 12. A touch: the device's row is selected, and the waypoints go from the
+#     app's points to the screen's, through where the window is and where the
+#     display is drawn in it. Wide: 314 + 418 + 100 * 0.529, 175 + 227 + 200 * 0.529.
+setup "$ROWS"; run_touch wide 0,0,80 100,200,500
+[ "$RC" = 0 ] || fail "touch exited $RC: $OUT"
+[ "$(clicks)" = "14" ] || fail "touch pressed '$(clicks)', expected only its own row (14)"
+[ "$(cat "$W/drags")" = "3972 215 314 175 732.0,402.0,80 784.9,507.8,500" ] \
+    || fail "touch posted '$(cat "$W/drags")'"
+pass "a touch selects its own row and posts the path in screen points"
+
+# 13. The tall window is drawn somewhere else, and the bent one is squashed.
+setup "$ROWS"; run_touch tall 0,0,80
+[ "$(cat "$W/drags")" = "3972 215 314 175 807.0,327.0,80" ] || fail "tall touch posted '$(cat "$W/drags")'"
+setup "$ROWS"; run_touch tall-bent 100,100,80
+[ "$(cat "$W/drags")" = "3972 215 314 175 857.8,394.2,80" ] || fail "bent touch posted '$(cat "$W/drags")'"
+pass "each window shape has its own place for the display"
+
+# 14. The display's place was measured in a window of one size. In any
+#     other, a touch would land somewhere unmeasured, so none is made.
+setup "$ROWS"; sed -i.bak 's/"width": 1100/"width": 1400/' "$W/windows"; run_touch wide 10,10,80
+[ "$RC" != 0 ] || fail "aimed a touch in a window of another size"
+echo "$OUT" | grep -q "1400x800" || fail "the refusal did not name the window's size: $OUT"
+[ ! -s "$W/drags" ] || fail "posted '$(cat "$W/drags")' in a window of another size"
+pass "a window of another size gets no touch"
+
+# 15. A waypoint that is not x,y,ms is refused before anything is pressed.
+for bad in 10,10 10,10,80,5 ten,10,80 '10,10,80;rm' ''; do
+    setup "$ROWS"; run_touch wide "$bad"
+    [ "$RC" != 0 ] || fail "accepted the waypoint '$bad'"
+    [ ! -s "$W/clicks" ] && [ ! -s "$W/drags" ] || fail "acted on the waypoint '$bad'"
+done
+setup "$ROWS"; run_touch sideways 10,10,80
+[ "$RC" != 0 ] && [ ! -s "$W/drags" ] || fail "accepted an unknown window shape"
+pass "a malformed touch presses and posts nothing"
+
+# 16. A touch is aimed at whichever simulator is selected, so it too stops
+#     when its own row cannot be told from another's.
+setup '8|iPhone Duo 27.1 Simulator
+14|iPhone Duo 27.1 Simulator'; run_touch wide 10,10,80
+[ "$RC" != 0 ] || fail "touched although two rows carry the name"
+[ ! -s "$W/drags" ] || fail "posted '$(cat "$W/drags")' with two rows by the name"
+pass "a touch is not made when the row is ambiguous"
 
 echo "All duo-pose-device-hub tests passed."

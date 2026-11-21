@@ -6,12 +6,35 @@
 #   WADDLE_DUO_POSE_HOOK=Scripts/duo-pose-device-hub.sh \
 #       Scripts/capture-screenshots.sh capture duo-inner
 #
-#   Scripts/duo-pose-device-hub.sh <open|half-open|closed> <udid> <simulator name>
+#   Scripts/duo-pose-device-hub.sh <open|open-turned|half-open|closed|closed-turned> <udid> <simulator name>
 #
 #   open       open flat, held upright: the app's window is wide (951x669 pt)
+#   open-turned  open flat, turned a quarter turn: the window is tall
+#              (669x951 pt). Scripts/duo-layout-sweep.sh asks for it (issue #357)
 #   half-open  turned a quarter turn and standing half open: the window is
 #              tall and the fold runs across it
 #   closed     upright and closed, as a simulator boots
+#   closed-turned  closed and turned a quarter turn: the outer display in
+#              landscape (678x466 pt). `devicectl device orientation set`
+#              turns a closed Duo on a headless CI runner, but on a Mac with
+#              Device Hub running it reported success and changed nothing
+#              (2026-11-20), so the sweep turns it here
+#
+# It also makes one touch on the open inner display, for the gestures a UI
+# test cannot synthesize there (a drag or a long press does nothing on an
+# open Duo; Scripts/duo-layout-sweep.sh asks for them, issue #357):
+#
+#   Scripts/duo-pose-device-hub.sh touch <udid> <simulator name> <wide|tall|tall-bent> <x,y,ms> [<x,y,ms> ...]
+#
+# The waypoints are in the APP'S points: the finger goes down at the first
+# and stays for its ms, then reaches each later one over that one's ms, and
+# lifts at the last. `wide` or `tall` is the shape of the app's window, which
+# decides where Device Hub draws the display; `tall-bent` is the tall window
+# on a device standing half open. The picture's place in the
+# window is a measurement (DISPLAY_* below), good only for Device Hub's
+# default 1100x800 window at zoom-to-fit, so any other window size is refused.
+# The path is posted by timed-drag.c, which rides private interfaces; see
+# the learning for why Orca's own drag will not do.
 #
 # Nothing Apple ships folds the simulator from a script; the hinge and the
 # rotate button exist only in Device Hub's window
@@ -43,12 +66,42 @@ DUO_TURNED="landscapeRight"
 APP="com.apple.dt.Devices"
 # How long a fold or a turn is given to finish before the next read.
 SETTLE="${DUO_POSE_SETTLE:-1.5}"
+# Where Device Hub draws the open inner display, in window points: the window
+# size this holds for, the screen points per app point, and the display's
+# top-left corner when the app's window is wide (951x669) and when it is tall
+# (669x951). Measured 2026-11-20 from a screenshot of the window.
+# Each is "x y x-scale y-scale". A device standing half open is drawn in
+# perspective, shorter than it is flat, so `tall-bent` is a straight-line
+# fit to a picture that is not quite straight: good to about ten app points,
+# which is enough for a row or a button and not for anything finer.
+DISPLAY_WINDOW="1100 800"
+DISPLAY_WIDE="418 227 0.529 0.529"
+DISPLAY_TALL="493 152 0.529 0.529"
+DISPLAY_TALL_BENT="490 170 0.538 0.492"
 
-[ $# -eq 3 ] || { echo "usage: $0 <open|half-open|closed> <udid> <simulator name>" >&2; exit 2; }
+usage() {
+    echo "usage: $0 <open|open-turned|half-open|closed|closed-turned> <udid> <simulator name>" >&2
+    echo "       $0 touch <udid> <simulator name> <wide|tall|tall-bent> <x,y,ms> [<x,y,ms> ...]" >&2
+    exit 2
+}
+[ $# -ge 3 ] || usage
 POSE="$1"; UDID="$2"; NAME="$3"
 case "$POSE" in
-    open|half-open|closed) ;;
-    *) echo "unknown pose '$POSE' (open, half-open or closed)" >&2; exit 2 ;;
+    open|open-turned|half-open|closed|closed-turned) [ $# -eq 3 ] || usage ;;
+    touch)
+        [ $# -ge 5 ] || usage
+        WINDOW="$4"; shift 4
+        case "$WINDOW" in wide|tall|tall-bent) ;; *) echo "the window is 'wide', 'tall' or 'tall-bent', not '$WINDOW'" >&2; exit 2 ;; esac
+        for point in "$@"; do
+            case "$point" in
+                *[!0-9,.]*|,*|*,|*,,*) echo "bad waypoint '$point' (want x,y,ms)" >&2; exit 2 ;;
+                *,*,*,*) echo "bad waypoint '$point' (want x,y,ms)" >&2; exit 2 ;;
+                *,*,*) ;;
+                *) echo "bad waypoint '$point' (want x,y,ms)" >&2; exit 2 ;;
+            esac
+        done
+        ;;
+    *) echo "unknown pose '$POSE' (open, open-turned, half-open, closed, closed-turned, or touch)" >&2; exit 2 ;;
 esac
 
 # The element indexes of every line of Device Hub's tree that matches a
@@ -126,10 +179,62 @@ for line in sys.stdin:
 # same way is a different row.
 press "outline row (\\(selected\\) )?$(printf '%s' "$NAME" | sed 's/[][\\.*^$()+?{}|]/\\&/g') [0-9][0-9.]* Simulator" "simulator row named '$NAME'"
 
+if [ "$POSE" = touch ]; then
+    WINDOWS="$("$ORCA" computer list-windows --app "$APP" --json)" \
+        || { echo "error: could not list Device Hub's windows (is the Mac unlocked and Device Hub running?)" >&2; exit 1; }
+    # pid, window id, and the window's frame on the screen.
+    GEOMETRY="$(printf '%s' "$WINDOWS" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+if not doc.get("ok"):
+    sys.exit("error: " + json.dumps(doc.get("error")))
+windows = doc["result"]["windows"]
+if len(windows) != 1:
+    sys.exit("error: Device Hub has %d windows; refusing to guess which shows the device" % len(windows))
+w = windows[0]
+print(w["app"]["pid"], w["id"], w["x"], w["y"], w["width"], w["height"])
+')" || exit 1
+    read -r HUB_PID HUB_WINDOW HUB_X HUB_Y HUB_W HUB_H <<EOF
+$GEOMETRY
+EOF
+    [ "$HUB_W $HUB_H" = "$DISPLAY_WINDOW" ] || {
+        echo "error: Device Hub's window is ${HUB_W}x${HUB_H}, and the display's place in it was measured at ${DISPLAY_WINDOW/ /x}; refusing to aim a touch by it" >&2
+        exit 1
+    }
+    # DUO_TIMED_DRAG names a built timed-drag (the tests name a stub).
+    DRAG="${DUO_TIMED_DRAG:-}"
+    SOURCE="$(dirname "$0")/../docs/learnings/assets/duo-device-hub-2026-11-20/timed-drag.c"
+    if [ -z "$DRAG" ]; then DRAG="${TMPDIR:-/tmp}/waddle-timed-drag"; fi
+    if [ -z "${DUO_TIMED_DRAG:-}" ] && { [ ! -x "$DRAG" ] || [ "$SOURCE" -nt "$DRAG" ]; }; then
+        xcrun clang -O2 "$SOURCE" -o "$DRAG" -framework ApplicationServices \
+            -F/System/Library/PrivateFrameworks -framework SkyLight \
+            || { echo "error: could not build timed-drag" >&2; exit 1; }
+    fi
+    case "$WINDOW" in wide) PLACE="$DISPLAY_WIDE" ;; tall) PLACE="$DISPLAY_TALL" ;; tall-bent) PLACE="$DISPLAY_TALL_BENT" ;; esac
+    # App points to screen points.
+    PATH_ARGS="$(HUB_X="$HUB_X" HUB_Y="$HUB_Y" PLACE="$PLACE" python3 -c '
+import os, sys
+ox, oy, kx, ky = (float(v) for v in os.environ["PLACE"].split())
+hx, hy = float(os.environ["HUB_X"]), float(os.environ["HUB_Y"])
+for point in sys.argv[1:]:
+    x, y, ms = (float(v) for v in point.split(","))
+    print("%.1f,%.1f,%d" % (hx + ox + x * kx, hy + oy + y * ky, ms))
+' "$@")" || exit 1
+    # shellcheck disable=SC2086
+    "$DRAG" "$HUB_PID" "$HUB_WINDOW" "$HUB_X" "$HUB_Y" $PATH_ARGS \
+        || { echo "error: timed-drag failed" >&2; exit 1; }
+    echo "touch on $NAME ($WINDOW window): $*"
+    exit 0
+fi
+
 case "$POSE" in
     open)
         press 'button Open$' "Open button"
         turn_to "$DUO_UPRIGHT"
+        ;;
+    open-turned)
+        press 'button Open$' "Open button"
+        turn_to "$DUO_TURNED"
         ;;
     half-open)
         press 'button Open$' "Open button"
@@ -139,6 +244,10 @@ case "$POSE" in
     closed)
         turn_to "$DUO_UPRIGHT"
         press 'button Closed$' "Closed button"
+        ;;
+    closed-turned)
+        press 'button Closed$' "Closed button"
+        turn_to "$DUO_TURNED"
         ;;
 esac
 NOW="$(orientation)" || exit 1
