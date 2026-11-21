@@ -32,8 +32,8 @@
 #     be shared by many. So only placements are deleted, never images, and
 #     only placements read from the target version's own localization that
 #     also name that localization in their relationship.
-#   * KNOWN GAP: because images are never deleted, every --apply adds six
-#     more to the library under the same six file names, and a run that fails
+#   * KNOWN GAP: because images are never deleted, every --apply adds ten
+#     more to the library under the same ten file names, and a run that fails
 #     between an upload and its placement leaves an image nothing points to.
 #     That is deliberate for now. A cleanup would be one more write that has
 #     never been sent to Apple, and its rule depends on answers only a first
@@ -104,8 +104,11 @@ export DUO_GROUP DUO_PLACEMENT_TYPE
 # captured by two legs of Scripts/capture-screenshots.sh into two directories
 # (iphone-duo = outer display, closed; iphone-duo-inner = inner display, open
 # and half open), and the group holds 10, fewer than the two legs produce
-# together. Which shots are in, and why, is metadata.md §12, "The Duo set".
-DUO_SET="iphone-duo/05-ingame iphone-duo/01-play-tab iphone-duo/02-library iphone-duo/03-preset-editor iphone-duo/06-automap iphone-duo/04-control-feel"
+# together. The owner chose these ten on 2026-11-20: every inner-display
+# shot, the game first and the half-open layout second, then the closed
+# device's game, shelf and automap. The outer Files, game-page and Control
+# Feel shots stay in the repository and are not uploaded (metadata.md §12).
+DUO_SET="iphone-duo-inner/05-ingame iphone-duo-inner/07-ingame-half-open iphone-duo-inner/01-play-tab iphone-duo-inner/03-preset-editor iphone-duo-inner/02-library iphone-duo-inner/06-automap iphone-duo-inner/04-control-feel iphone-duo/05-ingame iphone-duo/01-play-tab iphone-duo/06-automap"
 duo_key() { printf '%s' "$1" | tr '/' '-'; }  # iphone-duo/05-ingame -> iphone-duo-05-ingame
 DUO_COUNT="$(echo $DUO_SET | wc -w | tr -d ' ')"
 
