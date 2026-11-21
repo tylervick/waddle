@@ -39,15 +39,6 @@ does not cover.
   ended "Import Fail…". Only a capture of the real window shows that; the
   unit test gives the text all the height it asks for.
 
-## One thing about the Duo's hinge, from taking the captures
-
-`Scripts/duo-pose-device-hub.sh open-turned`, asked of a closed device,
-failed 4 of 4 times with `four quarter turns never read 'landscapeRight'
-(devicectl says 'portrait')`: Rotate Right pressed straight after Open did
-nothing. `open`, three seconds, then `open-turned` worked 4 times of 5, and
-the one failure was on a Mac where two other workers were pressing the same
-Device Hub window. `half-open` from closed worked as it is.
-
 ## The captures
 
 Before and after, the banner in each Duo pose and on the iPhone 18 Pro, are
