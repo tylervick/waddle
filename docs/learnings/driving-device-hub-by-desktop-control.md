@@ -24,7 +24,9 @@ needed a person, without bringing a window forward or moving the pointer.
 - **Rotate.** The `Rotate Right` button rotates the open device a quarter
   turn. `devicectl device orientation set` reported success and changed
   nothing on this device; `devicectl device orientation get` is still the way
-  to read the result.
+  to read the result. The same held for the closed device while Device Hub
+  was running, and a touch (tap, long press, slow drag) can be aimed in the
+  app's own points: `sweeping-the-duo-by-host-shots.md`.
 - **Taps and drags reach the open inner display.** `orca computer click --x --y`
   and `orca computer drag` on the device picture land as touches. Apple's
   Settings list, which a test-synthesized drag could not move on the open
