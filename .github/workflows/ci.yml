@@ -160,6 +160,7 @@ jobs:
           # calls `xcrun swift`): what it writes is committed and uploaded
           # as it is.
           Scripts/test-duo-pose-device-hub.sh
+          Scripts/test-duo-layout-sweep.sh
           Scripts/test-capture-export.sh
           # Hermetic too, with a stateful stub so the read-back is exercised.
           # Guards app-store-listing.yml, which overwrites the store's text.

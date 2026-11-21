@@ -94,7 +94,9 @@ each pose.
    device was in; check that the picture is not one flat colour. The PNG is
    RGBA whatever `--mask` says, with the buffer the way up the panel is.
    A shot of the open inner display is upright in both poses; one of the
-   closed outer display is the panel's own way up.
+   closed outer display is the panel's own way up. (After a turn made by
+   Device Hub instead of devicectl, the outer display's shot is upright
+   too: `sweeping-the-duo-by-host-shots.md`.)
    `Scripts/capture-screenshots.sh capture duo-inner` is the consumer.
 6. **`app.frame` is wrong on the open device.** With the Duo open and held
    upright the app's window is 951x669 pt, the host photographs it wide
