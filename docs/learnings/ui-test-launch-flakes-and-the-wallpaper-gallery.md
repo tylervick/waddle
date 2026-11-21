@@ -76,11 +76,35 @@ goes.
 
 `Scripts/prepare-ui-test-simulator.sh`, a step of `ui-tests.yml` before the
 tests. It waits until the host has been up for the 600 s boot window, boots
-the device, and waits for the `Successfully prewarmed gallery snapshots` line.
-The renders then happen before the first test instead of on a launch, and the
-later prewarm has nothing to render. It prints `WADDLE_SIMULATOR_SETTLED`, or
-`WADDLE_SIMULATOR_NOT_SETTLED reason=deferred|timeout` and lets the tests run
-as before. Its suite is `Scripts/test-prepare-ui-test-simulator.sh`.
+the device, and waits for the line with which PosterBoard ends the renders:
+`Successfully prewarmed gallery snapshots`, or `Failed to prewarm gallery
+snapshots ... exceeded prewarm time` when they outlast its own 120 s limit (2
+of 13 runs; the later prewarm finished the rest in 17 s). The renders then
+happen before the first test instead of on a launch, and the later prewarm has
+little or nothing to render. It prints `WADDLE_SIMULATOR_SETTLED` followed by
+the PosterBoard line it matched, or `WADDLE_SIMULATOR_NOT_SETTLED
+reason=deferred|timeout`, and lets the tests run as before. Its suite is
+`Scripts/test-prepare-ui-test-simulator.sh`.
+
+**The first version of that wait did not wait for the renders, and its
+marker was not evidence (found in review of pull request 419).** `log stream`
+prints its predicate back as its first line of output, `Filtering the log data
+using "... CONTAINS "Successfully prewarmed gallery snapshots" ..."`, and the
+wait searched the stream's output for that very string. It reported the
+renders finished at the first look after the stream attached: before
+PosterBoard's own line in 5 of 13 runs, by 17 to 54 s, and 10 s after boot on
+a fresh local simulator that had no gallery yet. The suite's stub stream
+printed no header, so fifteen cases passed. Two things to keep from it:
+
+- **Search a tool's output for your own search string and you will find it.**
+  Count only lines that have the shape of what you are waiting for (here: a
+  timestamp and `PosterBoard[`), and make the marker quote what it matched,
+  so a marker with nothing behind it cannot be printed.
+- **A stub that is quieter than the tool tests a tool that does not exist.**
+  The stub now prints the header; case 0 of the suite fails against the old
+  script. And a tell had been in the logs all along: no CI run ever printed
+  the script's own "PosterBoard is rendering the gallery" line, which a
+  working match would have printed a minute before the end, every time.
 
 It is a wait on two conditions and it costs real minutes on every run: the
 rest of the boot window (up to 8 minutes), the boot (about 1.5), then the
@@ -106,9 +130,11 @@ Things that do not make it cheaper, so nobody tries them twice:
 
 Two things the script does that look like fuss and are not:
 
-- It reads the log with a `log stream`, plus one `log show` in the background
-  for lines written before the stream attached. A `log show` in the loop took
-  four minutes for one query at load 510 (run 44771876139).
+- It reads the log with a `log stream`, plus a `log show` from the boot in the
+  background, run again each time it finishes. The stream attached 2 to 6
+  minutes after the boot on CI, sometimes after the line it was started for,
+  and a `log show` in the loop took four minutes for one query at load 510
+  (run 44771876139).
 - When the stream exits it asks `simctl` for the device's state and boots it
   again if it is not `Booted`. On some runners the device is shut down seconds
   after `bootstatus` reports it booted: `CoreSimulator.log` has `Lost
@@ -121,6 +147,26 @@ Two things the script does that look like fuss and are not:
   artifact so the next one can be read the same way.
 
 ## What the measurement runs showed, and what they could not
+
+**Read this section with the defect above in mind.** These runs were made with
+the first version of the wait. Their "settled" markers show nothing. What
+follows was re-read from each run's archived simulator log, which does not
+depend on the marker:
+
+- The boot-window wait, which is a separate condition and did work, is what
+  kept the renders from being deferred: every run with a log has `Calling
+  prewarmSnapshotsForRequests with 184 requests` minutes after boot and no
+  deferral line.
+- In all thirteen runs with a log, PosterBoard's end-of-renders line came 2.4
+  to 9.9 minutes before the first test asked for the app. That margin came
+  from booting early and from `xcodebuild` building for five minutes or more
+  after the step, not from the script detecting anything. In 5 of the 13 the
+  step had already ended and the build had started while the renders had 17
+  to 54 s still to run.
+
+So the numbers below describe "the simulator booted past the boot window, 7 to
+13 minutes before the first launch", which is what those runs did, and not "the
+script waited for the renders", which no run before the fix did.
 
 Twelve runs with the step in place, 2026-11-20: two of one test class and ten
 of the whole suite. All twelve passed and none has either failure message. One
@@ -153,11 +199,10 @@ prints three things in its `Collect the simulator log` step
 every app launch's lag with any over 10 s named, and the first launch's
 `xcodebuild` timings. A failed launch with a `SLOW` line inside a prewarm is
 #396 again; a first-test timeout with `launch issued after` in the minutes is
-#386 again. Either one in a run that printed `WADDLE_SIMULATOR_SETTLED` means
-this file is wrong about the cause, and is worth an issue. The
-`Successfully prewarmed` line is sometimes missing from the collected archive
-although the stream saw it; the prewarm lines that follow (a `Prewarm is
-complete` in 10 to 28 s, and no `368 requests`) say the same thing.
+#386 again. Either one in a run whose `WADDLE_SIMULATOR_SETTLED` line quotes a
+PosterBoard line (any run after the fix above) means this file is wrong about
+the cause, and is worth an issue; a `SETTLED` line with no `PosterBoard:` quote
+is from the first version and says nothing.
 
 Before 2026-11-20 only a failed run carried the log, inside the result bundle:
 
