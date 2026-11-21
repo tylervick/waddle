@@ -39,10 +39,11 @@
 # Two sessions must not work Device Hub at once, and neither may act on the
 # other's simulator. The buttons and a touch go to whichever row is SELECTED,
 # and selecting is a separate press from acting. So:
-#   * One invocation at a time holds a lock, a directory every session on
-#     this Mac agrees on (DUO_HUB_LOCK). A holder that has died is cleared;
-#     a live one is waited for, DUO_HUB_LOCK_WAIT seconds, and then this
-#     stops having pressed nothing.
+#   * One invocation at a time holds a lock, at a path every session on
+#     this Mac agrees on (DUO_HUB_LOCK). A holder that has died, or has held
+#     it longer than DUO_HUB_LOCK_MAX_AGE, is taken over by exactly one
+#     waiter; a live one is waited for, DUO_HUB_LOCK_WAIT seconds, and then
+#     this stops having pressed nothing. See `lock` for how.
 #   * The lock binds only callers of this script. A person, or a session
 #     with an older copy, can still change the selection. So immediately
 #     before every press of a device button, and before a touch is posted,
@@ -176,38 +177,144 @@ act() {  # regex, what it is called in messages
     press "$1" "$2"
 }
 
-# Takes the lock, or stops. `mkdir` is the atomic step; the holder's pid is
-# inside, so a holder that died without letting go can be told from one that
-# is at work.
-LOCKED=""
-unlock() { [ -n "$LOCKED" ] && rm -rf "$LOCK"; LOCKED=""; }
+# The lock.
+#
+# It is a SYMBOLIC LINK at $LOCK whose target is the holder's name,
+# "<pid>.<when taken, epoch seconds>.<random>". `ln -s` either makes it or
+# fails because it is there, in one step, and the name is in it from that
+# step on: there is no moment at which the lock exists and says nothing
+# about who holds it. Letting go removes it only if it still carries this
+# process's name.
+#
+# A holder that was killed leaves its link behind. A lock is SPENT when its
+# pid is gone, or when it is older than DUO_HUB_LOCK_MAX_AGE whoever's pid
+# that now is: an invocation lasts seconds, so a lock ten minutes old is a
+# dead holder's whose pid something else has been given since.
+#
+# Taking over a spent lock is where two waiters could both win, and for a
+# while did (review of pull request 421: each read the dead pid, the first
+# cleared the lock and took it, the second cleared THAT and took it too). A
+# waiter now has to win a second link first, "$LOCK.next.<the spent lock's
+# name>", made the same atomic way. A spent lock's name is never used again,
+# so for any one spent lock exactly one waiter ever makes that link, and
+# only that waiter replaces the lock, by renaming its own link over it, so
+# the path is never empty for a third process to step into. It then checks
+# the lock still carries the spent name before it renames, and removes the
+# claim after. A claimant that dies between its claim and the rename leaves
+# a claim whose own holder is spent; the next waiter claims one level
+# further on ("...next.<lock>+<dead claimant>"), by the same rule.
+#
+# What this does not cover: a holder that is alive, has outlived the age
+# limit, and lets go in the instant between a claimant's check and its
+# rename. That takes an invocation running sixty times longer than any does.
+#
+# An older copy of this script made the lock a directory with a `pid` file
+# in it. One of those is still honoured while its holder lives, and cleared
+# when the pid is gone, when it is older than the age limit, or when it has
+# had no pid file for LEGACY_PIDLESS seconds (that copy wrote the file two
+# statements after making the directory, so a pidless one that old was left
+# by a holder that died in between, and it used to wedge every later run).
+LOCK_MAX_AGE="${DUO_HUB_LOCK_MAX_AGE:-600}"
+case "$LOCK_MAX_AGE" in ''|*[!0-9]*) echo "DUO_HUB_LOCK_MAX_AGE must be a whole number of seconds, got '$LOCK_MAX_AGE'" >&2; exit 2 ;; esac
+CLAIM_MAX_AGE=30
+LEGACY_PIDLESS=10
+MINE=""
+
+unlock() {
+    [ -n "$MINE" ] && [ "$(readlink "$LOCK" 2>/dev/null)" = "$MINE" ] && rm -f "$LOCK"
+    MINE=""
+}
+
+# True if the holder named "<pid>.<epoch>.<random>" is gone, or has held for
+# longer than the given number of seconds. A name that is not of that shape
+# is nobody's, and spent.
+spent() {  # name, age limit
+    local pid="${1%%.*}" rest="${1#*.}"
+    local born="${rest%%.*}"
+    case "$pid" in ''|*[!0-9]*) return 0 ;; esac
+    case "$born" in ''|*[!0-9]*) return 0 ;; esac
+    kill -0 "$pid" 2>/dev/null || return 0
+    [ $(($(date +%s) - born)) -gt "$2" ]
+}
+
+# What is at $LOCK now. Sets HELD to a name for it that is safe in a file
+# name and never repeats ("" when nothing is there), HOLDER to the pid for
+# messages, and returns true if it is spent.
+HELD=""; HOLDER=""
+look() {
+    local pid modified
+    HELD="$(readlink "$LOCK" 2>/dev/null || true)"
+    if [ -n "$HELD" ]; then
+        HOLDER="${HELD%%.*}"
+        case "$HELD" in */*) HELD=""; return 1 ;; esac  # not a lock of ours; left alone
+        spent "$HELD" "$LOCK_MAX_AGE"
+        return
+    fi
+    HOLDER=""
+    [ -d "$LOCK" ] || return 1
+    # The older copy's directory.
+    pid="$(cat "$LOCK/pid" 2>/dev/null || true)"
+    modified="$(stat -f %m "$LOCK" 2>/dev/null || stat -c %Y "$LOCK" 2>/dev/null || true)"
+    case "$modified" in ''|*[!0-9]*) HELD=""; return 1 ;; esac  # gone while we looked
+    case "$pid" in *[!0-9]*) pid="" ;; esac
+    HOLDER="$pid"
+    HELD="dir-${pid:-nopid}-$modified"
+    if [ -z "$pid" ]; then
+        [ $(($(date +%s) - modified)) -gt "$LEGACY_PIDLESS" ]
+    else
+        ! kill -0 "$pid" 2>/dev/null || [ $(($(date +%s) - modified)) -gt "$LOCK_MAX_AGE" ]
+    fi
+}
+
+# Takes over the spent lock named $1. True only if this process now holds
+# the lock; false if another waiter has the claim, or the lock changed.
+take_over() {  # the spent lock's name
+    local spent_name="$1" key="$1" claim won=""
+    while claim="$(readlink "$LOCK.next.$key" 2>/dev/null)" && [ -n "$claim" ]; do
+        spent "$claim" "$CLAIM_MAX_AGE" || return 1   # a live waiter is taking it over
+        key="$key+$claim"
+    done
+    ln -s "$MINE" "$LOCK.next.$key" 2>/dev/null || return 1
+    # The one claimant for this spent lock. Is it still the lock?
+    look || true
+    if [ "$HELD" = "$spent_name" ]; then
+        echo "note: taking over a Device Hub lock left by process ${HOLDER:-unknown}, which is gone or has held it too long" >&2
+        if [ -d "$LOCK" ] && [ ! -L "$LOCK" ]; then
+            # A directory cannot be renamed over. Moved aside, then taken
+            # the ordinary way, which another waiter may win instead.
+            if mv "$LOCK" "$LOCK.gone.$$" 2>/dev/null; then rm -rf "$LOCK.gone.$$"; fi
+            ln -s "$MINE" "$LOCK" 2>/dev/null || true
+        elif ln -s "$MINE" "$LOCK.new.$$" 2>/dev/null; then
+            mv -f "$LOCK.new.$$" "$LOCK" 2>/dev/null || rm -f "$LOCK.new.$$"
+        fi
+    fi
+    [ "$(readlink "$LOCK" 2>/dev/null)" = "$MINE" ] && won=1
+    # Every claim on that spent lock, this one and any dead claimant's.
+    rm -f "$LOCK.next.$spent_name" "$LOCK.next.$spent_name+"*
+    [ -n "$won" ]
+}
+
+# Takes the lock, or stops having pressed nothing.
 lock() {
-    local deadline=$((SECONDS + LOCK_WAIT)) holder
-    while ! mkdir "$LOCK" 2>/dev/null; do
-        holder="$(cat "$LOCK/pid" 2>/dev/null || true)"
-        case "$holder" in
-            ''|*[!0-9]*)
-                # No pid yet: the holder is between its mkdir and its write.
-                ;;
-            *)
-                if ! kill -0 "$holder" 2>/dev/null; then
-                    echo "note: clearing a Device Hub lock left by process $holder, which is gone" >&2
-                    # Renamed away first, so two waiters cannot both clear it
-                    # and then both take it.
-                    mv "$LOCK" "$LOCK.stale.$$" 2>/dev/null && rm -rf "$LOCK.stale.$$"
-                    continue
-                fi
-                ;;
-        esac
+    local deadline=$((SECONDS + LOCK_WAIT))
+    MINE="$$.$(date +%s).$RANDOM$RANDOM"
+    trap unlock EXIT
+    while :; do
+        # Not attempted while an older copy's directory is there: `ln -s`
+        # would put the link INSIDE it, and that touches the directory, whose
+        # age is the only thing that says a pidless one is abandoned.
+        if { [ ! -d "$LOCK" ] || [ -L "$LOCK" ]; } && ln -s "$MINE" "$LOCK" 2>/dev/null; then
+            [ "$(readlink "$LOCK" 2>/dev/null)" = "$MINE" ] && return 0
+            # A directory appeared between the look and the link.
+            rm -f "$LOCK/$MINE"
+        fi
+        if look && take_over "$HELD"; then return 0; fi
         [ $SECONDS -lt $deadline ] || {
-            echo "error: another session has held Device Hub (${LOCK}, process ${holder:-unknown}) for ${LOCK_WAIT}s; nothing was pressed." >&2
+            echo "error: another session has held Device Hub (${LOCK}, process ${HOLDER:-unknown}) for ${LOCK_WAIT}s; nothing was pressed." >&2
             exit 1
         }
         sleep 0.2
     done
-    LOCKED=1
-    trap unlock EXIT
-    echo $$ > "$LOCK/pid"
 }
 
 # Prints the device's orientation as devicectl names it. Fails, saying so,
@@ -271,6 +378,13 @@ if [ "$POSE" = touch ]; then
 fi
 
 lock
+
+# For the suite's stress case, which is about the lock and nothing else:
+# with the lock held, run the named program in place of everything below.
+if [ -n "${DUO_HUB_LOCK_PROBE:-}" ]; then
+    "$DUO_HUB_LOCK_PROBE"
+    exit $?
+fi
 
 # Select the device first: the buttons act on whichever is selected.
 press "outline row (\\(selected\\) )?$ROW_NAME" "simulator row named '$NAME'"

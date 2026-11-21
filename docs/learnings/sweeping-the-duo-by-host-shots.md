@@ -74,11 +74,30 @@ had selected its row a moment before the other one pressed.
 
 The hook now does two things, and it takes both:
 
-- **A lock**, a directory at a path every session agrees on
+- **A lock** at a path every session agrees on
   (`/tmp/waddle-device-hub.lock`, not under a per-session `TMPDIR`), held for
-  one invocation. A holder that died is cleared by its pid; a live one is
-  waited for and then the hook stops, having pressed nothing. This binds only
-  sessions that run this version of the hook.
+  one invocation. A live holder is waited for and then the hook stops, having
+  pressed nothing. This binds only sessions that run this version of the hook.
+
+  The first version of it was a directory with the holder's pid in a file,
+  and a waiter that found the pid dead renamed the directory away and took
+  the lock. That let two waiters both win: each had read the dead pid, the
+  first cleared the lock and took it, and the second then cleared the
+  first's live lock, acting on what it had read earlier. The review's stress
+  test (six waiters behind a killed holder) saw 5 overlapping holders in 150
+  rounds, and the suite's own stress case fails against that code in 12.
+  "Rename it away first" is not a guard when the thing renamed may no longer
+  be the thing that was judged. What holds:
+  - the lock is a symbolic link whose target is the holder's name (pid, time
+    taken, a random number), so making it and naming its holder are one step
+    and a lock with no holder cannot exist;
+  - to take over a dead holder's lock a waiter must first make a second
+    link, named after that dead lock's own name, the same atomic way. A name
+    is never reused, so one waiter ever wins that, and only it replaces the
+    lock, by renaming its own link over it, so the path is never empty;
+  - a lock older than ten minutes is treated as dead whatever its pid now
+    answers, because a pid is reused; and letting go removes the lock only
+    if it still carries the name of the process letting go.
 - **The selection is read again immediately before every press of a device
   button and before a touch is posted**, and must still be this simulator's
   row (`outline row (selected) <name> <version> Simulator`). During the same

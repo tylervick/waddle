@@ -316,4 +316,137 @@ setup "$ROWS"; run open "$OTHER"
 [ "$RC" != 0 ] && [ ! -e "$W/lock" ] && [ ! -s "$W/clicks" ] || fail "an ownership refusal took the lock or pressed something"
 pass "an ownership refusal neither locks nor presses"
 
+# --- the lock under contention ---------------------------------------------
+#
+# The cases above meet the lock one invocation at a time. These run several
+# at once, with DUO_HUB_LOCK_PROBE standing in for the work: the hook takes
+# the lock, runs the probe, and lets go. The probe is an overlap detector. It
+# makes a directory, waits, and removes it; if a second holder is inside at
+# the same moment its `mkdir` fails, and that is written down.
+probe_world() {
+    setup "$ROWS"
+    : > "$W/overlaps"; : > "$W/finished"
+    cat > "$W/bin/probe" <<PROBE
+#!/bin/bash
+mkdir "$W/inside" 2>/dev/null || { echo "\$\$" >> "$W/overlaps"; exit 0; }
+sleep 0.05
+rmdir "$W/inside"
+echo "\$\$" >> "$W/finished"
+PROBE
+    printf '#!/bin/bash\nsleep 60\n' > "$W/bin/hang"
+    chmod +x "$W/bin/probe" "$W/bin/hang"
+}
+contend() {  # probe program; runs in the background, prints nothing
+    PATH="$W/bin:$PATH" ORCA_CLI_COMMAND="$W/bin/orca" DUO_POSE_SETTLE=0 \
+        DUO_HUB_LOCK="$W/lock" DUO_HUB_LOCK_WAIT=30 DUO_HUB_LOCK_PROBE="$1" \
+        "$HOOK" open "$MINE" "iPhone Duo" >> "$W/contend.log" 2>&1 &
+}
+# Leaves the lock the way a holder killed outright leaves it, whatever shape
+# the script under test gives its lock: a real invocation takes it, and is
+# killed with SIGKILL while it holds it.
+kill_a_holder() {
+    local pid n=0
+    contend "$W/bin/hang"; pid=$!
+    until [ -e "$W/lock" ] || [ -L "$W/lock" ]; do
+        n=$((n + 1)); [ "$n" -lt 200 ] || fail "the holder to be killed never took the lock: $(cat "$W/contend.log")"
+        sleep 0.05
+    done
+    sleep 0.1  # past the older shape's gap between making the lock and naming its holder
+    pkill -9 -P "$pid" 2>/dev/null || true
+    kill -9 "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+}
+
+# 23. Several waiters behind a dead holder's lock. Exactly one at a time may
+#     take it over: no two inside together, and every one of them gets its
+#     turn. This is the case the first lock failed: each waiter read the dead
+#     pid, the first cleared the lock and took it, and the next cleared THAT.
+#     The race is a matter of timing, so this is a net and not a proof:
+#     against that first lock, 12 rounds of 8 caught it in 4 runs of 6
+#     (2026-11-21), which is why the default is 24. The lock as it is now
+#     went 150 rounds of 6 and 40 rounds of 16 with nothing to report.
+#     STRESS_ROUNDS and STRESS_WAITERS turn it up for a longer look.
+ROUNDS="${STRESS_ROUNDS:-24}"; WAITERS="${STRESS_WAITERS:-8}"
+OVERLAPS=0; UNFINISHED=0
+for round in $(seq 1 "$ROUNDS"); do
+    probe_world; kill_a_holder
+    for _ in $(seq 1 "$WAITERS"); do contend "$W/bin/probe"; done
+    wait
+    OVERLAPS=$((OVERLAPS + $(wc -l < "$W/overlaps")))
+    UNFINISHED=$((UNFINISHED + WAITERS - $(wc -l < "$W/finished")))
+    [ ! -e "$W/lock" ] && [ ! -L "$W/lock" ] || fail "round $round left the lock behind: $(ls -la "$W")"
+    ! ls "$W"/lock.* >/dev/null 2>&1 || fail "round $round left takeover debris: $(echo "$W"/lock.*)"
+done
+[ "$OVERLAPS" = 0 ] || fail "$OVERLAPS pairs of holders were inside the lock together, in $ROUNDS rounds of $WAITERS waiters behind a dead holder"
+[ "$UNFINISHED" = 0 ] || fail "$UNFINISHED waiters never got the lock, in $ROUNDS rounds of $WAITERS behind a dead holder: $(tail -3 "$W/contend.log")"
+pass "behind a dead holder's lock, waiters take it one at a time and all get it ($ROUNDS rounds of $WAITERS)"
+
+# 24. The control: the same crowd with no dead holder in front of it.
+probe_world
+for _ in $(seq 1 "$WAITERS"); do contend "$W/bin/probe"; done
+wait
+[ ! -s "$W/overlaps" ] || fail "holders overlapped with no stale lock at all"
+[ "$(wc -l < "$W/finished" | tr -d ' ')" = "$WAITERS" ] || fail "not every waiter finished with no stale lock at all"
+pass "the same waiters with nothing stale ahead of them also go one at a time"
+
+# 25. A claimant that died half way through a takeover (its claim is there,
+#     the dead lock is still there) does not wedge the lock: the next waiter
+#     claims past it.
+probe_world; kill_a_holder
+( exit 0 ) & DEAD=$!; wait "$DEAD"
+if [ -L "$W/lock" ]; then
+    ln -s "$DEAD.$(date +%s).1" "$W/lock.next.$(readlink "$W/lock")"
+    for _ in 1 2 3 4; do contend "$W/bin/probe"; done
+    wait
+    [ ! -s "$W/overlaps" ] || fail "holders overlapped behind a dead claimant"
+    [ "$(wc -l < "$W/finished" | tr -d ' ')" = 4 ] || fail "a dead claimant wedged the lock: $(tail -2 "$W/contend.log")"
+    ! ls "$W"/lock.* >/dev/null 2>&1 || fail "a dead claimant's claim was left behind: $(echo "$W"/lock.*)"
+fi
+pass "a waiter that died while taking over is taken over in turn"
+
+# 26. A live claimant is left to it: a waiter that sees a fresh claim by a
+#     running process does not take the lock from under it.
+probe_world; kill_a_holder
+if [ -L "$W/lock" ]; then
+    ln -s "$$.$(date +%s).1" "$W/lock.next.$(readlink "$W/lock")"
+    setup_out="$(PATH="$W/bin:$PATH" ORCA_CLI_COMMAND="$W/bin/orca" DUO_POSE_SETTLE=0 DUO_HUB_LOCK="$W/lock" \
+        DUO_HUB_LOCK_WAIT=1 DUO_HUB_LOCK_PROBE="$W/bin/probe" "$HOOK" open "$MINE" "iPhone Duo" 2>&1)" && fail "took a lock another waiter was taking over"
+    [ ! -s "$W/finished" ] || fail "ran while another waiter held the claim: $setup_out"
+fi
+pass "a claim held by a live waiter is respected"
+
+# 27. The older copy's directory with no pid file in it (its holder died
+#     between making the directory and writing the file). Fresh, it may be a
+#     holder about to write, and is waited for; old, it is cleared. It used
+#     to wedge every later run until someone removed it by hand.
+setup "$ROWS"; mkdir "$W/lock"; LOCK_WAIT=1 run open
+[ "$RC" != 0 ] && [ ! -s "$W/clicks" ] || fail "took a pidless lock directory made a moment ago"
+setup "$ROWS"; mkdir "$W/lock"; touch -t 202001010000 "$W/lock"; LOCK_WAIT=1 run open
+[ "$RC" = 0 ] || fail "an old pidless lock directory wedged the hook: $OUT"
+[ "$(clicks)" = "14 90" ] || fail "pressed '$(clicks)' after clearing an old pidless lock directory"
+pass "a pidless lock directory is waited for while fresh and cleared when old"
+
+# 28. A dead holder's pid that some live process has since been given: the
+#     pid answers, so only the lock's age can tell. This suite's own pid
+#     stands in for the reused one. Young, the lock is honoured; past the age
+#     limit it is taken over, in both shapes.
+setup "$ROWS"; ln -s "$$.$(date +%s).1" "$W/lock"; LOCK_WAIT=1 run open
+[ "$RC" != 0 ] && [ ! -s "$W/clicks" ] || fail "took a young lock from a live process"
+[ "$(readlink "$W/lock")" != "" ] || fail "removed a live process's lock"
+setup "$ROWS"; ln -s "$$.1000000000.1" "$W/lock"; LOCK_WAIT=1 run open
+[ "$RC" = 0 ] || fail "a lock far past the age limit wedged the hook although its pid is alive: $OUT"
+setup "$ROWS"; mkdir "$W/lock"; echo $$ > "$W/lock/pid"; touch -t 202001010000 "$W/lock"; LOCK_WAIT=1 run open
+[ "$RC" = 0 ] || fail "an old lock directory wedged the hook although its pid is alive: $OUT"
+pass "a lock older than the age limit is taken over even though its pid answers"
+
+# 29. Letting go removes this invocation's own lock and nobody else's: here
+#     the lock is replaced under the holder, as a takeover would, before it
+#     exits.
+probe_world
+printf '#!/bin/bash\nrm -rf "%s/lock"; ln -s "1.1000000000.other" "%s/lock"\n' "$W" "$W" > "$W/bin/swap"; chmod +x "$W/bin/swap"
+PATH="$W/bin:$PATH" ORCA_CLI_COMMAND="$W/bin/orca" DUO_HUB_LOCK="$W/lock" DUO_HUB_LOCK_PROBE="$W/bin/swap" \
+    "$HOOK" open "$MINE" "iPhone Duo" >/dev/null 2>&1 || true
+[ "$(readlink "$W/lock" 2>/dev/null)" = "1.1000000000.other" ] || fail "an exiting hook removed a lock that was no longer its own"
+pass "an exiting hook leaves a lock that is not its own"
+
 echo "All duo-pose-device-hub tests passed."
