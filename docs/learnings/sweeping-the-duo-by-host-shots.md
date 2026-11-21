@@ -172,6 +172,26 @@ shape of the raw shot, not the pose's name, decides whether it needs turning.
   Settings open in the panel there, as on the wide window; only the closed
   poses push a page and present a sheet.
 
+## One drag that "moved nothing" is not a finding
+
+Issue #357 asked whether a system alert whose message is cut (half open, at
+the largest accessibility size, the engine's error box shows three of its
+five lines) can be scrolled. The first hand check made one drag in the
+message, compared a shot from before with one from after, saw the same three
+lines and reported "not seen to scroll". It was done while other sessions
+were turning the same simulator, and it was never repeated.
+
+Done again on 2026-11-21 with the lock in place: both that alert and the
+launcher's scroll. A slow drag up in the message brings the rest into view,
+with the system's scroll indicator beside it
+(`assets/duo-sweep-2026-11-20/hand-check-alerts-half-open-2026-11-21.webp`).
+What the second check did differently: it photographed **during** the drag
+as well as after it (the touch held at its end point for 2.5 s, the shot
+taken inside that hold), and it checked each shot's size to know the pose had
+not changed under it. A before-and-after pair cannot tell "does not scroll"
+from "the touch did not land", and one sample of either is not worth
+reporting as a result.
+
 ## The captures
 
 Fifteen contact sheets, one per pose and text size, are in
