@@ -178,3 +178,12 @@ Fifteen contact sheets, one per pose and text size, are in
 `docs/learnings/assets/duo-sweep-2026-11-20/` (WebP; `montage` needs its
 `-label` before the files, and a `-font`, or the sheet has no names on it).
 What they showed is on issue #357.
+
+The first defect fixed from them, the layout editor's toolbar (issue #422),
+has its before and after sheets in
+`docs/learnings/assets/layout-editor-toolbar-2026-11-21/`. A shot of the
+layout editor cannot say whether the device was standing half open (the
+window is the same 669x951 as open and turned, and the editor draws no fold),
+so that pose was run with `testA_Session` first under the same hold of the
+pose: its `20-session` shot shows the picture above the fold and the controls
+below it, and that is the evidence the editor shot after it was half open.
