@@ -19,9 +19,10 @@ pass() { echo "ok - $1"; }
 
 # Builds a passing fixture set in $1. Callers then edit one file to break one
 # rule, so every case differs from a passing tree in exactly one way. The
-# workflows carry the iPad and Duo pins and a `${{ env... }}` use, and
-# mise.toml carries the iPad leg, because those are the lines a loose match
-# would mistake for the phone's.
+# workflows carry the iPad and Duo pins and a `${{ env... }}` use, mise.toml
+# carries the iPad leg, and the dispatch inputs carry a second input with its
+# own default, because those are the lines a loose match would mistake for
+# the phone's.
 make_fixture() { # dir
     mkdir -p "$1"
     cat > "$1/ci.yml" <<'CI'
@@ -40,6 +41,17 @@ jobs:
           DESTINATION: platform=iOS Simulator,name=${{ env.SIMULATOR_DEVICE }},OS=${{ env.SIMULATOR_OS }}
 CI
     cat > "$1/ui-tests.yml" <<'UI'
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: Simulator device name
+        required: false
+        default: "iPhone 18 Pro"
+      only_testing:
+        description: Optional -only-testing filter
+        required: false
+        default: ""
 env:
   SIMULATOR_OS: "27.0"
   SIMULATOR_DEVICE: "iPhone 18 Pro"
@@ -61,6 +73,9 @@ MISE
     cat > "$1/README.md" <<'README'
 xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
   -destination 'platform=iOS Simulator,name=iPhone 18 Pro' test
+
+- `device` — simulator device name. Default `iPhone 18 Pro`.
+- `only_testing` — an optional `-only-testing` filter.
 README
     cat > "$1/provision-test-wads.sh" <<'PROV'
 #!/bin/bash
@@ -83,6 +98,14 @@ check() { # dir
 # the #360 shape, one file left behind by a bump.
 leave_behind() { # file
     sed 's/iPhone 18 Pro/iPhone 17 Pro/g' "$1" > "$1.new"
+    mv "$1.new" "$1"
+}
+
+# Rewrites one fixture file through a sed expression, for the files that now
+# name the phone on two lines the guard holds to separate rules: a case must
+# still break exactly one of them.
+edit() { # file sed-expression
+    sed "$2" "$1" > "$1.new"
     mv "$1.new" "$1"
 }
 
@@ -121,6 +144,14 @@ make_fixture "$TMP/prov"; leave_behind "$TMP/prov/provision-test-wads.sh"
 expect_refusal "$TMP/prov" "provision-test-wads.sh does not default" "stale provisioning default"
 pass "a provisioning default on another phone is refused"
 
+# 2b. The stale phone on the live DEVICE= line and the right default only in
+#     a comment (issue #416): rule 5 loosened from a whole-line match to a
+#     substring match would be satisfied by the comment.
+make_fixture "$TMP/provcomment"; leave_behind "$TMP/provcomment/provision-test-wads.sh"
+echo '# was: DEVICE="${1:-iPhone 18 Pro}"' >> "$TMP/provcomment/provision-test-wads.sh"
+expect_refusal "$TMP/provcomment" "provision-test-wads.sh does not default" "provisioning default in a comment"
+pass "the right provisioning default in a comment does not satisfy the check"
+
 # 3. mise.toml left on the old phone, with the iPad leg intact -- so the
 #    iPad's destination line must not be able to stand in for the phone's.
 make_fixture "$TMP/mise"; leave_behind "$TMP/mise/mise.toml"
@@ -150,10 +181,34 @@ mv "$TMP/misenone/mise.new" "$TMP/misenone/mise.toml"
 expect_refusal "$TMP/misenone" "mise.toml has 0 whole-scheme test legs" "no phone leg"
 pass "a mise.toml with no whole-scheme leg fails closed"
 
-# 4. The README's copy of the command left behind.
-make_fixture "$TMP/readme"; leave_behind "$TMP/readme/README.md"
+# 4. The README's copy of the command left behind. Only the command line:
+#    the dispatch-input line below it is rule 7's (cases 4b-4d).
+make_fixture "$TMP/readme"
+edit "$TMP/readme/README.md" "/' test\$/s/iPhone 18 Pro/iPhone 17 Pro/"
 expect_refusal "$TMP/readme" "README.md does not run the whole scheme" "stale README"
 pass "a README command on another phone is refused"
+
+# 4b. The README's statement of the dispatch `device` default left behind
+#     (issue #416), with the command above it right.
+make_fixture "$TMP/readmedefault"
+edit "$TMP/readmedefault/README.md" '/^- `device`/s/iPhone 18 Pro/iPhone 17 Pro/'
+expect_refusal "$TMP/readmedefault" \
+    "README.md documents the dispatch 'device' default as \"iPhone 17 Pro\"" "stale README dispatch default"
+pass "a README dispatch default on another phone is refused"
+
+# 4c. The line gone or reworded past recognition fails closed: an unread
+#     line is not an agreeing one.
+make_fixture "$TMP/readmenone"
+edit "$TMP/readmenone/README.md" '/^- `device`/d'
+expect_refusal "$TMP/readmenone" "README.md has no '- \`device\`" "README without the dispatch default"
+pass "a README with no dispatch-default line fails closed"
+
+# 4d. Two such lines, one right and one stale: the right one must not vouch
+#     for the other.
+make_fixture "$TMP/readmetwo"
+echo '- `device` — simulator device name. Default `iPhone 17 Pro`.' >> "$TMP/readmetwo/README.md"
+expect_refusal "$TMP/readmetwo" "README.md has 2 " "two README dispatch defaults"
+pass "a second README dispatch-default line is refused"
 
 # 5. check-red-green.sh's default left on the old phone.
 make_fixture "$TMP/rgdev"; leave_behind "$TMP/rgdev/check-red-green.sh"
@@ -177,14 +232,50 @@ echo '# was: RG_DESTINATION="${RG_DESTINATION:-platform=iOS Simulator,name=iPhon
 expect_refusal "$TMP/rgcomment" "check-red-green.sh does not default" "red-green default in a comment"
 pass "the right default in a comment does not satisfy the check"
 
-# 6. ui-tests.yml on another device, then on another OS.
-make_fixture "$TMP/uidev"; leave_behind "$TMP/uidev/ui-tests.yml"
+# 5d. A correct default line and a later plain reassignment to the old phone
+#     (issue #416): the default line is there, and the script would still run
+#     on the stale destination.
+make_fixture "$TMP/rgtwice"
+echo 'RG_DESTINATION="platform=iOS Simulator,name=iPhone 17 Pro,OS=26.2"' >> "$TMP/rgtwice/check-red-green.sh"
+expect_refusal "$TMP/rgtwice" "check-red-green.sh assigns RG_DESTINATION on 2 lines" "second red-green assignment"
+pass "a second RG_DESTINATION assignment is refused"
+
+# 6. ui-tests.yml on another device, then on another OS. Only the env pin:
+#    the dispatch default above it is rule 6's (cases 6b-6d).
+make_fixture "$TMP/uidev"
+edit "$TMP/uidev/ui-tests.yml" '/^  SIMULATOR_DEVICE: /s/iPhone 18 Pro/iPhone 17 Pro/'
 expect_refusal "$TMP/uidev" 'ui-tests.yml pins SIMULATOR_DEVICE "iPhone 17 Pro"' "stale ui-tests device"
 make_fixture "$TMP/uios"
 sed 's/SIMULATOR_OS: "27.0"/SIMULATOR_OS: "26.2"/' "$TMP/uios/ui-tests.yml" > "$TMP/uios/ui.new"
 mv "$TMP/uios/ui.new" "$TMP/uios/ui-tests.yml"
 expect_refusal "$TMP/uios" 'ui-tests.yml pins SIMULATOR_OS "26.2"' "stale ui-tests OS"
 pass "ui-tests.yml on another device or OS is refused"
+
+# 6b. The workflow_dispatch `device` default left behind with the env pin
+#     right (issue #416). A dispatch always carries the default, so this is
+#     the phone every `gh workflow run ui-tests.yml` asks the runner for.
+make_fixture "$TMP/uidefault"
+edit "$TMP/uidefault/ui-tests.yml" '/^        default: /s/iPhone 18 Pro/iPhone 17 Pro/'
+expect_refusal "$TMP/uidefault" \
+    "ui-tests.yml defaults the dispatch 'device' input to \"iPhone 17 Pro\"" "stale dispatch default"
+pass "a dispatch device default on another phone is refused"
+
+# 6c. The stale default on `device`, and the right phone as ANOTHER input's
+#     default: a match on any `default:` line would take the neighbour's.
+make_fixture "$TMP/uineighbour"
+edit "$TMP/uineighbour/ui-tests.yml" '/^        default: /s/iPhone 18 Pro/iPhone 17 Pro/'
+edit "$TMP/uineighbour/ui-tests.yml" 's/^        default: ""$/        default: "iPhone 18 Pro"/'
+expect_refusal "$TMP/uineighbour" \
+    "ui-tests.yml defaults the dispatch 'device' input to \"iPhone 17 Pro\"" "neighbouring input default"
+pass "another input's default does not stand in for the device input's"
+
+# 6d. The default gone (the input removed, or reshaped past recognition)
+#     fails closed. The neighbour's default is still there and must not be
+#     read in its place.
+make_fixture "$TMP/uinodefault"
+edit "$TMP/uinodefault/ui-tests.yml" '/^        default: "iPhone 18 Pro"$/d'
+expect_refusal "$TMP/uinodefault" "ui-tests.yml has no workflow_dispatch 'device' input" "no dispatch default"
+pass "a ui-tests.yml with no dispatch device default fails closed"
 
 # 7. ci.yml itself moves and nothing follows: the PR #349 shape, seen from the
 #    other side. Every dependent is then wrong at once, and the guard must say
@@ -196,15 +287,15 @@ if out="$(check "$TMP/bump" 2>&1)"; then
     fail "accepted a ci.yml bump nothing followed; got: $out"
 fi
 case "$out" in
-    *"check-simulator-pins: 5 problem(s)"*) ;;
-    *) fail "expected all five dependents reported after a ci.yml bump; got: $out" ;;
+    *"check-simulator-pins: 7 problem(s)"*) ;;
+    *) fail "expected all seven dependents reported after a ci.yml bump; got: $out" ;;
 esac
 pass "a ci.yml bump nothing followed reports every dependent"
 
 # 8. ci.yml with no SIMULATOR_DEVICE pin (renamed, or moved into a matrix)
 #    fails closed. The iPad and Duo pins are still there and must not be read
 #    in its place; an empty device would otherwise "match" nothing and the
-#    error would blame five innocent files.
+#    error would blame seven innocent lines.
 make_fixture "$TMP/nopin"
 grep -v '^  SIMULATOR_DEVICE: ' "$TMP/nopin/ci.yml" > "$TMP/nopin/ci.new"
 mv "$TMP/nopin/ci.new" "$TMP/nopin/ci.yml"
@@ -217,6 +308,24 @@ make_fixture "$TMP/twopins"
 echo '  SIMULATOR_DEVICE: "iPhone 17 Pro"' >> "$TMP/twopins/ci.yml"
 expect_refusal "$TMP/twopins" "pins SIMULATOR_DEVICE 2 times" "ci.yml with two pins"
 pass "a ci.yml that pins the phone twice is refused"
+
+# 8c. A SIMULATOR_DEVICE at another nesting depth -- a step-level `env:`, as
+#     a job that needs a second phone would write it -- is not the
+#     workflow-level pin, in either workflow (issue #416). Accepted: with the
+#     two-space anchor dropped from pin_values each file would "pin twice".
+make_fixture "$TMP/nested"
+for f in ci.yml ui-tests.yml; do
+    cat >> "$TMP/nested/$f" <<'NESTED'
+jobs:
+  other:
+    steps:
+      - env:
+          SIMULATOR_DEVICE: "iPhone 17 Pro"
+          SIMULATOR_OS: "26.2"
+NESTED
+done
+out="$(check "$TMP/nested" 2>&1)" || fail "read a step-level SIMULATOR_DEVICE as the workflow pin; got: $out"
+pass "a pin at another nesting depth is not read as the workflow-level pin"
 
 # 9. An unreadable input is a failure, not a skip: every input is a tracked
 #    file, so its absence means the guard was pointed at the wrong place or

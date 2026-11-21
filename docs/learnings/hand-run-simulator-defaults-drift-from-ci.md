@@ -19,7 +19,10 @@ not something anyone reads to the end.
 
 **The check:** `Scripts/check-simulator-pins.sh` reads the two pins from
 `ci.yml` and refuses a tree where `ui-tests.yml` or any of those four places
-says something else. Its header lists exactly what is compared. A new hand-run
+says something else. It also holds the `workflow_dispatch` `device` default in
+`ui-tests.yml`, and the README's statement of it, to the same phone: a manual
+dispatch runs on that default, not on the `env` pin (issue #416). Its header
+lists exactly what is compared. A new hand-run
 command that names the CI phone belongs in that script, not in a comment
 asking the next person to remember.
 
