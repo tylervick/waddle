@@ -16,6 +16,7 @@ pass() { echo "ok - $1"; }
 IMMEDIATE='2026-11-19 00:06:25.388 Df PosterBoard[1:2] [com.apple.PosterBoard:DataStore] Gallery controller requested snapshot prewarm for role: PRPosterRoleLockScreen (reason: PBFPowerLogReasonExtensionsUpdated)'
 CALLING='2026-11-19 00:06:25.800 Df PosterBoard[1:2] [com.apple.PosterBoard:DataStore] Calling prewarmSnapshotsForRequests with 184 requests'
 DONE='2026-11-19 00:08:04.655 Df PosterBoard[1:2] [com.apple.PosterBoard:DataStore] Successfully prewarmed gallery snapshots for role: PRPosterRoleLockScreen'
+FAILED='2026-11-20 18:04:50.919 Df PosterBoard[1:2] [com.apple.PosterBoard:DataStore] Failed to prewarm gallery snapshots for role PRPosterRoleLockScreen: exceeded prewarm time; invalidating runtime assertion.'
 DEFERRED='2026-11-20 01:45:12.069 E  PosterBoard[1:2] [com.apple.PosterBoard:DataStore] Gallery controller requested snapshot prewarm for role PRPosterRoleLockScreen, but prewarm has not run and uptime 392s is within 600s boot window; deferring to -prewarm:'
 
 # A fixture is a directory: bin/ holds the stubs, and these files steer them.
@@ -29,8 +30,10 @@ DEFERRED='2026-11-20 01:45:12.069 E  PosterBoard[1:2] [com.apple.PosterBoard:Dat
 #   stream.dies.once  the same, for the first stream only
 #   state.<n>     what the n-th `simctl list devices` says the device's state
 #                 is (default Booted)
-#   backfill      what the one `log show` from boot prints; the single word
-#                 FAIL makes that query fail
+#   backfill      what every `log show` from boot prints; the single word
+#                 FAIL makes the query fail
+#   backfill.<n>  the same for the n-th pass only
+#   state.all     the device's state on every `simctl list devices`
 #   backfill.slow if present, that `log show` runs for 23 s instead
 #   boot.status   exit status of `simctl bootstatus` (default 0)
 make_fixture() { # dest uptime
@@ -45,6 +48,7 @@ if [ "$*" = "simctl list devices" ]; then
     n=$(( $(cat "$F/statecalls" 2>/dev/null || echo 0) + 1 ))
     echo "$n" > "$F/statecalls"
     state=Booted
+    if [ -f "$F/state.all" ]; then state="$(cat "$F/state.all")"; fi
     if [ -f "$F/state.$n" ]; then state="$(cat "$F/state.$n")"; fi
     echo "-- iOS 27.0 --"
     echo "    iPhone 18 Pro (AAAA1111-2222-3333-4444-555566667777) ($state)"
@@ -70,13 +74,22 @@ fi
 if [ "$1 $2 $4 $5" = "simctl spawn log stream" ]; then
     if [ -f "$F/stream.dies" ]; then echo "log: stream failed" >&2; exit 1; fi
     if [ -f "$F/stream.dies.once" ]; then rm "$F/stream.dies.once"; echo "log: stream failed" >&2; exit 1; fi
+    # What the real tool prints first, on stdout: the predicate, and with it
+    # every string the script searches for. A stub without this line is how
+    # a wait that matched its own search string passed fifteen cases.
+    echo 'Filtering the log data using "process == "PosterBoard" AND (composedMessage CONTAINS "requested snapshot prewarm" OR composedMessage CONTAINS "Calling prewarmSnapshotsForRequests" OR composedMessage CONTAINS "Successfully prewarmed gallery snapshots" OR composedMessage CONTAINS "Failed to prewarm gallery snapshots")"'
     exec /bin/sleep 20
 fi
 if [ "$1 $2 $4 $5" = "simctl spawn log show" ]; then
     if [ -f "$F/backfill.slow" ]; then exec /bin/sleep 23; fi
-    if [ ! -f "$F/backfill" ]; then exit 0; fi
-    if [ "$(cat "$F/backfill")" = "FAIL" ]; then echo "log: could not open local log store" >&2; exit 1; fi
-    cat "$F/backfill"
+    n=$(( $(cat "$F/passes" 2>/dev/null || echo 0) + 1 ))
+    echo "$n" > "$F/passes"
+    f="$F/backfill.$n"
+    if [ ! -f "$f" ]; then f="$F/backfill"; fi
+    echo "Timestamp               Ty Process[PID:TID]"
+    if [ ! -f "$f" ]; then exit 0; fi
+    if [ "$(cat "$f")" = "FAIL" ]; then echo "log: could not open local log store" >&2; exit 1; fi
+    cat "$f"
     exit 0
 fi
 echo "stub xcrun: unhandled args: $*" >&2
@@ -127,6 +140,19 @@ prepare() { # dir device os [timeout]
         "$ROOT/Scripts/prepare-ui-test-simulator.sh" "$2" "$3"
 }
 
+# 0. THE DEFECT THIS SUITE MISSED. `log stream` echoes its predicate as its
+#    first line of output, and the predicate contains "Successfully prewarmed
+#    gallery snapshots". With nothing from PosterBoard at all, the wait must
+#    run to its bound and say NOT_SETTLED. The first version printed SETTLED
+#    here at the first look: in CI, before PosterBoard's real line in 5 of 12
+#    runs, and on a fresh simulator 10 s after boot with no gallery yet.
+make_fixture "$TMP/z" 700
+out="$(prepare "$TMP/z" "iPhone 18 Pro" 27.0)" || fail "exited non-zero: $out"
+grep -q "Filtering the log data" "$TMP/z/work/stream.txt" || fail "the stub stream did not write its header; this case would prove nothing"
+if echo "$out" | grep -q "WADDLE_SIMULATOR_SETTLED"; then fail "took log stream's echo of the predicate for PosterBoard's line: $out"; fi
+echo "$out" | grep -q "reason=timeout" || fail "no timeout warning; got: $out"
+pass "does not take log stream's echo of its own predicate for a log line"
+
 # 1. The whole happy path: a host already past the boot window boots at once,
 #    sees the renders start, then finish, and says SETTLED. Also pins the UDID:
 #    the 27.0 device, not the same name under 26.3 and not "iPhone 18".
@@ -135,8 +161,9 @@ printf '%s\n%s\n' "$IMMEDIATE" "$CALLING" > "$TMP/a/stream.1"
 printf '%s\n' "$DONE" > "$TMP/a/stream.2"
 out="$(prepare "$TMP/a" "iPhone 18 Pro" 27.0)" || fail "exited non-zero on the happy path: $out"
 echo "$out" | grep -q "WADDLE_SIMULATOR_SETTLED" || fail "no SETTLED marker; got: $out"
-echo "$out" | grep -q "rendered 20s after boot" || fail "did not report the wait by the clock (two sleeps of 10 s); got: $out"
+echo "$out" | grep -q "rendered, seen 20s after boot" || fail "did not report the wait by the clock (two sleeps of 10 s); got: $out"
 echo "$out" | grep -q "rendering the gallery (184 requests)" || fail "did not announce the render; got: $out"
+echo "$out" | grep -q "PosterBoard: 2026-11-19 00:08:04.655 Successfully prewarmed gallery snapshots for role: PRPosterRoleLockScreen" || fail "the marker does not quote the line it matched; got: $out"
 grep -q "^udid=AAAA1111-2222-3333-4444-555566667777$" "$TMP/a/github_output" || fail "wrong or missing udid output: $(cat "$TMP/a/github_output")"
 grep -q "^xcrun simctl bootstatus AAAA1111-2222-3333-4444-555566667777 -b$" "$TMP/a/calls" || fail "did not boot the matched device"
 if grep -q "^sleep [0-9][0-9][0-9]" "$TMP/a/calls"; then fail "waited for the boot window on a host already past it"; fi
@@ -166,6 +193,18 @@ echo "$out" | grep -q "uptime 392s is within 600s boot window" || fail "warning 
 if echo "$out" | grep -q "WADDLE_SIMULATOR_SETTLED"; then fail "reported SETTLED for a deferred render"; fi
 pass "reports NOT_SETTLED reason=deferred, with PosterBoard's line, and does not fail the run"
 
+# 3b. The renders outlast PosterBoard's own limit and it gives them up with a
+#     different line (runs 44786985973 and 44779943032). That ends the burst
+#     as surely as the success line; waiting on for a line that will not come
+#     would cost the whole timeout on every such run.
+make_fixture "$TMP/c2" 700
+printf '%s\n%s\n' "$IMMEDIATE" "$CALLING" > "$TMP/c2/stream.1"
+printf '%s\n' "$FAILED" > "$TMP/c2/stream.2"
+out="$(prepare "$TMP/c2" "iPhone 18 Pro" 27.0)" || fail "exited non-zero: $out"
+echo "$out" | grep -q "WADDLE_SIMULATOR_SETTLED gallery renders ended at PosterBoard's own time limit" || fail "did not end on the give-up line; got: $out"
+echo "$out" | grep -q "PosterBoard: 2026-11-20 18:04:50.919 Failed to prewarm gallery snapshots" || fail "the marker does not quote the line; got: $out"
+pass "ends the wait when PosterBoard gives the renders up at its own time limit"
+
 # 4. The line never comes: NOT settled by timeout after TIMEOUT/POLL looks,
 #    exit 0, naming both readers as healthy. Pins that the wait is bounded and
 #    that it does not end early.
@@ -173,7 +212,7 @@ make_fixture "$TMP/d" 700
 printf '%s\n%s\n' "$IMMEDIATE" "$CALLING" > "$TMP/d/stream.1"
 out="$(prepare "$TMP/d" "iPhone 18 Pro" 27.0)" || fail "a timeout must not fail the run: $out"
 echo "$out" | grep -q "::warning::WADDLE_SIMULATOR_NOT_SETTLED reason=timeout" || fail "no timeout warning; got: $out"
-echo "$out" | grep -q "log stream running, log show from boot ok" || fail "did not report the readers' state; got: $out"
+echo "$out" | grep -q "log stream running, last log show from boot ok" || fail "did not report the readers' state; got: $out"
 [ "$(cat "$TMP/d/polls")" = 5 ] || fail "expected 5 looks at the log (50 s / 10 s), made $(cat "$TMP/d/polls")"
 pass "gives up after the bounded wait with NOT_SETTLED reason=timeout"
 
@@ -182,7 +221,7 @@ pass "gives up after the bounded wait with NOT_SETTLED reason=timeout"
 #     Counting looks instead let a 900 s wait run to 1350 on a slow runner.
 make_fixture "$TMP/d2" 700
 out="$(prepare "$TMP/d2" "iPhone 18 Pro" 27.0 25)" || fail "a timeout must not fail the run: $out"
-echo "$out" | grep -q "reason=timeout -- no gallery-render line in the simulator log 25s after boot" || fail "did not stop at 25 s; got: $out"
+echo "$out" | grep -q "reason=timeout -- no line from PosterBoard ending the gallery renders 25s after boot" || fail "did not stop at 25 s; got: $out"
 [ "$(grep -c '^sleep ' "$TMP/d2/calls")" = 3 ] && grep -q '^sleep 5$' "$TMP/d2/calls" || fail "expected sleeps of 10, 10 and 5; got: $(grep '^sleep' "$TMP/d2/calls" | tr '\n' ' ')"
 pass "bounds the wait in seconds and sleeps only what remains"
 
@@ -204,7 +243,7 @@ make_fixture "$TMP/e" 700
 echo FAIL > "$TMP/e/backfill"
 out="$(prepare "$TMP/e" "iPhone 18 Pro" 27.0)" || fail "dead log readers must not fail the run: $out"
 echo "$out" | grep -q "reason=timeout" || fail "no timeout warning; got: $out"
-echo "$out" | grep -q "log stream exited, log show from boot failed" || fail "did not say the readers died; got: $out"
+echo "$out" | grep -q "log stream exited, last log show from boot failed" || fail "did not say the readers died; got: $out"
 pass "says so when the silence is the log readers' and not the simulator's"
 
 # 5a. The device shut down under the wait (run 44786994189: bootstatus said
@@ -229,6 +268,31 @@ printf '%s\n%s\n%s\n' "$IMMEDIATE" "$CALLING" "$DONE" > "$TMP/e2/backfill"
 out="$(prepare "$TMP/e2" "iPhone 18 Pro" 27.0)" || fail "exited non-zero: $out"
 echo "$out" | grep -q "WADDLE_SIMULATOR_SETTLED" || fail "a line from before the stream attached was missed; got: $out"
 pass "sees a line written before the stream attached"
+
+# 5b2. The stream attaches late and never sees the line (on CI it attached 2
+#      to 6 minutes after boot), and the line is not yet written when the
+#      first `log show` runs. Only a LATER pass of the log show can see it, so
+#      the log show has to be run again when it finishes.
+make_fixture "$TMP/e5" 700
+: > "$TMP/e5/backfill.1"
+printf '%s\n%s\n%s\n' "$IMMEDIATE" "$CALLING" "$DONE" > "$TMP/e5/backfill.3"
+out="$(prepare "$TMP/e5" "iPhone 18 Pro" 27.0)" || fail "exited non-zero: $out"
+echo "$out" | grep -q "WADDLE_SIMULATOR_SETTLED" || fail "a line only a later log show could see was missed; got: $out"
+[ "$(cat "$TMP/e5/passes")" -ge 3 ] || fail "the log show was not run again; passes: $(cat "$TMP/e5/passes")"
+pass "runs the log show again, and settles on a line only a later pass sees"
+
+# 5e. A device that will not stay up and a stream that will not stay attached
+#     end as NOT_SETTLED after two re-boots and five re-attachments, not as a
+#     boot or a spawn on every look until the job's own timeout.
+make_fixture "$TMP/e6" 700
+: > "$TMP/e6/stream.dies"
+echo Shutdown > "$TMP/e6/state.all"
+out="$(prepare "$TMP/e6" "iPhone 18 Pro" 27.0)" || fail "exited non-zero: $out"
+echo "$out" | grep -q "reason=timeout" || fail "no timeout warning; got: $out"
+[ "$(grep -c '^xcrun simctl bootstatus' "$TMP/e6/calls")" = 3 ] || fail "expected the first boot and 2 re-boots, got $(grep -c '^xcrun simctl bootstatus' "$TMP/e6/calls")"
+[ "$(grep -c 'log stream' "$TMP/e6/calls")" = 6 ] || fail "expected the first stream and 5 re-attachments, got $(grep -c 'log stream' "$TMP/e6/calls")"
+echo "$out" | grep -q "simulator 'Shutdown', booted again 2 time(s)" || fail "did not report the state it gave up in; got: $out"
+pass "caps the re-boots at two and the stream re-attachments at five"
 
 # 5c. The stream alone is enough when the `log show` fails.
 make_fixture "$TMP/e3" 700
