@@ -27,22 +27,7 @@ struct ContentView: View {
         // arrangements, so bending the device or opening it flat moves the
         // shelf without rebuilding it. Flat, `halves` is nil, the column has
         // one child at its own size and the safe area is left alone.
-        VStack(spacing: 0) {
-            shelfStack
-                .frame(height: halves?.pictureArea.height)
-                #if DEBUG
-                .background(alignment: .bottomLeading) { halfMarker("launcherUpperHalf") }
-                #endif
-            if let halves {
-                // The band: nothing of ours is drawn on it.
-                Color.clear.frame(height: halves.crease.height)
-                LowerHalfPanelView(model: panelModel, library: library)
-                    .frame(height: halves.controlsArea.height)
-                    #if DEBUG
-                    .background(alignment: .topLeading) { halfMarker("launcherLowerHalf") }
-                    #endif
-            }
-        }
+        shelfStack
         // The reader is the size of this column, which is the window inside
         // its safe area, so the halves it reports are measured from where
         // the column starts and add up to its height. Each half's bars then
