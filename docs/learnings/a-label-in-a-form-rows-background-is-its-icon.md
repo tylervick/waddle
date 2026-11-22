@@ -23,6 +23,11 @@ title pieces were wider, so nothing showed.
 
 So: a `Label` used as a measuring copy says `.labelStyle(.titleAndIcon)`, and
 the views it measures say the same, so the two cannot resolve differently.
+Saying it changes the drawn button too: in the form row the buttons' icons
+had been drawn larger (the clock 24x22 pt) and further from the title than
+the shelf hero's; under `.titleAndIcon` they are 19x17 pt and match it. That
+is visible at every text size, on every device
+(`assets/game-page-actions-2026-11-22/iphone-portrait-default-buttons.webp`).
 `GamePageActionRowTests` holds the page's gauge to a label measured on its
 own; delete the style from the gauge and it fails.
 
