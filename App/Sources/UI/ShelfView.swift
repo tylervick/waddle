@@ -22,6 +22,12 @@ struct ShelfView: View {
     /// What the top zone shows: the welcome card, a Continue hero, or nothing.
     /// `Shelf.heroZone` decides; this only holds the answer.
     @State private var zone: Shelf.HeroZone = .empty
+    /// `zone` as drawn: without the Continue hero while the launcher is in
+    /// two halves, where the lower half is that game's page (issue #429).
+    /// From the pose alone, so bending the device measures nothing.
+    private var shownZone: Shelf.HeroZone {
+        Shelf.heroZone(zone, inTwoHalves: panelModel.isSplit)
+    }
     @State private var showImporter = false
     /// The item whose tap opened the Continue / New Game / Details sheet.
     @State private var actionItem: Game?
@@ -89,7 +95,7 @@ struct ShelfView: View {
         ScrollView {
             VStack(alignment: .leading,
                    spacing: ShelfHeroLayout.sectionSpacing(compactHeight: compactHeight)) {
-                switch zone {
+                switch shownZone {
                 case .welcome: welcomeCard
                 case .resume(let game): hero(for: game)
                 case .empty: EmptyView()
@@ -98,7 +104,7 @@ struct ShelfView: View {
                     // Not `items`: the hero's game would otherwise repeat as
                     // the first tile directly beneath itself. `Shelf.gridItems`
                     // owns that rule and is where it is tested.
-                    ForEach(Shelf.gridItems(from: items, heroZone: zone)) { item in
+                    ForEach(Shelf.gridItems(from: items, heroZone: shownZone)) { item in
                         tile(for: item)
                     }
                     if Shelf.showsAddHint(itemCount: items.count) {
@@ -178,6 +184,21 @@ struct ShelfView: View {
         }
         .onChange(of: panelModel.panel) { _, panel in
             if panel == nil { refresh() }
+        }
+        // Bent with a page pushed or the Settings sheet up, which is how a
+        // compact window has them (a closed iPhone Duo opened straight to
+        // half open): each moves to the lower half, where it would have
+        // opened in this pose. Left alone, the page would take the shelf's
+        // half and the sheet would lie across the fold (issue #429).
+        .onChange(of: panelModel.isSplit) { _, isSplit in
+            guard isSplit else { return }
+            if showPlayerSettings {
+                showPlayerSettings = false
+                panelModel.panel = .settings
+            } else if let game = pageGame {
+                pageGame = nil
+                panelModel.panel = .game(game)
+            }
         }
         #if DEBUG
         // Test-only seam, same WADDLE_* family as the others: opens the
@@ -707,7 +728,7 @@ struct ShelfView: View {
                 // The tile whose page is open beside the library wears the
                 // accent, so the panel reads as belonging to something.
                 .overlay {
-                    if panelModel.panel?.gameID == game.id {
+                    if panelModel.shownGameID == game.id {
                         RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
                             .strokeBorder(Color.appAccent, lineWidth: 2)
                     }
@@ -861,6 +882,9 @@ struct ShelfView: View {
     private func refresh() {
         let all = (try? library.shelfGames()) ?? []
         items = Shelf.ordered(all)
+        // What the lower half shows with nothing open, while the launcher is
+        // in two halves (issue #429).
+        panelModel.restingGame = Shelf.restingGame(from: items)
         // A library that cannot be read is not a factory-state one: falling
         // back to `false` keeps a transient read failure from greeting a
         // player who has been here for months as a new arrival.

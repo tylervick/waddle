@@ -563,10 +563,14 @@ final class DuoLayoutSweepTests: XCTestCase {
             XCTFail("[\(pose)] Settings row controlFeelButton could not be reached"); return
         }
         app.buttons["controlFeelButton"].tap()
-        guard waitFor(app.buttons["controlFeelDoneButton"], "Control Feel") else { return }
+        // By its first row, not its Done button: in the lower half of a
+        // half-open device Control Feel is pushed and has a back button
+        // instead (issue #429).
+        guard waitFor(app.descendants(matching: .any).matching(identifier: "turnSpeedSlider").firstMatch,
+                      "Control Feel") else { return }
         shoot("15-control-feel")
         let edit = app.buttons["editLayoutButton"]
-        let form = app.collectionViews.containing(.button, identifier: "controlFeelDoneButton").firstMatch
+        let form = app.collectionViews.containing(.any, identifier: "turnSpeedSlider").firstMatch
         guard bringIntoView(edit, in: app, scrolling: form.exists ? form : nil) else {
             XCTFail("[\(pose)] Control Feel's Edit Layout row could not be reached"); return
         }

@@ -41,6 +41,27 @@ enum Shelf {
         return played + unplayed
     }
 
+    /// The game whose page the lower half of a half-open iPhone Duo shows
+    /// while nothing else is open there (issue #429; the owner's choice of
+    /// 2026-11-21): the last one played, so Play is under the thumb.
+    ///
+    /// That is the first game in shelf order, which also answers the library
+    /// nobody has played yet: the first tile, the one the eye is on. Nil only
+    /// when the shelf has no game at all. Unlike `hero`, a save is not asked
+    /// for: the page has New Game as well as Continue.
+    static func restingGame(from ordered: [Game]) -> Game? { ordered.first }
+
+    /// The hero zone as the shelf shows it. In two halves the Continue hero
+    /// is left out (same choice, same day): the page in the lower half is
+    /// that game's, with the same Continue and New Game, and the two would
+    /// be on screen twice. The game goes back among the tiles, which is what
+    /// `gridItems` does for an empty zone. The welcome card stays; flat,
+    /// nothing changes.
+    static func heroZone(_ zone: HeroZone, inTwoHalves: Bool) -> HeroZone {
+        if inTwoHalves, case .resume = zone { return .empty }
+        return zone
+    }
+
     /// The Continue hero, or `nil` when the zone stays empty.
     ///
     /// Deliberately strict: it is *the* last-played item or nothing. If the most

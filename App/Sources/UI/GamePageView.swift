@@ -51,6 +51,7 @@ struct GamePageView: View {
     @State private var captionWordWidth: CGFloat?
     /// The hero row's measured width; zero until measured.
     @State private var heroRowWidth: CGFloat = 0
+    @Environment(\.launcherIsInTwoHalves) private var inTwoHalves
 
     private var continuableSlot: Int? { EngineSaveSlot.newestLoadGameArgument(in: saves) }
 
@@ -102,15 +103,23 @@ struct GamePageView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
-        .sheet(isPresented: $showAddFile, onDismiss: {
-            if let file = pendingAdd {
-                pendingAdd = nil
-                attempt(.files(game.fileIDs + [file.id]))
-            }
-        }) {
+        .sheet(isPresented: inTwoHalves ? .constant(false) : $showAddFile,
+               onDismiss: addPickedFile) {
             AddFilePicker(candidates: GamePage.addableFiles(from: allFiles, to: game)) { wad in
                 pendingAdd = wad
             }
+        }
+        // In the lower half of a half-open iPhone Duo the picker is pushed:
+        // a sheet covers the window, and there that is across the fold
+        // (issue #429). The pick is still applied once the picker has gone.
+        .navigationDestination(isPresented: inTwoHalves ? $showAddFile : .constant(false)) {
+            AddFilePicker(candidates: GamePage.addableFiles(from: allFiles, to: game),
+                          isPushed: true) { wad in
+                pendingAdd = wad
+            }
+        }
+        .onChange(of: showAddFile) { _, shown in
+            if inTwoHalves, !shown { addPickedFile() }
         }
         .confirmationDialog(saveWarningTitle, isPresented: pendingEditBinding,
                             titleVisibility: .visible, presenting: pendingEdit) { edit in
@@ -481,6 +490,13 @@ struct GamePageView: View {
 
     // MARK: Edits
 
+    /// Attaches the file the Add… picker picked, once the picker has gone.
+    private func addPickedFile() {
+        guard let file = pendingAdd else { return }
+        pendingAdd = nil
+        attempt(.files(game.fileIDs + [file.id]))
+    }
+
     /// Applies a base or file edit, or stages it behind the change-with-saves
     /// confirmation (spec §3.2).
     private func attempt(_ edit: GameEdit) {
@@ -580,6 +596,9 @@ private struct MenuPickerRow<Value: Hashable, Options: View>: View {
 /// load, grouped by role. Picking one attaches it at the end of the load order.
 struct AddFilePicker: View {
     let candidates: [WADFile]
+    /// Pushed into the page's own stack instead of presented with one of its
+    /// own: see where `GamePageView` opens it.
+    var isPushed = false
     let onPick: (WADFile) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -587,28 +606,35 @@ struct AddFilePicker: View {
     private var addOns: [WADFile] { candidates.filter { $0.role == .addOn } }
 
     var body: some View {
-        NavigationStack {
-            List {
-                if candidates.isEmpty {
-                    EmptyStateView(systemImage: "tray",
-                                   title: "Every file you've imported is already in this game.")
-                }
-                if !mapSets.isEmpty {
-                    Section { rows(mapSets) } header: { WaddleSectionHeader("Map sets") }
-                }
-                if !addOns.isEmpty {
-                    Section { rows(addOns) } header: { WaddleSectionHeader("Add-ons") }
-                }
-            }
-            .waddleScrollSurface()
-            .navigationTitle("Add to Game")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+        if isPushed {
+            list
+        } else {
+            NavigationStack {
+                list.toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { dismiss() }
+                    }
                 }
             }
         }
+    }
+
+    private var list: some View {
+        List {
+            if candidates.isEmpty {
+                EmptyStateView(systemImage: "tray",
+                               title: "Every file you've imported is already in this game.")
+            }
+            if !mapSets.isEmpty {
+                Section { rows(mapSets) } header: { WaddleSectionHeader("Map sets") }
+            }
+            if !addOns.isEmpty {
+                Section { rows(addOns) } header: { WaddleSectionHeader("Add-ons") }
+            }
+        }
+        .waddleScrollSurface()
+        .navigationTitle("Add to Game")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private func rows(_ files: [WADFile]) -> some View {

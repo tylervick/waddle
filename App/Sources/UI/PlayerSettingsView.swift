@@ -24,6 +24,7 @@ struct PlayerSettingsView: View {
     @AppStorage(debugHUDUserDefaultsKey) private var debugHUD: Bool = false
     @State private var showControlFeel = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.launcherIsInTwoHalves) private var inTwoHalves
 
     var body: some View {
         NavigationStack {
@@ -102,8 +103,14 @@ struct PlayerSettingsView: View {
                     Button("Done") { if let onDone { onDone() } else { dismiss() } }
                 }
             }
-            .sheet(isPresented: $showControlFeel) {
+            // In the lower half of a half-open iPhone Duo it is pushed like
+            // the other rows' screens: a sheet covers the window, and there
+            // that is across the fold (issue #429).
+            .sheet(isPresented: inTwoHalves ? .constant(false) : $showControlFeel) {
                 ControlFeelView()
+            }
+            .navigationDestination(isPresented: inTwoHalves ? $showControlFeel : .constant(false)) {
+                ControlFeelView(isPushed: true)
             }
         }
     }

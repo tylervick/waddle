@@ -58,13 +58,76 @@ final class ShelfPanelModel {
 
     /// What is open right now, or nil. Setting it opens or closes the panel.
     var panel: ShelfPanel? {
-        get { isPresented ? content : nil }
+        get { (isSplit ? openInLowerHalf : isPresented) ? content : nil }
         set {
             // Opening or closing a panel settles what should be up; a close
             // still in flight would write over it.
             cancelStrayColumnClose()
             content = newValue
-            isPresented = newValue != nil
+            if isSplit {
+                openInLowerHalf = newValue != nil
+            } else {
+                isPresented = newValue != nil
+            }
+        }
+    }
+
+    // MARK: Two halves (issue #429)
+
+    /// Whether the launcher is in two halves: an iPhone Duo standing half
+    /// open with the fold across the window. The shelf has the upper half
+    /// and the panel the lower one, at full width, and the inspector is not
+    /// used at all: `isPresented` stays false for as long as this is true.
+    ///
+    /// Presentation in this pose is `openInLowerHalf`, a property of its
+    /// own for the reason `content` is separate from `isPresented`: the
+    /// inspector writes to its binding while it is taken down, and what the
+    /// player has open must not depend on what it writes.
+    private(set) var isSplit = false
+
+    /// Whether the player has a panel open while the launcher is in two
+    /// halves. Meaningless otherwise.
+    private var openInLowerHalf = false
+
+    /// The game whose page the lower half shows while nothing is open there:
+    /// the first game on the shelf, which is the last one played
+    /// (`Shelf.restingGame`). The shelf sets it each time it reloads.
+    var restingGame: Game?
+
+    /// What the lower half shows: the open panel, or the resting game's
+    /// page, or nil when the shelf has no game at all.
+    var lowerHalf: ShelfPanel? { panel ?? restingGame.map(ShelfPanel.game) }
+
+    /// The game whose page is on screen, for the shelf to mark its tile: the
+    /// open panel's, or in two halves the resting page's too.
+    var shownGameID: UUID? { (isSplit ? lowerHalf : panel)?.gameID }
+
+    /// The root reports the pose here: `true` when the launcher parts in
+    /// two, `false` when it is whole again.
+    ///
+    /// A panel that was open stays open across the change, both ways. Going
+    /// in, the column is taken down where SwiftUI can see it (a change to
+    /// the binding, with animations off, as `closeStrayColumn` does); coming
+    /// out, it is put back up.
+    func foldChanged(isSplit split: Bool) {
+        guard split != isSplit else { return }
+        // While `isSplit` still has its old value, so a close in flight is
+        // taken back under the rules it was started under.
+        cancelStrayColumnClose()
+        var quiet = Transaction()
+        quiet.disablesAnimations = true
+        if split {
+            openInLowerHalf = isPresented && content != nil
+            isSplit = true
+            withTransaction(quiet) { isPresented = false }
+        } else {
+            let open = openInLowerHalf && content != nil
+            isSplit = false
+            openInLowerHalf = false
+            // Closed in the lower half is closed: nothing is left for a
+            // later write from the system to bring back.
+            if !open { content = nil }
+            withTransaction(quiet) { isPresented = open }
         }
     }
 
@@ -95,8 +158,11 @@ final class ShelfPanelModel {
     /// change instead. It raced the system: on the first unfold after
     /// launch the column went up after the bounce had already run.
     /// Reacting to the write itself has nothing to race.
+    ///
+    /// In two halves (`isSplit`) the column is never wanted, whatever is
+    /// open, so every `true` there is one of the two cases above.
     func systemSetPresented(_ presented: Bool) {
-        guard presented, content == nil else {
+        guard presented, content == nil || isSplit else {
             isPresented = presented && content != nil
             return
         }
@@ -124,7 +190,7 @@ final class ShelfPanelModel {
         becameRegularAt = ContinuousClock.now
         // The other order: SwiftUI's write arrived, and was refused, just
         // before this notification did. The column is already up.
-        if content == nil, let refused = refusedPresentationAt,
+        if content == nil || isSplit, let refused = refusedPresentationAt,
            refused.duration(to: ContinuousClock.now) < Self.strayColumnWindow {
             closeStrayColumn()
         }
@@ -146,7 +212,7 @@ final class ShelfPanelModel {
     /// Agree that the column is up, then take it down where SwiftUI can see.
     private func closeStrayColumn() {
         cancelStrayColumnClose()
-        guard content == nil, windowIsRegularWidth else { return }
+        guard content == nil || isSplit, windowIsRegularWidth else { return }
         var quiet = Transaction()
         quiet.disablesAnimations = true
         withTransaction(quiet) { isPresented = true }
@@ -154,7 +220,7 @@ final class ShelfPanelModel {
             // A frame or so: written back in the same pass, the two writes
             // cancel out and SwiftUI sees no change.
             try? await Task.sleep(for: .milliseconds(80))
-            guard !Task.isCancelled, self.content == nil else { return }
+            guard !Task.isCancelled, self.content == nil || self.isSplit else { return }
             withTransaction(quiet) { self.isPresented = false }
             self.strayColumnTask = nil
         }
@@ -166,7 +232,7 @@ final class ShelfPanelModel {
         guard let task = strayColumnTask else { return }
         task.cancel()
         strayColumnTask = nil
-        if content == nil, isPresented {
+        if content == nil || isSplit, isPresented {
             var quiet = Transaction()
             quiet.disablesAnimations = true
             withTransaction(quiet) { isPresented = false }
@@ -183,11 +249,17 @@ final class ShelfPanelModel {
 
     /// Whether Details and Settings open in the panel (`true`) or the way a
     /// phone has them, as a pushed page and a sheet (`false`).
-    var opensInPanel: Bool { Self.opensInPanel(regularWidth: windowIsRegularWidth) }
+    var opensInPanel: Bool {
+        Self.opensInPanel(regularWidth: windowIsRegularWidth, isSplit: isSplit)
+    }
 
     /// The whole rule, as a function a test can call: a regular-width window
-    /// gets the panel, a compact one keeps the page and the sheet.
-    nonisolated static func opensInPanel(regularWidth: Bool) -> Bool { regularWidth }
+    /// gets the panel, a compact one keeps the page and the sheet. In two
+    /// halves the panel is the lower half whatever the width: a pushed page
+    /// would take the shelf's half, and a sheet would lie across the fold.
+    nonisolated static func opensInPanel(regularWidth: Bool, isSplit: Bool = false) -> Bool {
+        regularWidth || isSplit
+    }
 }
 
 /// The inspector's content: a game's page or Settings, each in its own
@@ -223,4 +295,57 @@ struct ShelfPanelView: View {
             EmptyView()
         }
     }
+}
+
+/// The lower half of the launcher while it is in two halves (issue #429):
+/// the open panel, or the last-played game's page while nothing is open, so
+/// Play is always under the thumb.
+///
+/// The same pages the inspector shows, in the same navigation stacks. Two
+/// things differ, and `launcherIsInTwoHalves` in the environment is how the
+/// pages know: what they would present as a sheet they push instead, since a
+/// sheet covers the window and lies across the fold; and the resting page has
+/// no Done, there being nothing behind it to go back to.
+struct LowerHalfPanelView: View {
+    let model: ShelfPanelModel
+    let library: LibraryService
+
+    var body: some View {
+        Group {
+            switch model.lowerHalf {
+            case .game(let game):
+                NavigationStack {
+                    GamePageView(game: game, library: library,
+                                 onPlay: { model.play($0, $1) },
+                                 onChanged: { model.changed() },
+                                 // The resting page closes to the shelf's
+                                 // next answer; `changed` has already asked.
+                                 onClose: { model.panel = nil })
+                        .toolbar {
+                            if model.panel != nil {
+                                ToolbarItem(placement: .confirmationAction) {
+                                    Button("Done") { model.panel = nil }
+                                        .accessibilityIdentifier("panelDoneButton")
+                                }
+                            }
+                        }
+                }
+                .id(game.id)
+            case .settings:
+                PlayerSettingsView(library: library, onDone: { model.panel = nil })
+            case nil:
+                // Every game hidden or deleted: the shelf above says so with
+                // its Add tile, and there is no page to show.
+                Color.appBackground
+            }
+        }
+        .environment(\.launcherIsInTwoHalves, true)
+    }
+}
+
+extension EnvironmentValues {
+    /// True inside the lower half of a launcher that has parted at the fold
+    /// (issue #429). A page there pushes what it would otherwise present as
+    /// a sheet.
+    @Entry var launcherIsInTwoHalves = false
 }

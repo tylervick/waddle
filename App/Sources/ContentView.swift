@@ -9,6 +9,10 @@ struct ContentView: View {
     /// shows it has to sit outside the shelf's `NavigationStack`; see
     /// `ShelfPanelModel`.
     @State private var panelModel = ShelfPanelModel()
+    /// The two halves of the window while an iPhone Duo stands half open
+    /// with the fold across it, and nil otherwise (issue #429). From
+    /// `LauncherFoldReader`: the device and the window, never the content.
+    @State private var halves: HalfOpenSplit?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
@@ -16,21 +20,41 @@ struct ContentView: View {
         // a door off it rather than a co-equal tab (spec §§2–3). The former
         // two-tab `TabView` and its iOS 26 tab-bar identifier workaround are
         // gone with it — nothing addresses a tab bar any more.
-        NavigationStack {
-            ShelfView(library: library, importer: importer, lastExitCode: $lastExitCode,
-                      panelModel: panelModel)
+        //
+        // Half open, the launcher parts at the fold the way the session does
+        // (issue #429): the shelf keeps the upper half and the panel has the
+        // lower one. The stack's place in the tree is the same in both
+        // arrangements, so bending the device or opening it flat moves the
+        // shelf without rebuilding it. Flat, `halves` is nil, the column has
+        // one child at its own size and the safe area is left alone.
+        VStack(spacing: 0) {
+            shelfStack
+                .frame(height: halves?.pictureArea.height)
+                #if DEBUG
+                .background(alignment: .bottomLeading) { halfMarker("launcherUpperHalf") }
+                #endif
+            if let halves {
+                // The band: nothing of ours is drawn on it.
+                Color.clear.frame(height: halves.crease.height)
+                LowerHalfPanelView(model: panelModel, library: library)
+                    .frame(height: halves.controlsArea.height)
+                    #if DEBUG
+                    .background(alignment: .topLeading) { halfMarker("launcherLowerHalf") }
+                    #endif
+            }
         }
-        // A trailing column beside the shelf on a regular-width window, and a
-        // sheet on a compact one. The shelf only opens it on a regular-width
-        // window, so the sheet form is what a panel becomes when an iPhone
-        // Duo is folded with it open: nothing is lost, and unfolding brings
-        // the column back.
-        .inspector(isPresented: Binding(
-            get: { panelModel.isPresented },
-            set: { panelModel.systemSetPresented($0) }
-        )) {
-            ShelfPanelView(model: panelModel, library: library)
-                .inspectorColumnWidth(min: 320, ideal: 376, max: 420)
+        // The reader is the size of this column, which is the window inside
+        // its safe area, so the halves it reports are measured from where
+        // the column starts and add up to its height. Each half's bars then
+        // reach out under the status bar and the home indicator on their
+        // own, as the one stack does when the device is flat. (A column that
+        // ignored the safe area took the insets from the bars inside it too,
+        // and the shelf's wordmark went under the status bar.)
+        .background {
+            LauncherFoldReader { split in
+                halves = split
+                panelModel.foldChanged(isSplit: split != nil)
+            }
         }
         .onChange(of: horizontalSizeClass, initial: true) { old, sizeClass in
             // Unfolding an iPhone Duo with nothing open leaves an empty
@@ -123,6 +147,44 @@ struct ContentView: View {
         // what settles the system-drawn chrome around them.
         .preferredColorScheme(.dark)
     }
+
+    /// The shelf in its navigation stack, with the inspector that is its
+    /// panel everywhere but in two halves.
+    private var shelfStack: some View {
+        NavigationStack {
+            ShelfView(library: library, importer: importer, lastExitCode: $lastExitCode,
+                      panelModel: panelModel)
+        }
+        // A trailing column beside the shelf on a regular-width window, and a
+        // sheet on a compact one. The shelf only opens it on a regular-width
+        // window, so the sheet form is what a panel becomes when an iPhone
+        // Duo is folded with it open: nothing is lost, and unfolding brings
+        // the column back.
+        .inspector(isPresented: Binding(
+            get: { panelModel.isPresented },
+            set: { panelModel.systemSetPresented($0) }
+        )) {
+            ShelfPanelView(model: panelModel, library: library)
+                .inspectorColumnWidth(min: 320, ideal: 376, max: 420)
+        }
+    }
+
+    #if DEBUG
+    /// Where a half meets the band, for `HalfOpenLauncherTests` to read: the
+    /// corner-marker pattern the touch overlay uses, a 2 pt element in the
+    /// half's corner on the band's side, and only while the launcher is
+    /// parted. Not the size of the half: an element that large answered the
+    /// accessibility hit test for everything in front of it, and the shelf's
+    /// own buttons stopped being hittable to a UI test.
+    @ViewBuilder private func halfMarker(_ identifier: String) -> some View {
+        if halves != nil {
+            Color.clear
+                .frame(width: 2, height: 2)
+                .accessibilityElement()
+                .accessibilityIdentifier(identifier)
+        }
+    }
+    #endif
 
     #if DEBUG
     /// The engine's session-state readouts (issues #266, #268, #269, #111), shown
