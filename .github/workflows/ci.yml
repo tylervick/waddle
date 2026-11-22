@@ -96,14 +96,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      # uv for test-build-mark.sh and test-glyph-source.sh below, at the
+      # version mise.toml pins; the runner image has none. This installs the
+      # whole [tools] table (cmake, ninja and xcodegen too), so the suites that
+      # touch cmake run at the pinned version a developer has, and the job
+      # shares the mise cache the build legs already save under mise.toml's
+      # hash.
+      - name: Install pinned CLI tools
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5
+
       # They guard the value both cache keys depend on, the check that stops
       # a stale engine from being shipped, and the release path.
       #
       # This list must name EVERY Scripts/test-*.sh suite, not just the ones
       # that guard the build: a suite missing from it is a suite nobody runs
-      # before merge. Two suites once ran nowhere on a pull request, and
-      # test-check-issue-format.sh only in issue-format.yml, which never
-      # triggers on one, so a change breaking any of them was green here.
+      # before merge. Scripts/check-suites-registered.sh, at the end of this
+      # step, refuses one that is missing (issue #454, where three were).
       - name: Verify the build-script helpers
         run: |
           Scripts/test-engine-fingerprint.sh
@@ -196,6 +204,20 @@ jobs:
           # issue-format.yml runs it too, but that workflow fires on
           # issues/schedule/workflow_dispatch only -- never on a pull request.
           Scripts/test-check-issue-format.sh
+          # Hermetic: curl is a stub and the token a fake ASC_JWT. Guards the
+          # fetcher testflight-feedback.yml runs daily, which decides which
+          # TestFlight feedback is reported and marked seen.
+          Scripts/test-fetch-testflight-feedback.sh
+          # Both need uv (installed above) and fetch Pillow through it. They
+          # guard the app icon's mark: the compositor's transparent layer, and
+          # the committed Freedoom glyph PNGs it is built from.
+          Scripts/test-build-mark.sh
+          Scripts/test-glyph-source.sh
+          # Hermetic fixtures plus two live cases: refuses a Scripts/test-*.sh
+          # that no run: block in this file names, which is how three suites
+          # ran nowhere for months (issue #454).
+          Scripts/test-check-suites-registered.sh
+          Scripts/check-suites-registered.sh
           Scripts/check-substrate.sh
           # The app's name is Waddle; the stylized form is a wordmark and
           # belongs only in Design/. Pure text scan of tracked files; no
@@ -242,8 +264,8 @@ jobs:
             echo "::error::--print failed for a reason other than having nothing to report"
             exit 1
           fi
-          # --sync-only, not the full check: this job never runs the toolchain
-          # setup and the runner has neither uv nor potrace. It still catches the
+          # --sync-only, not the full check: the runner has no potrace (uv it
+          # now has, from the step above). It still catches the
           # drift that actually happens -- Design/ regenerated without the .icon
           # package being updated. The full regeneration check is `mise run
           # check-icons` locally.
