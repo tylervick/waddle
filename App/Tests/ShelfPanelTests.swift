@@ -195,7 +195,7 @@ final class ShelfPanelTests: XCTestCase {
     /// opening it flat again puts the column back: the launcher follows the
     /// pose both ways without losing what was open.
     @MainActor
-    func testAnOpenPanelSurvivesBendingAndOpeningFlat() {
+    func testAnOpenPanelSurvivesBendingAndOpeningFlat() async throws {
         let model = ShelfPanelModel()
         model.windowWidthChanged(isRegular: true, becameRegular: false)
         model.panel = .settings
@@ -209,9 +209,43 @@ final class ShelfPanelTests: XCTestCase {
         model.systemSetPresented(false)
         XCTAssertEqual(model.panel, .settings)
 
+        // The column goes back up in a pass of its own, a frame later:
+        // written in the same pass as the change of layout it was not
+        // shown. Meanwhile the panel still counts as open.
         model.foldChanged(isSplit: false)
+        XCTAssertEqual(model.panel, .settings, "the panel reads as closed while the column returns")
+        try await Task.sleep(for: .milliseconds(400))
         XCTAssertTrue(model.isPresented, "the column did not come back")
         XCTAssertEqual(model.panel, .settings)
+    }
+
+    /// Bent again before the column has come back: it must not come up
+    /// beside the shelf in the upper half.
+    @MainActor
+    func testBendingAgainBeforeTheColumnReturnsLeavesItDown() async throws {
+        let model = ShelfPanelModel()
+        model.windowWidthChanged(isRegular: true, becameRegular: false)
+        model.panel = .settings
+        model.foldChanged(isSplit: true)
+        model.foldChanged(isSplit: false)
+        model.foldChanged(isSplit: true)
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertFalse(model.isPresented)
+        XCTAssertEqual(model.panel, .settings)
+    }
+
+    /// Closed in the frame before the column returns: it stays closed.
+    @MainActor
+    func testClosingThePanelBeforeTheColumnReturnsKeepsItClosed() async throws {
+        let model = ShelfPanelModel()
+        model.windowWidthChanged(isRegular: true, becameRegular: false)
+        model.panel = .settings
+        model.foldChanged(isSplit: true)
+        model.foldChanged(isSplit: false)
+        model.panel = nil
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertFalse(model.isPresented)
+        XCTAssertNil(model.panel)
     }
 
     /// A panel closed in the lower half is closed: opening flat brings no

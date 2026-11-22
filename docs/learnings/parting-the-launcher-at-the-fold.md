@@ -42,6 +42,37 @@ directions, and a `true` from the system while parted is refused, or
 accepted and taken back when the window has just become regular, by the
 same rule as an empty column. `ShelfPanelTests` pins each case.
 
+## A `true` written in the same pass as the change of layout is not shown
+
+Opening flat with Settings open in the lower half has to put the column back
+up. `foldChanged(isSplit: false)` first wrote `isPresented = true` on the
+spot, in the pass that also takes the lower half away. The binding then read
+`true` (logged, ten reads) and no column appeared: 3 of 5 openings on the
+simulator, on the first opening after a launch as well as later ones, with
+animations disabled or not. Bending again showed Settings below, so nothing
+was lost but the column. Written a frame later, in a pass of its own
+(`returnColumn`), it came back in 9 of 9: three fresh launches, each opened
+flat twice, and three more in one run.
+
+The captures that showed this were taken with nothing open first, and those
+were all right. As the inspector learning says: try a transition with a
+panel open as well as without, and more than once.
+
+A check of "did it come up" was tried and dropped: `onAppear` on the
+inspector's content fires at launch with nothing presented, so a flag set
+there says nothing.
+
+## A game page as wide as a half breaks its buttons' labels
+
+The lower half is 669 pt wide and about 380 pt tall. The game page there is
+side by side at the default text size, and its two buttons shared the
+caption's row: `ViewThatFits` passed the row and the even split then set
+"New" over "Game". At the largest accessibility size the page stacks, the
+art was a 96 pt strip, and the row broke "Contin-" / "ue". Both are the
+failure `a-squeezed-row-of-texts-hyphenates-and-a-fixed-share-truncates.md`
+describes, at a width the page had not been seen at. In the lower half the
+buttons are always stacked and a stacked page has no art.
+
 ## An accessibility element behind a view answers the hit test for it
 
 The UI test needs to know where each half meets the band. The first marker

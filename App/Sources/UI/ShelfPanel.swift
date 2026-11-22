@@ -58,11 +58,12 @@ final class ShelfPanelModel {
 
     /// What is open right now, or nil. Setting it opens or closes the panel.
     var panel: ShelfPanel? {
-        get { (isSplit ? openInLowerHalf : isPresented) ? content : nil }
+        get { (isSplit ? openInLowerHalf : isPresented || columnIsReturning) ? content : nil }
         set {
             // Opening or closing a panel settles what should be up; a close
             // still in flight would write over it.
             cancelStrayColumnClose()
+            cancelColumnReturn()
             content = newValue
             if isSplit {
                 openInLowerHalf = newValue != nil
@@ -108,12 +109,13 @@ final class ShelfPanelModel {
     /// A panel that was open stays open across the change, both ways. Going
     /// in, the column is taken down where SwiftUI can see it (a change to
     /// the binding, with animations off, as `closeStrayColumn` does); coming
-    /// out, it is put back up.
+    /// out, it is put back up (`returnColumn`).
     func foldChanged(isSplit split: Bool) {
         guard split != isSplit else { return }
         // While `isSplit` still has its old value, so a close in flight is
         // taken back under the rules it was started under.
         cancelStrayColumnClose()
+        cancelColumnReturn()
         var quiet = Transaction()
         quiet.disablesAnimations = true
         if split {
@@ -127,8 +129,39 @@ final class ShelfPanelModel {
             // Closed in the lower half is closed: nothing is left for a
             // later write from the system to bring back.
             if !open { content = nil }
-            withTransaction(quiet) { isPresented = open }
+            if open { returnColumn() }
         }
+    }
+
+    /// True between the launcher becoming whole and the column going back
+    /// up, so that `panel` does not report a moment with nothing open.
+    private var columnIsReturning = false
+    @ObservationIgnored private var columnReturnTask: Task<Void, Never>?
+
+    /// Puts the column back up a frame after the launcher became whole.
+    ///
+    /// Not in the same pass. Written there, alongside the change of layout,
+    /// the `true` was read back from the binding and nothing was shown: on
+    /// the simulator, 2026-11-21, the column failed to come back in 3 of 5
+    /// openings, with animations on or off, and came back in every one once
+    /// the write had a pass of its own. It is the mirror of
+    /// `closeStrayColumn`, where two writes in one pass cancel out.
+    private func returnColumn() {
+        columnIsReturning = true
+        columnReturnTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard !Task.isCancelled else { return }
+            self.columnReturnTask = nil
+            self.columnIsReturning = false
+            guard !self.isSplit, self.content != nil else { return }
+            self.isPresented = true
+        }
+    }
+
+    private func cancelColumnReturn() {
+        columnReturnTask?.cancel()
+        columnReturnTask = nil
+        columnIsReturning = false
     }
 
     /// The inspector's own writes to its binding.

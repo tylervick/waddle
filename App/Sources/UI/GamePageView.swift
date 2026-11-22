@@ -222,10 +222,18 @@ struct GamePageView: View {
                                                         rowWidth: heroRowWidth) {
                 case .stacked:
                     VStack(alignment: .leading, spacing: PlayableDetailLayout.captionSpacing) {
-                        heroArt(height: PlayableDetailLayout.artHeight(
-                            contentWidth: artContentWidth,
-                            viewportHeight: viewportHeight,
-                            captionHeight: captionHeight))
+                        // Not in the lower half of a half-open iPhone Duo
+                        // (issue #429). Stacked there means the caption did
+                        // not fit beside the art, which is the large text
+                        // sizes, and in a half some 380 pt tall the art was
+                        // on its 96 pt floor: a strip above a title and
+                        // buttons that already overflow. The half is theirs.
+                        if !inTwoHalves {
+                            heroArt(height: PlayableDetailLayout.artHeight(
+                                contentWidth: artContentWidth,
+                                viewportHeight: viewportHeight,
+                                captionHeight: captionHeight))
+                        }
                         titleButton
                         actionsRow
                     }
@@ -295,10 +303,22 @@ struct GamePageView: View {
     /// Side by side where both labels fit on one line, stacked where Dynamic
     /// Type makes them too wide -- `ViewThatFits` measures the labels' ideal
     /// widths, not the flexible frames the button style puts around them.
+    ///
+    /// In the lower half of a half-open iPhone Duo they are always stacked
+    /// (issue #429). The row there is the one width where `ViewThatFits`
+    /// passed two buttons side by side and the even split then broke their
+    /// labels: "New" / "Game" at the default text size, "Contin-" / "ue" at
+    /// the largest. Stacked, each has the caption's whole width, and beside
+    /// the art the two are still shorter than it.
+    @ViewBuilder
     private var actionsRow: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: PlayableDetailLayout.captionSpacing) { primaryActions }
+        if inTwoHalves {
             VStack(spacing: PlayableDetailLayout.captionSpacing) { primaryActions }
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: PlayableDetailLayout.captionSpacing) { primaryActions }
+                VStack(spacing: PlayableDetailLayout.captionSpacing) { primaryActions }
+            }
         }
     }
 
