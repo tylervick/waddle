@@ -75,10 +75,10 @@ enum PlayableDetailLayout {
     /// (Play) or two (Continue and New Game) with a gap between them.
     ///
     /// Charged per button, as if stacked, even though at ordinary text sizes
-    /// `ViewThatFits` puts two side by side: the stacked case is the one that
-    /// happens at accessibility sizes, where the budget is tightest, and in
-    /// portrait the art is natural-bound anyway so the over-reserve costs
-    /// nothing visible.
+    /// the page puts two side by side (`GamePageMeasurements.buttonArrangement`):
+    /// the stacked case is the one that happens at accessibility sizes, where
+    /// the budget is tightest, and in portrait the art is natural-bound
+    /// anyway so the over-reserve costs nothing visible.
     ///
     /// - Parameters:
     ///   - titleLineHeight: line height of the title's font (`.title2`).
@@ -175,9 +175,9 @@ enum PlayableDetailLayout {
     }
 
     /// The caption column beside the art: the title, a gap, then the buttons
-    /// stacked -- the column is at most half the row, so `ViewThatFits` falls
-    /// to the stacked buttons there more often than it does in portrait, and
-    /// the budget assumes it has.
+    /// stacked -- the column is at most half the row, so the page stacks the
+    /// buttons there more often than it does in portrait, and the budget
+    /// assumes it has.
     static func sideBySideCaptionHeight(titleLineHeight: CGFloat,
                                         buttonLineHeight: CGFloat,
                                         primaryButtonCount: Int) -> CGFloat {
