@@ -135,6 +135,86 @@ final class SetupScreenOverlapTests: XCTestCase {
         XCTAssertTrue(exitLabel.waitForExistence(timeout: 60), "the second session never ended")
     }
 
+    /// Issue #447. A setup screen's reset button asks "reset to defaults?",
+    /// and the next touch anywhere used to answer yes: every setting on the
+    /// screen went back to its default, with nothing on screen to say no
+    /// with. A touch on the screen now changes nothing, the overlay's Yes
+    /// and No buttons appear as they do for the engine's other prompts, and
+    /// only they answer.
+    @MainActor
+    func testResetToDefaultsIsAnsweredOnlyByTheYesAndNoButtons() throws {
+        XCUIDevice.shared.orientation = .portrait
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        let (app, hud, walker) = try startLandscapeSession(arguments: [])
+        let state = try XCTUnwrap(walker.open(screen: enemiesScreen, tab: 0), "the Enemies screen never opened")
+        // Randomly Mirrored Corpses again: cosmetic, no side effect.
+        let rowIndex = try XCTUnwrap(state.items.lastIndex { $0.kind == "O" && !$0.skip },
+                                     "no on/off row on the Enemies screen: \(state.items)")
+        let row = state.items[rowIndex]
+        let reset = try XCTUnwrap(state.items.first { $0.kind == "R" }, "no reset button on the Enemies screen")
+        let onRow = CGPoint(x: row.drawn.minX + 6, y: row.drawn.midY)
+        let onReset = CGPoint(x: reset.drawn.midX, y: reset.drawn.midY)
+        // Below the rows, on nothing: no row, no tab, no button.
+        let emptySpace = CGPoint(x: row.press.midX, y: row.press.maxY + 60)
+        XCTAssertFalse(state.items.contains { $0.press.contains(emptySpace) }
+                        || app.overlayButtonFramesInMenus().contains { $0.frame.insetBy(dx: -20, dy: -20).contains(emptySpace) },
+                       "\(emptySpace) should be on nothing")
+        let yes = app.buttons["promptYesButton"], no = app.buttons["promptNoButton"]
+        func value() -> Int? {
+            guard let now = app.setupProbeState(), rowIndex < now.items.count else { return nil }
+            return now.items[rowIndex].value
+        }
+        func waitForValue(_ wanted: Int) -> Bool {
+            walker.wait(5) { value() == wanted ? true : nil } != nil
+        }
+
+        // A setting that is not at its default, so a reset shows.
+        let original = row.value
+        let changed = 1 - original
+        walker.tap(onRow)
+        XCTAssertTrue(waitForValue(changed), "a touch on the row should flip it: \(String(describing: value()))")
+
+        // Ask to reset. The Yes and No buttons come up.
+        walker.tap(onReset)
+        XCTAssertTrue(yes.waitForExistence(timeout: 5), "Yes should appear with \"reset to defaults?\"")
+        XCTAssertTrue(no.exists, "No should appear with \"reset to defaults?\"")
+        attach(XCUIScreen.main.screenshot(), "reset-to-defaults-asked")
+
+        // A touch on the screen is not an answer.
+        Thread.sleep(forTimeInterval: 1) // the HUD's next refresh
+        let dropped = try XCTUnwrap(walker.hudNumber("md"))
+        walker.tap(emptySpace)
+        Thread.sleep(forTimeInterval: 1.5)
+        XCTAssertEqual(value(), changed, "a touch on empty space must not reset the screen")
+        XCTAssertEqual(walker.hudNumber("md"), dropped + 1, "the press should be counted as dropped")
+        XCTAssertTrue(yes.exists && no.exists, "the question must survive the touch")
+        // Nor is a touch on the reset button itself, or on a row.
+        walker.tap(onReset)
+        walker.tap(onRow)
+        Thread.sleep(forTimeInterval: 1.5)
+        XCTAssertEqual(value(), changed, "a touch on the reset button or a row must not answer either")
+        XCTAssertTrue(yes.exists && no.exists, "the question must survive those touches too")
+
+        // No: nothing is reset, and the screen is still the setup screen.
+        no.tap()
+        XCTAssertTrue(walker.wait(5) { !no.exists && !yes.exists ? true : nil } != nil, "No should end the question")
+        XCTAssertEqual(value(), changed, "No must leave the setting as it was")
+        XCTAssertEqual(app.setupProbeState()?.selecting, false, "nothing should be left selected after No")
+
+        // Yes: the screen goes back to its defaults.
+        walker.tap(onReset)
+        XCTAssertTrue(yes.waitForExistence(timeout: 5), "Yes should appear the second time")
+        yes.tap()
+        XCTAssertTrue(waitForValue(original), "Yes should reset the setting: \(String(describing: value()))")
+        XCTAssertTrue(walker.wait(5) { !no.exists && !yes.exists ? true : nil } != nil, "Yes should end the question")
+
+        XCTAssertTrue(walker.closeMenus(), "≡ should close the menu")
+        releaseAutoquit()
+        XCTAssertTrue(app.staticTexts["engineExitLabel"].waitForExistence(timeout: 60),
+                      "engine never returned to the launcher")
+        _ = hud
+    }
+
     /// Two launches, ending in a session with Options > Enemies up and USE
     /// moved so that its circle lies across the end of what the last on/off
     /// row draws (Randomly Mirrored Corpses, a cosmetic setting with no side

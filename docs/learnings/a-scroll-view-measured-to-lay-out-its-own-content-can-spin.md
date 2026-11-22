@@ -56,8 +56,13 @@ view's own by construction, and the traced measurement is 669.0 from the
 first frame.
 
 Anything that measures a container and feeds the result to that container's
-content has this shape. `GamePageView` measures itself the same way
-(`artContentWidth`) and was not examined.
+content has this shape. `GamePageView` measures itself the same way and was
+examined for issue #450: its form cannot be widened, its hero row could, and
+did. See `a-row-measured-off-its-own-frame-measures-its-content.md`.
+
+`ShelfContainerWidthTests` hosts the real `ShelfView` in a window too narrow
+for its content and fails when the modifier is deleted or moved off the
+scroll content, so the guard no longer rests on a hand launch.
 
 ## A custom `Layout` cut the path too, and CI's picture tests failed with it
 

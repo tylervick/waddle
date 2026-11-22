@@ -55,7 +55,8 @@ Measured 2026-11-21, every row of every tab of the seven screens (22 tabs,
 
 ## Found on the way
 
-After the reset button, a touch anywhere answers "reset to defaults?" yes:
-`default_verify` is not in `MN_MenuMessageShowing`. Issue 447.
+After the reset button, a touch anywhere answered "reset to defaults?" yes:
+`default_verify` was not in `MN_MenuMessageShowing`. Issue 447, fixed since;
+`menu-click-answers-prompt-yes.md` has it.
 
 **Provenance:** issue 440, 2026-11-21.

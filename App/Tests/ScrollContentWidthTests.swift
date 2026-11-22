@@ -16,9 +16,16 @@ import XCTest
 /// This is the loop itself in miniature, not the shelf: a scroll view,
 /// measured the way the shelf measures its own, around content that always
 /// reports a sixth of a point wider than the last measurement. It cannot say
-/// that `ShelfView` still applies the modifier, or that no other path feeds
+/// that `ShelfView` still applies the modifier: `ShelfContainerWidthTests`
+/// hosts the real shelf for that. Nor can it say that no other path feeds
 /// the measurement; the launch scan in the learning is the check of the real
 /// screen, and needs a Duo opened in Device Hub.
+///
+/// The second half is the same question asked of `GamePageView`, which
+/// measures a `Form` and a row inside it (issue #450). A form is not widened
+/// by its content. A row is, and `onOfferedWidthChange` is what the page
+/// measures its hero row with instead; `GamePageMeasurementTests` hosts the
+/// real page.
 @MainActor
 final class ScrollContentWidthTests: XCTestCase {
     /// The open iPhone Duo turned tall, where the hang was.
@@ -97,5 +104,121 @@ final class ScrollContentWidthTests: XCTestCase {
             XCTAssertEqual(width, Self.window.width, accuracy: 0.0001, "measured \(widths)")
         }
         XCTAssertEqual(widths.count, 1, "the measurement changed after it was first taken: \(widths)")
+    }
+
+    // MARK: A form, and a row in it (issue #450)
+
+    private final class FormRecord {
+        var form: [CGFloat] = []
+        var row: [CGFloat] = []
+    }
+
+    /// A form measured as `GamePageView` measures its own, holding a row
+    /// shaped like the page's hero row: zero insets, and a
+    /// `frame(maxWidth: .infinity)` round content that reports `excess` more
+    /// than the last width measured.
+    private struct FormLoop: View {
+        enum Feed {
+            /// The content follows the form's width.
+            case form
+            /// The content follows the row's width, read off the row's frame.
+            case rowFrame
+            /// The content follows the row's width, read as the page reads it.
+            case rowOffer
+        }
+
+        let feed: Feed
+        let record: FormRecord
+        @State private var measured: CGFloat = 0
+
+        var body: some View {
+            Form {
+                Section {
+                    row.listRowInsets(EdgeInsets())
+                }
+                Section { Text("The row below the hero") }
+            }
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                record.form.append(width)
+                if feed == .form { follow(width, count: record.form.count) }
+            }
+        }
+
+        @ViewBuilder private var row: some View {
+            let framed = Color.clear
+                .frame(width: measured > 0 ? measured + ScrollContentWidthTests.excess : nil, height: 100)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if feed == .rowOffer {
+                framed.onOfferedWidthChange { width in
+                    record.row.append(width)
+                    follow(width, count: record.row.count)
+                }
+            } else {
+                framed.onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.width
+                } action: { width in
+                    record.row.append(width)
+                    if feed == .rowFrame { follow(width, count: record.row.count) }
+                }
+            }
+        }
+
+        private func follow(_ width: CGFloat, count: Int) {
+            if count < ScrollContentWidthTests.steps { measured = width }
+        }
+    }
+
+    private func formWidthsMeasured(feed: FormLoop.Feed) -> FormRecord {
+        let record = FormRecord()
+        let window = UIWindow(frame: CGRect(origin: .zero, size: Self.window))
+        window.rootViewController = UIHostingController(rootView: FormLoop(feed: feed, record: record)
+            .ignoresSafeArea())
+        window.isHidden = false
+        for _ in 0..<(Self.steps * 2) {
+            window.layoutIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        window.isHidden = true
+        window.rootViewController = nil
+        return record
+    }
+
+    /// A form is not a scroll view in this: a row that reports wider than
+    /// the form does not widen the form, so `GamePageView`'s measurement of
+    /// its form cannot feed itself. The row did report over, or this would
+    /// be showing nothing.
+    func testAFormIsNotWidenedByARowThatReportsWiderThanIt() {
+        let record = formWidthsMeasured(feed: .form)
+        XCTAssertEqual(record.form.count, 1, "the form's measurement changed after it was first taken: \(record.form)")
+        for width in record.form {
+            XCTAssertEqual(width, Self.window.width, accuracy: 0.0001, "measured \(record.form)")
+        }
+        XCTAssertGreaterThan(record.row.max() ?? 0, Self.window.width + Self.excess / 2,
+                             "the row never reported wider than the form: \(record.row)")
+    }
+
+    /// The discrimination for the row: read off its own frame, a row is as
+    /// wide as content that reports over, and the measurement walks away.
+    /// This is what `GamePageView`'s hero row did, and if it ever stops
+    /// being true the test below is no longer testing anything.
+    func testARowMeasuredOffItsFrameIsWidenedByItsContent() {
+        let widths = formWidthsMeasured(feed: .rowFrame).row
+        XCTAssertGreaterThan(widths.count, 2, "the row was measured \(widths)")
+        XCTAssertGreaterThan((widths.max() ?? 0) - (widths.first ?? 0), Self.excess * 2,
+                             "content wider than offered no longer widens a row's frame: \(widths)")
+    }
+
+    /// Read as the offer, the row's width is taken once, whatever its
+    /// content reports.
+    func testARowsOfferedWidthIsNotChangedByItsContent() {
+        let record = formWidthsMeasured(feed: .rowOffer)
+        XCTAssertEqual(record.row.count, 1, "the row's measurement changed after it was first taken: \(record.row)")
+        XCTAssertEqual(record.form.count, 1, "the form's measurement changed: \(record.form)")
+        if let row = record.row.first, let form = record.form.first {
+            XCTAssertGreaterThan(row, 0)
+            XCTAssertLessThanOrEqual(row, form, "a row was offered more than its form: \(row) in \(form)")
+        }
     }
 }
