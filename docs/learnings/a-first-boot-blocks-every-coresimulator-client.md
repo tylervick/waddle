@@ -48,7 +48,10 @@ cancelled jobs were cancelled 7.7 to 11.2 minutes into the iPhone step
 - **One simulator per runner.** `ci.yml`'s unit-test legs are a matrix now,
   one job per device, and nothing boots a simulator ahead of `xcodebuild`.
   The table above is why that is faster even though each leg compiles for
-  itself.
+  itself: in that layout's first three runs (44973823949, 44975173011,
+  44975944420) every leg's `xcodebuild` printed its first line within a
+  second of starting and built in 0.7 to 2.6 minutes, and a leg took 5.1 to
+  9.0 minutes from start to finish.
 - If a simulator must be booted ahead of time (as `ui-tests.yml` does, to
   wait out the wallpaper renders), boot it and **wait for it** before
   starting anything that talks to CoreSimulator. Booting it and carrying on
