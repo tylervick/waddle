@@ -131,6 +131,10 @@ overlay to remain visible even when input devices are connected.
       open Save Game and touch the right-hand end of the two lowest slots,
       on USE and on FIRE: the keyboard comes up for that slot each time and
       the list stays up. ≡ still leaves the entry and then the menu
+- [ ] Reset to defaults asks properly (issue #447): on Options > Enemies
+      change a setting, touch the reset button in the bottom corner, then
+      touch anywhere on the screen: nothing changes and Yes and No are
+      showing. No keeps the setting; reset again and Yes puts it back
 - [ ] Setup rows under the buttons (issue #440): on a closed iPhone Duo in
       landscape, Options > General: drag the Gamma Correction slider from
       its right-hand end, which is under USE, and the slider follows; touch
