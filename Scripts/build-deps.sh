@@ -1,21 +1,38 @@
 #!/bin/bash
 # Builds SDL3 and OpenAL Soft as static libs for iOS device + simulator.
 set -euo pipefail
+# The pins. Renovate opens a pull request when one falls behind: the
+# `# renovate:` line above each pin is read by the custom regex manager in
+# renovate.json and must stay DIRECTLY above its pin, in this exact shape, or
+# that pin silently stops being watched (Scripts/check-deps-current.sh still
+# reports it weekly). Those pull requests are never automerged -- every one
+# of these libraries is linked into the shipped binary. A bump is this one
+# line plus whatever the cold CI build then demands; nothing else records the
+# version (the engine fingerprint and both CI cache keys hash this file). See
+# "Renovate pull requests for the native pins" in Engine/WOOF_UPSTREAM.md.
+# renovate: datasource=github-releases depName=libsdl-org/SDL versioning=regex:^release-(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$
 SDL_TAG="release-3.4.18"
+# renovate: datasource=github-releases depName=kcat/openal-soft versioning=semver
 OPENAL_TAG="1.25.2"
+# renovate: datasource=github-tags depName=pedrolcl/sonivox versioning=semver
 SONIVOX_TAG="v4.0.2"
 # Streamed music (#196). libsndfile needs Ogg and Vorbis as EXTERNAL libraries
 # for OGG support -- it vendors neither -- so this is three pins, not one.
 # Build order below is load-bearing: vorbis needs ogg, sndfile needs both.
+# renovate: datasource=github-releases depName=xiph/ogg versioning=semver
 LIBOGG_TAG="v1.3.6"
+# renovate: datasource=github-tags depName=xiph/vorbis versioning=semver
 LIBVORBIS_TAG="v1.3.7"
+# renovate: datasource=github-releases depName=libsndfile/libsndfile versioning=semver
 LIBSNDFILE_TAG="1.2.2"
 # libsndfile treats its external codecs as a SET: HAVE_EXTERNAL_XIPH_LIBS is
 # one flag gating Ogg, Vorbis, FLAC and Opus together, with no per-codec
 # option. Wanting OGG therefore costs FLAC and Opus too -- configure fails at
 # target_link_libraries without them. All four are BSD-3-Clause; libsndfile
 # itself is LGPL-2.1, conveyed under the GPL exactly as OpenAL Soft already is.
+# renovate: datasource=github-releases depName=xiph/flac versioning=semver
 LIBFLAC_TAG="1.5.0"
+# renovate: datasource=github-tags depName=xiph/opus versioning=regex:^v(?<major>\d+)\.(?<minor>\d+)(?:\.(?<patch>\d+))?$
 LIBOPUS_TAG="v1.6.1"
 IOS_DEPLOYMENT_TARGET="26.0"
 

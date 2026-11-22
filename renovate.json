@@ -1,20 +1,60 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
-    "Three built-in managers do the work here, no custom regex needed:",
+    "Three built-in managers do most of the work here:",
     "  github-actions -- the four action refs across .github/workflows/*.yml",
     "                    and .github/actions/setup-waddle-build/action.yml",
     "  mise           -- cmake, ninja and xcodegen in mise.toml",
     "  xcodegen       -- ZIPFoundation, pinned in App/project.yml",
     "",
-    "SDL_TAG / OPENAL_TAG / FREEDOOM_VERSION and the other pins in",
-    "Scripts/*.sh are NOT covered; picking them up needs custom regex",
-    "managers and is a deliberate later step, not an oversight.",
-    "Scripts/check-deps-current.sh reports how far each of them (and the",
-    "libraries vendored inside Engine/woof/third-party) is behind upstream.",
-    "WOOF_COMMIT in Scripts/vendor-woof.sh must stay manual regardless:",
-    "Engine/woof is a committed tree, so bumping the SHA without re-running",
-    "the script leaves the two silently disagreeing.",
+    "A fourth, custom regex manager (customManagers below) watches the native",
+    "pins in shell scripts, which no built-in manager can read:",
+    "  Scripts/build-deps.sh     -- SDL_TAG, OPENAL_TAG, SONIVOX_TAG, LIBOGG_TAG,",
+    "                               LIBVORBIS_TAG, LIBSNDFILE_TAG, LIBFLAC_TAG,",
+    "                               LIBOPUS_TAG",
+    "  Scripts/fetch-freedoom.sh -- FREEDOOM_VERSION",
+    "Each pin carries a `# renovate: datasource=... depName=... versioning=...`",
+    "comment on the line directly above it, and the one regex reads both lines.",
+    "The datasource is per pin because the upstreams differ: github-releases",
+    "where the releases page is complete, github-tags for sonivox (publishes no",
+    "releases), vorbis (one release, the rest are tags) and opus (releases stop",
+    "at v1.5.2 while the pin is the v1.6.1 tag). SDL and opus use regex",
+    "versioning because `release-3.4.18` and two-part `v1.6` are not semver;",
+    "anything that does not match (SDL's prerelease tags, OpenAL Soft's rolling",
+    "`latest` and `utils` releases) is invalid and ignored.",
+    "",
+    "Those updates are NEVER automerged, majors or not. Unlike the tools above,",
+    "they are linked into the shipped binary (or, for Freedoom, are the game",
+    "data in the bundle), and a green CI run does not show what a new SDL does",
+    "on a device. They open one pull request per library, labelled",
+    "`ships-in-binary`, with a `build(deps):` subject, after the same three-day",
+    "minimum release age, and wait for CI, the independent review and the",
+    "owner's merge. Merging one ships a TestFlight build. What a bump needs",
+    "besides the one line is in Engine/WOOF_UPSTREAM.md, 'Renovate pull",
+    "requests for the native pins'; each pull request body links there.",
+    "",
+    "Deliberately NOT watched, and why:",
+    "  WOOF_COMMIT in Scripts/vendor-woof.sh -- must stay manual. Engine/woof",
+    "    is a committed tree carrying the iOS patch set, so bumping the SHA",
+    "    without re-running the script leaves the two silently disagreeing,",
+    "    and running it wipes the patch set; the move is the three-way merge",
+    "    in Engine/WOOF_UPSTREAM.md. Upstream also has no SDL3 release tag to",
+    "    follow, only master.",
+    "  Engine/woof/third-party (miniz, spng, yyjson, libebur128, ...) -- part",
+    "    of that committed tree, so they move only with the Woof pin;",
+    "    ignorePaths below keeps every manager out of Engine/woof.",
+    "  Nothing else was left out for want of a release stream: every other",
+    "    pin's upstream publishes tags Renovate can read.",
+    "Scripts/check-deps-current.sh stays the weekly report for those two",
+    "groups, and still lists the watched pins as well, so a pin Renovate has",
+    "quietly stopped matching does not go unseen.",
+    "",
+    "postUpgradeTasks is not an option for a bump that needs a second edit:",
+    "the hosted app blocks commands. None of these pins needs one by default",
+    "(no committed checksum, fingerprint or cache key), and where a bump does",
+    "need more -- an SDL patch that no longer applies, a changed SONiVOX",
+    "instrument bank -- the cold CI build fails with the instruction, and a",
+    "person or agent pushes the fix to Renovate's branch.",
     "",
     "config:best-practices enables digest pinning, so the first run opens a",
     "'Pin dependencies' PR that SHA-pins every action with a trailing",
@@ -41,6 +81,23 @@
   "platformAutomerge": false,
   "ignorePaths": [
     "Engine/woof/**"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": [
+        "The native pins. Reads a `# renovate:` comment and the pin on the",
+        "line directly below it; extractVersion is optional and only",
+        "Freedoom uses it (the pin is 0.13.0, the tag v0.13.0)."
+      ],
+      "managerFilePatterns": [
+        "/^Scripts/build-deps\\.sh$/",
+        "/^Scripts/fetch-freedoom\\.sh$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+) versioning=(?<versioning>\\S+)(?: extractVersion=(?<extractVersion>\\S+))?\\n[A-Z_]+_(?:TAG|VERSION)=\"(?<currentValue>[^\"\\n]+)\""
+      ]
+    }
   ],
   "packageRules": [
     {
@@ -80,6 +137,61 @@
       "matchUpdateTypes": ["minor", "patch", "pin", "digest", "pinDigest", "lockFileMaintenance"],
       "automerge": true,
       "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": [
+        "The native pins never merge themselves. This rule comes AFTER the",
+        "automerge rule on purpose: later rules win, so it turns automerge back",
+        "off for minor and patch releases of everything the custom manager",
+        "extracts, and applies the three-day age to majors too. One pull",
+        "request per library (no groupName): each is a separate thing to test",
+        "on a device, and a grouped pull request cannot say which one broke."
+      ],
+      "matchManagers": ["custom.regex"],
+      "automerge": false,
+      "minimumReleaseAge": "3 days",
+      "addLabels": ["ships-in-binary"],
+      "semanticCommitType": "build",
+      "prBodyNotes": [
+        "**This changes what ships.** It is not automerged: it needs CI, an independent review and the owner's merge, and merging it ships a TestFlight build. CI builds every dependency cold for this pull request, so a failure in `Scripts/build-deps.sh` or a `Scripts/check-*.sh` guard is the bump asking for a second edit, and its message says which. See [Renovate pull requests for the native pins](https://github.com/tylervick/waddle/blob/main/Engine/WOOF_UPSTREAM.md#renovate-pull-requests-for-the-native-pins)."
+      ]
+    },
+    {
+      "description": [
+        "SDL: stable releases only. SDL gives a development series an odd",
+        "minor (3.1.x, 3.3.x) under preview-/prerelease- tags, which the",
+        "versioning regex already rejects; this says so in the config as",
+        "well, in case one is ever tagged release-. The note below is added",
+        "to the general one above (prBodyNotes merges across rules)."
+      ],
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["libsdl-org/SDL"],
+      "allowedVersions": "/^release-\\d+\\.\\d*[02468]\\.\\d+$/",
+      "prBodyNotes": [
+        "SDL carries local patches in `Scripts/patches/SDL/`. If the build stops with `applies neither forward nor in reverse`, read the patch's header for the upstream commit it backports: delete the patch if this release contains that commit, otherwise re-base it, and push that to this branch."
+      ]
+    },
+    {
+      "description": [
+        "SONiVOX: the instrument bank is what players hear, and",
+        "Scripts/check-eas-bank.sh refuses a release that changed it."
+      ],
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["pedrolcl/sonivox"],
+      "prBodyNotes": [
+        "If `Scripts/check-eas-bank.sh` fails with `instrument bank changed`, this release altered the wavetable bank. That is a decision about how the music sounds, not a hash to refresh: listen on a device first, and only then regenerate the recorded hashes with `Scripts/check-eas-bank.sh --print`."
+      ]
+    },
+    {
+      "description": [
+        "Freedoom: new game data, so levels, and with them saves and demos",
+        "made on the old release, can change."
+      ],
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["freedoom/freedoom"],
+      "prBodyNotes": [
+        "A Freedoom release changes maps, so saves and demos recorded on the previous one may not load, and `App/UITests/Fixtures/` is derived from the old release (its README names the version). Whether players' existing Freedoom saves survive is the owner's call, not CI's."
+      ]
     }
   ]
 }

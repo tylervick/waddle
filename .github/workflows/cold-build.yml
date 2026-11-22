@@ -82,11 +82,12 @@ jobs:
             echo "$p $(wc -c < "$p") bytes"
           done
 
-      # Issue #79's cadence. Renovate covers none of the native pins (Woof,
-      # SDL, OpenAL Soft, SONiVOX, the libsndfile stack, Freedoom, and the
-      # libraries Woof vendors), so they are looked at once a week, here,
-      # because this is the job that already rebuilds every one of them from
-      # source. The script reports; it does not gate -- a pin a month behind is
+      # Issue #79's cadence. Renovate opens pull requests for the tagged pins
+      # (SDL, OpenAL Soft, SONiVOX, the libsndfile stack, Freedoom) but not
+      # for Woof or the libraries Woof vendors, and it goes quiet rather than
+      # red if its regex stops matching a pin. So every native pin is still
+      # looked at once a week, here, because this is the job that already
+      # rebuilds every one of them from source. The script reports; it does not gate -- a pin a month behind is
       # not a broken build -- but a pin it cannot determine fails the step, so a
       # query that quietly stopped working is never read as "current".
       # Engine/WOOF_UPSTREAM.md says how each pin moves and when to look sooner.
