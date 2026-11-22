@@ -1,6 +1,38 @@
 import SwiftUI
 import UIKit
 
+/// What `GamePageView` has measured of itself, and lays its hero out from.
+///
+/// A view that measures itself to lay itself out can feed its own
+/// measurement (`docs/learnings/a-scroll-view-measured-to-lay-out-its-own-content-can-spin.md`),
+/// and nothing outside the page can see its state. `GamePageMeasurementTests`
+/// reads these through `gamePageMeasurementsReport` to check that none of
+/// them moves once it is taken.
+struct GamePageMeasurements: Hashable {
+    /// The form's width less its row insets; zero until measured.
+    var artContentWidth: CGFloat
+    /// The form's height; zero until measured.
+    var viewportHeight: CGFloat
+    /// The widest unbreakable thing in the caption; nil until measured.
+    var captionWordWidth: CGFloat?
+    /// The width the hero row is offered; zero until measured.
+    var heroRowWidth: CGFloat
+
+    /// The arrangement the page draws from these.
+    var arrangement: PlayableDetailLayout.HeroArrangement {
+        PlayableDetailLayout.arrangement(contentWidth: artContentWidth,
+                                         viewportHeight: viewportHeight,
+                                         minimumCaptionWidth: captionWordWidth ?? .infinity,
+                                         rowWidth: heroRowWidth)
+    }
+}
+
+extension EnvironmentValues {
+    /// Called with each new set of measurements a `GamePageView` takes.
+    /// Tests set it; the app never does.
+    @Entry var gamePageMeasurementsReport: ((GamePageMeasurements) -> Void)?
+}
+
 /// One page for every tile (spec §3.2): art and Play, then what the game loads,
 /// its settings, its saves, and Duplicate / Delete or Hide. Every edit applies
 /// in place through `LibraryService`; the one staged edit is a base or file
@@ -52,6 +84,14 @@ struct GamePageView: View {
     /// The hero row's measured width; zero until measured.
     @State private var heroRowWidth: CGFloat = 0
 
+    /// Where a test reads what the page measured; nil in the app.
+    @Environment(\.gamePageMeasurementsReport) private var measurementsReport
+
+    private var measurements: GamePageMeasurements {
+        GamePageMeasurements(artContentWidth: artContentWidth, viewportHeight: viewportHeight,
+                             captionWordWidth: captionWordWidth, heroRowWidth: heroRowWidth)
+    }
+
     private var continuableSlot: Int? { EngineSaveSlot.newestLoadGameArgument(in: saves) }
 
     var body: some View {
@@ -76,6 +116,9 @@ struct GamePageView: View {
         } action: { size in
             artContentWidth = size.width
             viewportHeight = size.height
+        }
+        .onChange(of: measurements, initial: true) { _, measured in
+            measurementsReport?(measured)
         }
         .scrollContentBackground(.hidden)
         // The backdrop stands in for `waddleScrollSurface`'s flat background:
@@ -207,10 +250,7 @@ struct GamePageView: View {
     private var headerSection: some View {
         Section {
             Group {
-                switch PlayableDetailLayout.arrangement(contentWidth: artContentWidth,
-                                                        viewportHeight: viewportHeight,
-                                                        minimumCaptionWidth: captionWordWidth ?? .infinity,
-                                                        rowWidth: heroRowWidth) {
+                switch measurements.arrangement {
                 case .stacked:
                     VStack(alignment: .leading, spacing: PlayableDetailLayout.captionSpacing) {
                         heroArt(height: PlayableDetailLayout.artHeight(
@@ -239,14 +279,19 @@ struct GamePageView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            // The row's own width, which is what the caption really has to
-            // fit in. It is not always the form's width less the insets the
-            // art is sized from: on a closed iPhone Duo held sideways the row
-            // is about 11 pt wider than that, and the caption fitted in the
+            // The row's width, which is what the caption really has to fit
+            // in. It is not always the form's width less the insets the art
+            // is sized from: on a closed iPhone Duo held sideways the row is
+            // about 11 pt wider than that, and the caption fitted in the
             // difference.
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.width
-            } action: { width in
+            //
+            // The width the row is *offered*, not the one it reports. The
+            // frame above is as wide as its content when the content reports
+            // over, and the content is what this measurement arranges: read
+            // off the frame, the stacked row came back a quarter of a point
+            // wider than the side-by-side one, and the page changed
+            // arrangement on every layout pass (issue #450).
+            .onOfferedWidthChange { width in
                 heroRowWidth = width
             }
             .background(alignment: .topLeading) { captionProbe }
