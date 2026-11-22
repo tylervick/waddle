@@ -903,12 +903,19 @@ final class TouchOverlayView: UIView {
     /// under a weapon button turned the tab.
     /// `MenuTouchRouter.buttonYieldsToDrawnItem` says which buttons stand
     /// down; ≡ never does.
+    ///
+    /// The same route keeps the buttons from pressing while a key-binding
+    /// row is waiting for its input (issue #462): the engine would bind the
+    /// button to the row. Asked here, at the touch, and not from the 0.25 s
+    /// poll, because the press that must not happen can come sooner than
+    /// that after the tap that started the wait.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hit = super.hitTest(point, with: event)
         guard let button = hit as? OverlayButton,
               let id = button.accessibilityIdentifier,
               let control = TouchOverlayControl(rawValue: id),
               menuRouter.buttonYieldsToDrawnItem(control, onDrawnItem: gamepad.isDrawnMenuItem(at: point))
+                || menuRouter.buttonStandsDownWhileBinding(control, bindingPending: gamepad.isBindingPending)
         else { return hit }
         return self
     }
@@ -947,6 +954,7 @@ final class TouchOverlayView: UIView {
             switch menuRouter.began(menuActive: menuUp, trackRoute: route,
                                     nearButton: nearButton,
                                     onDrawnItem: menuUp && gamepad.isDrawnMenuItem(at: point),
+                                    bindingPending: menuUp && gamepad.isBindingPending,
                                     pointerOwned: menuTouch != nil) {
             case .pointer:
                 // Position first, then the press: the engine checks a press
@@ -1015,6 +1023,10 @@ final class TouchOverlayView: UIView {
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         if keyboardActive { return }
+        // A stick that was already held when a key-binding row began to
+        // wait: moving it now would be bound to the row as a pad direction
+        // (issue #462). It stays where it is until the finger lifts.
+        if gamepad.isBindingPending { return }
         if weaponSelectorOpen {
             // Opening released every track, and no new one starts while the
             // selector is up, so there is nothing below for these touches to move.

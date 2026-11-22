@@ -42,9 +42,37 @@ save from another version) is `messageToPrint` and was always covered;
 `delete_verify` and `default_verify` are separate flags with separate
 responders. The other things a selected setup item does with a stray press
 were read on 2026-11-22 and left alone: a number being typed is committed as
-typed, a choice being changed is committed as shown, and a key binding takes
-the press as the mouse button to bind, which is upstream's design for a
-mouse and was not tried by touch.
+typed, and a choice being changed is committed as shown.
 
-**Provenance:** touch-enabled-menus branch, 2026-10-05; issue 447,
+## The fourth: a key binding waits for *anything*, and the overlay is two devices
+
+A touched row of a Key Bindings screen waits for the input to bind, and
+`BindInput` gives it whatever arrives next and takes it from the action of
+the same group that had it. Tried by touch on 2026-11-22 (issue 462), with
+the Run row waiting:
+
+| The next touch | What the engine saw | Result |
+|---|---|---|
+| empty space | the left mouse button | MOUSE1 moved from Fire to Run |
+| the on-screen USE | a pad button | USE moved from Use to Run: the on-screen USE stopped using |
+| the on-screen FIRE | the pad's trigger | FIRE stopped firing |
+| a weapon button | a pad shoulder | bound to Run |
+| ≡ | `MENU_ESCAPE` | cancelled; `ChangeEntry` takes it before `BindInput` runs |
+
+The overlay reaches the engine as a mouse (touches) *and* as a gamepad (its
+buttons and stick), so a gate on pointer presses alone covers one row of that
+table. `MN_BindingPending` / `WoofIOS_IsBindingPending` is the seam, and the
+overlay sends nothing while it is true but ≡: the buttons stand down in
+`hitTest`, a touch is never the stick, a held stick stops moving, and
+`WoofIOS_InjectMenuTap` drops the press. It is not in
+`MN_MenuMessageShowing`, which would put Yes and No on screen for something
+that is not a question. `SetupScreenOverlapTests.
+testNothingFromTheOverlayIsBoundWhileAKeyBindingRowWaits` is the check; it
+reads the rows' drawn widths, since a binding has no value to read.
+
+Real hardware is not in that path. With a keyboard or controller attached
+the overlay is hidden and SDL feeds the engine directly, so a key, a pad
+button or a mouse button binds as upstream intends.
+
+**Provenance:** touch-enabled-menus branch, 2026-10-05; issues 447 and 462,
 2026-11-22.
