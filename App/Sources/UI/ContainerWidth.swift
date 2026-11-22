@@ -1,34 +1,51 @@
 import SwiftUI
 
-extension View {
-    /// Makes scroll content report its container's width, whatever the
-    /// content itself measures.
-    ///
-    /// A vertical `ScrollView` is as wide as its content when the content
-    /// reports wider than it was offered, and a `Text` can do that by a
-    /// fraction of a point: offered 312.5 pt, a wrapping line that fills it
-    /// was measured reporting 312.667. `ShelfView` measures its scroll view
-    /// to size the hero's art, so that sixth of a point went round: a wider
-    /// scroll view, wider art, a different line break, a different width,
-    /// and the first frame was never drawn (issue #437: a white screen at
-    /// full CPU on an open iPhone Duo turned tall, at the largest text size).
-    ///
-    /// Held to the container, the content's width is the scroll view's own
-    /// by construction, so nothing the content measures can reach the
-    /// measurement. The content is still laid out in that width and may draw
-    /// a hair outside it; only what it *reports* is fixed.
-    ///
-    /// A custom `Layout` that reported its proposal did the same job and was
-    /// tried first. With it round the shelf's content, CI's unit tests failed
-    /// five runs in five: see
-    /// `docs/learnings/a-scroll-view-measured-to-lay-out-its-own-content-can-spin.md`.
-    ///
-    /// `ScrollContentWidthTests` is the check of the modifier, and
-    /// `ShelfContainerWidthTests` of its place on the real shelf.
-    func reportingContainerWidth() -> some View {
-        containerRelativeFrame(.horizontal, alignment: .leading)
-    }
+/// A vertical scroll view whose content is laid out at, and reports, the
+/// width the scroll view is *offered*, whatever the content itself measures.
+///
+/// A vertical `ScrollView` is as wide as its content when the content
+/// reports wider than it was offered, and a `Text` can do that by a fraction
+/// of a point: offered 312.5 pt, a wrapping line that fills it was measured
+/// reporting 312.667. `ShelfView` measures its scroll view to size the
+/// hero's art, so that sixth of a point went round: a wider scroll view,
+/// wider art, a different line break, a different width, and the first
+/// frame was never drawn (issue #437: a white screen at full CPU on an open
+/// iPhone Duo turned tall, at the largest text size).
+///
+/// The width comes from a `GeometryReader` round the scroll view, which is
+/// as wide as it is offered and nothing inside it can change. The content is
+/// still laid out in that width and may draw a hair outside it; only what it
+/// *reports* is fixed.
+///
+/// `containerRelativeFrame(.horizontal)` on the content did this job before
+/// and was not enough (issue #469). Its container is the scroll view, and
+/// the scroll view is as wide as that content: once wide, the pair held each
+/// other wide when the offer shrank. When the Settings or game panel's column
+/// opened beside the shelf on an open iPhone Duo held wide, the scroll view
+/// stayed 951, 763, 669 or 587 pt wide in a 491 pt column, depending on the
+/// order of the layout passes the column's arrival made, and was centred in
+/// it: cut at the left on every launch, differently from launch to launch.
+///
+/// A custom `Layout` that reported its proposal round the content was tried
+/// for #437 first. With it round the shelf's content, CI's unit tests failed
+/// five runs in five: see
+/// `docs/learnings/a-scroll-view-measured-to-lay-out-its-own-content-can-spin.md`.
+///
+/// `ScrollContentWidthTests` is the check of this view, and
+/// `ShelfContainerWidthTests` of its place on the real shelf.
+struct OfferedWidthScrollView<Content: View>: View {
+    @ViewBuilder let content: Content
 
+    var body: some View {
+        GeometryReader { viewport in
+            ScrollView {
+                content.frame(width: viewport.size.width, alignment: .leading)
+            }
+        }
+    }
+}
+
+extension View {
     /// Reports the width this view is *offered*, which nothing inside it can
     /// change, instead of the width it ends up with.
     ///
