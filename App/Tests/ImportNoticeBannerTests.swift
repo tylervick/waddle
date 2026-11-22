@@ -79,13 +79,13 @@ final class ImportNoticeBannerTests: XCTestCase {
             let took = clock.now - began
             if took < Self.longestWholeDrawing {
                 if discarded > 0 {
-                    print("ImportNoticeBannerTests: \(discarded) unfinished drawing(s) of the banner at \(label) "
+                    NSLog("ImportNoticeBannerTests: %@", "\(discarded) unfinished drawing(s) of the banner at \(label) "
                           + "thrown away over \(clock.now - started) before one finished in \(took)")
                 }
                 return try XCTUnwrap(image, "the banner did not draw at \(label)")
             }
             discarded += 1
-            print("ImportNoticeBannerTests: a drawing of the banner at \(label) took \(took); drawing it again")
+            NSLog("ImportNoticeBannerTests: %@", "a drawing of the banner at \(label) took \(took); drawing it again")
             guard clock.now - started < Self.redrawBudget else {
                 throw RendererNeverFinished(description: "the renderer took \(Self.longestWholeDrawing) or longer "
                     + "on each of \(discarded) drawings of the banner at \(label) over \(clock.now - started)")
