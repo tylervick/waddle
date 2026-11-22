@@ -199,8 +199,8 @@ commit_path() { # path, message
 
 # 13. Builds ship on merge now, so a merge that changes nothing a tester could
 #     notice must not spend a macOS runner or send a notification. Docs, the
-#     test suites, the UI tests, the CI guards, the workflows themselves and
-#     the root prose are each named out in NON_BINARY_PATHS; one commit to
+#     test suites, the UI tests, the CI guards, this gate script, the
+#     workflows themselves and the root prose are each named out in NON_BINARY_PATHS; one commit to
 #     each, and the answer is still no.
 make_repo non-binary-only
 git tag build-201
@@ -209,6 +209,9 @@ commit_path App/Tests/XTests.swift "test: a unit test"
 commit_path App/UITests/XUITests.swift "test(ui): a ui test"
 commit_path Scripts/test-x.sh "test: a suite"
 commit_path Scripts/check-x.sh "ci: a guard"
+# The gate script itself. The text appended is a comment, because this file
+# is the script under test and is about to be run.
+commit_path Scripts/release-due.sh "# ci: the gate itself"
 commit_path Scripts/fixtures/x.txt "test: a fixture"
 commit_path .github/workflows/x.yml "ci: a workflow"
 commit_path .revyl/config.yaml "ci: the Revyl config"
@@ -270,5 +273,87 @@ commit_path App/Sources/README.md "docs: a nested readme"
 run
 [ "$RUN_OUT" = "no" ] || fail "16: a nested README.md said '$RUN_OUT', want no -- *.md matches at any depth"
 pass "the exclusion patterns match where intended and nowhere else"
+
+# 17. The re-run of an old run (review of pull request 448). Commit A's run
+#     lost a test job, so nothing shipped from it; B merged and shipped
+#     build-307. Re-running A's failed job re-runs its release, at A. By
+#     ancestry alone build-307 is invisible from A, the nearest tag is
+#     build-306, A changed a source file, and the old answer was `yes`:
+#     A archived and uploaded as build 308, an older tree than 307.
+make_repo rerun-of-an-old-run
+git tag build-306
+mkdir -p App/Sources; echo a > App/Sources/a.swift; git add -A; git commit -qm "A: source"
+A="$(git rev-parse HEAD)"
+echo b > App/Sources/b.swift; git add -A; git commit -qm "B: source"
+git tag build-307
+git checkout -q "$A"
+run
+[ "$RUN_STATUS" -eq 0 ] || fail "17: exited $RUN_STATUS: $RUN_ERR"
+[ "$RUN_OUT" = "no" ] || fail "17: an older commit than build-307 said '$RUN_OUT'; it would ship as build 308"
+case "$RUN_ERR" in *"behind build-307"*) ;; *) fail "17: stderr does not say which build HEAD is behind: $RUN_ERR" ;; esac
+pass "a commit behind the newest shipped build is no, and says which build"
+
+# 18. Newest by NUMBER, not as text: behind build-10 with build-9 nearer is
+#     still behind. Sorted as text build-9 is the "newest", it is reachable,
+#     and the stale commit ships.
+make_repo rerun-across-two-digits
+git tag build-9
+mkdir -p App/Sources; echo a > App/Sources/a.swift; git add -A; git commit -qm "A: source"
+A="$(git rev-parse HEAD)"
+commit "B"
+git tag build-10
+git checkout -q "$A"
+run
+[ "$RUN_STATUS" -eq 0 ] && [ "$RUN_OUT" = "no" ] || fail "18: behind build-10 said '$RUN_OUT' (status $RUN_STATUS): $RUN_ERR"
+case "$RUN_ERR" in *"behind build-10"*) ;; *) fail "18: measured against the wrong build: $RUN_ERR" ;; esac
+pass "behind is judged against the highest build number, not the lexically largest tag"
+
+# 19. An annotated tag is a build too. Compared as a tag object it never
+#     equals HEAD and is never an ancestor of anything.
+make_repo rerun-annotated
+git tag build-306
+mkdir -p App/Sources; echo a > App/Sources/a.swift; git add -A; git commit -qm "A: source"
+A="$(git rev-parse HEAD)"
+commit "B"
+git tag -a -m "build 307" build-307
+run
+[ "$RUN_STATUS" -eq 0 ] && [ "$RUN_OUT" = "no" ] || fail "19: at an annotated build tag said '$RUN_OUT' (status $RUN_STATUS): $RUN_ERR"
+[ -z "$RUN_ERR" ] || fail "19: HEAD at the newest build was called behind it: $RUN_ERR"
+git checkout -q "$A"
+run
+[ "$RUN_STATUS" -eq 0 ] && [ "$RUN_OUT" = "no" ] || fail "19: behind an annotated build tag said '$RUN_OUT' (status $RUN_STATUS): $RUN_ERR"
+pass "an annotated build tag is read as the commit it names"
+
+# 20. The refusal must not spread. The newest build tagged OFF the line HEAD
+#     is on (a retry from another commit) is neither ahead nor behind; HEAD
+#     still measures from its own nearest tag and ships. Refusing here would
+#     stop every release for good behind a `no` that looks like a quiet week.
+make_repo newest-build-off-the-line
+git tag build-306
+BASE="$(git rev-parse HEAD)"
+git checkout -q -b retry
+commit "a retry"
+git tag build-307
+git checkout -q -b line "$BASE"
+mkdir -p App/Sources; echo a > App/Sources/a.swift; git add -A; git commit -qm "main: source"
+run
+[ "$RUN_STATUS" -eq 0 ] || fail "20: exited $RUN_STATUS: $RUN_ERR"
+[ "$RUN_OUT" = "yes" ] || fail "20: a commit beside the newest build, not behind it, said '$RUN_OUT'"
+pass "a newest build that is on another line does not stop a release"
+
+# 21. And a tag that only looks like a build (build-notes) is not the newest
+#     build: it sorts above every number and would otherwise make every
+#     commit before it stale.
+make_repo not-a-build-number
+git tag build-306
+mkdir -p App/Sources; echo a > App/Sources/a.swift; git add -A; git commit -qm "A: source"
+A="$(git rev-parse HEAD)"
+commit "later"
+git tag build-notes
+git checkout -q "$A"
+run
+[ "$RUN_STATUS" -eq 0 ] || fail "21: exited $RUN_STATUS: $RUN_ERR"
+[ "$RUN_OUT" = "yes" ] || fail "21: a non-numeric build-* tag was taken for a shipped build: '$RUN_OUT' $RUN_ERR"
+pass "a build-* tag with no number is not a shipped build to be behind"
 
 echo "All release-due tests passed."

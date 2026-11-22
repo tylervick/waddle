@@ -204,13 +204,20 @@ with the Xcode and simulator versions pinned in each workflow's `env:` block:
 
 | Workflow | Runs when | What it does |
 | --- | --- | --- |
-| [`ci.yml`](.github/workflows/ci.yml) | Every pull request, and every push to `main` | Build + unit tests |
+| [`ci.yml`](.github/workflows/ci.yml) | Every pull request, and every push to `main` | The build-script helper suites, and the unit tests on three simulators, as four parallel jobs |
 | [`ui-tests.yml`](.github/workflows/ui-tests.yml) | Manual dispatch only | The UI test suite |
 
 **`ci.yml`** runs the build-script helper tests and
-`Scripts/check-substrate.sh` first (they are ~0.1s each and guard the values
-the build caches key on), then builds the `Waddle` scheme and tests it with
-`-only-testing:WaddleTests`. That filter is required, not a tuning choice: the
+`Scripts/check-substrate.sh` in one job (they guard the values the build
+caches key on, and the release path), and in three more, one per simulator
+(iPhone, iPad, iPhone Duo), builds the `Waddle` scheme and tests it with
+`-only-testing:WaddleTests`. The jobs start together; a merge to `main` ships
+to TestFlight only after all four passed. When one job of a `main` run fails
+or is cancelled for a reason that is not the commit's, re-running that job
+re-runs the release behind it. That ships only from `main`'s newest run: once
+a later run has shipped, an older run's release answers "nothing to ship"
+(`Scripts/release-due.sh` refuses a commit behind the newest `build-*` tag),
+so re-run the newest run instead. That filter is required, not a tuning choice: the
 scheme's test action also includes `WaddleUITests`, which boot the real engine
 and belong to the workflow below. So `mise run test` locally is *broader* than
 CI — it runs the whole scheme, UI tests included.
