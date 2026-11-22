@@ -106,6 +106,8 @@ final class LauncherFoldReaderView: UIView {
         addInteraction(UIHingeInteraction { [weak self] _, update in
             guard let self else { return }
             hingePartiallyOpen = update.hinge?.status == .partiallyOpen
+            Self.hingeCalls += 1
+            NSLog("W429 hinge #\(Self.hingeCalls) status=\(String(describing: update.hinge?.status.rawValue)) angle=\(String(describing: update.hinge?.angle))")
             followBandWhileBent()
             refresh()
         })
@@ -165,8 +167,14 @@ final class LauncherFoldReaderView: UIView {
             .map { FoldDivision(frame: $0.frame, isActive: $0.isActive) }
     }
 
+    static var hingeCalls = 0
+    static var refreshCalls = 0
     private func refresh() {
         guard window != nil else { return }
+        Self.refreshCalls += 1
+        if Self.refreshCalls % 50 == 1 || Self.refreshCalls < 6 {
+            NSLog("W429 refresh #\(Self.refreshCalls) bounds=\(bounds) partiallyOpen=\(hingePartiallyOpen) divisions=\(foldDivisions) split=\(String(describing: split))")
+        }
         var partiallyOpen = hingePartiallyOpen
         #if DEBUG
         if let testHalfOpen { partiallyOpen = testHalfOpen }
