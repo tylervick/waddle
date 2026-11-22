@@ -54,6 +54,16 @@ sizes the first pass of this fix did not capture. The review of pull request
 width and the measured label, and is tested. The general point: `ViewThatFits`
 measures ideal sizes, and a stack of flexible children is not drawn at them.
 
+The game page kept its own `ViewThatFits` for the same two buttons, and wrapped
+them to `Contin-` / `ue` and `New` / `Game` on a closed iPhone Duo held
+sideways at the *default* text size (issue #468), and on a regular iPhone at
+the largest accessibility size. It now uses the same rule
+(`GamePageMeasurements.buttonArrangement`). Two `ViewThatFits` over the same
+buttons were one fix apart; look for the other copy when fixing one.
+Pairs of `main` beside the fix, every Duo pose and a regular iPhone both ways
+up, at the default and the largest accessibility size, are in
+`assets/game-page-actions-2026-11-22/`.
+
 ## The UI test that reported a busy main thread was reporting a real hang
 
 While taking the captures, the sweep's hero test failed on the unfixed build
