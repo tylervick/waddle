@@ -115,7 +115,8 @@ STUB
 for s in 01-import-banner 02-shelf 03-tile-menu 04-game-page 05-game-page-lower 06-rename-prompt-keyboard \
     07-delete-confirmation 10-settings 12-files 13-hidden-games 14-about 15-control-feel 17-layout-editor \
     20-session 21-engine-menu 22-engine-save-list 23-engine-save-name-keyboard 24-engine-quit-prompt \
-    30-engine-error-box 31-launcher-error-alert 40-document-picker 50-shelf-continue-hero; do
+    30-engine-error-box 31-launcher-error-alert 40-document-picker 50-shelf-continue-hero \
+    51-game-page-continue; do
     ask "shot $s" 10
 done
 CLIENT
@@ -175,7 +176,7 @@ pass "prepare needs the simulator named too"
 #    back at the end.
 setup; run run closed
 [ "$RC" = 0 ] || fail "a clean closed run exited $RC: $OUT"
-[ "$(find "$W/out/shots/closed/large" -name '*.png' | wc -l | tr -d ' ')" = 22 ] || fail "expected 22 shots: $(ls "$W/out/shots/closed/large")"
+[ "$(find "$W/out/shots/closed/large" -name '*.png' | wc -l | tr -d ' ')" = 23 ] || fail "expected 23 shots: $(ls "$W/out/shots/closed/large")"
 [ ! -s "$W/out/problems.txt" ] || fail "a complete run reported problems: $(cat "$W/out/problems.txt")"
 grep -q "^simctl io $MINE screenshot .*--display=LCD " "$W/calls" || fail "did not photograph the outer display of the named simulator"
 ! grep -q "$OTHER" "$W/calls" || fail "a command named the other simulator: $(grep "$OTHER" "$W/calls")"

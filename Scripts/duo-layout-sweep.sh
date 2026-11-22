@@ -84,7 +84,8 @@ SHOTS="01-import-banner 02-shelf 03-tile-menu 04-game-page 05-game-page-lower
 12-files 13-hidden-games 14-about 15-control-feel 16-control-feel-lower
 17-layout-editor 20-session 21-engine-menu 22-engine-save-list
 23-engine-save-name-keyboard 24-engine-quit-prompt 30-engine-error-box
-31-launcher-error-alert 40-document-picker 50-shelf-continue-hero"
+31-launcher-error-alert 40-document-picker 50-shelf-continue-hero
+51-game-page-continue"
 # Taken only where the screen is taller than the window and had to be scrolled.
 OPTIONAL_SHOTS="11-settings-lower 16-control-feel-lower"
 

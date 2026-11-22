@@ -634,4 +634,34 @@ final class DuoLayoutSweepTests: XCTestCase {
         guard waitFor(app.buttons["continueHero"], "the Continue hero", timeout: 30) else { return }
         shoot("50-shelf-continue-hero")
     }
+
+    /// 51-game-page-continue: the page of a game with a save, whose hero
+    /// offers Continue and New Game rather than Play (issue #468: on a closed
+    /// Duo held sideways they wrapped to "Contin-" / "ue" and "New" / "Game"
+    /// at the default text size). `WADDLE_TEST_SUSPEND_SAVE` gives Freedoom
+    /// Phase 1 a save and marks it played, so this needs no earlier test; the
+    /// file is a placeholder the page lists and nothing here loads.
+    /// `WADDLE_OPEN_PANEL` opens the page in the panel where the window has
+    /// one; elsewhere it is reached from the hero's long-press menu.
+    @MainActor
+    func testN_GamePageWithASave() throws {
+        let app = launch(env: ["WADDLE_TEST_SUSPEND_SAVE": Self.placeholderSave,
+                               "WADDLE_OPEN_PANEL": "Freedoom Phase 1"])
+        defer { app.terminate() }
+        let hero = app.descendants(matching: .any).matching(identifier: "continueHero").firstMatch
+        guard waitFor(hero, "the Continue hero", timeout: 30) else { return }
+        let page = app.descendants(matching: .any).matching(identifier: "gamePage").firstMatch
+        if !page.waitForExistence(timeout: 4) {
+            longPress(hero)
+            guard waitFor(app.buttons["Details"].firstMatch, "the hero's long-press menu", timeout: 8) else { return }
+            app.buttons["Details"].firstMatch.tap()
+        }
+        guard waitFor(page, "the game page") else { return }
+        guard waitFor(app.buttons["continueButton"], "the page's Continue button", timeout: 8) else { return }
+        shoot("51-game-page-continue")
+    }
+
+    /// 64 bytes of "x", raw-deflate compressed and base64 encoded, as
+    /// `WADDLE_TEST_SUSPEND_SAVE` takes a save.
+    private static let placeholderSave = "q6igDAAA"
 }
