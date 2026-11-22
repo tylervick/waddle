@@ -254,6 +254,13 @@ if PATH="$P/bin:$PATH" "$P/Scripts/build-deps.sh" > "$TMP/run.log" 2>&1; then
     fail "a patch that no longer applies was ignored"
 fi
 grep -q "0001-test.patch" "$TMP/run.log" || fail "the refusal did not name the patch: $(tail -3 "$TMP/run.log")"
+# The refusal is what a Renovate pull request for a pin shows when it goes
+# red, so it must carry the remedy, not only the diagnosis: the exact
+# command for the "release already has the fix" case, at the new pin.
+grep -qF "git rm Scripts/patches/SDL/0001-test.patch" "$TMP/run.log" \
+    || fail "the refusal does not give the command that removes a superseded patch: $(cat "$TMP/run.log")"
+grep -qF "Re-base the patch on v2" "$TMP/run.log" \
+    || fail "the refusal does not say to re-base on the new pin: $(cat "$TMP/run.log")"
 pass "refuses when a patch applies neither forward nor in reverse"
 
 echo "all build-deps checkout-guard tests passed"
