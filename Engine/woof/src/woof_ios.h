@@ -307,6 +307,13 @@ void WoofIOS_InjectMenuPointer(float x_points, float y_points);
 // the menu has since closed, so the button never stays held.
 bool WoofIOS_InjectMenuTap(bool down);
 
+// True when this window point (UIKit points) is on a slot of the engine's
+// Load or Save list. False for every other menu, with no menu up, during a
+// Y/N prompt or delete confirmation, and beside the picture. The overlay
+// asks before giving a touch to one of its buttons drawn over the picture,
+// so the slot under the finger is chosen instead (issue 430).
+bool WoofIOS_IsSaveSlotAtPoint(float x_points, float y_points);
+
 // Answer the Y/N prompt or save-delete confirmation on screen: a paired
 // keydown/keyup of 'y' or 'n'. Dropped unless one is showing.
 void WoofIOS_InjectMenuAnswer(bool yes);
@@ -382,10 +389,11 @@ int WoofIOS_CopyPlaypal(unsigned char *buf, int cap);
 // Debug/test telemetry only, its own debug-HUD segment:
 //   "cm=<off|msg|setup|main|load|save|epi|skill|options|other> msg=<0|1>
 //    mp=<pointer writes> mt=<press+release writes> md=<presses dropped>
-//    tgt=<x,y|x,y|...>"
+//    iw=<item width> tgt=<x,y|x,y|...>"
 // where tgt lists the current big-font menu's item centres as window
-// points, so a UI test taps real screen positions. Counters reset at
-// session start.
+// points, so a UI test taps real screen positions, and iw is the width of
+// an item's rect in window points (0 with no items), so it can tell how far
+// along a row a tap is still on the item. Counters reset at session start.
 const char *WoofIOS_DebugMenuState(void);
 
 // --- Overlay layout: where the picture is ---

@@ -239,7 +239,47 @@ extension XCTestCase {
     }
 }
 
+/// A point on a slot of the engine's save list that lies under one of the
+/// overlay's buttons, or inside a button's near-miss cushion (issue #430).
+struct SaveSlotAim {
+    let point: CGPoint
+    /// "slot 7 at (485, 323), on useButton", for a failure message.
+    let what: String
+}
+
 extension XCUIApplication {
+    /// Every (button, slot) pair of the save list on screen where the slot's
+    /// frame runs under the button's circle or its 20 pt cushion
+    /// (`TouchTrackRouter.buttonNearMissMargin`): the point at the button's
+    /// own x where the slot reaches that far, at the slot's nearest end where
+    /// it does not. `slots` and `slotWidth` are the debug HUD's `tgt=` and
+    /// `iw=` with the save list up. `measured` is what was compared, for the
+    /// message of a run that found nothing. Element frames are in the app's
+    /// points in every pose of an iPhone Duo, so this holds on an open one.
+    @MainActor
+    func saveSlotAimsUnderButtons(slots: [CGPoint], slotWidth: CGFloat) -> (aims: [SaveSlotAim], measured: String) {
+        var aims: [SaveSlotAim] = []
+        var measured = ["slots \(slots.map { "(\(Int($0.x)), \(Int($0.y)))" }) width \(Int(slotWidth))"]
+        for id in ["useButton", "fireButton", "weaponPrevButton", "weaponNextButton"] {
+            let frame = buttons[id].frame
+            measured.append("\(id) \(frame)")
+            let radius = min(frame.width, frame.height) / 2
+            for (index, slot) in slots.enumerated() {
+                // 4 pt inside the slot's ends: the rect's edges are exclusive
+                // and the HUD's figures are whole points.
+                let x = min(max(frame.midX, slot.x - slotWidth / 2 + 4), slot.x + slotWidth / 2 - 4)
+                let point = CGPoint(x: x.rounded(), y: slot.y)
+                let onButton = hypot(point.x - frame.midX, point.y - frame.midY) <= radius - 2
+                let inCushion = frame.insetBy(dx: -18, dy: -18).contains(point)
+                guard onButton || inCushion else { continue }
+                aims.append(SaveSlotAim(point: point, what:
+                    "slot \(index + 1) at (\(Int(point.x)), \(Int(point.y))), "
+                    + (onButton ? "on \(id)" : "in \(id)'s near-miss cushion")))
+            }
+        }
+        return (aims, measured.joined(separator: "; "))
+    }
+
     /// Makes this launch's autoquit wait for `XCTestCase.releaseAutoquit()`.
     /// For every test that does something inside a live session; set it
     /// beside `WADDLE_AUTOQUIT_SECONDS`, before `launch()`.

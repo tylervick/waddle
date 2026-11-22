@@ -881,6 +881,23 @@ final class TouchOverlayView: UIView {
 
     // MARK: Touches (stick + turn; buttons handle their own)
 
+    /// A button drawn over a slot of the engine's Load or Save list gives
+    /// the touch up to the slot (issue #430): the touch comes to this view
+    /// instead, and `touchesBegan` makes it the menu's pointer. Without
+    /// this, on a closed iPhone Duo in landscape, a touch on the right of
+    /// the two lowest slots pressed USE (which closed the list) or FIRE
+    /// (which did nothing). `MenuTouchRouter.buttonYieldsToSaveSlot` says
+    /// which buttons stand down; ≡ never does.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        guard let button = hit as? OverlayButton,
+              let id = button.accessibilityIdentifier,
+              let control = TouchOverlayControl(rawValue: id),
+              menuRouter.buttonYieldsToSaveSlot(control, onSaveSlot: gamepad.isSaveSlot(at: point))
+        else { return hit }
+        return self
+    }
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         // Snapshot BEFORE updateSummonTracking: a four-finger dismiss tap
         // flips keyboardActive false mid-call (updateSummonTracking ->
@@ -914,6 +931,7 @@ final class TouchOverlayView: UIView {
             let nearButton = router.isNearButton(point)
             switch menuRouter.began(menuActive: menuUp, trackRoute: route,
                                     nearButton: nearButton,
+                                    onSaveSlot: menuUp && gamepad.isSaveSlot(at: point),
                                     pointerOwned: menuTouch != nil) {
             case .pointer:
                 // Position first, then the press: the engine checks a press

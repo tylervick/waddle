@@ -32,6 +32,31 @@ final class MenuTouchRouterTests: XCTestCase {
                                     nearButton: true, pointerOwned: false), .ignore)
     }
 
+    /// Issue #430: a slot of the Load or Save list drawn under a button's
+    /// cushion is what the player sees there, so the touch is the slot's.
+    func testNearMissOnAButtonOverASaveSlotDrivesThePointer() {
+        XCTAssertEqual(router.began(menuActive: true, trackRoute: .ignore,
+                                    nearButton: true, onSaveSlot: true, pointerOwned: false), .pointer)
+        // One pointer at a time still holds.
+        XCTAssertEqual(router.began(menuActive: true, trackRoute: .ignore,
+                                    nearButton: true, onSaveSlot: true, pointerOwned: true), .ignore)
+        // In the stick column a slot is tapped on the lift, as any item is.
+        XCTAssertEqual(router.began(menuActive: true, trackRoute: .stick,
+                                    nearButton: false, onSaveSlot: true, pointerOwned: false), .pending)
+        // No menu, no slot: whatever the caller passed, the play routing applies.
+        XCTAssertEqual(router.began(menuActive: false, trackRoute: .ignore,
+                                    nearButton: true, onSaveSlot: true, pointerOwned: false), .passThrough)
+    }
+
+    func testEveryButtonButMenuYieldsToASaveSlot() {
+        for control in TouchOverlayControl.allCases {
+            XCTAssertEqual(router.buttonYieldsToSaveSlot(control, onSaveSlot: true), control != .menu,
+                           "\(control.rawValue): only the way back out keeps its touch over a slot")
+            XCTAssertFalse(router.buttonYieldsToSaveSlot(control, onSaveSlot: false),
+                           "\(control.rawValue) must keep its touch where no slot is drawn")
+        }
+    }
+
     func testNoMenuPassesThroughToStickAndTurnRouting() {
         for route in [TouchTrackRoute.stick, .turn, .ignore] {
             XCTAssertEqual(router.began(menuActive: false, trackRoute: route,

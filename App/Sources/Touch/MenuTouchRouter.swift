@@ -31,12 +31,29 @@ struct MenuTouchRouter {
         case none
     }
 
+    /// `onSaveSlot`: the touch is on a slot of the engine's Load or Save
+    /// list (`TouchGamepad.isSaveSlot(at:)`). A slot's frame is drawn right
+    /// across the list, and where the picture fills the window the buttons
+    /// are drawn over its right-hand end (a closed iPhone Duo in landscape,
+    /// issue #430). The slot is what the player sees under the finger, so
+    /// it wins over a button's near-miss cushion here, and over the button
+    /// itself in `buttonYieldsToSaveSlot`.
     func began(menuActive: Bool, trackRoute: TouchTrackRoute,
-               nearButton: Bool, pointerOwned: Bool) -> Began {
+               nearButton: Bool, onSaveSlot: Bool = false, pointerOwned: Bool) -> Began {
         guard menuActive else { return .passThrough }
-        if nearButton { return .ignore }
+        if nearButton && !onSaveSlot { return .ignore }
         if trackRoute == .stick { return .pending }
         return pointerOwned ? .ignore : .pointer
+    }
+
+    /// Whether a touch that landed on `control`'s button belongs to the
+    /// save slot drawn under it instead. Every control stands down for a
+    /// slot except ≡, which is the way back out of the menu and must stay
+    /// reachable wherever it has been moved to. (The Yes/No pair is not a
+    /// `TouchOverlayControl`, and the engine reports no slot while a prompt
+    /// is up, so a prompt's buttons never yield either.)
+    func buttonYieldsToSaveSlot(_ control: TouchOverlayControl, onSaveSlot: Bool) -> Bool {
+        onSaveSlot && control != .menu
     }
 
     /// Attract mode (title screen or demo, no menu): the stick/turn routing

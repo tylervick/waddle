@@ -6,8 +6,9 @@ import XCTest
 /// screen points and reads back what the engine did.
 ///
 /// Format of that segment: `cm=<menu> msg=<0|1> mp=<n> mt=<n> md=<n>
-/// tgt=<x,y|x,y|...>` -- current menu name, prompt showing, pointer writes,
-/// press/release writes, presses dropped, item centres in window points.
+/// iw=<n> tgt=<x,y|x,y|...>` -- current menu name, prompt showing, pointer
+/// writes, press/release writes, presses dropped, an item's width and the
+/// item centres, both in window points.
 final class TouchMenuTests: XCTestCase {
 
     private let autoquitSeconds = 120.0
@@ -119,7 +120,107 @@ final class TouchMenuTests: XCTestCase {
                       "Yes should quit the session")
     }
 
+    /// Issue #430. Where the picture fills the window the overlay's buttons
+    /// are drawn over the right-hand end of the engine's save list, and a
+    /// touch there used to go to the button: on a closed iPhone Duo in
+    /// landscape USE closed the list from slots 7 and 8, and FIRE (and its
+    /// near-miss cushion) swallowed the touch. A touch on a slot now chooses
+    /// the slot wherever along its frame it lands.
+    ///
+    /// The points are computed, not fixed (`saveSlotAimsUnderButtons`): each
+    /// of the four right-hand buttons against each slot, kept when the point
+    /// lies on the button or inside its cushion. A device whose buttons
+    /// clear the list has no such point and the case skips, saying what it
+    /// measured. On a landscape iPhone 18 Pro there are several, and with
+    /// the hit-test override taken out every one of them fails.
+    @MainActor
+    func testATouchOnASaveSlotUnderAButtonChoosesTheSlot() throws {
+        XCUIDevice.shared.orientation = .portrait
+        // docs/learnings/simulator-test-hazards.md: never leave a rotation.
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "20"
+        app.holdAutoquit()
+        app.launchEnvironment["WADDLE_TEST_WARP"] = "1" // a level: nothing saves from the title
+        app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchArguments += ["-debugHUD", "YES"]
+        app.launch()
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 90), "launcher UI never appeared")
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        Thread.sleep(forTimeInterval: 2)
+        try XCTSkipUnless(app.frame.width > app.frame.height,
+            "this simulator does not perform interface rotation; run on one that does")
+
+        play.tap()
+        let hud = app.staticTexts["sessionDebugHUD"]
+        XCTAssertTrue(hud.waitForExistence(timeout: 30), "debug HUD never appeared")
+        XCTAssertTrue(app.buttons["fireButton"].waitForExistence(timeout: 30), "overlay never installed")
+        let inLevel = waitForHUD(hud, timeout: 30) { $0["pad"]?.hasSuffix(" virtual") == true }
+        XCTAssertEqual(inLevel["pad"]?.hasSuffix(" virtual"), true, "engine should hold our pad: \(lastSeenStrip)")
+
+        let list = try XCTUnwrap(openSaveList(app, hud), "the save list never opened: \(lastSeenStrip)")
+        let slots = points(list["tgt"])
+        let slotWidth = CGFloat(Double(list["iw"] ?? "") ?? 0)
+        XCTAssertEqual(slots.count, 8, "save-slot centres: \(lastSeenStrip)")
+        XCTAssertGreaterThan(slotWidth, 0, "the save slots' width: \(lastSeenStrip)")
+        attachScreenshot(named: "save-list-landscape")
+
+        let (aims, measured) = app.saveSlotAimsUnderButtons(slots: slots, slotWidth: slotWidth)
+        try XCTSkipIf(aims.isEmpty, "no button is drawn over the save list here: \(measured)")
+        XCTContext.runActivity(named: "aims: \(aims.map(\.what)); \(measured)") { _ in }
+
+        let naming = app.otherElements["softKeyboardActive"]
+        for aim in aims {
+            // Whatever the last touch did, start from the list with no entry.
+            if waitForHUD(hud, timeout: 2, until: { $0["cm"] == "save" })["cm"] != "save" {
+                _ = try XCTUnwrap(openSaveList(app, hud), "the save list did not reopen: \(lastSeenStrip)")
+            }
+            XCTAssertFalse(naming.exists, "a save-name entry was left over before \(aim.what)")
+
+            tap(app, aim.point)
+            XCTAssertTrue(naming.waitForExistence(timeout: 5),
+                          "a touch on \(aim.what) should begin naming the slot: \(lastSeenStrip)")
+            XCTAssertEqual(waitForHUD(hud, timeout: 2) { _ in false }["cm"], "save",
+                           "a touch on \(aim.what) must leave the save list up: \(lastSeenStrip)")
+
+            // Out through ≡, not Return: Return writes the save, and a saved
+            // game turns the tile into the Continue hero for later tests.
+            if naming.exists {
+                app.buttons["menuButton"].tap()
+                XCTAssertTrue(waitUntil(timeout: 5) { !naming.exists },
+                              "≡ should leave the save-name entry after \(aim.what)")
+            }
+        }
+
+        // The way back out still works with the list up, from wherever the
+        // last touch left it.
+        closeMenus(app, hud)
+        releaseAutoquit()
+        XCTAssertTrue(app.staticTexts["engineExitLabel"].waitForExistence(timeout: 60),
+                      "engine never returned to the launcher")
+    }
+
     // MARK: helpers
+
+    /// ≡, then Save Game (the main menu's fourth item). Nil if either step
+    /// did not arrive; the caller reports it.
+    @MainActor
+    private func openSaveList(_ app: XCUIApplication, _ hud: XCUIElement) -> [String: String]? {
+        for _ in 0..<3 {
+            let state = waitForHUD(hud, timeout: 1) { $0["cm"] == "off" || $0["cm"] == "main" }
+            if state["cm"] == "main" { break }
+            app.buttons["menuButton"].tap()
+            if waitForHUD(hud, timeout: 5, until: { $0["cm"] == "main" })["cm"] == "main" { break }
+        }
+        let main = waitForHUD(hud, timeout: 5) { $0["cm"] == "main" && self.points($0["tgt"]).count >= 5 }
+        let targets = points(main["tgt"])
+        guard main["cm"] == "main", targets.count >= 5 else { return nil }
+        tap(app, targets[3])
+        let save = waitForHUD(hud, timeout: 5) { $0["cm"] == "save" && self.points($0["tgt"]).count == 8 }
+        return save["cm"] == "save" ? save : nil
+    }
 
     /// ≡ closes every open menu (MENU_ESCAPE clears them all); a second tap
     /// would reopen, so stop as soon as the HUD says off.
@@ -130,6 +231,13 @@ final class TouchMenuTests: XCTestCase {
             if waitForHUD(hud, timeout: 3, until: { $0["cm"] == "off" })["cm"] == "off" { return }
         }
         XCTFail("could not close the menus: \(lastSeenStrip)")
+    }
+
+    private func attachScreenshot(named name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     @MainActor
