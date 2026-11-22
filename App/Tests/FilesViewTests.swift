@@ -258,4 +258,38 @@ final class FilesViewTests: XCTestCase {
         XCTAssertEqual(WholeWordText.smallestScale, 0.5)
         XCTAssertEqual(WholeWordText.scales.count, 6, "the body lists one child per size by index")
     }
+
+    // MARK: A weight (issue #441)
+
+    /// The game page's title is bold, and a bold piece is wider than a
+    /// regular one. Measured as regular, a title piece that does not fit
+    /// would be passed as fitting, and the system would hyphenate it.
+    func testABoldPieceIsMeasuredInBold() {
+        let regular = WholeWordText.font(textStyle: .title2, weight: .regular)
+        let bold = WholeWordText.font(textStyle: .title2, weight: .bold)
+        XCTAssertEqual(regular, UIFont.preferredFont(forTextStyle: .title2),
+                       "the regular weight is the text style's own font")
+        XCTAssertEqual(bold.pointSize, regular.pointSize, "a weight changes the width, not the size")
+        XCTAssertTrue(bold.fontDescriptor.symbolicTraits.contains(.traitBold))
+        XCTAssertGreaterThan(WholeWordText.widestPiece(of: "sunlust_final_v13", in: bold),
+                             WholeWordText.widestPiece(of: "sunlust_final_v13", in: regular))
+    }
+
+    /// The widest piece is one piece, not the whole name: "sunlust_" here,
+    /// which is what has to fit on a line of the title.
+    func testTheWidestPieceIsAPieceNotTheName() {
+        let font = WholeWordText.font(textStyle: .title2, weight: .bold)
+        func width(_ string: String) -> CGFloat { (string as NSString).size(withAttributes: [.font: font]).width }
+        XCTAssertEqual(WholeWordText.widestPiece(of: "sunlust_final_v13", in: font), width("sunlust_"), accuracy: 0.01)
+        XCTAssertLessThan(WholeWordText.widestPiece(of: "sunlust_final_v13", in: font), width("sunlust_final_v13"))
+        XCTAssertEqual(WholeWordText.widestPiece(of: "", in: font), 0)
+    }
+
+    /// The smaller sizes are drawn in the caller's weight too, or a bold
+    /// title would turn regular the moment it had to shrink.
+    func testTheSmallerSizesKeepTheWeight() {
+        XCTAssertEqual(WholeWordText.fontWeight(.bold), .bold)
+        XCTAssertEqual(WholeWordText.fontWeight(.semibold), .semibold)
+        XCTAssertEqual(WholeWordText.fontWeight(.regular), .regular)
+    }
 }

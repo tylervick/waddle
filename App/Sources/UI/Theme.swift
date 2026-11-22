@@ -358,11 +358,17 @@ struct WholeWordText: View {
     /// The text style this is drawn in. It is what the widest piece is
     /// measured with, and what the smaller sizes are scaled from.
     var textStyle: UIFont.TextStyle = .body
+    /// The weight it is drawn in, for the same two purposes. Like the text
+    /// style it describes the caller's font and does not set it: the game
+    /// page's title is `.title2.bold()`, and a bold piece is wider than a
+    /// regular one (issue #441).
+    var weight: UIFont.Weight = .regular
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    init(_ string: String, textStyle: UIFont.TextStyle = .body) {
+    init(_ string: String, textStyle: UIFont.TextStyle = .body, weight: UIFont.Weight = .regular) {
         self.string = string
         self.textStyle = textStyle
+        self.weight = weight
     }
 
     /// The sizes tried, largest first, as fractions of the text style's own.
@@ -414,11 +420,38 @@ struct WholeWordText: View {
     /// measures again.
     private var measured: (font: UIFont, widest: CGFloat) {
         _ = dynamicTypeSize
-        let font = UIFont.preferredFont(forTextStyle: textStyle)
-        let widest = Self.pieces(string)
+        let font = Self.font(textStyle: textStyle, weight: weight)
+        return (font, Self.widestPiece(of: string, in: font))
+    }
+
+    /// The text style's font at the reader's size, in `weight`. The regular
+    /// weight is the text style's own font, untouched.
+    nonisolated static func font(textStyle: UIFont.TextStyle, weight: UIFont.Weight) -> UIFont {
+        let preferred = UIFont.preferredFont(forTextStyle: textStyle)
+        return weight == .regular ? preferred : .systemFont(ofSize: preferred.pointSize, weight: weight)
+    }
+
+    /// SwiftUI's name for a UIKit weight, for the sizes this draws smaller.
+    nonisolated static func fontWeight(_ weight: UIFont.Weight) -> Font.Weight {
+        switch weight {
+        case .ultraLight: return .ultraLight
+        case .thin: return .thin
+        case .light: return .light
+        case .medium: return .medium
+        case .semibold: return .semibold
+        case .bold: return .bold
+        case .heavy: return .heavy
+        case .black: return .black
+        default: return .regular
+        }
+    }
+
+    /// The width of the widest piece of `string` in `font`; zero for a
+    /// string with no pieces.
+    nonisolated static func widestPiece(of string: String, in font: UIFont) -> CGFloat {
+        pieces(string)
             .map { ($0 as NSString).size(withAttributes: [.font: font]).width }
             .max() ?? 0
-        return (font, widest)
     }
 
     var body: some View {
@@ -435,18 +468,36 @@ struct WholeWordText: View {
             sized(text, widest: widest, font: font, scale: Self.scales[3])
             sized(text, widest: widest, font: font, scale: Self.scales[4])
             sized(text, widest: widest, font: font, scale: Self.scales[5])
-            Text(text)
+            Text(text).fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityLabel(string)
     }
 
     /// The text at one size, saying how wide its widest piece is there. A
     /// point over, because that width is `UIFont`'s measure and the line is
-    /// SwiftUI's. At full size the font is left alone, so text that fits is
-    /// exactly what a plain `Text` would be.
+    /// SwiftUI's.
+    ///
+    /// At full size no font is set at all, so the text is drawn in whatever
+    /// font the caller gave it and text that fits is exactly what a plain
+    /// `Text` would be. Not `.font(nil)`: that is not "no font", it replaces
+    /// the caller's with the default, and the game page's bold title came
+    /// out regular (issue #441).
+    ///
+    /// The text takes the height its lines need, whatever it is offered:
+    /// beside the title's pencil in an `HStack` it was offered one line's
+    /// height, and a name that wrapped to two was cut with an ellipsis.
+    @ViewBuilder
     private func sized(_ text: String, widest: CGFloat, font: UIFont, scale: CGFloat) -> some View {
-        Text(text)
-            .font(scale == 1 ? nil : .system(size: font.pointSize * scale))
-            .frame(idealWidth: ceil(widest * scale) + 1, alignment: .leading)
+        let idealWidth = ceil(widest * scale) + 1
+        if scale == 1 {
+            Text(text)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(idealWidth: idealWidth, alignment: .leading)
+        } else {
+            Text(text)
+                .font(.system(size: font.pointSize * scale, weight: Self.fontWeight(weight)))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(idealWidth: idealWidth, alignment: .leading)
+        }
     }
 }

@@ -152,8 +152,10 @@ struct GamePageView: View {
     /// fitted beside the art with 13 pt to spare (review of pull request 435).
     private var captionProbe: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(game.name.split(whereSeparator: \.isWhitespace).enumerated()), id: \.offset) { _, word in
-                titleLabel(String(word))
+            // The title's pieces, not its words: the title may end a line
+            // wherever `WholeWordText` lets it, so that is what has to fit.
+            ForEach(Array(WholeWordText.pieces(game.name).enumerated()), id: \.offset) { _, piece in
+                titleLabel(piece)
             }
             ForEach(Array(primaryActionWords.enumerated()), id: \.offset) { _, action in
                 Label(action.word, systemImage: action.systemImage)
@@ -184,7 +186,12 @@ struct GamePageView: View {
     /// measurement cannot drift from the thing measured.
     private func titleLabel(_ name: String) -> some View {
         HStack(spacing: Theme.Spacing.sm) {
-            Text(name).font(Theme.Typography.heroTitle)
+            // A name with no spaces in it is one word to the line breaker,
+            // and the system hyphenated it inside a syllable ("sunlust_fi-" /
+            // "nal_v13", issue #441). A game made from a map set is named
+            // after its file, so that is the ordinary imported game.
+            WholeWordText(name, textStyle: .title2, weight: .bold)
+                .font(Theme.Typography.heroTitle)
             Image(systemName: "pencil")
                 .font(Theme.Typography.secondary)
                 .foregroundStyle(Color.appSecondaryText)

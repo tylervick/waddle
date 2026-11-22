@@ -48,4 +48,50 @@ final class HiddenGamesScreenTests: XCTestCase {
         // dismissing a sheet never re-runs the presenter's `onAppear`.
         XCTAssertTrue(tile.waitForExistence(timeout: 5), "restored tile never reappeared on the shelf")
     }
+
+    /// At an accessibility text size the name and Restore do not share a
+    /// line (issue #436): side by side, in a row about 300 pt wide at 53 pt
+    /// type, each got less than its longest word needs and both were broken,
+    /// "Free-" / "doom" beside "Restor" / "e". Stacked, each has the row.
+    ///
+    /// The accessibility tree cannot say where a line ends, so this pins
+    /// the arrangement that leaves the words room, not the words themselves.
+    @MainActor
+    func testTheNameSitsAboveRestoreAtAnAccessibilityTextSize() {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
+        app.launchArguments += ["-UIPreferredContentSizeCategoryName",
+                                "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+
+        let tile = app.buttons["playFreedoom1"]
+        XCTAssertTrue(tile.waitForExistence(timeout: 10), "playFreedoom1 tile missing from a fresh shelf")
+        tile.press(forDuration: 1.0)
+        let hide = app.buttons["Hide from Shelf"]
+        XCTAssertTrue(hide.waitForExistence(timeout: 5), "Hide from Shelf missing from the context menu")
+        hide.tap()
+
+        app.buttons["touchSchemeMenu"].tap()
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "touchSchemePicker").firstMatch
+            .waitForExistence(timeout: 5), "Settings never appeared")
+        // At this size the row is below the fold of a lazy list.
+        scrollTo(app.buttons["hiddenGamesButton"], in: app, maxSwipes: 10)
+        app.buttons["hiddenGamesButton"].tap()
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "hiddenGamesScreen").firstMatch
+            .waitForExistence(timeout: 5), "Hidden Games screen never appeared")
+
+        let name = app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH 'hiddenRow-'")).firstMatch
+        let restore = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'restore-'")).firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 5), "no row for the hidden game")
+        XCTAssertTrue(restore.waitForExistence(timeout: 5), "no Restore button for the hidden game")
+        XCTAssertEqual(name.label, "Freedoom Phase 1", "the row does not read the game's plain name")
+        XCTAssertGreaterThanOrEqual(restore.frame.minY, name.frame.maxY - 1,
+                                    "Restore shares the name's line; name \(name.frame), Restore \(restore.frame)")
+        XCTAssertLessThan(abs(restore.frame.minX - name.frame.minX), 2,
+                          "Restore is not under the start of the name; name \(name.frame), Restore \(restore.frame)")
+
+        // Still the control it was: it puts the game back.
+        restore.tap()
+        XCTAssertFalse(restore.waitForExistence(timeout: 2), "the row is still there after Restore")
+    }
 }

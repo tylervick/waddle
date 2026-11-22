@@ -138,4 +138,53 @@ final class GamePageTests: XCTestCase {
         expectation(for: predicate, evaluatedWith: chosen)
         waitForExpectations(timeout: 5)
     }
+
+    /// The title of a game with no space in its name is drawn with invisible
+    /// breaks after its underscores, so that it wraps there and is not
+    /// hyphenated inside a syllable at an accessibility text size (issue
+    /// #441). None of that may reach what the title says: VoiceOver, and
+    /// every test that finds the title, reads "Rename" and the plain name.
+    ///
+    /// Where the lines end cannot be asserted here; the accessibility tree
+    /// has a text's string and frame and nothing about its lines.
+    @MainActor
+    func testAOneTokenTitleReadsItsPlainNameAtAnAccessibilityTextSize() {
+        let name = "sunlust_final_v13"
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
+        app.launch()
+        openGamePage(app, tile: "playFreedoom1")
+        scrollTo(app.buttons["duplicateButton"], in: app)
+        app.buttons["duplicateButton"].tap()
+        openGamePage(app, tile: "game-Freedoom Phase 1 copy")
+        app.buttons["gameNameButton"].tap()
+        let field = renameField(in: app)
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "rename field never appeared")
+        clearAndType(field, name)
+        app.buttons["Save"].tap()
+        XCTAssertTrue(app.buttons["gameNameButton"].waitForExistence(timeout: 5))
+        app.terminate()
+
+        // Same store, largest text size.
+        app.launchEnvironment["WADDLE_RESET_STORE"] = nil
+        app.launchArguments += ["-UIPreferredContentSizeCategoryName",
+                                "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+        let tile = app.buttons["game-\(name)"]
+        XCTAssertTrue(tile.waitForExistence(timeout: 10), "the renamed game is not on the shelf")
+        scrollTo(tile, in: app, maxSwipes: 12)
+        openGamePage(app, tile: "game-\(name)")
+
+        let title = app.buttons["gameNameButton"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5), "the page's title is missing")
+        XCTAssertEqual(title.label, "Rename \(name)")
+        XCTAssertFalse(title.label.unicodeScalars.contains("\u{200B}"), "the title reads an invisible character")
+        // And nothing under it reads one either: the drawn text carries its
+        // own label, the plain name.
+        let drawn = title.staticTexts.allElementsBoundByIndex.map(\.label) + app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS 'sunlust'")).allElementsBoundByIndex.map(\.label)
+        for label in drawn {
+            XCTAssertFalse(label.unicodeScalars.contains("\u{200B}"), "a text on the page reads an invisible character: '\(label)'")
+        }
+    }
 }
