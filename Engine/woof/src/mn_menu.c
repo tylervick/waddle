@@ -2333,7 +2333,15 @@ int MN_DebugMenuMoves(void)
 // docs/learnings/menu-click-answers-prompt-yes.md.
 boolean MN_MenuMessageShowing(void)
 {
-    return menuactive && (messageToPrint || delete_verify);
+    // default_verify: a setup screen's "reset to defaults?" (issue 447). It
+    // is answered in MN_SetupResponder, by the same letters and with the
+    // same trap: MN_SetupMouseResponder stands aside while an item is
+    // selected, so the press falls through as MENU_ENTER and resets every
+    // setting on the screen. Only while a setup screen is up; the flag is
+    // mn_setup.c's and means nothing otherwise.
+    return menuactive
+           && (messageToPrint || delete_verify
+               || (setup_active && default_verify));
 }
 
 // Debug/test telemetry (WoofIOS_DebugMenuState): which menu table is

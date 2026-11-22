@@ -680,6 +680,11 @@ only ever runs once):
   the way out of a screen, and the `drawn` rects. A session that ended inside
   a setup screen otherwise left the next one's main menu steered as one
   (`docs/engine-session-globals.md`).
+  Issue 447: `MN_MenuMessageShowing` also answers for a setup screen's
+  "reset to defaults?" (`setup_active && default_verify`), which upstream
+  lets a click confirm like the other two. One expression; nothing in
+  `mn_setup.c` changes. The shim then drops a press and the overlay shows
+  Yes and No, whose letters `MN_SetupResponder` already reads.
 
 - `src/i_video.c`, `src/woof_ios.c` / `src/woof_ios.h` -- the picture's rect
   for the overlay's layout (issue 351). `I_PictureRectInWindow` returns
