@@ -297,12 +297,32 @@ pass "a selection lost before a touch posts no touch"
 # nothing, that it holds the lock for exactly one invocation, and that
 # nothing a dead holder leaves behind can keep the next one out.
 command -v lockf >/dev/null || fail "this machine has no lockf(1), which the hook's lock is made of"
-free() { lockf -s -t 0 "$1" true; }  # true if nobody holds the lock on that file
+# True if nobody holds the lock on that file. `-k` is not optional: without it
+# lockf(1) REMOVES the file when it is done, and a holder that had opened the
+# file and not yet locked it then locks a file with no name, which no later
+# opener can see (issue #453). It also holds the lock itself while it looks,
+# so it is for asking about a lock nobody is on the way to taking; "has the
+# holder got it yet" is asked of a marker the holder writes, see `await`.
+free() { lockf -k -s -t 0 "$1" true; }
+# Waits for a file a background process writes once it is where the case
+# needs it. The bound is seconds on the clock, not a count of polls (a poll
+# takes as long as the runner makes it), and a process that has already gone
+# is reported at once.
+await() {  # file, pid of whoever writes it, what to say if it never appears, [its log]
+    local deadline=$((SECONDS + ${HOLDER_WAIT:-60}))
+    until [ -e "$1" ]; do
+        kill -0 "$2" 2>/dev/null || fail "$3: it exited first. $(cat "${4:-/dev/null}")"
+        [ "$SECONDS" -lt "$deadline" ] || fail "$3 in ${HOLDER_WAIT:-60}s. $(cat "${4:-/dev/null}")"
+        sleep 0.05
+    done
+}
 
 # 20. Held by a live process, the hook waits its time out and presses
 #     nothing. A `lockf` of the suite's own stands in for the other session.
-setup "$ROWS"; lockf -k "$W/lock" sleep 30 & HOLDER=$!
-until [ -e "$W/lock" ] && ! free "$W/lock"; do sleep 0.05; done
+#     It says when it has the lock by writing a file from inside it.
+setup "$ROWS"; lockf -k "$W/lock" /bin/sh -c ': > "$1"; exec sleep 30' sh "$W/holding" & HOLDER=$!
+await "$W/holding" "$HOLDER" "the stand-in holder never took the lock"
+! free "$W/lock" || fail "the stand-in holder is running without the lock"
 LOCK_WAIT=1 run open
 [ "$RC" != 0 ] || fail "went ahead while another session held Device Hub"
 [ ! -s "$W/clicks" ] || fail "pressed '$(clicks)' while another session held Device Hub"
@@ -318,6 +338,7 @@ setup "$ROWS"; : > "$W/lock"; LOCK_WAIT=1 run open
 [ "$RC" = 0 ] || fail "a leftover lock file stopped the hook: $OUT"
 [ "$(clicks)" = "14 90" ] || fail "pressed '$(clicks)' past a leftover lock file"
 free "$W/lock" || fail "the lock was still held after a successful run"
+[ -e "$W/lock" ] || fail "asking whether the lock was free removed the lock file (lockf without -k); see \`free\`"
 setup "$ROWS"; echo 1 > "$W/steal-after"; run open
 [ "$RC" != 0 ] && free "$W/lock" || fail "the lock was still held after a failed run"
 pass "a leftover lock file holds nobody out, and the lock is released on every way out"
@@ -354,7 +375,9 @@ PROBE
     # `exec`, so the holder's work is one process: the lock is the kernel's
     # and lasts as long as anything still has the descriptor, a grandchild
     # left behind included.
-    printf '#!/bin/bash\nexec sleep 60\n' > "$W/bin/hang"
+    # It writes `holding` first: that file is how `start_a_holder` knows the
+    # hook is inside the lock, without touching the lock to find out.
+    printf '#!/bin/bash\n: > "%s/holding"\nexec sleep 60\n' "$W" > "$W/bin/hang"
     chmod +x "$W/bin/probe" "$W/bin/hang"
 }
 contend() {  # probe program; runs in the background, prints nothing
@@ -364,14 +387,23 @@ contend() {  # probe program; runs in the background, prints nothing
 }
 # A real invocation takes the lock and sits in it; `kill_the_holder` then
 # kills it outright, with SIGKILL, and whatever it was running.
+#
+# "It has the lock" is two facts, read in this order. The hook has reached
+# its work: `hang` wrote `holding`. And the lock is really held: only then is
+# the lock asked, once, when the holder can no longer lose it to the asking.
+# Polling the lock itself for this is what issue #453 was: the poll, a
+# `lockf` without `-k`, landed between the hook opening the lock file and
+# locking it, and removed the file. The hook then held a lock on a file with
+# no name, the poll waited for a file that was never coming back, and 200
+# polls later the case failed with the hook alive, silent and holding.
+# Waiting for `holding` also means the hook's child exists before
+# `kill_the_holder` looks for it, so no `sleep 60` is left behind with the
+# lock's descriptor.
 HELD_BY=""
 start_a_holder() {
-    local n=0
     contend "$W/bin/hang"; HELD_BY=$!
-    until [ -e "$W/lock" ] && ! free "$W/lock"; do
-        n=$((n + 1)); [ "$n" -lt 200 ] || fail "the holder never took the lock: $(cat "$W/contend.log")"
-        sleep 0.05
-    done
+    await "$W/holding" "$HELD_BY" "the holder never reached its work under the lock" "$W/contend.log"
+    ! free "$W/lock" || fail "the holder is at its work without holding the lock"
 }
 kill_the_holder() {
     pkill -9 -P "$HELD_BY" 2>/dev/null || true

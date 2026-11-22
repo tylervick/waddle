@@ -318,6 +318,17 @@ changelog() { # range (may be empty, meaning "recent history")
                 esac
                 ;;
         esac
+        # The one exception to "build and deps are behind the scenes": scope
+        # `shipped-deps` marks a dependency that is linked into the binary
+        # or bundled with it. A build whose only change is a new SDL must
+        # not tell testers that nothing in the app changed. The scope wins
+        # over the type, and over a pull request's own summary below, so the
+        # "what to try" line survives whoever wrote the bump.
+        shipped_text=""
+        if [ "$cscope" = "shipped-deps" ]; then
+            group="app"
+            shipped_text="$(shipped_dep_line "$text")"
+        fi
 
         if [ -n "$num" ] && [ -n "$REPO_SLUG" ]; then
             FETCH_TRIED=$((FETCH_TRIED + 1))
@@ -336,6 +347,7 @@ changelog() { # range (may be empty, meaning "recent history")
                 FETCH_FALLBACK=$((FETCH_FALLBACK + 1))
             fi
         fi
+        [ -z "$shipped_text" ] || text="$shipped_text"
         printf '%s\t%s\n' "$group" "$text"
     done < <(git log --first-parent --format=%H $range)
     # changelog runs inside a command substitution, so its globals never
@@ -345,6 +357,53 @@ changelog() { # range (may be empty, meaning "recent history")
     # reads).
     if [ -n "${FALLBACK_FILE:-}" ]; then
         printf '%s %s\n' "$FETCH_FALLBACK" "$FETCH_TRIED" > "$FALLBACK_FILE"
+    fi
+}
+
+# The bullet for a dependency that is built into the app or shipped inside it
+# (scope `shipped-deps`: SDL, the audio libraries, Freedoom -- the pins
+# Renovate's custom manager watches, see renovate.json). Its subject is
+# "update dependency libsdl-org/SDL from release-3.4.18 to release-3.4.20",
+# which names a repository and two tags and tells a tester nothing about
+# what to do. This says which library, which versions, and what to try.
+#
+# The library is found by NAME anywhere in the subject, not by position, so
+# a hand-written "bump SDL to release-3.4.20" gets the same hint; the
+# versions are shown only when the subject carries both. A library this does
+# not know still gets a line and a generic hint: a new pin must not fall
+# back to a bare repository name, or out of the app section.
+shipped_dep_line() { # subject with its prefix already stripped
+    local subj="$1" lower name hint from to versions=""
+    local music="play a mod with OGG, FLAC or Opus music"
+    lower="$(printf '%s' "$subj" | tr '[:upper:]' '[:lower:]')"
+    case "$lower" in
+        *freedoom*)   name="the bundled Freedoom games"
+                      hint="play a level of each; saves made on the previous version may not load" ;;
+        *openal*)     name="OpenAL Soft, which plays all sound"
+                      hint="listen to sound effects and music, with headphones and without" ;;
+        *sonivox*)    name="SONiVOX, which plays MIDI music"
+                      hint="listen to the music in the original games" ;;
+        *sndfile*)    name="a music decoding library (libsndfile)"; hint="$music" ;;
+        *vorbis*)     name="a music decoding library (vorbis)"; hint="$music" ;;
+        *flac*)       name="a music decoding library (flac)"; hint="$music" ;;
+        *opus*)       name="a music decoding library (opus)"; hint="$music" ;;
+        *ogg*)        name="a music decoding library (ogg)"; hint="$music" ;;
+        *sdl*)        name="SDL, which handles touch, controllers, the screen and audio output"
+                      hint="touch controls, a controller, rotating the device, and sound" ;;
+        *)            name=""
+                      hint="play a level and check controls and sound" ;;
+    esac
+    from="$(printf '%s' "$subj" | sed -nE 's/.* from ([^ ]+) to ([^ ]+)$/\1/p')"
+    to="$(printf '%s' "$subj" | sed -nE 's/.* from ([^ ]+) to ([^ ]+)$/\2/p')"
+    if [ -n "$from" ] && [ -n "$to" ]; then
+        from="${from#release-}"; from="${from#v}"
+        to="${to#release-}"; to="${to#v}"
+        versions=" from $from to $to"
+    fi
+    if [ -n "$name" ]; then
+        printf 'Updated %s%s. Please try: %s' "$name" "$versions" "$hint"
+    else
+        printf '%s (a library built into the app). Please try: %s' "$subj" "$hint"
     fi
 }
 

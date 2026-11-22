@@ -307,12 +307,17 @@ void WoofIOS_InjectMenuPointer(float x_points, float y_points);
 // the menu has since closed, so the button never stays held.
 bool WoofIOS_InjectMenuTap(bool down);
 
-// True when this window point (UIKit points) is on a slot of the engine's
-// Load or Save list. False for every other menu, with no menu up, during a
-// Y/N prompt or delete confirmation, and beside the picture. The overlay
-// asks before giving a touch to one of its buttons drawn over the picture,
-// so the slot under the finger is chosen instead (issue 430).
-bool WoofIOS_IsSaveSlotAtPoint(float x_points, float y_points);
+// True when this window point (UIKit points) is on something the engine's
+// menu draws and a press there would act on: a slot of the Load or Save
+// list (issue 430), or on a setup screen a tab or the touchable part of a
+// row -- its label and setting, or for a slider the slider (issue 440).
+// False for the main menu and the other big-font menus, whose items' rects
+// are the whole width of the screen; with no menu up; during a Y/N prompt,
+// a delete or reset confirmation, or while a setup item is being changed;
+// and beside the picture. The overlay asks before giving a touch to one of
+// its buttons drawn over the picture, so what is drawn under the finger is
+// chosen instead.
+bool WoofIOS_IsDrawnMenuItemAtPoint(float x_points, float y_points);
 
 // Answer the Y/N prompt or save-delete confirmation on screen: a paired
 // keydown/keyup of 'y' or 'n'. Dropped unless one is showing.
@@ -395,6 +400,19 @@ int WoofIOS_CopyPlaypal(unsigned char *buf, int cap);
 // an item's rect in window points (0 with no items), so it can tell how far
 // along a row a tap is still on the item. Counters reset at session start.
 const char *WoofIOS_DebugMenuState(void);
+
+// Debug/test telemetry only (issue 440): the engine's setup screen that is
+// up, or "ss=-1" with none:
+//   "ss=<screen> pg=<page> on=<cursor item> sel=<0|1>
+//    tabs=<x,y,w,h|...> items=<K[x]:press:drawn:value|...>"
+// Every rect is "x,y,w,h" in whole window points. For an item, K is its
+// kind (T slider, O on/off, C choice, N number, I input binding, F opens a
+// screen, R reset button, W weapon number, - title or other), a following x
+// says the cursor cannot land on it, `press` is where a press acts on it,
+// `drawn` is what it draws, and `value` its integer setting (0 where it has
+// none). Too long for the HUD strip; the overlay publishes it on its own
+// accessibility element.
+const char *WoofIOS_DebugSetupState(void);
 
 // --- Overlay layout: where the picture is ---
 // The rectangle the engine is drawing the game into, in the SDL window's

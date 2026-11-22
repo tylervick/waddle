@@ -227,6 +227,12 @@ typedef struct setup_menu_s
     int lines;            // number of lines for rect, always > 0
     const char *desc;     // overrides default description
     const char *append;   // string to append to value
+#ifdef WOOF_IOS
+    mrect_t drawn;        // what the item last drew: its text, its setting,
+                          // its slider. `rect` is where a press counts, and
+                          // for most items that is the whole width of the
+                          // screen (issue 440)
+#endif
 } setup_menu_t;
 
 // phares 4/21/98: Moved from m_misc.c so m_menu.c could see it.

@@ -651,7 +651,8 @@ only ever runs once):
   `TouchMenuTests` reads. `WoofIOS_IsAttractMode` (title or demo, no menu)
   lets the overlay open the menu on a tap by injecting a paired
   `KEY_ESCAPE`.
-  Issue 430 added `MN_PointOnSaveLoadSlot` / `WoofIOS_IsSaveSlotAtPoint`: is
+  Issue 430 added `MN_PointOnSaveLoadSlot` / `WoofIOS_IsSaveSlotAtPoint` (since
+  renamed, below): is
   this window point on a slot of the Load or Save list (the rects
   `CursorPosition` tests, refused during a prompt, on the setup screens and
   beside the picture). The overlay asks it before giving a touch to one of
@@ -660,6 +661,25 @@ only ever runs once):
   item's rect is the full screen width, most of it empty. The HUD segment
   gained `iw=`, an item's rect width in window points
   (`MN_DebugMenuItemWidth`), which the test for it aims by.
+  Issue 440 did the same for the setup screens and renamed the shim's call
+  `WoofIOS_IsDrawnMenuItemAtPoint` (a slot, or `MN_PointOnSetupItem`). A
+  setup item's `rect` is the whole width of the screen, so it cannot say
+  what is under a button; `src/mn_setup.c` now records what each item draws
+  (`setup_menu_t.drawn` in `src/mn_internal.h`, filled by
+  `IOS_DrawnBegin/Add/End` round `DrawItem` and `DrawSetting`, from the
+  string, slider and reset-patch draws), and the seam is true on a tab or on
+  `drawn` within `rect` of an item the cursor can land on, and false while
+  an item is being changed, a key bound or the reset confirmation is up.
+  `WoofIOS_DebugSetupState` (`MN_DebugSetupCursor/Tab/Item`) reports every
+  tab and item of the screen that is up, press rect, drawn rect and value,
+  in window points; the overlay publishes it on its `setupMenuProbe`
+  element for `SetupScreenOverlapTests` and the Duo sweep.
+  `MN_ResetSessionSetup` (called from `WoofIOS_Run` beside
+  `MN_ResetMenuTables`) puts the setup screens' state back at every session
+  start: `setup_active` and its companions, which upstream clears only on
+  the way out of a screen, and the `drawn` rects. A session that ended inside
+  a setup screen otherwise left the next one's main menu steered as one
+  (`docs/engine-session-globals.md`).
 
 - `src/i_video.c`, `src/woof_ios.c` / `src/woof_ios.h` -- the picture's rect
   for the overlay's layout (issue 351). `I_PictureRectInWindow` returns
@@ -884,8 +904,12 @@ files touched on both sides) produced five textual conflicts this way. See
 
 ## When the pins get looked at
 
-Renovate covers none of the native pins (`renovate.json` says so), so the
-schedule is this repository's own (issue #79):
+Two things watch them. Renovate opens a pull request for each tagged pin in
+`Scripts/build-deps.sh` and `Scripts/fetch-freedoom.sh` (next section). It
+does not, and must not, watch `WOOF_COMMIT` or the libraries under
+`Engine/woof/third-party`; `renovate.json`'s description says why. For
+those, and as the backstop for a pin Renovate has quietly stopped matching,
+the schedule is this repository's own (issue #79):
 
 - **Weekly, automatically.** `.github/workflows/cold-build.yml` runs
   `Scripts/check-deps-current.sh` every Monday, after rebuilding every
@@ -898,7 +922,8 @@ schedule is this repository's own (issue #79):
   to the engine). Woof's commit log and miniz's `ChangeLog.md` are where such
   fixes show; `cc1d13e9`, `42470994` and miniz 3.1.2 were all of this kind.
 - **How each pin moves.** Woof: the procedure above. SDL, OpenAL Soft, SONiVOX
-  and the libsndfile stack: edit the tag in `Scripts/build-deps.sh`; any local
+  and the libsndfile stack: Renovate's pull request, or by hand the same
+  way: edit the tag in `Scripts/build-deps.sh`; any local
   fix lives in `Scripts/patches/<dep>/` and the build refuses a patch that no
   longer applies either way. Freedoom: `FREEDOOM_VERSION` in
   `Scripts/fetch-freedoom.sh`, SHA-256 verified. The libraries under
@@ -908,3 +933,79 @@ schedule is this repository's own (issue #79):
   builds cold; `Scripts/engine-fingerprint.sh` hashes `Engine/woof`, the two
   build scripts and `Scripts/patches/`, and nothing Freedoom touches, so a
   Freedoom bump needs only `Scripts/fetch-freedoom.sh` again.
+
+## Renovate pull requests for the native pins
+
+Renovate's custom regex manager (`customManagers` in `renovate.json`) reads
+the `# renovate:` comment directly above each pin and opens one pull request
+per library, labelled `ships-in-binary`, titled `build(shipped-deps): update
+dependency <owner>/<repo> from <old> to <new>`, no sooner than three days
+after the upstream release. The scope matters: `Scripts/whats-to-test.sh`
+lists a `shipped-deps` change under "In the app" in the TestFlight notes,
+with the library, the versions and what to try, where `build(deps):` would
+go behind the scenes and tell testers nothing changed. A bump made by hand
+uses the same scope for the same reason. It never merges one. Each needs a green CI run, the
+independent review and the owner's merge, and merging it ships a TestFlight
+build (`Scripts/release-due.sh` counts both scripts as binary inputs).
+
+| Pin | Upstream, as Renovate reads it | Versioning | Ships as |
+| --- | --- | --- | --- |
+| `SDL_TAG` | libsdl-org/SDL releases, `release-X.Y.Z` | regex; even minor only | linked into the engine |
+| `OPENAL_TAG` | kcat/openal-soft releases, `X.Y.Z` | semver | linked into the engine |
+| `SONIVOX_TAG` | pedrolcl/sonivox tags, `vX.Y.Z` (no releases published) | semver | linked into the engine |
+| `LIBOGG_TAG` | xiph/ogg releases, `vX.Y.Z` | semver | linked into the engine |
+| `LIBVORBIS_TAG` | xiph/vorbis tags, `vX.Y.Z` (releases incomplete) | semver | linked into the engine |
+| `LIBFLAC_TAG` | xiph/flac releases, `X.Y.Z` | semver | linked into the engine |
+| `LIBOPUS_TAG` | xiph/opus tags, `vX.Y` or `vX.Y.Z` (releases lag the tags) | regex | linked into the engine |
+| `LIBSNDFILE_TAG` | libsndfile/libsndfile releases, `X.Y.Z` | semver | linked into the engine |
+| `FREEDOOM_VERSION` | freedoom/freedoom releases, `vX.Y.Z`, pin without the `v` | semver | game data in the bundle |
+
+What the one-line change carries with it, and what it does not:
+
+- **Nothing committed records the version a second time.** There is no
+  checksum, fingerprint or cache key to update. `Scripts/engine-fingerprint.sh`
+  and both CI cache keys hash `Scripts/build-deps.sh` itself, so the pull
+  request misses both caches and CI builds every dependency from source; that
+  cold build is the check. Locally, re-run `Scripts/build-deps.sh` and
+  `Scripts/build-engine.sh`, or `Scripts/check-engine-fresh.sh` refuses the
+  archive. Freedoom's SHA-256 is read from the release being downloaded, so
+  it shows the download is intact and nothing more; the three-day age is the
+  only hedge against a release upstream pulls or replaces.
+- **A red run is the bump asking for a second edit.** Renovate cannot make it
+  (the hosted app runs no `postUpgradeTasks`), so a person or an agent pushes
+  it to Renovate's branch. Renovate stops rebasing a branch someone else has
+  committed to, which is what is wanted here.
+  - *SDL*: `Scripts/build-deps.sh` stops with `applies neither forward nor in
+    reverse` when a patch under `Scripts/patches/SDL/` no longer fits, and
+    prints these steps. The patch's header names the upstream commit it
+    backports. If the new release contains that commit (compare the files the
+    patch touches under `Vendor/src/SDL` with the patch's `+` lines), delete
+    the patch with `git rm`; if not, re-base it on the new tag and update the
+    header's "applies unchanged to" line. Either way push the change to the
+    same pull request and update whatever under `docs/learnings/` names the
+    patch. The first such pull request is SDL `release-3.4.20`, which
+    contains the iOS 27 orientation fix that
+    `0001-ios27-interface-orientation.patch` backports: delete that patch
+    there. A patch that applies
+    in reverse is skipped without a word, so a release that contains the fix
+    verbatim leaves a dead file: check `Scripts/patches/SDL/` on every SDL
+    pull request, red or green.
+  - *SONiVOX*: `Scripts/check-eas-bank.sh` fails with `instrument bank
+    changed` when the wavetable bank differs. Listen on a device before
+    accepting; only then regenerate the hashes with `--print`.
+    `Scripts/check-eas-realtime.sh` runs in the same step.
+  - *The libsndfile stack*: the build fails if libsndfile configures without
+    the Xiph codecs (`docs/learnings/libsndfile-codecs-are-all-or-nothing.md`).
+  - *OpenAL Soft*: `-DHAVE_WFUNCTION_EFFECTS=OFF` in `Scripts/build-deps.sh`
+    works around a 1.25.2 warning-as-error; re-read that comment on a bump
+    and drop the flag once upstream no longer needs it.
+- **What no check sees.** A new SDL on a device (orientation, touch, audio
+  session and gamepad behaviour live there, and the simulator suites cover
+  little of it): run the multi-session UI suites listed in step 6 above and
+  play a level on hardware. A licence text that changed upstream
+  (`App/Resources/Licenses/` is copied by hand). A Freedoom release changes
+  maps, so saves and demos from the previous one may not load, and
+  `App/UITests/Fixtures/` is derived from the release its README names.
+- **Adding a pin.** Give it a `# renovate:` line in the same shape, directly
+  above it, and a row in `Scripts/check-deps-current.sh`. A pin without the
+  comment is not watched, and nothing says so.

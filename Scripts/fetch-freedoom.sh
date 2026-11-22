@@ -3,6 +3,14 @@
 # IWADs + license into App/Resources/GameData.
 set -euo pipefail
 
+# Renovate opens a pull request when this falls behind: the `# renovate:` line
+# is read by the custom regex manager in renovate.json and must stay DIRECTLY
+# above the pin. Never automerged -- this is the game data the app ships. A
+# bump is this one line: the checksum below is read from the same release, so
+# there is no hash to update here, and equally it proves the download is
+# intact, not that the release is the one upstream meant to publish. See
+# "Renovate pull requests for the native pins" in Engine/WOOF_UPSTREAM.md.
+# renovate: datasource=github-releases depName=freedoom/freedoom versioning=semver extractVersion=^v(?<version>.+)$
 FREEDOOM_VERSION="0.13.0"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$ROOT/App/Resources/GameData"
@@ -14,7 +22,7 @@ curl -fsSL "$BASE/freedoom-${FREEDOOM_VERSION}.zip" -o "$TMP/freedoom.zip"
 curl -fsSL "$BASE/freedoom-${FREEDOOM_VERSION}-CHECKSUM" -o "$TMP/CHECKSUM"
 
 # The CHECKSUM file uses BSD format: SHA256 (filename) = hash
-# Extract the hash for freedoom-0.13.0.zip and verify it.
+# Extract the hash for the pinned zip and verify it.
 # `|| true` keeps a failed grep (no match) from killing the script via
 # `set -e -o pipefail` before the explicit -z check below can report it.
 EXPECTED_HASH=$(grep "SHA256 (freedoom-${FREEDOOM_VERSION}.zip)" "$TMP/CHECKSUM" | awk -F' = ' '{print $2}' || true)

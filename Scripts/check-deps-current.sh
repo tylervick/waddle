@@ -1,10 +1,16 @@
 #!/bin/bash
 # Reports how far each vendored native dependency pin is behind upstream, so
-# drift surfaces without anyone measuring by hand (issue #80). Renovate
-# ignores every one of these (renovate.json's own description says so), and
-# the only reason #79 knew the pins had drifted is that someone went and
-# looked. This reports; it does not gate: a pin a month behind is not a
-# reason to turn a pull request red.
+# drift surfaces without anyone measuring by hand (issue #80). The only
+# reason #79 knew the pins had drifted is that someone went and looked. This
+# reports; it does not gate: a pin a month behind is not a reason to turn a
+# pull request red.
+#
+# Renovate now opens pull requests for the tagged pins in build-deps.sh and
+# fetch-freedoom.sh (renovate.json's customManagers). It does not watch
+# WOOF_COMMIT or the libraries inside Engine/woof/third-party, for which this
+# is the only report; and the tagged pins stay listed here because Renovate
+# reads them through a comment above each one, and a pin whose comment is
+# missing or misspelt is dropped silently, not loudly.
 #
 # What it reads, and from where:
 #   WOOF_COMMIT          Scripts/vendor-woof.sh      vs fabiangreffrath/woof master
