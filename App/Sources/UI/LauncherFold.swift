@@ -54,7 +54,6 @@ final class LauncherFoldReaderView: UIView {
         // Behind the launcher and never a target: it only reads.
         isUserInteractionEnabled = false
         backgroundColor = .clear
-        observeHinge()
         #if DEBUG
         installTestSeam()
         #endif
@@ -124,9 +123,7 @@ final class LauncherFoldReaderView: UIView {
                                  isActive: true)]
         }
         #endif
-        guard #available(iOS 27.1, *) else { return [] }
-        return reservedRegions(kind: .division, options: [.includeInactive])
-            .map { FoldDivision(frame: $0.frame, isActive: $0.isActive) }
+        return []
     }
 
     private func refresh() {
