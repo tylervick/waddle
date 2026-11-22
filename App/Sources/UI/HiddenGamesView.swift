@@ -14,14 +14,19 @@ struct HiddenGamesView: View {
                                hint: "Long-press a tile on the shelf to hide it.")
             }
             ForEach(hidden, id: \.id) { game in
-                // No identifier on this HStack itself: a container identifier
+                // No identifier on this stack itself: a container identifier
                 // here collapses onto the row and overwrites the Restore
                 // button's own identifier below, so the button can no longer
                 // be found by it.
-                HStack {
-                    Text(game.name)
+                //
+                // Side by side at the ordinary text sizes, the name over the
+                // button at the accessibility sizes: sharing one line there
+                // left each less than its longest word needs, and both were
+                // broken ("Free-" / "doom" beside "Restor" / "e", issue #436).
+                AccessibilityStack(spacing: Theme.Spacing.sm) {
+                    WholeWordText(game.name)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityIdentifier("hiddenRow-\(game.id)")
-                    Spacer()
                     Button("Restore") {
                         try? library.restore(game)
                         // The shelf sits under Settings as a sheet, so its
