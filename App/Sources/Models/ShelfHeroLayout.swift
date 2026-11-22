@@ -328,9 +328,14 @@ enum ShelfHeroLayout {
                                contentPadding: CGFloat,
                                gridSpacing: CGFloat,
                                compactHeight: Bool = false) -> CGFloat {
-        let tileRowHeight = gridColumnWidth(contentWidth: contentWidth,
-                                            minimum: tileMinimumWidth,
-                                            spacing: gridSpacing) / Theme.tileAspectRatio
+        // The row as the shelf draws it: a tile's own shape, or the
+        // viewport's cap on it (`PlayableTileLayout.tileHeight`).
+        let tileRowHeight = PlayableTileLayout.tileHeight(
+            width: gridColumnWidth(contentWidth: contentWidth,
+                                   minimum: tileMinimumWidth,
+                                   spacing: gridSpacing),
+            viewportHeight: viewportHeight,
+            contentPadding: contentPadding)
         return viewportHeight - contentPadding * 2
             - sectionSpacing(compactHeight: compactHeight) - tileRowHeight
     }
@@ -439,11 +444,18 @@ enum ShelfHeroLayout {
     static func gridPeek(contentWidth: CGFloat,
                          tileMinimumWidth: CGFloat,
                          gridSpacing: CGFloat,
-                         contentPadding: CGFloat) -> CGFloat {
+                         contentPadding: CGFloat,
+                         viewportHeight: CGFloat = 0) -> CGFloat {
         guard contentWidth >= Theme.wideGridContentWidth else { return minimumGridPeek }
-        let rowHeight = gridColumnWidth(contentWidth: contentWidth,
-                                        minimum: tileMinimumWidth,
-                                        spacing: gridSpacing) / Theme.tileAspectRatio
+        // The row as the shelf draws it, which in a short window is the
+        // viewport's cap on a tile and not its 4:3 shape. Zero, "not
+        // measured yet", is the shape.
+        let rowHeight = PlayableTileLayout.tileHeight(
+            width: gridColumnWidth(contentWidth: contentWidth,
+                                   minimum: tileMinimumWidth,
+                                   spacing: gridSpacing),
+            viewportHeight: viewportHeight,
+            contentPadding: contentPadding)
         return max(minimumGridPeek, rowHeight + contentPadding)
     }
 }

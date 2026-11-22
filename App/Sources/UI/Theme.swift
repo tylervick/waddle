@@ -161,6 +161,9 @@ enum Theme {
         static let heroTitle: Font = .title2.bold()
         /// The title on a tile's scrim.
         static let tileTitle: Font = .headline
+        /// The same role as a UIKit text style, for what has to measure the
+        /// title (`WholeWordText`). Keep the two in step.
+        static let tileTitleStyle: UIFont.TextStyle = .headline
         /// Every list section header, through `waddleSectionHeader`.
         static let sectionHeader: Font = .subheadline.weight(.semibold)
         /// The label inside the two button styles.

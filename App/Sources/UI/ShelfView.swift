@@ -69,6 +69,22 @@ struct ShelfView: View {
         Theme.gridMinimumTileWidth(for: dynamicTypeSize, contentWidth: heroContentWidth)
     }
 
+    /// The shape of a grid tile in this window: 4:3, or wider where a tile of
+    /// that shape would be taller than the viewport (issue #431).
+    ///
+    /// Worked out, not measured: the column's width is the arithmetic
+    /// `ShelfHeroLayout.gridColumnWidth` already does for the hero's budget,
+    /// over the scroll view's own width and height. Neither of those follows
+    /// the shelf's content (issue #437), and a tile's own frame is never read.
+    private var tileAspectRatio: CGFloat {
+        PlayableTileLayout.tileAspectRatio(
+            width: ShelfHeroLayout.gridColumnWidth(contentWidth: heroContentWidth,
+                                                   minimum: tileMinimumWidth,
+                                                   spacing: gridSpacing),
+            viewportHeight: viewportHeight,
+            contentPadding: contentPadding)
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading,
@@ -504,7 +520,8 @@ struct ShelfView: View {
                 contentWidth: heroContentWidth,
                 tileMinimumWidth: tileMinimumWidth,
                 gridSpacing: gridSpacing,
-                contentPadding: contentPadding))
+                contentPadding: contentPadding,
+                viewportHeight: viewportHeight))
     }
 
     /// The caption beside the art: title, when it was last played, and the
@@ -662,7 +679,7 @@ struct ShelfView: View {
             RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
                 .strokeBorder(Color.appSecondaryText.opacity(0.35),
                               style: StrokeStyle(lineWidth: 1, dash: [6, 5]))
-                .aspectRatio(Theme.tileAspectRatio, contentMode: .fit)
+                .aspectRatio(tileAspectRatio, contentMode: .fit)
                 .overlay {
                     VStack(spacing: 8) {
                         Image(systemName: "plus")
@@ -686,7 +703,7 @@ struct ShelfView: View {
             case .openPage: openDetails(game)
             }
         } label: {
-            PlayableTileView(game: game, library: library)
+            PlayableTileView(game: game, library: library, aspectRatio: tileAspectRatio)
                 // The tile whose page is open beside the library wears the
                 // accent, so the panel reads as belonging to something.
                 .overlay {

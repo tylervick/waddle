@@ -81,6 +81,78 @@ enum PlayableTileLayout {
         max(0, width) / Theme.tileAspectRatio
     }
 
+    /// The floor the viewport's cap on a tile will not go below, for the same
+    /// reason `ShelfHeroLayout.minimumArtHeight` is one: a window too short
+    /// for this much tile cannot show a game whatever the tile's shape, and a
+    /// strip is not art. A tile that is shorter than this at its own shape is
+    /// left at that shape.
+    static let minimumCappedTileHeight: CGFloat = 120
+
+    /// A tile's height at a given width in a window whose shelf shows
+    /// `viewportHeight` without scrolling: its 4:3 shape, unless that is
+    /// taller than the window has room for (issue #431).
+    ///
+    /// A tile's title is drawn along its bottom edge. At an accessibility
+    /// text size the grid is one column, so on a closed iPhone Duo held on
+    /// its side a tile was 562 pt wide and 421 pt tall in a viewport of about
+    /// 360: no scroll position showed a game's art and its name together.
+    /// The cap is the viewport less the shelf's inset above and below, so a
+    /// tile scrolled to the top of the grid ends above the fold with the same
+    /// margin under it as over it. The art gives up a band of its height
+    /// instead (`TitleArtView` crops to whatever shape it is handed), as the
+    /// Continue hero's does.
+    ///
+    /// Nothing phone-sized reaches the cap at any text size but that one
+    /// window: two columns or more make a tile far shorter than a viewport.
+    ///
+    /// - Parameter viewportHeight: zero or non-finite means "not measured
+    ///   yet", and the tile keeps its shape, as the hero's art does.
+    static func tileHeight(width: CGFloat,
+                           viewportHeight: CGFloat,
+                           contentPadding: CGFloat) -> CGFloat {
+        let natural = tileHeight(width: width)
+        guard viewportHeight.isFinite, viewportHeight > 0 else { return natural }
+        let room = viewportHeight - contentPadding * 2
+        return min(natural, max(room, minimumCappedTileHeight))
+    }
+
+    /// The shape that goes with the capped height: `Theme.tileAspectRatio`
+    /// wherever the cap does not bind, wider where it does. This is what the
+    /// shelf hands each tile.
+    static func tileAspectRatio(width: CGFloat,
+                                viewportHeight: CGFloat,
+                                contentPadding: CGFloat) -> CGFloat {
+        let height = tileHeight(width: width, viewportHeight: viewportHeight,
+                                contentPadding: contentPadding)
+        guard width > 0, height > 0 else { return Theme.tileAspectRatio }
+        return max(Theme.tileAspectRatio, width / height)
+    }
+
+    /// How many lines a tile's title may take (issue #426).
+    ///
+    /// One, up to the default text size: that is the size the scrim's ceiling
+    /// below was set at, and there the title's small shrink
+    /// (`titleMinimumScaleFactor`) is enough to keep the bundled games'
+    /// names whole. Above it the type grows and a two-column tile does not:
+    /// at the largest standard size "Freedoom Phase 1" is 200 pt of title in
+    /// a 142 pt line and would need 0.71 of its size, and at the largest
+    /// accessibility size 460 pt in 324. Shrinking that far undoes the size
+    /// the reader asked for, so the title takes a second line instead and
+    /// the scrim grows with it.
+    static func titleLineLimit(largerThanDefaultText: Bool) -> Int {
+        largerThanDefaultText ? 2 : 1
+    }
+
+    /// The narrowest line that holds a title of `fullWidth` whole on one
+    /// line: its width at the smallest size the one-line title shrinks to. A
+    /// point over, because the width is `UIFont`'s measure and the line is
+    /// SwiftUI's. Above the default text size a tile whose line is narrower
+    /// than this gives the title its second line; one that is not draws the
+    /// title exactly as it did before there was a second line.
+    static func oneLineTitleMinimumWidth(fullWidth: CGFloat) -> CGFloat {
+        (max(0, fullWidth) * titleMinimumScaleFactor).rounded(.up) + 1
+    }
+
     /// The scrim's total height: the paddings above and below, the title's own
     /// line, and the subtitle plus its gap when there is one.
     ///
