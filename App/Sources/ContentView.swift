@@ -50,12 +50,6 @@ struct ContentView: View {
         // own, as the one stack does when the device is flat. (A column that
         // ignored the safe area took the insets from the bars inside it too,
         // and the shelf's wordmark went under the status bar.)
-        .background {
-            LauncherFoldReader { split in
-                halves = split
-                panelModel.foldChanged(isSplit: split != nil)
-            }
-        }
         .onChange(of: horizontalSizeClass, initial: true) { old, sizeClass in
             // Unfolding an iPhone Duo with nothing open leaves an empty
             // column up; the model deals with it. See `systemSetPresented`.
