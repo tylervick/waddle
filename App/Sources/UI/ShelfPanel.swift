@@ -112,6 +112,9 @@ final class ShelfPanelModel {
     /// out, it is put back up (`returnColumn`).
     func foldChanged(isSplit split: Bool) {
         guard split != isSplit else { return }
+        // Asked first: a column still on its way back up counts as open, and
+        // the next line forgets that it was.
+        let wasOpen = panel != nil
         // While `isSplit` still has its old value, so a close in flight is
         // taken back under the rules it was started under.
         cancelStrayColumnClose()
@@ -119,11 +122,11 @@ final class ShelfPanelModel {
         var quiet = Transaction()
         quiet.disablesAnimations = true
         if split {
-            openInLowerHalf = isPresented && content != nil
+            openInLowerHalf = wasOpen
             isSplit = true
             withTransaction(quiet) { isPresented = false }
         } else {
-            let open = openInLowerHalf && content != nil
+            let open = wasOpen
             isSplit = false
             openInLowerHalf = false
             // Closed in the lower half is closed: nothing is left for a

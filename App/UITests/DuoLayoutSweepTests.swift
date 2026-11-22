@@ -170,17 +170,20 @@ final class DuoLayoutSweepTests: XCTestCase {
         // tile is taller than a landscape window and never fits in it. A
         // centre on screen still rules out the sliver at the bottom edge
         // that `isHittable` alone accepts (issue #352).
-        func reachable() -> Bool {
-            guard element.exists, element.isHittable else { return false }
-            let frame = element.frame
-            return app.windows.firstMatch.frame.contains(CGPoint(x: frame.midX, y: frame.midY))
-        }
         // Where to drag, settled once: a list found by one of its rows stops
         // being found when that row scrolls away, and the drags after that
         // would fall on whatever else is in the window.
         let window = app.windows.firstMatch.frame
-        var area = window
-        if let container, container.exists { area = container.frame.intersection(window) }
+        // With no container it is the shelf that scrolls, and the element
+        // has to be in the shelf's part of the window to be in reach.
+        let shelf = shelfArea(app)
+        var area = shelf, inReach = shelf
+        if let container, container.exists { area = container.frame.intersection(window); inReach = window }
+        func reachable() -> Bool {
+            guard element.exists, element.isHittable else { return false }
+            let frame = element.frame
+            return inReach.contains(CGPoint(x: frame.midX, y: frame.midY))
+        }
         dragsMade = 0
         while !reachable() && dragsMade < drags {
             scrollUp(app, in: area)
@@ -188,6 +191,21 @@ final class DuoLayoutSweepTests: XCTestCase {
             dragsMade += 1
         }
         return reachable()
+    }
+
+    /// Where the shelf is, and so where a drag has to fall to move it: the
+    /// whole window, or the upper half of it on a device standing half open
+    /// (issue #429), where the middle of the window is the panel's half and
+    /// a drag there scrolled the wrong thing. The app's own marker says
+    /// where the upper half ends.
+    @MainActor
+    private func shelfArea(_ app: XCUIApplication) -> CGRect {
+        let window = app.windows.firstMatch.frame
+        let upperEdge = app.otherElements["launcherUpperHalf"]
+        guard pose == "half-open", upperEdge.exists else { return window }
+        let bar = app.navigationBars["Waddle"]
+        let top = bar.exists ? bar.frame.maxY : window.minY
+        return CGRect(x: window.minX, y: top, width: window.width, height: upperEdge.frame.maxY - top)
     }
 
     // MARK: the session and the engine's own screens

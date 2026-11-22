@@ -90,3 +90,31 @@ runs it) uses the session's `WADDLE_TEST_HALF_OPEN` seam; the fold is flipped
 by the same Darwin notification. What the screen looks like on a real hinge
 is the sweep's job: `Scripts/duo-layout-sweep.sh run half-open`, shots 02,
 04, 10 and 12 to 15 against the band at 1366 to 1486 px.
+
+## The sweep dragged the wrong half
+
+`DuoLayoutSweepTests.bringIntoView` scrolled the shelf by dragging the middle
+of the window. Half open that is the panel's half, so the shelf never moved
+and three shots were lost at the largest text size with nothing failing but
+"could not be reached". It drags inside the shelf's half now (`shelfArea`).
+A helper that says "the window" for "the thing that scrolls" stops being
+right when a screen gets a second scroll view.
+
+## Comparing flat poses with `main`: what is noise and what is not
+
+Captures of `main` and of the branch, same simulator, same pose, status-bar
+time held (`simctl status_bar override`), a fresh store or a fixed
+`lastPlayed`: closed, open and open turned tall come out identical to the
+pixel, with two things to know first.
+
+- Two captures of the *same* build can differ by about 1,170 pixels, all in
+  the home indicator's bar, and by a handful in a glass button. Take two of
+  each and compare the best pair, or a real zero looks like a difference.
+- On an open Duo held wide, with a panel beside the shelf, `main` does not
+  lay the shelf out the same way every launch: in 4 launches opened by a tap
+  on the gear, 3 gave one picture and 1 another, and in both the shelf's
+  content is cut at its left edge. The branch gave `main`'s usual picture 3
+  times in 4. That state cannot be compared by pixels until it is stable,
+  and it is `main`'s to fix.
+
+The captures are in `assets/half-open-launcher-2026-11-21/`.
