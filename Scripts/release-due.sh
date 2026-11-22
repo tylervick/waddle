@@ -39,7 +39,8 @@ cd "$ROOT"
 # conservative: Scripts/ as a whole stays IN, because archive.sh, build-engine.sh,
 # vendor-woof.sh and patches/ decide what the binary is, and only the suites
 # and the CI guards are named out. mise.toml stays in for the same reason (it
-# pins xcodegen and the toolchain). Design/ is out because its rendered output
+# pins xcodegen and the toolchain); .config/mise.toml, which by its own rule
+# pins only tools no build step runs, is out. Design/ is out because its rendered output
 # is committed under App/, which is what ships.
 #
 # Note the ORDER of consequences when this list is wrong. An entry too broad
@@ -59,6 +60,19 @@ NON_BINARY_PATHS=(
     # to the one they have.
     ':(exclude)Scripts/release-due.sh'
     ':(exclude)Scripts/fixtures/'
+    # The icon pipeline. Like Design/, its output reaches a tester only once
+    # it is committed under App/ (AppIcon.icon, the wordmark imageset), which
+    # this diff sees; Scripts/check-icons-fresh.sh keeps the two in step. A
+    # change here alone -- the Pillow pin and its lock, PR #473 -- changes
+    # nothing that ships.
+    ':(exclude)Scripts/build-mark.py'
+    ':(exclude)Scripts/build-mark.py.lock'
+    ':(exclude)Scripts/render-icons.sh'
+    ':(exclude)Scripts/extract-freedoom-glyphs.py'
+    # The mise config for tools that never reach the binary (uv). Only this
+    # one file: mise.toml stays IN, and so does any other mise config, which
+    # could pin a build tool.
+    ':(exclude).config/mise.toml'
     ':(exclude).github/'
     ':(exclude).revyl/'
     ':(exclude)*.md'

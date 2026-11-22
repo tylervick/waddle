@@ -1,0 +1,18 @@
+# Tools that never reach the app binary. mise loads this beside mise.toml, so
+# `mise install` and CI's mise-action install it as they do cmake.
+#
+# It is a separate file for two reasons, both measured on PR #473:
+#   - Scripts/release-due.sh treats mise.toml as a binary input (it pins the
+#     toolchain), so adding uv there made a merge ship a TestFlight build with
+#     identical app code. This file is excluded there instead.
+#   - Both CI build caches key on hashFiles('mise.toml'), so a pin there
+#     rebuilds the engine from source for a tool the engine never runs.
+#
+# The rule that follows: nothing goes here that a build, archive or engine
+# script calls. cmake, ninja and xcodegen stay in mise.toml. Every [tools]
+# entry here is still checked by Scripts/check-mise-tools-registry.sh and
+# tracked by Renovate's mise manager.
+[tools]
+# Runs Scripts/build-mark.py, and the Pillow checks in test-build-mark.sh and
+# test-glyph-source.sh, which CI's helper job now runs (issue #454).
+uv = "0.13.7"

@@ -104,9 +104,36 @@ set -e
 grep -q 'cannot read' "$TMP/err" || fail "missing config not reported: $(cat "$TMP/err")"
 pass "a missing mise.toml fails closed"
 
+# 5b. Without MISE_TOOLS_CONFIG the check reads every config mise loads, not
+#     only mise.toml: a vendor pin moved into .config/mise.toml (where uv
+#     lives) or a conf.d fragment is installed by CI just the same. And
+#     mise.toml itself must still exist.
+mkdir -p "$TMP/repo/.config/mise/conf.d"
+cp "$TMP/clean.toml" "$TMP/repo/mise.toml"
+printf '[tools]\nuv = "0.13.7"\n' > "$TMP/repo/.config/mise.toml"
+MISE_TOOLS_ROOT="$TMP/repo" "$CHECK" > /dev/null 2> "$TMP/err" \
+  || fail "a clean mise.toml and .config/mise.toml were refused: $(cat "$TMP/err")"
+for where in .config/mise.toml .config/mise/conf.d/extra.toml .mise.toml; do
+  cp "$TMP/blink.toml" "$TMP/repo/$where"
+  if MISE_TOOLS_ROOT="$TMP/repo" "$CHECK" > /dev/null 2> "$TMP/err"; then
+    fail "a vendor pin in $where was accepted"
+  fi
+  grep -q "$where:3: tool pinned through the http backend" "$TMP/err" \
+    || fail "the pin in $where was not named with its file: $(cat "$TMP/err")"
+  rm "$TMP/repo/$where"
+done
+printf '[tools]\nuv = "0.13.7"\n' > "$TMP/repo/.config/mise.toml"
+rm "$TMP/repo/mise.toml"
+set +e
+MISE_TOOLS_ROOT="$TMP/repo" "$CHECK" > /dev/null 2> "$TMP/err"
+rc=$?
+set -e
+[ "$rc" -eq 2 ] || fail "a checkout without mise.toml exited $rc, expected 2"
+pass "every config mise loads is read, each pin named with its file; mise.toml must exist"
+
 # 6. Live: the repository's own mise.toml must pass. This is the assertion
 #    that bites if someone pins a vendor-hosted tool again.
 "$CHECK" > /dev/null 2> "$TMP/err" || fail "the real mise.toml was refused: $(cat "$TMP/err")"
-pass "the repository's mise.toml has no vendor-hosted pin"
+pass "the repository's mise configs have no vendor-hosted pin"
 
 echo "All check-mise-tools-registry tests passed."

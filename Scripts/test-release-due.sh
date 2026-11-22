@@ -216,6 +216,13 @@ commit_path Scripts/fixtures/x.txt "test: a fixture"
 commit_path .github/workflows/x.yml "ci: a workflow"
 commit_path .revyl/config.yaml "ci: the Revyl config"
 commit_path Design/source/x.svg "design: a glyph source"
+# The icon pipeline, whose output ships only once committed under App/, and
+# the mise config for tools no build step runs (PR #473).
+commit_path Scripts/build-mark.py "# build: the compositor"
+commit_path Scripts/build-mark.py.lock "build: its Pillow lock"
+commit_path Scripts/render-icons.sh "# build: the icon renderer"
+commit_path Scripts/extract-freedoom-glyphs.py "# build: the glyph extractor"
+commit_path .config/mise.toml "# chore: a non-binary tool pin"
 commit_path README.md "docs: readme"
 commit_path renovate.json "chore: renovate"
 commit_path .coderabbit.yaml "chore: the CodeRabbit config"
@@ -246,6 +253,8 @@ for spec in \
     "Scripts/patches/woof.patch:an engine patch" \
     "Scripts/build-engine.sh:the engine build" \
     "mise.toml:a toolchain pin" \
+    ".config/mise/config.toml:another mise config, which could pin a build tool" \
+    "Scripts/build-mark-x.sh:a sibling of the icon pipeline's files" \
     "Engine/x.c:engine source" \
     "NewThing/x.swift:an unclassified new directory"; do
     path="${spec%%:*}"; what="${spec#*:}"
