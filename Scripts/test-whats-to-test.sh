@@ -923,4 +923,47 @@ echo "$out" | grep -qF -- "- Only a closing line" || fail "a closing-only body d
 echo "$out" | grep -qF "Closes #99" && fail "the closing line itself was emitted as a bullet; got: $out"
 pass "a body that is only a closing line still falls back to the commit subject"
 
+# 47. A dependency that ships inside the app is an app change (PR #456
+#     review). Renovate titles a native-pin bump `build(shipped-deps): ...`;
+#     type `build` alone would file it behind the scenes, and a build whose
+#     ONLY change is a new SDL would tell testers nothing in the app changed.
+#     The bullet names the library, both versions without their tag
+#     spelling, and what to try -- for a bot's pull request too, whose
+#     subject is otherwise kept verbatim.
+r="$(make_repo shippeddep 'merge_pr 460 "build(shipped-deps): update dependency libsdl-org/SDL from release-3.4.18 to release-3.4.20"')"
+stub_curl "$r"
+(cd "$r" && git remote add origin https://github.com/tylervick/waddle.git)
+printf '%s' '{"user":{"login":"renovate[bot]","type":"Bot"},"body":"This PR contains the following updates:\n"}' > "$r/pr.460.json"
+out="$(print_stubbed "$r")" || fail "shippeddep case exited non-zero: $out"
+echo "$out" | grep -qF "Nothing in the app itself changed" && fail "an SDL bump was reported as no app change; got: $out"
+echo "$out" | grep -q "^Behind the scenes:" && fail "an SDL bump went behind the scenes; got: $out"
+echo "$out" | grep -q "^In the app:" || fail "no 'In the app:' section for an SDL bump; got: $out"
+echo "$out" | grep -qF -- "- Updated SDL, which handles touch, controllers, the screen and audio output from 3.4.18 to 3.4.20. Please try: touch controls, a controller, rotating the device, and sound" \
+    || fail "the SDL bullet does not name the library, versions and what to try; got: $out"
+pass "lists a shipped dependency bump in the app section with what to try"
+
+# 48. The same for Freedoom and an audio library, next to an ordinary
+#     tooling bump that must stay where it was: the exception is the scope,
+#     not the word "dependency".
+r="$(make_repo shippedmix 'merge_pr 461 "build(shipped-deps): update dependency freedoom/freedoom from 0.13.0 to 0.14.0"; merge_pr 462 "build(shipped-deps): update dependency xiph/opus from v1.6.1 to v1.7"; merge_pr 463 "chore(deps): update dependency cmake to v4.5.1"; merge_pr 464 "build(shipped-deps): update dependency example/newlib from 1.0.0 to 1.1.0"; merge_pr 465 "build(shipped-deps): bump SONiVOX to v4.0.3"')"
+out="$(notes "$r")" || fail "shippedmix case exited non-zero: $out"
+app_h="$(echo "$out" | grep -n "^In the app:" | cut -d: -f1)"
+oth_h="$(echo "$out" | grep -n "^Behind the scenes:" | cut -d: -f1)"
+[ -n "$app_h" ] && [ -n "$oth_h" ] || fail "missing a section heading; got: $out"
+in_app() { # fixed text
+    l="$(echo "$out" | grep -nF -- "$1" | cut -d: -f1)"
+    [ -n "$l" ] && [ "$l" -gt "$app_h" ] && [ "$l" -lt "$oth_h" ]
+}
+in_app "- Updated the bundled Freedoom games from 0.13.0 to 0.14.0. Please try: play a level of each; saves made on the previous version may not load" \
+    || fail "the Freedoom bullet is missing or misplaced; got: $out"
+in_app "- Updated a music decoding library (opus) from 1.6.1 to 1.7. Please try: play a mod with OGG, FLAC or Opus music" \
+    || fail "the opus bullet is missing or misplaced; got: $out"
+in_app "- Update dependency example/newlib from 1.0.0 to 1.1.0 (a library built into the app). Please try: play a level and check controls and sound" \
+    || fail "an unknown shipped library lost its bullet or its hint; got: $out"
+in_app "- Updated SONiVOX, which plays MIDI music. Please try: listen to the music in the original games" \
+    || fail "a hand-written bump with no 'from' lost its hint; got: $out"
+l_tool="$(echo "$out" | grep -nF -- "- Update dependency cmake to v4.5.1" | cut -d: -f1)"
+[ -n "$l_tool" ] && [ "$l_tool" -gt "$oth_h" ] || fail "the tooling bump left 'Behind the scenes:'; got: $out"
+pass "keeps the shipped-dependency exception to its scope, with a hint per library"
+
 echo "All whats-to-test tests passed."

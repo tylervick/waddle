@@ -27,8 +27,8 @@
     "they are linked into the shipped binary (or, for Freedoom, are the game",
     "data in the bundle), and a green CI run does not show what a new SDL does",
     "on a device. They open one pull request per library, labelled",
-    "`ships-in-binary`, with a `build(deps):` subject, after the same three-day",
-    "minimum release age, and wait for CI, the independent review and the",
+    "`ships-in-binary`, with a `build(shipped-deps):` subject, after the same",
+    "three-day minimum release age, and wait for CI, the review and the",
     "owner's merge. Merging one ships a TestFlight build. What a bump needs",
     "besides the one line is in Engine/WOOF_UPSTREAM.md, 'Renovate pull",
     "requests for the native pins'; each pull request body links there.",
@@ -145,13 +145,23 @@
         "off for minor and patch releases of everything the custom manager",
         "extracts, and applies the three-day age to majors too. One pull",
         "request per library (no groupName): each is a separate thing to test",
-        "on a device, and a grouped pull request cannot say which one broke."
+        "on a device, and a grouped pull request cannot say which one broke.",
+        "",
+        "The subject is `build(shipped-deps): update dependency <repo> from",
+        "<old> to <new>`, and both halves are read by Scripts/whats-to-test.sh:",
+        "scope `shipped-deps` puts the bump under 'In the app' in the",
+        "TestFlight notes (plain `deps` or type `build` would file it behind",
+        "the scenes and tell testers nothing changed), and 'from X to Y' is",
+        "where it takes the two versions from. Scripts/test-whats-to-test.sh",
+        "pins that shape; change it there first."
       ],
       "matchManagers": ["custom.regex"],
       "automerge": false,
       "minimumReleaseAge": "3 days",
       "addLabels": ["ships-in-binary"],
       "semanticCommitType": "build",
+      "semanticCommitScope": "shipped-deps",
+      "commitMessageExtra": "from {{{currentValue}}} to {{{newValue}}}",
       "prBodyNotes": [
         "**This changes what ships.** It is not automerged: it needs CI, an independent review and the owner's merge, and merging it ships a TestFlight build. CI builds every dependency cold for this pull request, so a failure in `Scripts/build-deps.sh` or a `Scripts/check-*.sh` guard is the bump asking for a second edit, and its message says which. See [Renovate pull requests for the native pins](https://github.com/tylervick/waddle/blob/main/Engine/WOOF_UPSTREAM.md#renovate-pull-requests-for-the-native-pins)."
       ]

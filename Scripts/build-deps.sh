@@ -100,7 +100,15 @@ apply_patches() { # dep tag
             : # already applied
         else
             echo "error: $1: $(basename "$p") applies neither forward nor in reverse to the checkout at $2." >&2
-            echo "       Re-base the patch on the new pin, or delete it if that release contains the fix." >&2
+            echo "       This is what a pin bump looks like when a local patch no longer fits. Do one of:" >&2
+            echo "       1. $2 already contains the fix. The patch's header names the upstream commit it" >&2
+            echo "          backports; compare the patch's '+' lines with the same files under" >&2
+            echo "          Vendor/src/$1. If they are there: git rm Scripts/patches/$1/$(basename "$p")" >&2
+            echo "       2. It does not. Re-base the patch on $2 (apply it by hand in Vendor/src/$1," >&2
+            echo "          regenerate the diff, keep the header and update its 'applies unchanged to' line)." >&2
+            echo "       Commit that to the same pull request as the pin bump, and never delete a patch" >&2
+            echo "       just to get a green build: without it the bug it fixes ships." >&2
+            echo "       See 'Renovate pull requests for the native pins' in Engine/WOOF_UPSTREAM.md." >&2
             exit 1
         fi
     done

@@ -918,9 +918,13 @@ the schedule is this repository's own (issue #79):
 
 Renovate's custom regex manager (`customManagers` in `renovate.json`) reads
 the `# renovate:` comment directly above each pin and opens one pull request
-per library, labelled `ships-in-binary`, titled `build(deps): update
-dependency <owner>/<repo> to <tag>`, no sooner than three days after the
-upstream release. It never merges one. Each needs a green CI run, the
+per library, labelled `ships-in-binary`, titled `build(shipped-deps): update
+dependency <owner>/<repo> from <old> to <new>`, no sooner than three days
+after the upstream release. The scope matters: `Scripts/whats-to-test.sh`
+lists a `shipped-deps` change under "In the app" in the TestFlight notes,
+with the library, the versions and what to try, where `build(deps):` would
+go behind the scenes and tell testers nothing changed. A bump made by hand
+uses the same scope for the same reason. It never merges one. Each needs a green CI run, the
 independent review and the owner's merge, and merging it ships a TestFlight
 build (`Scripts/release-due.sh` counts both scripts as binary inputs).
 
@@ -952,10 +956,17 @@ What the one-line change carries with it, and what it does not:
   it to Renovate's branch. Renovate stops rebasing a branch someone else has
   committed to, which is what is wanted here.
   - *SDL*: `Scripts/build-deps.sh` stops with `applies neither forward nor in
-    reverse` when a patch under `Scripts/patches/SDL/` no longer fits. The
-    patch's header names the upstream commit it backports. If the new release
-    contains that commit, delete the patch; if not, re-base it on the new tag
-    and update the header's "applies unchanged to" line. A patch that applies
+    reverse` when a patch under `Scripts/patches/SDL/` no longer fits, and
+    prints these steps. The patch's header names the upstream commit it
+    backports. If the new release contains that commit (compare the files the
+    patch touches under `Vendor/src/SDL` with the patch's `+` lines), delete
+    the patch with `git rm`; if not, re-base it on the new tag and update the
+    header's "applies unchanged to" line. Either way push the change to the
+    same pull request and update whatever under `docs/learnings/` names the
+    patch. The first such pull request is SDL `release-3.4.20`, which
+    contains the iOS 27 orientation fix that
+    `0001-ios27-interface-orientation.patch` backports: delete that patch
+    there. A patch that applies
     in reverse is skipped without a word, so a release that contains the fix
     verbatim leaves a dead file: check `Scripts/patches/SDL/` on every SDL
     pull request, red or green.
