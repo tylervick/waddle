@@ -121,9 +121,24 @@ enum ShelfHeroLayout {
     /// Height for the art beside the caption: TITLEPIC's shape at up to half
     /// the row, shrunk so `minimumGridPeek` of the first tile row still shows
     /// under the compact zone break, never below `minimumArtHeight`. The
-    /// caption does not enter: it sits beside the art, not under it.
-    static func sideBySideArtHeight(contentWidth: CGFloat, viewportHeight: CGFloat) -> CGFloat {
-        let widest = (max(0, contentWidth) - sideBySideSpacing) * sideBySideArtWidthFraction
+    /// caption's height does not enter: it sits beside the art, not under it.
+    ///
+    /// Its width does (issue #424). The caption holds the hero's two buttons,
+    /// whose labels are text at the reader's size and cannot be shrunk, so
+    /// `captionMinimumWidth` is what the wider of them needs on one line and
+    /// the art gives up whatever of its half that takes. On an open iPhone
+    /// Duo turned tall, at the largest accessibility size, half the row was
+    /// 312 pt and a button needed more: both labels were cut ("Contin…",
+    /// "New Ga…"). The art gives way only down to its floor; a row too narrow
+    /// for the floor and a button is narrower than any window that puts the
+    /// art beside its caption.
+    static func sideBySideArtHeight(contentWidth: CGFloat,
+                                    viewportHeight: CGFloat,
+                                    captionMinimumWidth: CGFloat = 0) -> CGFloat {
+        let row = max(0, contentWidth) - sideBySideSpacing
+        let half = row * sideBySideArtWidthFraction
+        let floor = min(half, minimumArtHeight * Theme.heroAspectRatio)
+        let widest = max(floor, min(half, row - captionMinimumWidth))
         let natural = widest / Theme.heroAspectRatio
         guard viewportHeight.isFinite, viewportHeight > 0 else { return natural }
         let room = viewportHeight - sectionSpacing(compactHeight: true) - minimumGridPeek
@@ -131,8 +146,12 @@ enum ShelfHeroLayout {
     }
 
     /// The width that goes with `sideBySideArtHeight`: the art keeps its shape.
-    static func sideBySideArtWidth(contentWidth: CGFloat, viewportHeight: CGFloat) -> CGFloat {
-        sideBySideArtHeight(contentWidth: contentWidth, viewportHeight: viewportHeight) * Theme.heroAspectRatio
+    static func sideBySideArtWidth(contentWidth: CGFloat,
+                                   viewportHeight: CGFloat,
+                                   captionMinimumWidth: CGFloat = 0) -> CGFloat {
+        sideBySideArtHeight(contentWidth: contentWidth,
+                            viewportHeight: viewportHeight,
+                            captionMinimumWidth: captionMinimumWidth) * Theme.heroAspectRatio
     }
 
     /// The whole hero, side by side: the taller of the art and the caption.
@@ -142,9 +161,49 @@ enum ShelfHeroLayout {
     /// page's side-by-side row gives.
     static func sideBySideHeroHeight(contentWidth: CGFloat,
                                      viewportHeight: CGFloat,
-                                     captionHeight: CGFloat) -> CGFloat {
-        max(sideBySideArtHeight(contentWidth: contentWidth, viewportHeight: viewportHeight),
+                                     captionHeight: CGFloat,
+                                     captionMinimumWidth: CGFloat = 0) -> CGFloat {
+        max(sideBySideArtHeight(contentWidth: contentWidth,
+                                viewportHeight: viewportHeight,
+                                captionMinimumWidth: captionMinimumWidth),
             captionHeight)
+    }
+
+    /// The width left for the caption beside the art: the row less the art
+    /// and the gap between them.
+    static func sideBySideCaptionWidth(contentWidth: CGFloat,
+                                       viewportHeight: CGFloat,
+                                       captionMinimumWidth: CGFloat = 0) -> CGFloat {
+        max(0, contentWidth - sideBySideSpacing
+            - sideBySideArtWidth(contentWidth: contentWidth,
+                                 viewportHeight: viewportHeight,
+                                 captionMinimumWidth: captionMinimumWidth))
+    }
+
+    /// How the caption's two buttons, Continue and New Game, are stacked.
+    enum ButtonArrangement: Equatable {
+        case row
+        case column
+    }
+
+    /// Gap between the two buttons when they share a row.
+    static let buttonRowSpacing: CGFloat = Theme.Spacing.md
+
+    /// A row only where the caption holds two buttons of the WIDER label's
+    /// width, because that is how a row is drawn: both buttons stretch, so
+    /// the row is split evenly. Asking only whether the two natural widths
+    /// fit side by side (what `ViewThatFits` asks) let the row through
+    /// wherever the sum fitted, and the even split then cut the wider label:
+    /// "New Ga…" on an open iPhone Duo at `accessibility-medium`, and on a
+    /// landscape iPhone at `accessibility-large` (issue #424).
+    ///
+    /// - Parameter buttonMinimumWidth: what the wider button needs to show
+    ///   its label whole. Zero means "not measured yet" and keeps the row,
+    ///   which is what every window draws at the default text size.
+    static func buttonArrangement(captionWidth: CGFloat,
+                                  buttonMinimumWidth: CGFloat) -> ButtonArrangement {
+        guard buttonMinimumWidth > 0 else { return .row }
+        return buttonMinimumWidth * 2 + buttonRowSpacing <= captionWidth ? .row : .column
     }
 
     /// The welcome card's own metrics: 16 pt of padding all round, 12 pt
