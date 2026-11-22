@@ -1,7 +1,8 @@
 #!/bin/bash
 # Answers the one question testflight.yml's gate asks before it spends a macOS
 # runner on a merge to main: has anything that goes into the binary changed
-# since the last build shipped?
+# since the last build shipped? And, first, is this commit even the newest
+# thing main has: a commit behind a build that already shipped is `no`.
 #
 # Prints `yes` or `no` on stdout and exits 0 for BOTH. A merge that ships
 # nothing is a normal answer, not a failure. A non-zero exit for "nothing to
@@ -53,6 +54,10 @@ NON_BINARY_PATHS=(
     ':(exclude)App/UITests/'
     ':(exclude)Scripts/test-*.sh'
     ':(exclude)Scripts/check-*.sh'
+    # This script. It decides WHETHER to ship and is no part of what ships; a
+    # change to the gate must not, by itself, send testers a build identical
+    # to the one they have.
+    ':(exclude)Scripts/release-due.sh'
     ':(exclude)Scripts/fixtures/'
     ':(exclude).github/'
     ':(exclude).revyl/'
@@ -70,6 +75,51 @@ NON_BINARY_PATHS=(
 if ! git rev-parse --verify -q HEAD >/dev/null 2>&1; then
     echo "error: no HEAD commit to measure from -- not a git repository, or one with no commits yet" >&2
     exit 1
+fi
+
+# Is this commit BEHIND a build that already shipped? Then there is nothing to
+# ship from it, whatever it changed: answer `no`, and say why on stderr.
+#
+# This is what makes re-running an old run safe. `main` run for commit A has a
+# test job cancelled (issue #415), so its release is skipped. Merge B lands,
+# goes green and ships build-307. Someone then re-runs A's failed job, and
+# GitHub re-runs the release behind it, at A. Measured by ancestry alone, as
+# below, build-307 is not reachable from A, so the nearest tag is build-306,
+# "main moved", and A would be archived and uploaded as build 308: an older
+# tree than 307, delivered to testers as the newest build. (Review of pull
+# request 448; reproduced there in a scratch repository.)
+#
+# The newest build is the highest NUMBER, the same reading testflight.yml's
+# build-number step takes, and `--sort=-v:refname` so that build-10 is above
+# build-9. Only "HEAD is strictly behind it" is refused. A newest tag that is
+# on neither side of HEAD (a retry tagged off the main line) is left to the
+# measurement below, because refusing that would stop every release for good
+# while printing `no`, which reads exactly like a quiet week.
+if ! all_build_tags="$(git tag --list 'build-*' --sort=-v:refname)"; then
+    echo "error: could not list tags to find the newest shipped build" >&2
+    exit 1
+fi
+newest_build="$(printf '%s\n' "$all_build_tags" | grep -E '^build-[0-9]+$' | head -n 1 || true)"
+if [ -n "$newest_build" ]; then
+    head_sha="$(git rev-parse HEAD)"
+    # `^{commit}` so an annotated tag is compared as the commit it names.
+    newest_sha="$(git rev-parse "$newest_build^{commit}")"
+    if [ "$head_sha" != "$newest_sha" ]; then
+        # 0: HEAD is an ancestor of the newest build. 1: it is not. Anything
+        # else is git failing, which must not be read as either answer.
+        behind=0
+        git merge-base --is-ancestor "$head_sha" "$newest_sha" || behind=$?
+        case "$behind" in
+            0)
+                echo "release-due: HEAD ($head_sha) is behind $newest_build, which has already shipped; nothing is shipped from an older commit. If this is a re-run of an old run, the build you want is the one main's newest run made." >&2
+                echo no
+                exit 0 ;;
+            1) ;;
+            *)
+                echo "error: could not tell whether HEAD is behind $newest_build (git merge-base exited $behind)" >&2
+                exit 1 ;;
+        esac
+    fi
 fi
 
 # `--match 'build-*'`: those are the only tags a release pushes. v* tags mark

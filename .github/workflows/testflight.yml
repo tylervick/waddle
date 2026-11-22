@@ -4,7 +4,8 @@ name: TestFlight
 # and unit tests pass on a push to `main`; the `gate` job below then asks
 # Scripts/release-due.sh whether anything that goes into the binary changed
 # since the newest build-* tag, and skips the archive otherwise. A docs-only,
-# test-only or workflow-only merge ships nothing. Every uploaded build reaches
+# test-only or workflow-only merge ships nothing, and neither does a commit
+# that is behind a build already shipped (a re-run of an older main run). Every uploaded build reaches
 # the internal TestFlight group through that group's automatic-distribution
 # setting in App Store Connect; the external group's setting stays off, and a
 # build reaches it only through promote-build.yml. Nothing here adds a build
@@ -154,7 +155,7 @@ jobs:
             echo "Something that goes into the binary changed since the last shipped build; releasing."
           else
             echo "ship=false" >> "$GITHUB_OUTPUT"
-            echo "Nothing that goes into the binary has changed since the newest build-* tag; not shipping."
+            echo "Not shipping: nothing that goes into the binary has changed since the newest build-* tag, or this commit is behind a build that already shipped (release-due.sh says which above)."
           fi
 
   testflight:

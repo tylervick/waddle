@@ -212,7 +212,12 @@ with the Xcode and simulator versions pinned in each workflow's `env:` block:
 caches key on, and the release path), and in three more, one per simulator
 (iPhone, iPad, iPhone Duo), builds the `Waddle` scheme and tests it with
 `-only-testing:WaddleTests`. The jobs start together; a merge to `main` ships
-to TestFlight only after all four passed. That filter is required, not a tuning choice: the
+to TestFlight only after all four passed. When one job of a `main` run fails
+or is cancelled for a reason that is not the commit's, re-running that job
+re-runs the release behind it. That ships only from `main`'s newest run: once
+a later run has shipped, an older run's release answers "nothing to ship"
+(`Scripts/release-due.sh` refuses a commit behind the newest `build-*` tag),
+so re-run the newest run instead. That filter is required, not a tuning choice: the
 scheme's test action also includes `WaddleUITests`, which boot the real engine
 and belong to the workflow below. So `mise run test` locally is *broader* than
 CI — it runs the whole scheme, UI tests included.

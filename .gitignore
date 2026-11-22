@@ -19,7 +19,8 @@ build/
 DerivedData/
 Scripts/.appstore.env
 # Glob, not one literal per destination: ci.yml writes a result bundle per
-# test leg (TestResults.xcresult, TestResults-ipad.xcresult), and any one of
+# test leg (TestResults.xcresult now; TestResults-ipad.xcresult and
+# TestResults-duo.xcresult when the legs shared a checkout), and any one of
 # them left untracked makes `git status --porcelain` non-empty, which is
 # exactly what Scripts/check-red-green.sh refuses to run against. Adding a
 # destination must not silently turn TEST_PROOF into `error` on every pull

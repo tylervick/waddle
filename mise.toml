@@ -43,7 +43,7 @@ description = "Build and run the test suite (incl. engine smoke check) on iPhone
 # the machines where the full scheme is red.
 #
 # The iPad leg is -only-testing:WaddleTests, matching what ci.yml runs there;
-# see the note beside its "Run unit tests (iPad)" step for why. The iPhone leg
+# see the note beside the "Run unit tests" step of its unit-tests job for why. The iPhone leg
 # keeps running the whole scheme, unchanged.
 #
 # The iPad simulator is created on demand rather than pre-provisioned --

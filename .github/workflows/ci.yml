@@ -242,7 +242,7 @@ jobs:
             echo "::error::--print failed for a reason other than having nothing to report"
             exit 1
           fi
-          # --sync-only, not the full check: this step runs before the toolchain
+          # --sync-only, not the full check: this job never runs the toolchain
           # setup and the runner has neither uv nor potrace. It still catches the
           # drift that actually happens -- Design/ regenerated without the .icon
           # package being updated. The full regeneration check is `mise run
@@ -491,7 +491,10 @@ jobs:
           echo "--- largest processes by resident memory"
           ps -axo rss=,pcpu=,comm= | sort -rn | head -n 12 \
             | awk '{ rss = $1; cpu = $2; $1 = ""; $2 = ""; n = split($0, parts, "/"); printf "%7.0f MB %5s%%  %s\n", rss / 1024, cpu, parts[n] }'
-          xcrun simctl list devices booted
+          # No `simctl` here, on purpose. After a failed or cancelled test
+          # step a simulator may still be in its first boot, `simctl list`
+          # waits for that (the learning this layout came from), and this
+          # step would then hold the result upload behind it.
 
       - name: Upload test results
         if: failure()
@@ -841,6 +844,13 @@ jobs:
   # `success()`; do not add `always()` or `!cancelled()` to it. A test job
   # added to this workflow and not to this list would be a check a release
   # does not wait for. Scripts/check-release-gate.sh refuses both mistakes.
+  #
+  # Re-running a failed or cancelled leg re-runs this job after it, on that
+  # run's commit. That is the intended recovery when the run is main's newest.
+  # On an OLDER run, after a later one has shipped, it would have uploaded the
+  # older commit as the newest build; Scripts/release-due.sh now answers `no`
+  # for a commit behind the newest build-* tag, so such a re-run goes green
+  # and ships nothing.
   #
   # The called workflow's own first job then decides whether anything that goes into the binary changed
   # since the last shipped build (Scripts/release-due.sh), so a docs-only or
