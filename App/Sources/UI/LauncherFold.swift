@@ -21,11 +21,11 @@ import notify
 /// device and the window alone (issue #437 is what a layout fed by its own
 /// content costs).
 ///
-/// Not a `UIViewRepresentable` in the root's background, which is what it
-/// was first. With the reader in SwiftUI's own tree, CI's unit tests failed
-/// on the iPhone Duo leg in `ImportNoticeBannerTests`, a picture test that
-/// has nothing to do with the launcher, and passed with the reader taken
-/// out: see `docs/learnings/parting-the-launcher-at-the-fold.md`.
+/// It was a `UIViewRepresentable` in the root's background first. That put a
+/// UIKit view inside SwiftUI's own tree for the sake of two readings that
+/// have nothing to do with drawing; here it is beside the tree instead.
+/// `docs/learnings/parting-the-launcher-at-the-fold.md` has what CI showed
+/// with each, which was not enough to blame either.
 @MainActor
 enum LauncherFold {
     private static weak var reader: LauncherFoldReaderView?

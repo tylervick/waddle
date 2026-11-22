@@ -86,6 +86,31 @@ broke `app.tap(withNumberOfTaps:numberOfTouches:)` in
 `accessibility-element-blocks-app-multi-touch-tap.md`. The markers are 2 pt
 elements in the halves' corners, the pattern the touch overlay uses.
 
+## A red picture test on CI that was not settled
+
+The first push failed `ImportNoticeBannerTests` on CI's iPhone Duo leg, and
+again on a re-run, with the signature
+`a-scroll-view-measured-to-lay-out-its-own-content-can-spin.md` describes:
+`image provider … timed out` and `building pipeline primitive_color… took
+17.4 seconds`, where a neighbouring pull request's Duo leg took 0.69. Four
+throwaway draft pull requests, one run each:
+
+| Launcher's root | Duo leg |
+|---|---|
+| reader as a `UIViewRepresentable` in the background (the first push) | failed, twice |
+| the same with the reader removed | passed |
+| the reader view kept, the hinge and the region never asked for | passed |
+| the reader installed through UIKit, hinge and region asked for | failed once, then passed twice (0.84 s) |
+
+A build that logged what the reader saw on CI's Duo showed nothing to
+explain it: closed, one hinge reading, three layout passes, the same as a
+fresh simulator here, where the app sits idle. So the fold APIs are
+correlated with the slow pipeline build on that runner, in five runs, and no
+mechanism was found. The reader is installed through UIKit now, which is
+the form that last failed least. If that test goes red on the Duo leg again
+on a branch that touches the launcher, this is the place to start, and the
+counts above are too small to rule the reader out.
+
 ## Checking it
 
 `HalfOpenLauncherTests` (an extension of `PlayTabTests`, so a pull request
