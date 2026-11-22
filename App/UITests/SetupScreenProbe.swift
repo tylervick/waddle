@@ -158,6 +158,18 @@ struct SetupScreenWalker {
         return nil
     }
 
+    /// The debug HUD's `events <n>`: every write the overlay has made to the
+    /// engine this session, of any kind (a pad button, the trigger, a stick
+    /// axis, a menu pointer move or press). It is the one figure that moves
+    /// for FIRE, whose trigger never reaches `btn`: the engine turns the
+    /// trigger into a button itself (`TriggerToButton`) without counting it.
+    func hudEvents() -> Int? {
+        let label = (try? hud.snapshot())?.label ?? ""
+        let words = label.split(whereSeparator: { $0 == " " || $0 == "\n" })
+        guard let at = words.firstIndex(of: "events"), at + 1 < words.count else { return nil }
+        return Int(words[at + 1])
+    }
+
     func wait<T>(_ timeout: TimeInterval, for value: () -> T?) -> T? {
         let deadline = Date().addingTimeInterval(timeout)
         while true {
