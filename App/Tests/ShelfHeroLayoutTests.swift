@@ -267,6 +267,123 @@ final class ShelfHeroLayoutTests: XCTestCase {
                        natural, accuracy: 0.5)
     }
 
+    // MARK: The caption's buttons keep their width (issue #424)
+
+    /// An open iPhone Duo turned tall, 669x951 pt: 637 pt of row. At the
+    /// largest accessibility size the hero goes side by side there, half the
+    /// row left the caption 312 pt, and a button's label needs more than
+    /// that on one line: both were cut ("Contin…", "New Ga…"). The art gives
+    /// the caption what its buttons need.
+    func testTheArtGivesTheCaptionTheWidthItsButtonsNeed() {
+        let row: CGFloat = 637
+        for needed: CGFloat in [320, 340, 400] {
+            let art = ShelfHeroLayout.sideBySideArtWidth(contentWidth: row,
+                                                         viewportHeight: 850,
+                                                         captionMinimumWidth: needed)
+            let caption = row - ShelfHeroLayout.sideBySideSpacing - art
+            XCTAssertGreaterThanOrEqual(caption, needed - 0.5, "a button needing \(needed) pt is cut")
+            XCTAssertGreaterThanOrEqual(art / Theme.heroAspectRatio, ShelfHeroLayout.minimumArtHeight)
+        }
+        // The discrimination: without the caption's say, the art takes its
+        // half and the caption is narrower than the button.
+        let half = ShelfHeroLayout.sideBySideArtWidth(contentWidth: row, viewportHeight: 850)
+        XCTAssertLessThan(row - ShelfHeroLayout.sideBySideSpacing - half, 320)
+    }
+
+    /// Where half the row already holds the buttons, nothing moves: the
+    /// default text size, in every window that puts the art beside its
+    /// caption, draws what it drew before.
+    func testACaptionThatFitsItsHalfChangesNothing() {
+        for viewport in [Viewport.landscapePhone, Viewport.landscapeProPhone] {
+            XCTAssertEqual(
+                ShelfHeroLayout.sideBySideArtHeight(contentWidth: viewport.contentWidth,
+                                                    viewportHeight: viewport.height,
+                                                    captionMinimumWidth: 160),
+                ShelfHeroLayout.sideBySideArtHeight(contentWidth: viewport.contentWidth,
+                                                    viewportHeight: viewport.height),
+                accuracy: 0.001, "\(viewport.contentWidth) wide")
+        }
+        XCTAssertEqual(
+            ShelfHeroLayout.sideBySideHeroHeight(contentWidth: 835, viewportHeight: 555,
+                                                 captionHeight: 60, captionMinimumWidth: 160),
+            ShelfHeroLayout.sideBySideHeroHeight(contentWidth: 835, viewportHeight: 555,
+                                                 captionHeight: 60),
+            accuracy: 0.001)
+    }
+
+    /// The art gives way only as far as its floor. A caption asking for the
+    /// whole row leaves art at `minimumArtHeight`, in its own shape, not a
+    /// sliver and not a negative width.
+    func testTheArtDoesNotGiveWayBelowItsFloor() {
+        let height = ShelfHeroLayout.sideBySideArtHeight(contentWidth: 637,
+                                                         viewportHeight: 850,
+                                                         captionMinimumWidth: 2000)
+        XCTAssertEqual(height, ShelfHeroLayout.minimumArtHeight, accuracy: 0.001)
+        XCTAssertEqual(ShelfHeroLayout.sideBySideArtWidth(contentWidth: 637,
+                                                          viewportHeight: 850,
+                                                          captionMinimumWidth: 2000),
+                       ShelfHeroLayout.minimumArtHeight * Theme.heroAspectRatio, accuracy: 0.001)
+        // Before the viewport is measured, too.
+        XCTAssertEqual(ShelfHeroLayout.sideBySideArtHeight(contentWidth: 637,
+                                                           viewportHeight: 0,
+                                                           captionMinimumWidth: 2000),
+                       ShelfHeroLayout.minimumArtHeight, accuracy: 0.001)
+    }
+
+    // MARK: The buttons' row is split evenly, so it is judged that way (issue #424)
+
+    /// An open iPhone Duo at `accessibility-medium`: the two labels' natural
+    /// widths fitted side by side, so the row was chosen, and the even split
+    /// then gave New Game less than it needs ("New Ga…"). The figures are
+    /// the shape of that case, not a measurement: a caption of 400 pt, a
+    /// Continue button of 180 and a New Game button of 200.
+    func testARowThatWouldCutTheWiderLabelIsAColumn() {
+        let caption: CGFloat = 400, continueButton: CGFloat = 180, newGame: CGFloat = 200
+        // What `ViewThatFits` asked: do the two fit side by side? They do.
+        XCTAssertLessThanOrEqual(continueButton + ShelfHeroLayout.buttonRowSpacing + newGame, caption)
+        // What the row does: an even split, less than New Game needs.
+        XCTAssertLessThan((caption - ShelfHeroLayout.buttonRowSpacing) / 2, newGame)
+        XCTAssertEqual(ShelfHeroLayout.buttonArrangement(captionWidth: caption,
+                                                         buttonMinimumWidth: max(continueButton, newGame)),
+                       .column)
+    }
+
+    /// Whenever the row is chosen, each half holds the wider button; on the
+    /// boundary too, and never below it.
+    func testAChosenRowAlwaysHoldsTheWiderLabelInEachHalf() {
+        for button in stride(from: CGFloat(80), through: 420, by: 7) {
+            for caption in stride(from: CGFloat(150), through: 900, by: 3.5) {
+                let half = (caption - ShelfHeroLayout.buttonRowSpacing) / 2
+                let arrangement = ShelfHeroLayout.buttonArrangement(captionWidth: caption,
+                                                                    buttonMinimumWidth: button)
+                XCTAssertEqual(arrangement == .row, half >= button, "caption \(caption), button \(button)")
+            }
+        }
+        XCTAssertEqual(ShelfHeroLayout.buttonArrangement(
+            captionWidth: 200 * 2 + ShelfHeroLayout.buttonRowSpacing, buttonMinimumWidth: 200), .row)
+    }
+
+    /// Before the labels are measured the row stands, which is what every
+    /// window draws at the default text size.
+    func testUnmeasuredButtonsKeepTheRow() {
+        XCTAssertEqual(ShelfHeroLayout.buttonArrangement(captionWidth: 100, buttonMinimumWidth: 0), .row)
+    }
+
+    /// The caption's width is the row less the art and the gap, and with the
+    /// buttons' say it is never narrower than one button while the art is
+    /// above its floor.
+    func testTheCaptionWidthIsTheRowLessTheArt() {
+        let row: CGFloat = 637
+        let art = ShelfHeroLayout.sideBySideArtWidth(contentWidth: row, viewportHeight: 850,
+                                                     captionMinimumWidth: 340)
+        XCTAssertEqual(ShelfHeroLayout.sideBySideCaptionWidth(contentWidth: row, viewportHeight: 850,
+                                                              captionMinimumWidth: 340),
+                       row - ShelfHeroLayout.sideBySideSpacing - art, accuracy: 0.001)
+        XCTAssertGreaterThanOrEqual(ShelfHeroLayout.sideBySideCaptionWidth(
+            contentWidth: row, viewportHeight: 850, captionMinimumWidth: 340), 340 - 0.001)
+        XCTAssertEqual(ShelfHeroLayout.sideBySideCaptionWidth(contentWidth: 0, viewportHeight: 850), 0)
+    }
+
     /// The compact zone break is the grid's gap; the regular one is the
     /// rhythm's largest interval, untouched.
     func testCompactHeightUsesTheGridGapAsItsZoneBreak() {
