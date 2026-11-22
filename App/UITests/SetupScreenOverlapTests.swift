@@ -258,13 +258,21 @@ final class SetupScreenOverlapTests: XCTestCase {
         let stickFrom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.55))
         let stickTo = app.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.85))
 
-        let touches: [(name: String, isButton: Bool, make: () -> Void)] = [
-            ("a touch on empty space", false, { walker.tap(emptySpace) }),
-            ("USE", true, { app.buttons["useButton"].tap() }),
-            ("FIRE", true, { app.buttons["fireButton"].tap() }),
-            ("the next-weapon button", true, { app.buttons["weaponNextButton"].tap() }),
-            ("the previous-weapon button", true, { app.buttons["weaponPrevButton"].tap() }),
-            ("a drag of the stick", true, {
+        /// What the engine must not have been sent by each touch, read off
+        /// the debug HUD. One counter does not serve all of them: `btn`
+        /// counts pad BUTTON events only, and neither the trigger behind
+        /// FIRE nor the stick is one (the engine makes button presses of
+        /// them itself, `TriggerToButton` and `AxisToButton`, and only the
+        /// second is counted, as `ab`). So FIRE is held to `events`, every
+        /// write the overlay makes, and the stick to `ab`.
+        enum Quiet { case dropped, pad, overlayWrites, stickButtons }
+        let touches: [(name: String, quiet: Quiet, make: () -> Void)] = [
+            ("a touch on empty space", .dropped, { walker.tap(emptySpace) }),
+            ("USE", .pad, { app.buttons["useButton"].tap() }),
+            ("FIRE", .overlayWrites, { app.buttons["fireButton"].tap() }),
+            ("the next-weapon button", .pad, { app.buttons["weaponNextButton"].tap() }),
+            ("the previous-weapon button", .pad, { app.buttons["weaponPrevButton"].tap() }),
+            ("a drag of the stick", .stickButtons, {
                 stickFrom.press(forDuration: 0.2, thenDragTo: stickTo, withVelocity: .fast, thenHoldForDuration: 0.5)
             }),
         ]
@@ -280,17 +288,26 @@ final class SetupScreenOverlapTests: XCTestCase {
             Thread.sleep(forTimeInterval: 1) // the HUD's next refresh
             let buttonEvents = try XCTUnwrap(walker.hudNumber("btn"))
             let dropped = try XCTUnwrap(walker.hudNumber("md"))
+            let overlayWrites = try XCTUnwrap(walker.hudEvents())
+            let stickButtons = try XCTUnwrap(walker.hudNumber("ab"))
 
             touch.make()
             Thread.sleep(forTimeInterval: 1.5)
             let after = app.setupProbeState()
             XCTAssertEqual(widths(after), base, "\(touch.name) must not bind anything while the Run row waits")
             XCTAssertEqual(after?.selecting, true, "the Run row should still be waiting after \(touch.name)")
-            if touch.isButton {
+            switch touch.quiet {
+            case .dropped:
+                XCTAssertEqual(walker.hudNumber("md"), dropped + 1, "\(touch.name) should be counted as dropped")
+            case .pad:
                 XCTAssertEqual(walker.hudNumber("btn"), buttonEvents,
                                "\(touch.name) must not reach the engine's pad while a row waits")
-            } else {
-                XCTAssertEqual(walker.hudNumber("md"), dropped + 1, "\(touch.name) should be counted as dropped")
+            case .overlayWrites:
+                XCTAssertEqual(walker.hudEvents(), overlayWrites,
+                               "\(touch.name) must send the engine nothing while a row waits")
+            case .stickButtons:
+                XCTAssertEqual(walker.hudNumber("ab"), stickButtons,
+                               "\(touch.name) must not become a pad direction while a row waits")
             }
 
             // ≡ is the way out, and it changes nothing.
