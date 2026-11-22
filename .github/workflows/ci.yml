@@ -145,6 +145,11 @@ jobs:
           # pushing with the job token, which cannot create a tag once main's
           # workflow files have moved past the tagged commit (build 277).
           Scripts/test-check-release-tag-token.sh
+          # Hermetic fixtures plus one live case: refuses a ci.yml whose
+          # testflight job does not wait for every check job in this file, or
+          # would run after a failed or cancelled one. The gate is a list of
+          # jobs now, where it used to be the one job everything ran in.
+          Scripts/test-check-release-gate.sh
           # Both hermetic: test-asc-jwt.sh generates its own throwaway EC key
           # and never reads the real App Store Connect key; test-whats-to-test.sh
           # stubs git, curl and the token minter and never reaches the network.
@@ -804,8 +809,9 @@ jobs:
   # `if:` below calls no status function and so keeps its implicit
   # `success()`; do not add `always()` or `!cancelled()` to it. A test job
   # added to this workflow and not to this list would be a check a release
-  # does not wait for. Scripts/check-release-gate.sh refuses both mistakes. The called workflow's own
-  # first job then decides whether anything that goes into the binary changed
+  # does not wait for. Scripts/check-release-gate.sh refuses both mistakes.
+  #
+  # The called workflow's own first job then decides whether anything that goes into the binary changed
   # since the last shipped build (Scripts/release-due.sh), so a docs-only or
   # test-only merge costs no macOS runner and sends no notification.
   #
