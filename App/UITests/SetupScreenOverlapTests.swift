@@ -24,41 +24,8 @@ final class SetupScreenOverlapTests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
 
-        // First launch: where the row draws, and where USE is by default.
-        var (app, hud, walker) = try startLandscapeSession(arguments: [])
-        var state = try XCTUnwrap(walker.open(screen: enemiesScreen, tab: 0), "the Enemies screen never opened")
-        // The last on/off row the cursor can land on: Randomly Mirrored
-        // Corpses, a cosmetic setting with no side effect.
-        var rowIndex = try XCTUnwrap(state.items.lastIndex { $0.kind == "O" && !$0.skip },
-                                     "no on/off row on the Enemies screen: \(state.items)")
-        var row = state.items[rowIndex]
-        let defaultUse = app.buttons["useButton"].frame
-        XCTAssertGreaterThan(row.drawn.width, 0, "the row reports nothing drawn")
-        // USE's circle across the end of what the row draws: its left over
-        // the setting's last letters, its right over the empty rest of the
-        // row. Offsets are stored in reference points; USE is 64 at scale 1.
-        let scale = defaultUse.width / 64
-        let target = CGPoint(x: row.drawn.maxX + defaultUse.width * 0.15, y: row.drawn.midY)
-        let offset = [Double((target.x - defaultUse.midX) / scale), Double((target.y - defaultUse.midY) / scale)]
-        walker.closeMenus()
-        app.terminate()
-
-        // Second launch, USE moved. The argument domain holds it for this
-        // launch only; nothing is written to the app's defaults.
-        let json = try JSONSerialization.data(withJSONObject: ["useButton": offset])
-        let hex = json.map { String(format: "%02x", $0) }.joined()
-        (app, hud, walker) = try startLandscapeSession(arguments: ["-touchOverlayLayoutOffsets", "<\(hex)>"])
-        state = try XCTUnwrap(walker.open(screen: enemiesScreen, tab: 0), "the Enemies screen never opened again")
-        rowIndex = try XCTUnwrap(state.items.lastIndex { $0.kind == "O" && !$0.skip })
-        row = state.items[rowIndex]
-        let use = app.buttons["useButton"].frame
-        let radius = min(use.width, use.height) / 2
-        attach(XCUIScreen.main.screenshot(), "use-over-a-setup-row")
-
-        let onRow = try XCTUnwrap(
-            setupProbeHits(row.touchable, buttons: [("useButton", use)]).first { $0.onButton }?.point,
-            "USE at \(use) is not over what row \(rowIndex) draws, \(row.drawn)")
-        let beside = CGPoint(x: use.midX + radius * 0.6, y: use.midY)
+        let (app, hud, walker, rowIndex, row, onRow, beside) = try launchWithUSEAcrossTheEndOfARow()
+        let state = try XCTUnwrap(app.setupProbeState())
         XCTAssertTrue(row.press.contains(beside), "\(beside) should be inside the row's press rect \(row.press)")
         XCTAssertFalse(state.items.contains { $0.touchable.insetBy(dx: -2, dy: -2).contains(beside) }
                         || state.tabs.contains { $0.insetBy(dx: -2, dy: -2).contains(beside) },
@@ -110,6 +77,111 @@ final class SetupScreenOverlapTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["engineExitLabel"].waitForExistence(timeout: 60),
                       "engine never returned to the launcher")
         _ = hud
+    }
+
+    /// A session that ends with a setup screen still up must not leave the
+    /// next one thinking it is in one (`MN_ResetSessionSetup`,
+    /// docs/engine-session-globals.md). Without the reset the second
+    /// session's main menu reported `cm=setup` with no item centres, its
+    /// taps went to the setup screens' pointer code, and the rows the first
+    /// session drew still took touches from a button over where they had
+    /// been.
+    @MainActor
+    func testASessionEndedInsideASetupScreenLeavesTheNextOneItsMainMenuAndButtons() throws {
+        XCUIDevice.shared.orientation = .portrait
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        // Session 1 ends here, with Options > Enemies up and USE over a row.
+        let (app, hud, walker, _, _, onRow, _) = try launchWithUSEAcrossTheEndOfARow()
+        XCTAssertNotNil(app.setupProbeState(), "the first session should end inside a setup screen")
+        let exitLabel = app.staticTexts["engineExitLabel"]
+        releaseAutoquit()
+        XCTAssertTrue(exitLabel.waitForExistence(timeout: 90), "the first session never ended")
+
+        // Session 2, same process.
+        let play = app.buttons["playFreedoom1"]
+        XCTAssertTrue(play.waitForExistence(timeout: 30), "the tile is missing after the first session")
+        play.tap()
+        XCTAssertTrue(exitLabel.waitForNonExistence(timeout: 15), "previous exit label never cleared")
+        XCTAssertTrue(app.buttons["fireButton"].waitForExistence(timeout: 30), "overlay never installed again")
+        XCTAssertTrue(hud.waitForExistence(timeout: 30), "debug HUD never appeared again")
+        Thread.sleep(forTimeInterval: 5) // level load and screen wipe
+
+        app.buttons["menuButton"].tap()
+        let main = walker.wait(8) { () -> [CGPoint]? in
+            let now = walker.menu()
+            return now.name == "main" && now.targets.count >= 5 ? now.targets : nil
+        }
+        XCTAssertNotNil(main, "the second session's menu should be the main menu with its items: "
+                        + "cm=\(walker.menu().name) tgt=\(walker.menu().targets)")
+        XCTAssertNil(app.setupProbeState(), "no setup screen is up in the second session")
+
+        // USE, where the first session's row was drawn: it is a button again.
+        // (On the main menu it confirms New Game, so the menu changes.)
+        let presses = try XCTUnwrap(walker.hudNumber("mt"))
+        let buttonEvents = try XCTUnwrap(walker.hudNumber("btn"))
+        walker.tap(onRow)
+        Thread.sleep(forTimeInterval: 1.5)
+        XCTAssertGreaterThan(try XCTUnwrap(walker.hudNumber("btn")), buttonEvents,
+                             "a touch on USE at \(onRow) should press USE in the second session")
+        XCTAssertEqual(walker.hudNumber("mt"), presses,
+                       "a row the first session drew must not take USE's touch in the second")
+
+        // And the main menu is steered as a main menu: a tap opens Options.
+        XCTAssertTrue(walker.closeMenus(), "≡ should close the menu")
+        XCTAssertNotNil(walker.openOptions(), "a tap on the main menu's Options should open it: cm=\(walker.menu().name)")
+
+        XCTAssertTrue(walker.closeMenus(), "≡ should close the menu")
+        releaseAutoquit()
+        XCTAssertTrue(exitLabel.waitForExistence(timeout: 60), "the second session never ended")
+    }
+
+    /// Two launches, ending in a session with Options > Enemies up and USE
+    /// moved so that its circle lies across the end of what the last on/off
+    /// row draws (Randomly Mirrored Corpses, a cosmetic setting with no side
+    /// effect): `onRow` is on USE and on the row's setting, `beside` is on
+    /// USE where the row draws nothing. The first launch measures where the
+    /// row draws and where USE is by default; the second carries the offset
+    /// in the argument domain, for that launch only, so nothing is written
+    /// to the app's defaults.
+    @MainActor
+    private func launchWithUSEAcrossTheEndOfARow() throws
+        -> (XCUIApplication, XCUIElement, SetupScreenWalker, Int, SetupProbeItem, CGPoint, CGPoint) {
+        // First launch: where the row draws, and where USE is by default.
+        var (app, hud, walker) = try startLandscapeSession(arguments: [])
+        var state = try XCTUnwrap(walker.open(screen: enemiesScreen, tab: 0), "the Enemies screen never opened")
+        // The last on/off row the cursor can land on: Randomly Mirrored
+        // Corpses, a cosmetic setting with no side effect.
+        var rowIndex = try XCTUnwrap(state.items.lastIndex { $0.kind == "O" && !$0.skip },
+                                     "no on/off row on the Enemies screen: \(state.items)")
+        var row = state.items[rowIndex]
+        let defaultUse = app.buttons["useButton"].frame
+        XCTAssertGreaterThan(row.drawn.width, 0, "the row reports nothing drawn")
+        // USE's circle across the end of what the row draws: its left over
+        // the setting's last letters, its right over the empty rest of the
+        // row. Offsets are stored in reference points; USE is 64 at scale 1.
+        let scale = defaultUse.width / 64
+        let target = CGPoint(x: row.drawn.maxX + defaultUse.width * 0.15, y: row.drawn.midY)
+        let offset = [Double((target.x - defaultUse.midX) / scale), Double((target.y - defaultUse.midY) / scale)]
+        walker.closeMenus()
+        app.terminate()
+
+        // Second launch, USE moved. The argument domain holds it for this
+        // launch only; nothing is written to the app's defaults.
+        let json = try JSONSerialization.data(withJSONObject: ["useButton": offset])
+        let hex = json.map { String(format: "%02x", $0) }.joined()
+        (app, hud, walker) = try startLandscapeSession(arguments: ["-touchOverlayLayoutOffsets", "<\(hex)>"])
+        state = try XCTUnwrap(walker.open(screen: enemiesScreen, tab: 0), "the Enemies screen never opened again")
+        rowIndex = try XCTUnwrap(state.items.lastIndex { $0.kind == "O" && !$0.skip })
+        row = state.items[rowIndex]
+        let use = app.buttons["useButton"].frame
+        let radius = min(use.width, use.height) / 2
+        attach(XCUIScreen.main.screenshot(), "use-over-a-setup-row")
+
+        let onRow = try XCTUnwrap(
+            setupProbeHits(row.touchable, buttons: [("useButton", use)]).first { $0.onButton }?.point,
+            "USE at \(use) is not over what row \(rowIndex) draws, \(row.drawn)")
+        let beside = CGPoint(x: use.midX + radius * 0.6, y: use.midY)
+        return (app, hud, walker, rowIndex, row, onRow, beside)
     }
 
     @MainActor
