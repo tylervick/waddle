@@ -14,24 +14,60 @@ import notify
 /// `docs/learnings/iphone-duo-half-open-pose.md` for what the system reports
 /// and why neither reading is enough alone.
 ///
-/// Put behind the root view, so its bounds are the root's and the rects it
-/// reports are in the root's own coordinates.
+/// Installed under the launcher's root view through UIKit, pinned to its safe
+/// area, so its bounds are the root's and the rects it reports are in the
+/// root's own coordinates.
 /// Nothing here measures the launcher's content: the halves come from the
 /// device and the window alone (issue #437 is what a layout fed by its own
 /// content costs).
-struct LauncherFoldReader: UIViewRepresentable {
-    /// Called on the main thread whenever the answer changes, and once with
-    /// the first answer.
-    let onChange: (HalfOpenSplit?) -> Void
+///
+/// Not a `UIViewRepresentable` in the root's background, which is what it
+/// was first. With the reader in SwiftUI's own tree, CI's unit tests failed
+/// on the iPhone Duo leg in `ImportNoticeBannerTests`, a picture test that
+/// has nothing to do with the launcher, and passed with the reader taken
+/// out: see `docs/learnings/parting-the-launcher-at-the-fold.md`.
+@MainActor
+enum LauncherFold {
+    private static weak var reader: LauncherFoldReaderView?
 
-    func makeUIView(context: Context) -> LauncherFoldReaderView {
+    /// Starts reporting the fold to `onChange`, on the main thread: once
+    /// with the first answer and again whenever it changes. Called when the
+    /// root view appears; a second call replaces the handler.
+    static func follow(_ onChange: @escaping (HalfOpenSplit?) -> Void) {
+        if let reader {
+            reader.onChange = onChange
+            return
+        }
+        guard let root = launcherRootView() else {
+            // The root view can appear a moment before its window is the
+            // scene's; ask again on the next pass.
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(50))
+                follow(onChange)
+            }
+            return
+        }
         let view = LauncherFoldReaderView()
         view.onChange = onChange
-        return view
+        view.translatesAutoresizingMaskIntoConstraints = false
+        root.insertSubview(view, at: 0)
+        let safe = root.safeAreaLayoutGuide
+        NSLayoutConstraint.activate([
+            view.topAnchor.constraint(equalTo: safe.topAnchor),
+            view.bottomAnchor.constraint(equalTo: safe.bottomAnchor),
+            view.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
+        ])
+        reader = view
     }
 
-    func updateUIView(_ view: LauncherFoldReaderView, context: Context) {
-        view.onChange = onChange
+    /// The view SwiftUI draws the launcher in: the root of the app's first
+    /// window. The engine's window does not exist until a session starts.
+    private static func launcherRootView() -> UIView? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first?.rootViewController?.view
     }
 }
 

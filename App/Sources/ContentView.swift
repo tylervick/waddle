@@ -43,15 +43,17 @@ struct ContentView: View {
                     #endif
             }
         }
-        // The reader is the size of this column, which is the window inside
-        // its safe area, so the halves it reports are measured from where
-        // the column starts and add up to its height. Each half's bars then
-        // reach out under the status bar and the home indicator on their
-        // own, as the one stack does when the device is flat. (A column that
-        // ignored the safe area took the insets from the bars inside it too,
-        // and the shelf's wordmark went under the status bar.)
-        .background {
-            LauncherFoldReader { split in
+        // The halves are measured inside the window's safe area, which is
+        // where this column is, so they add up to its height. Each half's
+        // bars then reach out under the status bar and the home indicator
+        // on their own, as the one stack does when the device is flat. (A
+        // column that ignored the safe area took the insets from the bars
+        // inside it too, and the shelf's wordmark went under the status
+        // bar.) The keyboard is left out of it while parted: the halves are
+        // the device's and do not give way to it.
+        .ignoresSafeArea(.keyboard, edges: halves == nil ? [] : .bottom)
+        .onAppear {
+            LauncherFold.follow { split in
                 halves = split
                 panelModel.foldChanged(isSplit: split != nil)
             }
