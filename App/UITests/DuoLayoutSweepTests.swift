@@ -653,7 +653,13 @@ final class DuoLayoutSweepTests: XCTestCase {
     func testL_ContinueHero() throws {
         let app = launch(env: ["WADDLE_SEED_CONTINUE_SAVE": "1"])
         defer { app.terminate() }
-        guard waitFor(app.buttons["continueHero"], "the Continue hero", timeout: 30) else { return }
+        // Half open the shelf has no hero (see `testN_GamePageWithASave`);
+        // the shot is still the shelf of a game with a save.
+        if pose == "half-open" {
+            guard waitFor(app.buttons["continueButton"], "the lower half's Continue button", timeout: 30) else { return }
+        } else {
+            guard waitFor(app.buttons["continueHero"], "the Continue hero", timeout: 30) else { return }
+        }
         shoot("50-shelf-continue-hero")
     }
 
@@ -671,8 +677,15 @@ final class DuoLayoutSweepTests: XCTestCase {
                                "WADDLE_OPEN_PANEL": "Freedoom Phase 1"])
         defer { app.terminate() }
         let hero = app.descendants(matching: .any).matching(identifier: "continueHero").firstMatch
-        guard waitFor(hero, "the Continue hero", timeout: 30) else { return }
         let page = app.descendants(matching: .any).matching(identifier: "gamePage").firstMatch
+        // A device standing half open has no Continue hero: the lower half
+        // is the last-played game's page, with the same two buttons (issue
+        // #429). The page is there without being asked for.
+        if pose == "half-open" {
+            guard waitFor(app.buttons["importButton"], "the shelf", timeout: 30) else { return }
+        } else {
+            guard waitFor(hero, "the Continue hero", timeout: 30) else { return }
+        }
         if !page.waitForExistence(timeout: 4) {
             longPress(hero)
             guard waitFor(app.buttons["Details"].firstMatch, "the hero's long-press menu", timeout: 8) else { return }

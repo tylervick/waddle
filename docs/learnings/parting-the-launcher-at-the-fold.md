@@ -123,8 +123,18 @@ caption's row: `ViewThatFits` passed the row and the even split then set
 "New" over "Game". At the largest accessibility size the page stacks, the
 art was a 96 pt strip, and the row broke "Contin-" / "ue". Both are the
 failure `a-squeezed-row-of-texts-hyphenates-and-a-fixed-share-truncates.md`
-describes, at a width the page had not been seen at. In the lower half the
-buttons are always stacked and a stacked page has no art.
+describes, at a width the page had not been seen at.
+
+This branch first answered with a rule of its own, "always stacked in the
+lower half". Issue 468 then fixed the row for every window
+(`GamePageMeasurements.buttonArrangement`, a row only where each button
+holds the wider label), and the rule of this branch was dropped for it: on
+the hinge, at the default size, the largest standard size and two
+accessibility sizes, the one rule gives whole buttons in the half. Two
+rules for one row would have had to be kept in step by hand.
+
+What is still particular to the lower half: a page that stacks there has no
+art.
 
 ## An accessibility element behind a view answers the hit test for it
 
