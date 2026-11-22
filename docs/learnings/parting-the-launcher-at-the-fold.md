@@ -140,9 +140,11 @@ pixel, with two things to know first.
   each and compare the best pair, or a real zero looks like a difference.
 - On an open Duo held wide, with a panel beside the shelf, `main` does not
   lay the shelf out the same way every launch: in 4 launches opened by a tap
-  on the gear, 3 gave one picture and 1 another, and in both the shelf's
-  content is cut at its left edge. The branch gave `main`'s usual picture 3
-  times in 4. That state cannot be compared by pixels until it is stable,
-  and it is `main`'s to fix.
+  on the gear, 3 gave one picture, with the shelf's content cut at its left
+  edge, and 1 gave another, with the shelf fitted to its column. The branch
+  gave `main`'s cut picture 3 times in 4. That state cannot be compared by
+  pixels until it is stable, and it is `main`'s to fix (issue 469). An
+  earlier version of this file said the content was cut in both pictures;
+  the second had been compared by pixel count and not looked at.
 
 The captures are in `assets/half-open-launcher-2026-11-21/`.
