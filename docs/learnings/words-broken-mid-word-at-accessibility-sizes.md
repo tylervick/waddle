@@ -53,6 +53,33 @@ so each of these has to be seen. What produced them, and what removed them:
   come out of the same width. Settings drops the icons at the accessibility
   sizes (`WaddleRowLabelStyle`); the file rows use `WholeWordText`.
 
+## Three things `WholeWordText` got wrong the first time it met a title
+
+Found 2026-11-21 putting it under the game page's title (issue #441), which
+is bold and sits in an `HStack` beside a pencil. Each was invisible in the
+file rows it was written for.
+
+- **`.font(nil)` is not "no font".** It replaces the font the caller set
+  with the default. The full-size child was written
+  `.font(scale == 1 ? nil : …)`, and a title given `.title2.bold()` from
+  outside came out regular, at every text size. Leave the modifier off
+  instead. The rows never showed it because their font is the default.
+- **A weight is part of the measurement.** A bold piece is wider than a
+  regular one, so a title measured in the text style's own font is passed
+  as fitting when it does not. The type takes a weight for measuring and
+  for the smaller sizes it draws.
+- **A wrapped text beside something else can be offered one line's height.**
+  On the closed iPhone Duo the title, wrapped to two lines, was cut to
+  "sunlust_fina…": nothing had a line limit. `.fixedSize(horizontal: false,
+  vertical: true)` on the text makes it take the height its lines need.
+  A wider or narrower row did not do it, so one pose looking right proves
+  nothing about the next.
+
+The page also measures the title to decide whether the art may sit beside
+it (`captionProbe`). It has to split the name where the title may now end
+a line, at `WholeWordText.pieces`, or a landscape page stacks for a name
+that would have fitted.
+
 ## A menu `Picker` in a `Form` is sized for a one-line value
 
 At an accessibility size a `Picker` with `.pickerStyle(.menu)` in a `Form`
