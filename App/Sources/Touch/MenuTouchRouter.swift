@@ -31,29 +31,31 @@ struct MenuTouchRouter {
         case none
     }
 
-    /// `onSaveSlot`: the touch is on a slot of the engine's Load or Save
-    /// list (`TouchGamepad.isSaveSlot(at:)`). A slot's frame is drawn right
-    /// across the list, and where the picture fills the window the buttons
-    /// are drawn over its right-hand end (a closed iPhone Duo in landscape,
-    /// issue #430). The slot is what the player sees under the finger, so
-    /// it wins over a button's near-miss cushion here, and over the button
-    /// itself in `buttonYieldsToSaveSlot`.
+    /// `onDrawnItem`: the touch is on something the menu draws and a press
+    /// would act on (`TouchGamepad.isDrawnMenuItem(at:)`): a slot of the
+    /// Load or Save list, or a tab or row of a setup screen. Where the
+    /// picture fills the window the buttons are drawn over the right of it:
+    /// over the slots' ends on a closed iPhone Duo in landscape (issue
+    /// #430), and there also over sliders, settings and the last tab of the
+    /// setup screens (issue #440). What the player sees under the finger
+    /// wins over a button's near-miss cushion here, and over the button
+    /// itself in `buttonYieldsToDrawnItem`.
     func began(menuActive: Bool, trackRoute: TouchTrackRoute,
-               nearButton: Bool, onSaveSlot: Bool = false, pointerOwned: Bool) -> Began {
+               nearButton: Bool, onDrawnItem: Bool = false, pointerOwned: Bool) -> Began {
         guard menuActive else { return .passThrough }
-        if nearButton && !onSaveSlot { return .ignore }
+        if nearButton && !onDrawnItem { return .ignore }
         if trackRoute == .stick { return .pending }
         return pointerOwned ? .ignore : .pointer
     }
 
     /// Whether a touch that landed on `control`'s button belongs to the
-    /// save slot drawn under it instead. Every control stands down for a
-    /// slot except ≡, which is the way back out of the menu and must stay
+    /// menu item drawn under it instead. Every control stands down for one
+    /// except ≡, which is the way back out of the menu and must stay
     /// reachable wherever it has been moved to. (The Yes/No pair is not a
-    /// `TouchOverlayControl`, and the engine reports no slot while a prompt
+    /// `TouchOverlayControl`, and the engine reports no item while a prompt
     /// is up, so a prompt's buttons never yield either.)
-    func buttonYieldsToSaveSlot(_ control: TouchOverlayControl, onSaveSlot: Bool) -> Bool {
-        onSaveSlot && control != .menu
+    func buttonYieldsToDrawnItem(_ control: TouchOverlayControl, onDrawnItem: Bool) -> Bool {
+        onDrawnItem && control != .menu
     }
 
     /// Attract mode (title screen or demo, no menu): the stick/turn routing

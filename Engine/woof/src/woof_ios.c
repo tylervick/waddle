@@ -42,6 +42,7 @@
 #include "doomstat.h" // players[], consoleplayer, mbf21
 #include "info.h"     // states[], num_states, num_sprites
 #include "m_swap.h"   // SHORT, LONG for the patch header
+#include "mn_internal.h" // mrect_t for the setup-screen telemetry
 #include "r_state.h"  // sprites, firstspritelump, numspritelumps
 #include "v_palette.h" // playpal_global, PLAYPAL_BYTES
 #include "v_patch.h"  // V_CachePatchNum, V_LumpSize
@@ -315,6 +316,11 @@ int WoofIOS_Run(int argc, char **argv)
     // see MN_ResetMenuTables for why this cannot live in M_Init).
     extern void MN_ResetMenuTables(void);
     MN_ResetMenuTables();
+    // And the setup screens' own state: a session that ended with one up
+    // left setup_active set, and the next session's main menu was steered
+    // as a setup screen (see MN_ResetSessionSetup).
+    extern void MN_ResetSessionSetup(void);
+    MN_ResetSessionSetup();
 
     // The rest of what the writable-globals diff showed a session inheriting
     // from the one before it (issue #266; docs/engine-session-globals.md).
@@ -929,9 +935,10 @@ bool WoofIOS_InjectMenuTap(bool down)
     return true;
 }
 
-bool WoofIOS_IsSaveSlotAtPoint(float x_points, float y_points)
+bool WoofIOS_IsDrawnMenuItemAtPoint(float x_points, float y_points)
 {
     extern boolean MN_PointOnSaveLoadSlot(int, int);
+    extern boolean MN_PointOnSetupItem(int, int);
     extern boolean I_MenuPointFromWindow(float, float, float *, float *);
     extern boolean I_PictureRectInWindow(float *, float *, float *, float *);
     float px, py, pw, ph, mx, my;
@@ -945,7 +952,8 @@ bool WoofIOS_IsSaveSlotAtPoint(float x_points, float y_points)
         return false;
     }
     // Truncated to int exactly as the pointer is when mn_menu.c reads it.
-    return MN_PointOnSaveLoadSlot((int)mx, (int)my) != 0;
+    return MN_PointOnSaveLoadSlot((int)mx, (int)my)
+           || MN_PointOnSetupItem((int)mx, (int)my);
 }
 
 void WoofIOS_InjectMenuAnswer(bool yes)
@@ -1216,6 +1224,57 @@ const char *WoofIOS_DebugMenuState(void)
             break;
         }
         len += snprintf(buf + len, sizeof(buf) - len, "%s%d,%d", i ? "|" : "", (int)wx, (int)wy);
+    }
+    return buf;
+}
+
+// One rect of menu space as "x,y,w,h" in whole window points.
+static size_t AppendWindowRect(char *buf, size_t cap, const mrect_t *rect)
+{
+    extern boolean I_WindowPointFromMenu(float, float, float *, float *);
+    float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    if (rect->w <= 0 || rect->h <= 0
+        || !I_WindowPointFromMenu(rect->x, rect->y, &x0, &y0)
+        || !I_WindowPointFromMenu(rect->x + rect->w, rect->y + rect->h, &x1, &y1))
+    {
+        return snprintf(buf, cap, "0,0,0,0");
+    }
+    return snprintf(buf, cap, "%d,%d,%d,%d", (int)x0, (int)y0,
+                    (int)(x1 - x0), (int)(y1 - y0));
+}
+
+const char *WoofIOS_DebugSetupState(void)
+{
+    extern boolean MN_DebugSetupCursor(int *, int *, int *, int *);
+    extern boolean MN_DebugSetupTab(int, mrect_t *);
+    extern boolean MN_DebugSetupItem(int, mrect_t *, mrect_t *, char *, int *, int *);
+
+    static char buf[4096];
+    int screen, page, item_on, selecting;
+    if (!menuactive || !MN_DebugSetupCursor(&screen, &page, &item_on, &selecting))
+    {
+        return "ss=-1";
+    }
+    size_t len = snprintf(buf, sizeof(buf), "ss=%d pg=%d on=%d sel=%d tabs=",
+                          screen, page, item_on, selecting);
+    mrect_t press, drawn;
+    for (int i = 0; len < sizeof(buf) - 64 && MN_DebugSetupTab(i, &press); i++)
+    {
+        len += snprintf(buf + len, sizeof(buf) - len, "%s", i ? "|" : "");
+        len += AppendWindowRect(buf + len, sizeof(buf) - len, &press);
+    }
+    len += snprintf(buf + len, sizeof(buf) - len, " items=");
+    char kind;
+    int skip, value;
+    for (int i = 0; len < sizeof(buf) - 96
+                    && MN_DebugSetupItem(i, &press, &drawn, &kind, &skip, &value); i++)
+    {
+        len += snprintf(buf + len, sizeof(buf) - len, "%s%c%s:", i ? "|" : "",
+                        kind, skip ? "x" : "");
+        len += AppendWindowRect(buf + len, sizeof(buf) - len, &press);
+        len += snprintf(buf + len, sizeof(buf) - len, ":");
+        len += AppendWindowRect(buf + len, sizeof(buf) - len, &drawn);
+        len += snprintf(buf + len, sizeof(buf) - len, ":%d", value);
     }
     return buf;
 }

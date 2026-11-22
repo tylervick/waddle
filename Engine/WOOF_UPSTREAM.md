@@ -651,7 +651,8 @@ only ever runs once):
   `TouchMenuTests` reads. `WoofIOS_IsAttractMode` (title or demo, no menu)
   lets the overlay open the menu on a tap by injecting a paired
   `KEY_ESCAPE`.
-  Issue 430 added `MN_PointOnSaveLoadSlot` / `WoofIOS_IsSaveSlotAtPoint`: is
+  Issue 430 added `MN_PointOnSaveLoadSlot` / `WoofIOS_IsSaveSlotAtPoint` (since
+  renamed, below): is
   this window point on a slot of the Load or Save list (the rects
   `CursorPosition` tests, refused during a prompt, on the setup screens and
   beside the picture). The overlay asks it before giving a touch to one of
@@ -660,6 +661,25 @@ only ever runs once):
   item's rect is the full screen width, most of it empty. The HUD segment
   gained `iw=`, an item's rect width in window points
   (`MN_DebugMenuItemWidth`), which the test for it aims by.
+  Issue 440 did the same for the setup screens and renamed the shim's call
+  `WoofIOS_IsDrawnMenuItemAtPoint` (a slot, or `MN_PointOnSetupItem`). A
+  setup item's `rect` is the whole width of the screen, so it cannot say
+  what is under a button; `src/mn_setup.c` now records what each item draws
+  (`setup_menu_t.drawn` in `src/mn_internal.h`, filled by
+  `IOS_DrawnBegin/Add/End` round `DrawItem` and `DrawSetting`, from the
+  string, slider and reset-patch draws), and the seam is true on a tab or on
+  `drawn` within `rect` of an item the cursor can land on, and false while
+  an item is being changed, a key bound or the reset confirmation is up.
+  `WoofIOS_DebugSetupState` (`MN_DebugSetupCursor/Tab/Item`) reports every
+  tab and item of the screen that is up, press rect, drawn rect and value,
+  in window points; the overlay publishes it on its `setupMenuProbe`
+  element for `SetupScreenOverlapTests` and the Duo sweep.
+  `MN_ResetSessionSetup` (called from `WoofIOS_Run` beside
+  `MN_ResetMenuTables`) puts the setup screens' state back at every session
+  start: `setup_active` and its companions, which upstream clears only on
+  the way out of a screen, and the `drawn` rects. A session that ended inside
+  a setup screen otherwise left the next one's main menu steered as one
+  (`docs/engine-session-globals.md`).
 
 - `src/i_video.c`, `src/woof_ios.c` / `src/woof_ios.h` -- the picture's rect
   for the overlay's layout (issue 351). `I_PictureRectInWindow` returns

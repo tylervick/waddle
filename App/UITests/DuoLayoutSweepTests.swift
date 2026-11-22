@@ -284,7 +284,8 @@ final class DuoLayoutSweepTests: XCTestCase {
         return targets
     }
 
-    /// Issue #430, and the one step of the sweep that judges anything: where
+    /// Issue #430, and one of the two steps of the sweep that judge anything
+    /// (`testM_SetupScreens` is the other): where
     /// a button is drawn over a slot of the save list (closed landscape and
     /// both open poses), a touch on that part of the slot must begin naming
     /// the slot and leave the list up. It is here because only the sweep can
@@ -368,6 +369,39 @@ final class DuoLayoutSweepTests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.25)
         }
         return []
+    }
+
+    /// No shots: the measurement issue #440 asked for. Every row of every
+    /// tab of the engine's seven setup screens, where it draws against where
+    /// the buttons are, as `SETUP440` lines in the `setup-screens-measurement`
+    /// attachment of the run's result bundle; and a touch on each row whose
+    /// touchable drawn part lies under a button or its cushion, which must
+    /// go to the menu and land on that row. On an open device every tap of
+    /// the walk is a host touch, and with Device Hub shared a touch took
+    /// over two minutes (2026-11-21), so that pose is hours, not minutes.
+    /// The touches change the simulator's settings (sliders, choices); the
+    /// sweep reinstalls the app each run.
+    @MainActor
+    func testM_SetupScreens() throws {
+        let app = launch(env: ["WADDLE_TEST_WARP": "1", "WADDLE_FORCE_TOUCH_OVERLAY": "1"],
+                         arguments: ["-debugHUD", "YES"])
+        defer { app.terminate() }
+        guard startSession(app) else { return }
+        let hud = app.staticTexts["sessionDebugHUD"]
+        guard waitFor(hud, "the debug HUD", timeout: 30) else { return }
+        Thread.sleep(forTimeInterval: 5)
+        let walker = SetupScreenWalker(app: app, hud: hud) { [self] point in tap(app, point) }
+        let result = walker.measure(pose: pose)
+        let measurement = XCTAttachment(string: result.log)
+        measurement.name = "setup-screens-measurement"
+        measurement.lifetime = .keepAlways
+        add(measurement)
+        XCTAssertEqual(result.unreached, [], "[\(pose)] setup screens or tabs that did not open")
+        for finding in result.findings {
+            XCTAssertTrue(finding.actedOnRow,
+                "[\(pose)] screen \(finding.screen) tab \(finding.tab) item \(finding.item) (\(finding.kind)) draws under "
+                + "\(finding.hit.button), and a touch there at \(finding.hit.point) did not act on it: \(finding.outcome)")
+        }
     }
 
     /// 30-engine-error-box, 31-launcher-error-alert: a session that dies in

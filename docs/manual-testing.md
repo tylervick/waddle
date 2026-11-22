@@ -131,6 +131,13 @@ overlay to remain visible even when input devices are connected.
       open Save Game and touch the right-hand end of the two lowest slots,
       on USE and on FIRE: the keyboard comes up for that slot each time and
       the list stays up. ≡ still leaves the entry and then the menu
+- [ ] Setup rows under the buttons (issue #440): on a closed iPhone Duo in
+      landscape, Options > General: drag the Gamma Correction slider from
+      its right-hand end, which is under USE, and the slider follows; touch
+      the last tab, beside ≡, and it opens. On the second tab touch the long
+      setting that runs under ◀ ▶ and the setting changes, the tab does not.
+      Then steer the cursor with the stick and press USE where no row is
+      drawn under it: USE still confirms the cursor's row
 - [ ] Overlay hides/shows when a controller connects/disconnects mid-session
 - [ ] Cheats do not carry into the next game: type iddqd (four-finger tap for
       the keyboard) in one game, quit to the shelf, start a different game;

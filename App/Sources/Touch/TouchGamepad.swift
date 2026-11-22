@@ -168,11 +168,14 @@ extension TouchGamepad: TextInjecting {
         WoofIOS_InjectMenuTap(down)
     }
 
-    /// True when `point` (overlay coordinates) is on a slot of the engine's
-    /// Load or Save list. False for any other menu, during a prompt, and
+    /// True when `point` (overlay coordinates) is on something the engine's
+    /// menu draws and a press there would act on: a slot of the Load or
+    /// Save list, or on a setup screen a tab or the touchable part of a row
+    /// (its label and setting; for a slider, the slider). False for the
+    /// main menu, during a prompt or while a setting is being changed, and
     /// beside the picture.
-    func isSaveSlot(at point: CGPoint) -> Bool {
-        WoofIOS_IsSaveSlotAtPoint(Float(point.x), Float(point.y))
+    func isDrawnMenuItem(at point: CGPoint) -> Bool {
+        WoofIOS_IsDrawnMenuItemAtPoint(Float(point.x), Float(point.y))
     }
 
     /// Answer the Y/N prompt or delete confirmation on screen.

@@ -13,6 +13,7 @@
 //  GNU General Public License for more details.
 //
 
+#include <limits.h>
 #include <ctype.h>
 #include <math.h>
 #include <stdio.h>
@@ -288,6 +289,55 @@ static ss_types setup_screen; // the current setup screen.
 // background for the Help and Setup screens.
 //
 // killough 11/98: rewritten to support hires
+
+#ifdef WOOF_IOS
+// Touch menus (iOS, issue 440): the bounds of what one setup item draws. An
+// item's `rect` is where a press counts, which for most items is the whole
+// width of the screen; what the player sees of it is a label ending at m_x
+// and a setting beginning there. The touch overlay's buttons are drawn over
+// the right of the picture in landscape, and whether a touch on a button is
+// a touch on an item has to be judged by what is drawn, not by `rect`.
+// DrawScreenItems opens the bounds before an item and stores them in the
+// item's `drawn` after it; the string, slider and patch draws below add to
+// them. Menu space without video.deltaw, like `rect`.
+static boolean ios_drawn_open;
+static int ios_drawn_x0, ios_drawn_y0, ios_drawn_x1, ios_drawn_y1;
+
+static void IOS_DrawnBegin(void)
+{
+    ios_drawn_open = true;
+    ios_drawn_x0 = ios_drawn_y0 = INT_MAX;
+    ios_drawn_x1 = ios_drawn_y1 = INT_MIN;
+}
+
+static void IOS_DrawnAdd(int x, int y, int w, int h)
+{
+    if (!ios_drawn_open || w <= 0 || h <= 0)
+    {
+        return;
+    }
+    ios_drawn_x0 = MIN(ios_drawn_x0, x);
+    ios_drawn_y0 = MIN(ios_drawn_y0, y);
+    ios_drawn_x1 = MAX(ios_drawn_x1, x + w);
+    ios_drawn_y1 = MAX(ios_drawn_y1, y + h);
+}
+
+static void IOS_DrawnEnd(setup_menu_t *item)
+{
+    ios_drawn_open = false;
+    if (ios_drawn_x1 > ios_drawn_x0 && ios_drawn_y1 > ios_drawn_y0)
+    {
+        item->drawn.x = ios_drawn_x0;
+        item->drawn.y = ios_drawn_y0;
+        item->drawn.w = ios_drawn_x1 - ios_drawn_x0;
+        item->drawn.h = ios_drawn_y1 - ios_drawn_y0;
+    }
+    else
+    {
+        memset(&item->drawn, 0, sizeof(item->drawn));
+    }
+}
+#endif
 
 static void DrawBackground(char *patchname)
 {
@@ -609,6 +659,9 @@ static void DrawItem(setup_menu_t *s, int accum_y)
         rect->w = SHORT(patch->width);
         rect->h = SHORT(patch->height);
         V_DrawPatch(x, y, patch);
+#ifdef WOOF_IOS
+        IOS_DrawnAdd(rect->x, rect->y, rect->w, rect->h);
+#endif
         return;
     }
 
@@ -1060,6 +1113,9 @@ static void DrawSetting(setup_menu_t *s, int accum_y)
         rect->w = (width + 2) * M_THRM_STEP;
         rect->h = M_THRM_HEIGHT;
         DrawSetupThermo(s, x, y, width, max - min, thrm_val - min, cr);
+#ifdef WOOF_IOS
+        IOS_DrawnAdd(rect->x, rect->y, rect->w, rect->h);
+#endif
 
         if (strings)
         {
@@ -1119,6 +1175,9 @@ static void DrawScreenItems(setup_menu_t *src)
     {
         // See if we're to draw the item description (left-hand part)
 
+#ifdef WOOF_IOS
+        IOS_DrawnBegin();
+#endif
         if (src->m_flags & S_SHOWDESC)
         {
             DrawItem(src, accum_y);
@@ -1130,6 +1189,9 @@ static void DrawScreenItems(setup_menu_t *src)
         {
             DrawSetting(src, accum_y);
         }
+#ifdef WOOF_IOS
+        IOS_DrawnEnd(src);
+#endif
 
         if (!(src->m_flags & S_DIRECT))
         {
@@ -3980,6 +4042,9 @@ static void DrawMenuString(int cx, int cy, int color)
 static void DrawMenuStringBuffer(int flags, int x, int y, int color,
                                  const char *buffer)
 {
+#ifdef WOOF_IOS
+    IOS_DrawnAdd(x, y, MN_GetPixelWidth(buffer), M_SPC);
+#endif
     if (ItemDisabled(flags))
     {
         MN_DrawStringCR(x, y, cr_dark, NULL, buffer);
@@ -4040,6 +4105,161 @@ int MN_GetPixelWidth(const char *ch)
     len -= kerning; // replace what you took away on the last char only
     return len;
 }
+
+#ifdef WOOF_IOS
+// The part of what a setup item draws where a press acts on it: `drawn`
+// within `rect`. For most items that is all of `drawn`, since `rect` is the
+// whole width of the screen. For a slider `rect` is the slider itself, so
+// the label to its left and the figure to its right drop out: a press there
+// is eaten by MN_SetupMouseResponder wherever it lands.
+static mrect_t IOS_TouchablePart(const setup_menu_t *item)
+{
+    mrect_t part = {0};
+    const int x0 = MAX(item->drawn.x, item->rect.x);
+    const int y0 = MAX(item->drawn.y, item->rect.y);
+    const int x1 = MIN(item->drawn.x + item->drawn.w, item->rect.x + item->rect.w);
+    const int y1 = MIN(item->drawn.y + item->drawn.h, item->rect.y + item->rect.h);
+    if (x1 > x0 && y1 > y0)
+    {
+        part.x = x0;
+        part.y = y0;
+        part.w = x1 - x0;
+        part.h = y1 - y0;
+    }
+    return part;
+}
+
+// Touch menus (iOS), a product seam (issue 440): is this menu-space point
+// on something a setup screen draws and a press there would act on -- a
+// tab, or the touchable part of an item the cursor can land on? The host
+// asks before it gives a touch to one of its own on-screen buttons drawn
+// over the picture, as it does for the Load and Save slots
+// (MN_PointOnSaveLoadSlot). Judged by what is drawn and not by `rect`: an
+// item's rect is the whole width of the screen, and a button over the empty
+// part of it must stay a button. False while an item is being changed, a
+// key is being bound or "reset to defaults?" is up: a press then is not a
+// press on the item under it (MN_SetupMouseResponder stands aside).
+boolean MN_PointOnSetupItem(int x, int y)
+{
+    if (!setup_active || setup_select || block_input || default_verify
+        || !current_menu)
+    {
+        return false;
+    }
+    if (current_tabs)
+    {
+        for (int i = 0; current_tabs[i].text; i++)
+        {
+            if (MN_PointInsideRect(&current_tabs[i].rect, x, y))
+            {
+                return true;
+            }
+        }
+    }
+    for (int i = 0; !(current_menu[i].m_flags & S_END); i++)
+    {
+        const setup_menu_t *item = &current_menu[i];
+        if ((item->m_flags & S_SKIP) || ItemDisabled(item->m_flags))
+        {
+            continue;
+        }
+        mrect_t part = IOS_TouchablePart(item);
+        if (part.w > 0 && MN_PointInsideRect(&part, x, y))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Debug/test telemetry (WoofIOS_DebugSetupState, issue 440): the setup
+// screen as a UI test needs it to aim a touch and read back what it did.
+// Rects are menu space with video.deltaw folded in, as MN_PointInsideRect
+// tests them.
+
+// Which screen and page, and where the cursor is. False with no setup
+// screen up.
+boolean MN_DebugSetupCursor(int *screen, int *page, int *item_on,
+                            int *selecting)
+{
+    if (!setup_active || !current_menu)
+    {
+        return false;
+    }
+    *screen = setup_screen;
+    *page = current_page;
+    *item_on = set_item_on;
+    *selecting = setup_select ? 1 : 0;
+    return true;
+}
+
+// Tab `index` of the current screen: where a press selects it.
+boolean MN_DebugSetupTab(int index, mrect_t *rect)
+{
+    if (!setup_active || !current_tabs || index < 0)
+    {
+        return false;
+    }
+    for (int i = 0; current_tabs[i].text; i++)
+    {
+        if (i == index)
+        {
+            *rect = current_tabs[i].rect;
+            rect->x += video.deltaw;
+            return true;
+        }
+    }
+    return false;
+}
+
+// Item `index` of the current page. `press` is where a press acts on it
+// (its rect), `drawn` what it draws; `kind` is one letter (T slider, O
+// on/off, C choice, N number, I input binding, F opens a screen, R the
+// reset button, W weapon number, - a title or anything else), `skip` that
+// the cursor cannot land on it or it is disabled, `value` its integer
+// setting where it has one. False past the last item.
+boolean MN_DebugSetupItem(int index, mrect_t *press, mrect_t *drawn,
+                          char *kind, int *skip, int *value)
+{
+    if (!setup_active || !current_menu || index < 0)
+    {
+        return false;
+    }
+    for (int i = 0; i <= index; i++)
+    {
+        if (current_menu[i].m_flags & S_END)
+        {
+            return false;
+        }
+    }
+    setup_menu_t *item = &current_menu[index];
+    const int flags = item->m_flags;
+    *press = item->rect;
+    press->x += video.deltaw;
+    *drawn = item->drawn;
+    drawn->x += video.deltaw;
+    *skip = (flags & S_SKIP) || ItemDisabled(flags) ? 1 : 0;
+    *value = 0;
+    const boolean has_int =
+        (flags & (S_THERMO | S_ONOFF | S_CHOICE | S_CRITEM | S_NUM | S_WEAP))
+        && !(flags & (S_FUNC | S_INPUT | S_RESET | S_TITLE))
+        && item->var.def && item->var.def->location.i;
+    if (has_int)
+    {
+        *value = *item->var.def->location.i;
+    }
+    *kind = flags & S_RESET    ? 'R'
+            : flags & S_FUNC   ? 'F'
+            : flags & S_THERMO ? 'T'
+            : flags & S_ONOFF  ? 'O'
+            : flags & (S_CHOICE | S_CRITEM) ? 'C'
+            : flags & S_NUM    ? 'N'
+            : flags & S_INPUT  ? 'I'
+            : flags & S_WEAP   ? 'W'
+                               : '-';
+    return true;
+}
+#endif
 
 void MN_HighlightTab(int x, int y)
 {
@@ -4472,6 +4692,59 @@ static boolean NextPage(int inc)
 }
 
 static setup_menu_t *active_thermo = NULL;
+
+#ifdef WOOF_IOS
+// One D_DoomMain per play session, several per process (WoofIOS_Run): put
+// the setup screens' state back to what a fresh process has.
+//
+// Upstream clears it only on the way out of a setup screen (the MENU_ESCAPE
+// and MENU_BACKSPACE branch of MN_SetupResponder), and a process that ends
+// has nothing to clear. A session that ends with a setup screen still up --
+// the autoquit, an I_Error, the app sent away -- left setup_active set, so
+// the next session's main menu was drawn and steered as a setup screen
+// (MN_DebugCurrentMenuName said "setup", MouseResponder went to
+// MN_SetupMouseResponder) until something opened and closed a real one.
+// Since issue 440 each item also keeps what it last drew (`drawn`), and
+// MN_PointOnSetupItem would have answered for rows that are not on screen.
+//
+// Not reset: where the cursor was on each screen and which page was open
+// (GetItemOn/GetPageIndex keep those in the tables' S_END rows). They are a
+// convenience, are read only on the way into a screen, and upstream keeps
+// them for the life of the process too.
+void MN_ResetSessionSetup(void)
+{
+    setup_active = false;
+    setup_active_secondary = false;
+    set_keybnd_active = false;
+    set_weapon_active = false;
+    setup_select = false;
+    setup_gather = false;
+    default_verify = false;
+    block_input = false;
+    print_warning_about_changes = false;
+    highlight_item = 0;
+    highlight_tab = 0;
+    set_item_on = 0;
+    current_page = 0;
+    current_menu = NULL;
+    current_tabs = NULL;
+    active_thermo = NULL;
+    setup_cancel = -1;
+    ios_drawn_open = false;
+
+    for (int screen = 0; screen < arrlen(setup_screens); screen++)
+    {
+        for (setup_menu_t **page = setup_screens[screen]; *page; page++)
+        {
+            for (setup_menu_t *item = *page; !(item->m_flags & S_END); item++)
+            {
+                item->m_flags &= ~(S_HILITE | S_SELECT);
+                memset(&item->drawn, 0, sizeof(item->drawn));
+            }
+        }
+    }
+}
+#endif
 
 boolean MN_SetupResponder(menu_action_t action, int ch)
 {
