@@ -13,10 +13,13 @@ had no top inset: its bar sat at y 0 and the wordmark was cut by the status
 bar. A `NavigationStack` inside a view that ignores the safe area does not
 get the insets back by being at the window's edge.
 
-The column now stays inside the safe area, and the reader is the column's
-background, so its bounds are the column's and the halves it reports add up
-to the column's height. Each half's bar reaches under the status bar or the
+The column now stays inside the safe area, and the reader is measured
+inside the same safe area, so the halves it reports add up to the column's
+height. Each half's bar reaches under the status bar or the
 home indicator by itself, as the one stack does on a flat device.
+
+The reader is installed through UIKit under the root view, pinned to its
+safe-area guide (`LauncherFold.follow`), which gives the same rect.
 
 ## A sheet is the window's, whichever half presents it
 
