@@ -674,6 +674,12 @@ only ever runs once):
   tab and item of the screen that is up, press rect, drawn rect and value,
   in window points; the overlay publishes it on its `setupMenuProbe`
   element for `SetupScreenOverlapTests` and the Duo sweep.
+  `MN_ResetSessionSetup` (called from `WoofIOS_Run` beside
+  `MN_ResetMenuTables`) puts the setup screens' state back at every session
+  start: `setup_active` and its companions, which upstream clears only on
+  the way out of a screen, and the `drawn` rects. A session that ended inside
+  a setup screen otherwise left the next one's main menu steered as one
+  (`docs/engine-session-globals.md`).
 
 - `src/i_video.c`, `src/woof_ios.c` / `src/woof_ios.h` -- the picture's rect
   for the overlay's layout (issue 351). `I_PictureRectInWindow` returns

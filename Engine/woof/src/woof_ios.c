@@ -316,6 +316,11 @@ int WoofIOS_Run(int argc, char **argv)
     // see MN_ResetMenuTables for why this cannot live in M_Init).
     extern void MN_ResetMenuTables(void);
     MN_ResetMenuTables();
+    // And the setup screens' own state: a session that ended with one up
+    // left setup_active set, and the next session's main menu was steered
+    // as a setup screen (see MN_ResetSessionSetup).
+    extern void MN_ResetSessionSetup(void);
+    MN_ResetSessionSetup();
 
     // The rest of what the writable-globals diff showed a session inheriting
     // from the one before it (issue #266; docs/engine-session-globals.md).

@@ -4693,6 +4693,59 @@ static boolean NextPage(int inc)
 
 static setup_menu_t *active_thermo = NULL;
 
+#ifdef WOOF_IOS
+// One D_DoomMain per play session, several per process (WoofIOS_Run): put
+// the setup screens' state back to what a fresh process has.
+//
+// Upstream clears it only on the way out of a setup screen (the MENU_ESCAPE
+// and MENU_BACKSPACE branch of MN_SetupResponder), and a process that ends
+// has nothing to clear. A session that ends with a setup screen still up --
+// the autoquit, an I_Error, the app sent away -- left setup_active set, so
+// the next session's main menu was drawn and steered as a setup screen
+// (MN_DebugCurrentMenuName said "setup", MouseResponder went to
+// MN_SetupMouseResponder) until something opened and closed a real one.
+// Since issue 440 each item also keeps what it last drew (`drawn`), and
+// MN_PointOnSetupItem would have answered for rows that are not on screen.
+//
+// Not reset: where the cursor was on each screen and which page was open
+// (GetItemOn/GetPageIndex keep those in the tables' S_END rows). They are a
+// convenience, are read only on the way into a screen, and upstream keeps
+// them for the life of the process too.
+void MN_ResetSessionSetup(void)
+{
+    setup_active = false;
+    setup_active_secondary = false;
+    set_keybnd_active = false;
+    set_weapon_active = false;
+    setup_select = false;
+    setup_gather = false;
+    default_verify = false;
+    block_input = false;
+    print_warning_about_changes = false;
+    highlight_item = 0;
+    highlight_tab = 0;
+    set_item_on = 0;
+    current_page = 0;
+    current_menu = NULL;
+    current_tabs = NULL;
+    active_thermo = NULL;
+    setup_cancel = -1;
+    ios_drawn_open = false;
+
+    for (int screen = 0; screen < arrlen(setup_screens); screen++)
+    {
+        for (setup_menu_t **page = setup_screens[screen]; *page; page++)
+        {
+            for (setup_menu_t *item = *page; !(item->m_flags & S_END); item++)
+            {
+                item->m_flags &= ~(S_HILITE | S_SELECT);
+                memset(&item->drawn, 0, sizeof(item->drawn));
+            }
+        }
+    }
+}
+#endif
+
 boolean MN_SetupResponder(menu_action_t action, int ch)
 {
     // phares 3/26/98 - 4/11/98:
