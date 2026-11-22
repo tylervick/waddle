@@ -122,7 +122,8 @@ helpers"**. Its comment states the rule: *"This list must name EVERY
 Scripts/test-*.sh suite, not just the ones that guard the build."* The reason is
 concrete — suites have run nowhere on a pull request, so a change breaking
 one was green in CI. `Scripts/check-suites-registered.sh` now enforces it: a
-suite named in no `run:` block of `ci.yml` fails the helper job, by name.
+suite not run, unmasked, in an unconditional step of a job the release
+needs fails the helper job, by name.
 
 Do it in the same pull request as the guard, and say in the pull request
 description that it edits a workflow: a changed workflow runs with the repo's

@@ -2,11 +2,6 @@
 cmake = "4.5.0"
 ninja = "1.13.2"
 xcodegen = "2.46.0"
-# uv runs Scripts/build-mark.py and the Pillow checks in test-build-mark.sh and
-# test-glyph-source.sh. Pinned here so CI's helper job runs those suites with
-# the same uv a developer has (issue #454); registry-backed (aqua, GitHub
-# releases), which Scripts/check-mise-tools-registry.sh requires.
-uv = "0.13.7"
 
 [tasks.build-deps]
 description = "SDL3 + OpenAL Soft static libs (device + simulator)"

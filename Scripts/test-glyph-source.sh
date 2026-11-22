@@ -9,6 +9,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIR="$ROOT/Design/source/freedoom-glyphs"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
 pass() { echo "ok - $1"; }
@@ -18,7 +20,24 @@ for f in W A D L E; do
 done
 pass "all five glyph files are present"
 
-uv run --quiet --with pillow python - "$DIR" <<'PY' || exit 1
+# Pillow comes from build-mark.py's own environment: pinned in its inline
+# metadata and locked with hashes in Scripts/build-mark.py.lock, so every run
+# imports the same Pillow and a release published minutes ago never reaches
+# this suite. The lock is checked offline first, then the environment is
+# fetched, and only then is anything tested; everything after that runs
+# without the network. So each failure says which kind it is: a stale lock, a
+# failed download (PyPI, the network, or a Python to run it on), or the
+# artwork itself.
+LOCKED_SCRIPT=Scripts/build-mark.py
+( cd "$ROOT" && uv lock --check --offline --quiet --script "$LOCKED_SCRIPT" ) 2> "$TMP/lock.err" \
+    || fail "Scripts/build-mark.py.lock does not match build-mark.py's metadata; run \`uv lock --script $LOCKED_SCRIPT\` and commit it: $(cat "$TMP/lock.err")"
+( cd "$ROOT" && uv sync --locked --quiet --script "$LOCKED_SCRIPT" ) 2> "$TMP/fetch.err" \
+    || fail "FETCH FAILED, not a test failure: could not install the locked Pillow for $LOCKED_SCRIPT (network, PyPI, or a Python to run it): $(cat "$TMP/fetch.err")"
+PY_LOCKED="$(cd "$ROOT" && uv python find --script "$LOCKED_SCRIPT")" \
+    || fail "uv python find gave no interpreter for $LOCKED_SCRIPT's environment"
+pass "the locked Pillow is installed"
+
+"$PY_LOCKED" - "$DIR" <<'PY' || exit 1
 import sys
 from pathlib import Path
 from PIL import Image

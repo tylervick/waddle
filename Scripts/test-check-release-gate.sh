@@ -271,6 +271,24 @@ write_ci '    needs: [helper-suites, unit-tests, pr-only]' "$IF" "  pr-only:
 refused "'pr-only' has an if: of its own" "a needed job that only runs on pull requests"
 pass "refuses a needed job that can be skipped"
 
+# 19b. --print-needs prints the jobs the release waits for, one per line and
+#      nothing else, in all three spellings of needs:, even when the gate is
+#      open. Scripts/check-suites-registered.sh reads it to decide where a
+#      suite counts as run, so the list must be the parsed needs:, not a verdict.
+for spelling in '    needs: [helper-suites, unit-tests]' '    needs:
+      - helper-suites
+      - unit-tests # every leg'; do
+    write_ci "$spelling" "$IF"
+    out="$(RELEASE_GATE_CI_FILE="$TMP/ci.yml" "$ROOT/Scripts/check-release-gate.sh" --print-needs)" \
+        || fail "--print-needs failed on a well-formed fixture"
+    [ "$out" = "$(printf 'helper-suites\nunit-tests')" ] || fail "--print-needs printed: $out"
+done
+write_ci '    needs: unit-tests' "$IF"
+out="$(RELEASE_GATE_CI_FILE="$TMP/ci.yml" "$ROOT/Scripts/check-release-gate.sh" --print-needs)" \
+    || fail "--print-needs failed on an open gate; it reports the list, the plain run judges it"
+[ "$out" = "unit-tests" ] || fail "--print-needs on a scalar needs: printed: $out"
+pass "--print-needs prints the release's needs:, one job per line"
+
 # 20. LIVE, a sweep: the real ci.yml, opened one way at a time. Every one of
 #     these must be refused. The first argument is an awk program run over
 #     the real file; `T` is true inside the testflight job.

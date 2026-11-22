@@ -97,11 +97,12 @@ jobs:
           fetch-depth: 0
 
       # uv for test-build-mark.sh and test-glyph-source.sh below, at the
-      # version mise.toml pins; the runner image has none. This installs the
-      # whole [tools] table (cmake, ninja and xcodegen too), so the suites that
-      # touch cmake run at the pinned version a developer has, and the job
-      # shares the mise cache the build legs already save under mise.toml's
-      # hash.
+      # version .config/mise.toml pins; the runner image has none. This
+      # installs every pinned tool (cmake, ninja and xcodegen from mise.toml
+      # too), so the suites that touch cmake run at the version a developer
+      # has. uv lives in .config/mise.toml, not mise.toml, so that it is
+      # neither an engine-cache key nor, to Scripts/release-due.sh, a change to
+      # what ships.
       - name: Install pinned CLI tools
         uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5
 
@@ -208,14 +209,17 @@ jobs:
           # fetcher testflight-feedback.yml runs daily, which decides which
           # TestFlight feedback is reported and marked seen.
           Scripts/test-fetch-testflight-feedback.sh
-          # Both need uv (installed above) and fetch Pillow through it. They
+          # Both need uv (installed above) and fetch the Pillow that
+          # Scripts/build-mark.py.lock pins, with hashes; a failed download
+          # says FETCH FAILED rather than failing as the artwork. They
           # guard the app icon's mark: the compositor's transparent layer, and
           # the committed Freedoom glyph PNGs it is built from.
           Scripts/test-build-mark.sh
           Scripts/test-glyph-source.sh
-          # Hermetic fixtures plus two live cases: refuses a Scripts/test-*.sh
-          # that no run: block in this file names, which is how three suites
-          # ran nowhere for months (issue #454).
+          # Hermetic fixtures plus live cases: refuses a Scripts/test-*.sh that
+          # is not run on a line of its own in an unconditional step of a job
+          # the release waits for -- this step, in practice -- which is how
+          # three suites ran nowhere for months (issue #454).
           Scripts/test-check-suites-registered.sh
           Scripts/check-suites-registered.sh
           Scripts/check-substrate.sh

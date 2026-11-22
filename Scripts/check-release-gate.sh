@@ -130,6 +130,15 @@ if ! is_job "$GATED_JOB"; then
     exit 1
 fi
 
+# --print-needs: print the jobs the release waits for, one per line, and stop.
+# Scripts/check-suites-registered.sh asks this rather than parsing `needs:` a
+# second way: a suite counts as run only inside a job the release waits for,
+# and that list is this guard's to read.
+if [ "${1:-}" = "--print-needs" ]; then
+    needs_of "$GATED_JOB"
+    exit 0
+fi
+
 # A line under `jobs:` at a job's depth that is not a job id this can read.
 # Refused, not skipped: a job the guard cannot see is a job nobody is made to
 # decide about.

@@ -4,7 +4,8 @@
     "Three built-in managers do most of the work here:",
     "  github-actions -- the four action refs across .github/workflows/*.yml",
     "                    and .github/actions/setup-waddle-build/action.yml",
-    "  mise           -- cmake, ninja and xcodegen in mise.toml",
+    "  mise           -- cmake, ninja and xcodegen in mise.toml, and uv in",
+    "                    .config/mise.toml (the tools no build step runs)",
     "  xcodegen       -- ZIPFoundation, pinned in App/project.yml",
     "",
     "A fourth, custom regex manager (customManagers below) watches the native",
@@ -32,6 +33,13 @@
     "owner's merge. Merging one ships a TestFlight build. What a bump needs",
     "besides the one line is in Engine/WOOF_UPSTREAM.md, 'Renovate pull",
     "requests for the native pins'; each pull request body links there.",
+    "",
+    "A fifth, pep723, is opt-in (its default file list is empty) and pointed at",
+    "Scripts/build-mark.py alone: its inline metadata pins Pillow, and",
+    "Scripts/build-mark.py.lock holds that pin's hashes. Renovate edits the pin",
+    "but not the script lock, so the pull request goes red at the lock check in",
+    "Scripts/test-build-mark.sh until someone re-locks; it is never automerged",
+    "(the last packageRule below).",
     "",
     "Deliberately NOT watched, and why:",
     "  WOOF_COMMIT in Scripts/vendor-woof.sh -- must stay manual. Engine/woof",
@@ -99,6 +107,9 @@
       ]
     }
   ],
+  "pep723": {
+    "managerFilePatterns": ["/^Scripts/build-mark\\.py$/"]
+  },
   "packageRules": [
     {
       "description": [
@@ -201,6 +212,21 @@
       "matchDepNames": ["freedoom/freedoom"],
       "prBodyNotes": [
         "A Freedoom release changes maps, so saves and demos recorded on the previous one may not load, and `App/UITests/Fixtures/` is derived from the old release (its README names the version). Whether players' existing Freedoom saves survive is the owner's call, not CI's."
+      ]
+    },
+    {
+      "description": [
+        "Pillow, pinned in Scripts/build-mark.py's inline metadata (PEP 723).",
+        "It draws the app icon's mark, so a release can change committed",
+        "artwork, and Renovate cannot regenerate Scripts/build-mark.py.lock:",
+        "the pull request needs a person or agent to re-lock and re-render.",
+        "After the same three-day minimum release age as everything else."
+      ],
+      "matchManagers": ["pep723"],
+      "automerge": false,
+      "minimumReleaseAge": "3 days",
+      "prBodyNotes": [
+        "This bumps the Pillow pin in `Scripts/build-mark.py` but not its lock. On this branch run `uv lock --script Scripts/build-mark.py`, then `mise run icons` and `mise run check-icons`, and push the lock with any artwork that changed. Until then `Scripts/test-build-mark.sh` fails at its lock check, by design."
       ]
     }
   ]

@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --quiet --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["pillow"]
+# dependencies = ["pillow==13.0.0"]
 # ///
 """Compose the Waddle mark from the committed Freedoom glyphs.
 

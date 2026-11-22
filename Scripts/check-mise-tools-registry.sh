@@ -18,19 +18,42 @@
 # ever wanted, install it outside [tools] -- a task, or a developer's own
 # mise config -- so CI never downloads it.
 #
-# Exit 0: no such pin. Exit 1: at least one, each named with its line. Exit 2:
-# mise.toml missing or unreadable -- fail closed; a guard that cannot read its
+# Exit 0: no such pin. Exit 1: at least one, each named with its file and line.
+# Exit 2: mise.toml (or a config found beside it) missing or unreadable -- fail closed; a guard that cannot read its
 # input has proved nothing.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CONFIG="${MISE_TOOLS_CONFIG:-$ROOT/mise.toml}"
 
-if [ ! -r "$CONFIG" ]; then
-  echo "error: cannot read $CONFIG" >&2
-  exit 2
+# Every file mise loads [tools] from in this checkout, not just mise.toml:
+# .config/mise.toml holds the tools that never reach the binary (uv, issue
+# #454), and a pin moved into any other location mise reads is installed by CI
+# just the same. mise.toml itself must exist; the rest are read when present.
+# MISE_TOOLS_CONFIG names one file instead (the suite's fixtures);
+# MISE_TOOLS_ROOT points the directory scan elsewhere.
+CONFIGS=()
+if [ -n "${MISE_TOOLS_CONFIG:-}" ]; then
+  CONFIGS=("$MISE_TOOLS_CONFIG")
+else
+  dir="${MISE_TOOLS_ROOT:-$ROOT}"
+  CONFIGS=("$dir/mise.toml")
+  for f in "$dir"/.mise.toml "$dir"/mise.*.toml "$dir"/.mise.*.toml \
+           "$dir"/mise/config.toml "$dir"/.mise/config.toml \
+           "$dir"/.config/mise.toml "$dir"/.config/mise.*.toml \
+           "$dir"/.config/mise/config.toml "$dir"/.config/mise/mise.toml \
+           "$dir"/.config/mise/conf.d/*.toml; do
+    if [ -f "$f" ]; then CONFIGS+=("$f"); fi
+  done
 fi
 
+for CONFIG in "${CONFIGS[@]}"; do
+  if [ ! -r "$CONFIG" ]; then
+    echo "error: cannot read $CONFIG" >&2
+    exit 2
+  fi
+done
+
 status=0
+for CONFIG in "${CONFIGS[@]}"; do
 in_tools=0
 lineno=0
 while IFS= read -r line || [ -n "$line" ]; do
@@ -71,6 +94,7 @@ while IFS= read -r line || [ -n "$line" ]; do
     fi
   fi
 done < "$CONFIG"
+done
 
 if [ "$status" -ne 0 ]; then
   echo "error: every tool in [tools] is installed by CI; pin tools from a registry only (see docs/learnings/vendor-hosted-tool-pin-took-ci-down.md)" >&2

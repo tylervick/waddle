@@ -106,7 +106,9 @@ Requirements: Xcode 27.1 (the `XCODE_VERSION` that `.github/workflows/ci.yml`
 pins; Xcode 26.2 no longer builds the app), and the CLI tools `cmake`,
 `ninja`, and `xcodegen`. The pinned versions are in `mise.toml` — with
 [mise](https://mise.jdx.dev) installed, `mise install` fetches them all;
-otherwise `brew install cmake ninja xcodegen` works too (unpinned).
+otherwise `brew install cmake ninja xcodegen` works too (unpinned). `uv`,
+which only the icon scripts and their suites use, is pinned separately in
+`.config/mise.toml`, and `mise install` fetches it as well.
 
 ```sh
 mise install         # pinned cmake / ninja / xcodegen
