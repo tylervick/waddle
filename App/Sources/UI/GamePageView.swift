@@ -86,6 +86,15 @@ struct GamePageView: View {
     /// The game is gone from this page's point of view (deleted, hidden, or a
     /// copy was made and should be found on the shelf): pop.
     let onClose: () -> Void
+    /// What the page has presented and is waiting on. The panel's trees pass
+    /// the panel model's, so the same page drawn by another tree after a
+    /// fold shows the same dialog (`PanelPresentation.swift`). Nil keeps it
+    /// to this view, which is right for a page nothing else will draw.
+    var presentation: GamePagePresentation?
+
+    @State private var ownPresentation = GamePagePresentation()
+    private var shown: GamePagePresentation { presentation ?? ownPresentation }
+    @Environment(\.panelHost) private var host
 
     @State private var saves: [LibraryService.SaveSlot] = []
     @State private var files: [WADFile] = []
@@ -94,17 +103,11 @@ struct GamePageView: View {
     @State private var scheme: TouchControlScheme?
     @State private var complevel: String?
     @State private var baseSelection: UUID?
-    @State private var showRename = false
-    @State private var draftName = ""
-    @State private var showAddFile = false
     /// The file the Add… picker picked, staged until the sheet has finished
     /// dismissing (`showAddFile`'s `onDismiss`) so the confirmation dialog
     /// this can lead to is never presented while the sheet is still
     /// dismissing itself (the cfaed69 race).
-    @State private var pendingAdd: WADFile?
     /// A base or file edit waiting on the change-with-saves confirmation.
-    @State private var pendingEdit: GameEdit?
-    @State private var deleteCandidate: Game?
     @State private var artContentWidth: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
     /// The widest unbreakable thing in the hero's caption, from
@@ -112,6 +115,7 @@ struct GamePageView: View {
     @State private var captionWordWidth: CGFloat?
     /// The hero row's measured width; zero until measured.
     @State private var heroRowWidth: CGFloat = 0
+    @Environment(\.launcherIsInTwoHalves) private var inTwoHalves
     /// The wider action label, from `actionLabelGauge`; zero until measured.
     @State private var actionLabelWidth: CGFloat = 0
 
@@ -168,29 +172,43 @@ struct GamePageView: View {
         // would be a second step for no gain (spec §3.2: "edits apply in place").
         .environment(\.editMode, .constant(.active))
         .onAppear(perform: reload)
-        .alert("Rename", isPresented: $showRename) {
-            TextField("Name", text: $draftName)
+        .alert("Rename", isPresented: host.presented({ shown.showRename },
+                                                     dismiss: { shown.showRename = false })) {
+            TextField("Name", text: Binding(get: { shown.draftName }, set: { shown.draftName = $0 }))
                 .accessibilityIdentifier("renameField")
             Button("Save") {
-                let trimmed = draftName.trimmingCharacters(in: .whitespaces)
+                let trimmed = shown.draftName.trimmingCharacters(in: .whitespaces)
                 guard !trimmed.isEmpty else { return }
                 try? library.rename(game, to: trimmed)
                 onChanged()
             }
             Button("Cancel", role: .cancel) {}
         }
-        .sheet(isPresented: $showAddFile, onDismiss: {
-            if let file = pendingAdd {
-                pendingAdd = nil
-                attempt(.files(game.fileIDs + [file.id]))
-            }
-        }) {
+        .sheet(isPresented: inTwoHalves ? .constant(false) : addFileShown,
+               onDismiss: addPickedFile) {
             AddFilePicker(candidates: GamePage.addableFiles(from: allFiles, to: game)) { wad in
-                pendingAdd = wad
+                shown.pendingAdd = wad
             }
         }
+        // In the lower half of a half-open iPhone Duo the picker is pushed:
+        // a sheet covers the window, and there that is across the fold
+        // (issue #429). The pick is still applied once the picker has gone.
+        .navigationDestination(isPresented: inTwoHalves ? addFileShown : .constant(false)) {
+            AddFilePicker(candidates: GamePage.addableFiles(from: allFiles, to: game),
+                          isPushed: true) { wad in
+                shown.pendingAdd = wad
+            }
+        }
+        .onChange(of: shown.showAddFile) { _, isShown in
+            if inTwoHalves, !isShown { addPickedFile() }
+        }
+        // A pick made in the moment a fold took the picker's tree down is
+        // still waiting when this one is up.
+        .onChange(of: host.presents) { _, presents in
+            if presents, !shown.showAddFile { addPickedFile() }
+        }
         .confirmationDialog(saveWarningTitle, isPresented: pendingEditBinding,
-                            titleVisibility: .visible, presenting: pendingEdit) { edit in
+                            titleVisibility: .visible, presenting: shown.pendingEdit) { edit in
             Button("Duplicate Instead") {
                 if (try? library.duplicate(game, applying: edit)) != nil {
                     onChanged()
@@ -204,7 +222,9 @@ struct GamePageView: View {
         } message: { _ in
             Text("Changing what it loads may make them unplayable.")
         }
-        .deleteGamePrompt(game: $deleteCandidate, library: library) {
+        .deleteGamePrompt(game: Binding(get: { host.presents ? shown.deleteCandidate : nil },
+                                        set: { if host.presents { shown.deleteCandidate = $0 } }),
+                          library: library) {
             onChanged()
             onClose()
         }
@@ -291,10 +311,18 @@ struct GamePageView: View {
                 switch measurements.arrangement {
                 case .stacked:
                     VStack(alignment: .leading, spacing: PlayableDetailLayout.captionSpacing) {
-                        heroArt(height: PlayableDetailLayout.artHeight(
-                            contentWidth: artContentWidth,
-                            viewportHeight: viewportHeight,
-                            captionHeight: captionHeight))
+                        // Not in the lower half of a half-open iPhone Duo
+                        // (issue #429). Stacked there means the caption did
+                        // not fit beside the art, which is the large text
+                        // sizes, and in a half some 380 pt tall the art was
+                        // on its 96 pt floor: a strip above a title and
+                        // buttons that already overflow. The half is theirs.
+                        if !inTwoHalves {
+                            heroArt(height: PlayableDetailLayout.artHeight(
+                                contentWidth: artContentWidth,
+                                viewportHeight: viewportHeight,
+                                captionHeight: captionHeight))
+                        }
                         titleButton
                         actionsRow
                     }
@@ -357,8 +385,8 @@ struct GamePageView: View {
     /// title reads as a title and VoiceOver announces one action.
     private var titleButton: some View {
         Button {
-            draftName = game.name
-            showRename = true
+            shown.draftName = game.name
+            shown.showRename = true
         } label: {
             titleLabel(game.name)
         }
@@ -526,7 +554,7 @@ struct GamePageView: View {
                 attempt(.files(ids))
             }
             Button {
-                showAddFile = true
+                shown.showAddFile = true
             } label: {
                 Label("Add…", systemImage: "plus")
             }
@@ -610,7 +638,7 @@ struct GamePageView: View {
                 .accessibilityIdentifier("hideGameButton")
             } else {
                 Button("Delete Game", role: .destructive) {
-                    deleteCandidate = game
+                    shown.deleteCandidate = game
                 }
                 .accessibilityIdentifier("deleteGameButton")
             }
@@ -619,11 +647,20 @@ struct GamePageView: View {
 
     // MARK: Edits
 
+    /// Attaches the file the Add… picker picked, once the picker has gone.
+    private func addPickedFile() {
+        // Not while this tree is being replaced: the picker going down with
+        // its tree is not the player having finished with it.
+        guard host.presents, let file = shown.pendingAdd else { return }
+        shown.pendingAdd = nil
+        attempt(.files(game.fileIDs + [file.id]))
+    }
+
     /// Applies a base or file edit, or stages it behind the change-with-saves
     /// confirmation (spec §3.2).
     private func attempt(_ edit: GameEdit) {
         if GamePage.warnsBeforeApplying(edit, saveCount: saves.count) {
-            pendingEdit = edit
+            shown.pendingEdit = edit
         } else {
             apply(edit)
         }
@@ -644,6 +681,10 @@ struct GamePageView: View {
         files = game.fileIDs.compactMap { id in allFiles.first { $0.id == id } }
         baseGames = (try? library.baseGames()) ?? []
         baseSelection = game.baseID
+        // A base change still waiting on its warning, on a page another
+        // tree has just redrawn after a fold: the picker shows what was
+        // chosen, as it did when the warning went up.
+        if case .base(let chosen)? = shown.pendingEdit { baseSelection = chosen }
         complevel = game.complevel
         scheme = game.schemeOverrideRaw.flatMap(TouchControlScheme.init(rawValue:))
     }
@@ -657,8 +698,19 @@ struct GamePageView: View {
     // sees a stale `pendingEdit`/`baseSelection` pair. `reload()` is
     // idempotent, so re-running it here alongside the button's own call is
     // harmless.
+    ///
+    /// Through `host`, so that the dialog going down with a tree that a fold
+    /// is replacing is not taken for a cancel: the edit stays pending and
+    /// the next tree asks again (issue #429).
     private var pendingEditBinding: Binding<Bool> {
-        Binding(get: { pendingEdit != nil }, set: { if !$0 { pendingEdit = nil; reload() } })
+        host.presented({ shown.pendingEdit != nil },
+                       dismiss: { shown.pendingEdit = nil; reload() })
+    }
+
+    private var addFileShown: Binding<Bool> {
+        host.presented({ shown.showAddFile },
+                       dismiss: { shown.showAddFile = false },
+                       present: { shown.showAddFile = true })
     }
 }
 
@@ -718,6 +770,9 @@ private struct MenuPickerRow<Value: Hashable, Options: View>: View {
 /// load, grouped by role. Picking one attaches it at the end of the load order.
 struct AddFilePicker: View {
     let candidates: [WADFile]
+    /// Pushed into the page's own stack instead of presented with one of its
+    /// own: see where `GamePageView` opens it.
+    var isPushed = false
     let onPick: (WADFile) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -725,28 +780,35 @@ struct AddFilePicker: View {
     private var addOns: [WADFile] { candidates.filter { $0.role == .addOn } }
 
     var body: some View {
-        NavigationStack {
-            List {
-                if candidates.isEmpty {
-                    EmptyStateView(systemImage: "tray",
-                                   title: "Every file you've imported is already in this game.")
-                }
-                if !mapSets.isEmpty {
-                    Section { rows(mapSets) } header: { WaddleSectionHeader("Map sets") }
-                }
-                if !addOns.isEmpty {
-                    Section { rows(addOns) } header: { WaddleSectionHeader("Add-ons") }
-                }
-            }
-            .waddleScrollSurface()
-            .navigationTitle("Add to Game")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+        if isPushed {
+            list
+        } else {
+            NavigationStack {
+                list.toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { dismiss() }
+                    }
                 }
             }
         }
+    }
+
+    private var list: some View {
+        List {
+            if candidates.isEmpty {
+                EmptyStateView(systemImage: "tray",
+                               title: "Every file you've imported is already in this game.")
+            }
+            if !mapSets.isEmpty {
+                Section { rows(mapSets) } header: { WaddleSectionHeader("Map sets") }
+            }
+            if !addOns.isEmpty {
+                Section { rows(addOns) } header: { WaddleSectionHeader("Add-ons") }
+            }
+        }
+        .waddleScrollSurface()
+        .navigationTitle("Add to Game")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private func rows(_ files: [WADFile]) -> some View {

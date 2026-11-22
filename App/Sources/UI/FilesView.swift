@@ -9,7 +9,13 @@ struct FilesView: View {
     @Environment(\.openURL) private var openURL
     @State private var groups: [FileGroup] = []
     @State private var usedBy: [UUID: [Game]] = [:]
-    @State private var deleteBlocked: [BlockedFile] = []
+    /// Where the "File in use" alert is kept when Settings is the shelf's
+    /// panel (`PanelPresentation.swift`); nil keeps it here.
+    var presentation: SettingsPresentation?
+    @State private var ownPresentation = SettingsPresentation()
+    private var shown: SettingsPresentation { presentation ?? ownPresentation }
+    @Environment(\.panelHost) private var host
+    private var deleteBlocked: [BlockedFile] { shown.filesDeleteBlocked }
 
     /// One file a delete refused, with the games holding it. A batch blocks on
     /// several files at once, and the alert has to say which file belongs to
@@ -117,10 +123,10 @@ struct FilesView: View {
         .accessibilityIdentifier("filesScreen")
         .navigationTitle("Files")
         .navigationBarTitleDisplayMode(.inline)
-        .alert("File in use", isPresented: Binding(
-            get: { !deleteBlocked.isEmpty }, set: { if !$0 { deleteBlocked = [] } }
+        .alert("File in use", isPresented: host.presented(
+            { !shown.filesDeleteBlocked.isEmpty }, dismiss: { shown.filesDeleteBlocked = [] }
         )) {
-            Button("OK") { deleteBlocked = [] }
+            Button("OK") { shown.filesDeleteBlocked = [] }
         } message: {
             Text(Self.blockedMessage(for: deleteBlocked))
         }
@@ -185,7 +191,7 @@ struct FilesView: View {
     }
 
     private func delete(_ wads: [WADFile]) {
-        deleteBlocked = Self.deleting(wads, from: library, blocked: deleteBlocked)
+        shown.filesDeleteBlocked = Self.deleting(wads, from: library, blocked: shown.filesDeleteBlocked)
         // The shelf is presented underneath Settings as a sheet, so its own
         // `.onAppear` never re-fires when Settings dismisses; without this
         // post a deleted WAD's game would keep showing stale tile state.

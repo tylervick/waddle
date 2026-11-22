@@ -170,17 +170,20 @@ final class DuoLayoutSweepTests: XCTestCase {
         // tile is taller than a landscape window and never fits in it. A
         // centre on screen still rules out the sliver at the bottom edge
         // that `isHittable` alone accepts (issue #352).
-        func reachable() -> Bool {
-            guard element.exists, element.isHittable else { return false }
-            let frame = element.frame
-            return app.windows.firstMatch.frame.contains(CGPoint(x: frame.midX, y: frame.midY))
-        }
         // Where to drag, settled once: a list found by one of its rows stops
         // being found when that row scrolls away, and the drags after that
         // would fall on whatever else is in the window.
         let window = app.windows.firstMatch.frame
-        var area = window
-        if let container, container.exists { area = container.frame.intersection(window) }
+        // With no container it is the shelf that scrolls, and the element
+        // has to be in the shelf's part of the window to be in reach.
+        let shelf = shelfArea(app)
+        var area = shelf, inReach = shelf
+        if let container, container.exists { area = container.frame.intersection(window); inReach = window }
+        func reachable() -> Bool {
+            guard element.exists, element.isHittable else { return false }
+            let frame = element.frame
+            return inReach.contains(CGPoint(x: frame.midX, y: frame.midY))
+        }
         dragsMade = 0
         while !reachable() && dragsMade < drags {
             scrollUp(app, in: area)
@@ -188,6 +191,21 @@ final class DuoLayoutSweepTests: XCTestCase {
             dragsMade += 1
         }
         return reachable()
+    }
+
+    /// Where the shelf is, and so where a drag has to fall to move it: the
+    /// whole window, or the upper half of it on a device standing half open
+    /// (issue #429), where the middle of the window is the panel's half and
+    /// a drag there scrolled the wrong thing. The app's own marker says
+    /// where the upper half ends.
+    @MainActor
+    private func shelfArea(_ app: XCUIApplication) -> CGRect {
+        let window = app.windows.firstMatch.frame
+        let upperEdge = app.otherElements["launcherUpperHalf"]
+        guard pose == "half-open", upperEdge.exists else { return window }
+        let bar = app.navigationBars["Waddle"]
+        let top = bar.exists ? bar.frame.maxY : window.minY
+        return CGRect(x: window.minX, y: top, width: window.width, height: upperEdge.frame.maxY - top)
     }
 
     // MARK: the session and the engine's own screens
@@ -597,10 +615,14 @@ final class DuoLayoutSweepTests: XCTestCase {
             XCTFail("[\(pose)] Settings row controlFeelButton could not be reached"); return
         }
         app.buttons["controlFeelButton"].tap()
-        guard waitFor(app.buttons["controlFeelDoneButton"], "Control Feel") else { return }
+        // By its first row, not its Done button: in the lower half of a
+        // half-open device Control Feel is pushed and has a back button
+        // instead (issue #429).
+        guard waitFor(app.descendants(matching: .any).matching(identifier: "turnSpeedSlider").firstMatch,
+                      "Control Feel") else { return }
         shoot("15-control-feel")
         let edit = app.buttons["editLayoutButton"]
-        let form = app.collectionViews.containing(.button, identifier: "controlFeelDoneButton").firstMatch
+        let form = app.collectionViews.containing(.any, identifier: "turnSpeedSlider").firstMatch
         guard bringIntoView(edit, in: app, scrolling: form.exists ? form : nil) else {
             XCTFail("[\(pose)] Control Feel's Edit Layout row could not be reached"); return
         }
@@ -631,7 +653,13 @@ final class DuoLayoutSweepTests: XCTestCase {
     func testL_ContinueHero() throws {
         let app = launch(env: ["WADDLE_SEED_CONTINUE_SAVE": "1"])
         defer { app.terminate() }
-        guard waitFor(app.buttons["continueHero"], "the Continue hero", timeout: 30) else { return }
+        // Half open the shelf has no hero (see `testN_GamePageWithASave`);
+        // the shot is still the shelf of a game with a save.
+        if pose == "half-open" {
+            guard waitFor(app.buttons["continueButton"], "the lower half's Continue button", timeout: 30) else { return }
+        } else {
+            guard waitFor(app.buttons["continueHero"], "the Continue hero", timeout: 30) else { return }
+        }
         shoot("50-shelf-continue-hero")
     }
 
@@ -649,8 +677,15 @@ final class DuoLayoutSweepTests: XCTestCase {
                                "WADDLE_OPEN_PANEL": "Freedoom Phase 1"])
         defer { app.terminate() }
         let hero = app.descendants(matching: .any).matching(identifier: "continueHero").firstMatch
-        guard waitFor(hero, "the Continue hero", timeout: 30) else { return }
         let page = app.descendants(matching: .any).matching(identifier: "gamePage").firstMatch
+        // A device standing half open has no Continue hero: the lower half
+        // is the last-played game's page, with the same two buttons (issue
+        // #429). The page is there without being asked for.
+        if pose == "half-open" {
+            guard waitFor(app.buttons["importButton"], "the shelf", timeout: 30) else { return }
+        } else {
+            guard waitFor(hero, "the Continue hero", timeout: 30) else { return }
+        }
         if !page.waitForExistence(timeout: 4) {
             longPress(hero)
             guard waitFor(app.buttons["Details"].firstMatch, "the hero's long-press menu", timeout: 8) else { return }

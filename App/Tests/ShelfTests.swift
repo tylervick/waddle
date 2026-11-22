@@ -25,6 +25,56 @@ final class ShelfTests: XCTestCase {
         try? FileManager.default.removeItem(at: tmp)
     }
 
+    // MARK: - The lower half's resting page (issue #429)
+
+    /// Half open with nothing else open, the lower half shows the page of
+    /// the game last played; before anything has been played, the first
+    /// tile's; and with no game on the shelf, nothing.
+    func testTheLowerHalfRestsOnTheLastPlayedGame() throws {
+        let zulu = try service.registerImported(filename: "zulu.wad", sha1: "z",
+                                                kind: WADKind.iwad.rawValue, family: "doom")
+        let alpha = try service.registerImported(filename: "alpha.wad", sha1: "a",
+                                                 kind: WADKind.iwad.rawValue, family: "doom")
+        let zuluGame = try game(zulu), alphaGame = try game(alpha)
+
+        var shelf = Shelf.ordered([zuluGame, alphaGame])
+        XCTAssertEqual(Shelf.restingGame(from: shelf)?.id, alphaGame.id,
+                       "nothing played yet: the first game on the shelf")
+
+        zuluGame.lastPlayed = Date().addingTimeInterval(-60)
+        shelf = Shelf.ordered([zuluGame, alphaGame])
+        XCTAssertEqual(Shelf.restingGame(from: shelf)?.id, zuluGame.id,
+                       "the game last played, whatever its name")
+
+        XCTAssertNil(Shelf.restingGame(from: []))
+    }
+
+    /// Half open, the shelf drops its Continue hero, because the lower half
+    /// is that game's page with the same two actions; the game is a tile
+    /// again, first in the grid. The welcome card stays, and flat nothing
+    /// changes.
+    func testInTwoHalvesTheContinueHeroGivesWayToItsTile() throws {
+        let zulu = try service.registerImported(filename: "zulu.wad", sha1: "z",
+                                                kind: WADKind.iwad.rawValue, family: "doom")
+        let alpha = try service.registerImported(filename: "alpha.wad", sha1: "a",
+                                                 kind: WADKind.iwad.rawValue, family: "doom")
+        let zuluGame = try game(zulu), alphaGame = try game(alpha)
+        zuluGame.lastPlayed = Date().addingTimeInterval(-60)
+        let shelf = Shelf.ordered([zuluGame, alphaGame])
+        let resume = Shelf.HeroZone.resume(zuluGame)
+
+        XCTAssertEqual(Shelf.heroZone(resume, inTwoHalves: false), resume)
+        XCTAssertEqual(Shelf.gridItems(from: shelf, heroZone: Shelf.heroZone(resume, inTwoHalves: false)).map(\.id),
+                       [alphaGame.id], "flat, the hero's game is not also a tile")
+
+        XCTAssertEqual(Shelf.heroZone(resume, inTwoHalves: true), .empty)
+        XCTAssertEqual(Shelf.gridItems(from: shelf, heroZone: Shelf.heroZone(resume, inTwoHalves: true)).map(\.id),
+                       [zuluGame.id, alphaGame.id], "half open, the game must still be on the shelf")
+
+        XCTAssertEqual(Shelf.heroZone(.welcome, inTwoHalves: true), .welcome)
+        XCTAssertEqual(Shelf.heroZone(.empty, inTwoHalves: true), .empty)
+    }
+
     // MARK: - Ordering
 
     func testShelfOrdersRecentlyPlayedFirstThenAlphabetically() throws {

@@ -11,70 +11,87 @@ struct ControlFeelView: View {
     private var stickDeadZone: Double = TouchTuning.default.stickDeadZone
     @AppStorage(TouchTuning.moveSensitivityKey)
     private var moveSensitivity: Double = TouchTuning.default.moveSensitivity
-    @State private var showLayoutEditor = false
+    /// Where the layout editor's presentation is kept when Settings is the
+    /// shelf's panel (`PanelPresentation.swift`); nil keeps it here.
+    var presentation: SettingsPresentation?
+    @State private var ownPresentation = SettingsPresentation()
+    private var shown: SettingsPresentation { presentation ?? ownPresentation }
+    @Environment(\.panelHost) private var host
+    /// Pushed into the stack it is opened from, and not a sheet with a stack
+    /// and a Done of its own: Settings in the lower half of a half-open
+    /// iPhone Duo (issue #429), where a sheet would lie across the fold.
+    var isPushed = false
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    slider("Turn Speed", value: $turnSpeed,
-                           range: TouchTuning.turnSpeedRange,
-                           id: "turnSpeedSlider")
-                } footer: {
-                    Text("Scales stick turning (Classic) and drag-to-turn (Modern).")
-                }
-                Section {
-                    slider("Stick Dead Zone", value: $stickDeadZone,
-                           range: TouchTuning.stickDeadZoneRange,
-                           id: "stickDeadZoneSlider")
-                } footer: {
-                    Text("Fraction of the stick radius that ignores small wobbles.")
-                }
-                Section {
-                    slider("Move Sensitivity", value: $moveSensitivity,
-                           range: TouchTuning.moveSensitivityRange,
-                           id: "moveSensitivitySlider")
-                } footer: {
-                    Text("Scales forward/back and strafe output.")
-                }
-                Section {
-                    // Full-screen, not a sheet: the editor must have the
-                    // session's exact bounds for its geometry to be the
-                    // overlay's (TouchLayoutEditorView).
-                    Button {
-                        showLayoutEditor = true
-                    } label: {
-                        Label("Edit Layout…", systemImage: "hand.draw")
+        if isPushed {
+            form
+        } else {
+            NavigationStack {
+                form.toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                            .accessibilityIdentifier("controlFeelDoneButton")
                     }
-                    .accessibilityIdentifier("editLayoutButton")
-                } footer: {
-                    Text("Drag the on-screen buttons where your thumbs want them. "
-                         + "Applies when the next session starts.")
-                }
-                Section {
-                    Button("Reset to Defaults") {
-                        turnSpeed = TouchTuning.default.turnSpeed
-                        stickDeadZone = TouchTuning.default.stickDeadZone
-                        moveSensitivity = TouchTuning.default.moveSensitivity
-                    }
-                    .accessibilityIdentifier("controlFeelResetButton")
-                } footer: {
-                    Text("Changes apply when the next session starts. Turn on "
-                         + "Show Debug Info to see the effective values in-game.")
                 }
             }
-            .waddleScrollSurface()
-            .navigationTitle("Control Feel")
-            .navigationBarTitleDisplayMode(.inline)
-            .fullScreenCover(isPresented: $showLayoutEditor) {
-                TouchLayoutEditorView()
+        }
+    }
+
+    private var form: some View {
+        Form {
+            Section {
+                slider("Turn Speed", value: $turnSpeed,
+                       range: TouchTuning.turnSpeedRange,
+                       id: "turnSpeedSlider")
+            } footer: {
+                Text("Scales stick turning (Classic) and drag-to-turn (Modern).")
             }
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                        .accessibilityIdentifier("controlFeelDoneButton")
+            Section {
+                slider("Stick Dead Zone", value: $stickDeadZone,
+                       range: TouchTuning.stickDeadZoneRange,
+                       id: "stickDeadZoneSlider")
+            } footer: {
+                Text("Fraction of the stick radius that ignores small wobbles.")
+            }
+            Section {
+                slider("Move Sensitivity", value: $moveSensitivity,
+                       range: TouchTuning.moveSensitivityRange,
+                       id: "moveSensitivitySlider")
+            } footer: {
+                Text("Scales forward/back and strafe output.")
+            }
+            Section {
+                // Full-screen, not a sheet: the editor must have the
+                // session's exact bounds for its geometry to be the
+                // overlay's (TouchLayoutEditorView).
+                Button {
+                    shown.showLayoutEditor = true
+                } label: {
+                    Label("Edit Layout…", systemImage: "hand.draw")
                 }
+                .accessibilityIdentifier("editLayoutButton")
+            } footer: {
+                Text("Drag the on-screen buttons where your thumbs want them. "
+                     + "Applies when the next session starts.")
             }
+            Section {
+                Button("Reset to Defaults") {
+                    turnSpeed = TouchTuning.default.turnSpeed
+                    stickDeadZone = TouchTuning.default.stickDeadZone
+                    moveSensitivity = TouchTuning.default.moveSensitivity
+                }
+                .accessibilityIdentifier("controlFeelResetButton")
+            } footer: {
+                Text("Changes apply when the next session starts. Turn on "
+                     + "Show Debug Info to see the effective values in-game.")
+            }
+        }
+        .waddleScrollSurface()
+        .navigationTitle("Control Feel")
+        .navigationBarTitleDisplayMode(.inline)
+        .fullScreenCover(isPresented: host.presented({ shown.showLayoutEditor },
+                                                     dismiss: { shown.showLayoutEditor = false })) {
+            TouchLayoutEditorView()
         }
     }
 

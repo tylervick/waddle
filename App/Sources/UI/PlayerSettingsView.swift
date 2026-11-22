@@ -17,16 +17,27 @@ struct PlayerSettingsView: View {
     /// #372): an inspector column is not something `dismiss` closes, so the
     /// panel's owner says how. Nil keeps the sheet's own dismissal.
     var onDone: (() -> Void)?
+    /// What Settings has pushed and presented. The panel's trees and the
+    /// shelf's sheet pass the panel model's, so Settings redrawn by another
+    /// tree after a fold is where it was (`PanelPresentation.swift`).
+    var presentation: SettingsPresentation?
+
+    @State private var ownPresentation = SettingsPresentation()
+    private var shown: SettingsPresentation { presentation ?? ownPresentation }
+    @Environment(\.panelHost) private var host
 
     @AppStorage(TouchControlScheme.userDefaultsKey) private var touchScheme: TouchControlScheme = .defaultScheme
     @AppStorage(WeaponSelectorStyle.userDefaultsKey) private var weaponSelector: WeaponSelectorStyle = .defaultStyle
     @AppStorage(ControlHintsSetting.userDefaultsKey) private var showControlHints: Bool = ControlHintsSetting.defaultValue
     @AppStorage(debugHUDUserDefaultsKey) private var debugHUD: Bool = false
-    @State private var showControlFeel = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.launcherIsInTwoHalves) private var inTwoHalves
 
     var body: some View {
-        NavigationStack {
+        // The path is read by every tree and written only by the one on
+        // screen: a stack being taken down must not empty it.
+        NavigationStack(path: Binding(get: { shown.path },
+                                      set: { if host.isCurrent { shown.path = $0 } })) {
             Form {
                 Section {
                     Picker("Touch Controls", selection: $touchScheme) {
@@ -54,7 +65,7 @@ struct PlayerSettingsView: View {
                     // presentation), and pushing it would nest one stack inside
                     // another for no gain.
                     Button {
-                        showControlFeel = true
+                        shown.showControlFeel = true
                     } label: {
                         Label("Control Feel", systemImage: "slider.horizontal.3")
                     }
@@ -64,16 +75,12 @@ struct PlayerSettingsView: View {
                 }
 
                 Section {
-                    NavigationLink {
-                        FilesView(library: library)
-                    } label: {
+                    NavigationLink(value: SettingsPresentation.Route.files) {
                         Label("Files", systemImage: "internaldrive")
                     }
                     .accessibilityIdentifier("filesButton")
 
-                    NavigationLink {
-                        HiddenGamesView(library: library)
-                    } label: {
+                    NavigationLink(value: SettingsPresentation.Route.hiddenGames) {
                         Label("Hidden Games", systemImage: "eye.slash")
                     }
                     .accessibilityIdentifier("hiddenGamesButton")
@@ -85,9 +92,7 @@ struct PlayerSettingsView: View {
                     Toggle("Show Debug Info", isOn: $debugHUD)
                         .accessibilityIdentifier("debugHUDToggle")
 
-                    NavigationLink {
-                        AboutView(library: library)
-                    } label: {
+                    NavigationLink(value: SettingsPresentation.Route.about) {
                         Label("About", systemImage: "info.circle")
                     }
                     .accessibilityIdentifier("aboutButton")
@@ -102,9 +107,30 @@ struct PlayerSettingsView: View {
                     Button("Done") { if let onDone { onDone() } else { dismiss() } }
                 }
             }
-            .sheet(isPresented: $showControlFeel) {
-                ControlFeelView()
+            // In the lower half of a half-open iPhone Duo it is pushed like
+            // the other rows' screens: a sheet covers the window, and there
+            // that is across the fold (issue #429).
+            .sheet(isPresented: inTwoHalves ? .constant(false) : controlFeelShown) {
+                ControlFeelView(presentation: shown)
+                    .environment(\.panelHost, host)
+            }
+            .navigationDestination(isPresented: inTwoHalves ? controlFeelShown : .constant(false)) {
+                ControlFeelView(presentation: shown, isPushed: true)
+            }
+            .navigationDestination(for: SettingsPresentation.Route.self) { route in
+                switch route {
+                case .files: FilesView(library: library, presentation: shown)
+                case .hiddenGames: HiddenGamesView(library: library)
+                case .about: AboutView(library: library, presentation: shown)
+                case .license(let title, let filename): LicenseTextView(title: title, filename: filename)
+                }
             }
         }
+    }
+
+    private var controlFeelShown: Binding<Bool> {
+        host.presented({ shown.showControlFeel },
+                       dismiss: { shown.showControlFeel = false },
+                       present: { shown.showControlFeel = true })
     }
 }
