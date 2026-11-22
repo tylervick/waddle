@@ -215,6 +215,103 @@ final class SetupScreenOverlapTests: XCTestCase {
         _ = hud
     }
 
+    /// Issue #462. A touch on a row of a Key Bindings screen makes the row
+    /// wait for the input to bind, and the engine then binds whatever
+    /// arrives next and takes it from the action that had it. Everything
+    /// the touch overlay sends is bindable: a touch on the screen is the
+    /// left mouse button, FIRE, USE and the weapon buttons are pad buttons,
+    /// the stick is pad directions. Measured before the fix, with Run
+    /// waiting: a touch on empty space moved MOUSE1 from Fire to Run, a
+    /// touch on USE left the on-screen USE bound to Run and not to Use, and
+    /// FIRE the same. Now none of them reaches the engine while a row
+    /// waits, and ≡ cancels.
+    ///
+    /// A binding has no value in the probe, so the measure is the width of
+    /// each row's drawn text, which grows and shrinks with its bindings.
+    @MainActor
+    func testNothingFromTheOverlayIsBoundWhileAKeyBindingRowWaits() throws {
+        XCUIDevice.shared.orientation = .portrait
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        let (app, hud, walker) = try startLandscapeSession(arguments: [])
+        let keyBindings = 1 // Options > Key Bindings; its first tab has Fire, Use and Run
+        let run = 6
+        func widths(_ state: SetupProbeState?) -> [Int] { state?.items.map { Int($0.drawn.width) } ?? [] }
+        func open() throws -> SetupProbeState {
+            try XCTUnwrap(walker.open(screen: keyBindings, tab: 0), "the Key Bindings screen never opened")
+        }
+        /// The reset button and Yes: every binding back to its default.
+        func restoreDefaults() throws {
+            let state = try open()
+            let reset = try XCTUnwrap(state.items.first { $0.kind == "R" }, "no reset button")
+            walker.tap(CGPoint(x: reset.drawn.midX, y: reset.drawn.midY))
+            let yes = app.buttons["promptYesButton"]
+            XCTAssertTrue(yes.waitForExistence(timeout: 5), "Yes never appeared for the reset")
+            yes.tap()
+            Thread.sleep(forTimeInterval: 1.5)
+        }
+
+        let first = try open()
+        XCTAssertGreaterThan(first.items.count, run, "the first tab should have a Run row: \(first.items.count) rows")
+        XCTAssertEqual(first.items[run].kind, "I", "row \(run) should be a key binding")
+        let base = widths(first)
+        let emptySpace = CGPoint(x: first.items[1].press.minX + 8, y: first.items[1].press.midY)
+        let stickFrom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.55))
+        let stickTo = app.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.85))
+
+        let touches: [(name: String, isButton: Bool, make: () -> Void)] = [
+            ("a touch on empty space", false, { walker.tap(emptySpace) }),
+            ("USE", true, { app.buttons["useButton"].tap() }),
+            ("FIRE", true, { app.buttons["fireButton"].tap() }),
+            ("the next-weapon button", true, { app.buttons["weaponNextButton"].tap() }),
+            ("the previous-weapon button", true, { app.buttons["weaponPrevButton"].tap() }),
+            ("a drag of the stick", true, {
+                stickFrom.press(forDuration: 0.2, thenDragTo: stickTo, withVelocity: .fast, thenHoldForDuration: 0.5)
+            }),
+        ]
+        for touch in touches {
+            let state = try open()
+            XCTAssertEqual(widths(state), base, "the bindings were not at their starting point before \(touch.name)")
+            walker.tap(CGPoint(x: state.items[run].drawn.minX + 6, y: state.items[run].drawn.midY))
+            let waiting = walker.wait(5) { () -> Bool? in
+                guard let now = app.setupProbeState() else { return nil }
+                return now.selecting && now.cursor == run ? true : nil
+            }
+            XCTAssertNotNil(waiting, "a touch on the Run row should make it wait for a binding")
+            Thread.sleep(forTimeInterval: 1) // the HUD's next refresh
+            let buttonEvents = try XCTUnwrap(walker.hudNumber("btn"))
+            let dropped = try XCTUnwrap(walker.hudNumber("md"))
+
+            touch.make()
+            Thread.sleep(forTimeInterval: 1.5)
+            let after = app.setupProbeState()
+            XCTAssertEqual(widths(after), base, "\(touch.name) must not bind anything while the Run row waits")
+            XCTAssertEqual(after?.selecting, true, "the Run row should still be waiting after \(touch.name)")
+            if touch.isButton {
+                XCTAssertEqual(walker.hudNumber("btn"), buttonEvents,
+                               "\(touch.name) must not reach the engine's pad while a row waits")
+            } else {
+                XCTAssertEqual(walker.hudNumber("md"), dropped + 1, "\(touch.name) should be counted as dropped")
+            }
+
+            // ≡ is the way out, and it changes nothing.
+            if after?.selecting == true {
+                app.buttons["menuButton"].tap()
+                let cancelled = walker.wait(5) { app.setupProbeState()?.selecting == false ? true : nil }
+                XCTAssertNotNil(cancelled, "≡ should end the wait after \(touch.name): cm=\(walker.menu().name)")
+                XCTAssertEqual(widths(app.setupProbeState()), base, "≡ must cancel without binding anything")
+            }
+            // A failing run must not leave the simulator's controls rebound
+            // for the tests after it: the config persists.
+            if widths(app.setupProbeState()) != base { try restoreDefaults() }
+        }
+
+        XCTAssertTrue(walker.closeMenus(), "≡ should close the menu")
+        releaseAutoquit()
+        XCTAssertTrue(app.staticTexts["engineExitLabel"].waitForExistence(timeout: 60),
+                      "engine never returned to the launcher")
+        _ = hud
+    }
+
     /// Two launches, ending in a session with Options > Enemies up and USE
     /// moved so that its circle lies across the end of what the last on/off
     /// row draws (Randomly Mirrored Corpses, a cosmetic setting with no side

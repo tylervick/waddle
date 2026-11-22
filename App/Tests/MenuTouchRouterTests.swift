@@ -58,6 +58,34 @@ final class MenuTouchRouterTests: XCTestCase {
         }
     }
 
+    /// Issue #462: while a key-binding row waits, the engine binds whatever
+    /// arrives next, so nothing the overlay sends may be the stick.
+    func testWhileAKeyBindingRowWaitsATouchIsNeverTheStick() {
+        // The stick column: not pending (a pending touch can become the
+        // stick), the pointer, whose press the engine drops.
+        XCTAssertEqual(router.began(menuActive: true, trackRoute: .stick, nearButton: false,
+                                    bindingPending: true, pointerOwned: false), .pointer)
+        XCTAssertEqual(router.began(menuActive: true, trackRoute: .turn, nearButton: false,
+                                    bindingPending: true, pointerOwned: false), .pointer)
+        // A button's cushion stays dead, drawn item under it or not.
+        XCTAssertEqual(router.began(menuActive: true, trackRoute: .ignore, nearButton: true,
+                                    onDrawnItem: true, bindingPending: true, pointerOwned: false), .ignore)
+        XCTAssertEqual(router.began(menuActive: true, trackRoute: .stick, nearButton: false,
+                                    bindingPending: true, pointerOwned: true), .ignore)
+        // No menu: the caller's flag is stale, and the play routing applies.
+        XCTAssertEqual(router.began(menuActive: false, trackRoute: .stick, nearButton: false,
+                                    bindingPending: true, pointerOwned: false), .passThrough)
+    }
+
+    func testWhileAKeyBindingRowWaitsEveryButtonButMenuStandsDown() {
+        for control in TouchOverlayControl.allCases {
+            XCTAssertEqual(router.buttonStandsDownWhileBinding(control, bindingPending: true), control != .menu,
+                           "\(control.rawValue): only the cancel button may press while a row waits")
+            XCTAssertFalse(router.buttonStandsDownWhileBinding(control, bindingPending: false),
+                           "\(control.rawValue) must press when nothing is waiting")
+        }
+    }
+
     func testNoMenuPassesThroughToStickAndTurnRouting() {
         for route in [TouchTrackRoute.stick, .turn, .ignore] {
             XCTAssertEqual(router.began(menuActive: false, trackRoute: route,

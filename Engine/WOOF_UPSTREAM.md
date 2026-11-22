@@ -685,6 +685,13 @@ only ever runs once):
   lets a click confirm like the other two. One expression; nothing in
   `mn_setup.c` changes. The shim then drops a press and the overlay shows
   Yes and No, whose letters `MN_SetupResponder` already reads.
+  Issue 462: `MN_BindingPending` / `WoofIOS_IsBindingPending` say that a
+  key-binding row is waiting for its input (`set_keybnd_active &&
+  setup_select` on an `S_INPUT` row, not the reset confirmation).
+  `BindInput` binds whatever arrives next, and the overlay arrives as a mouse
+  button and as pad buttons, so `WoofIOS_InjectMenuTap` drops a press then
+  and the overlay holds its buttons and stick back. Read-only; `BindInput`
+  itself is untouched, so real keys, pads and mice bind as upstream.
 
 - `src/i_video.c`, `src/woof_ios.c` / `src/woof_ios.h` -- the picture's rect
   for the overlay's layout (issue 351). `I_PictureRectInWindow` returns

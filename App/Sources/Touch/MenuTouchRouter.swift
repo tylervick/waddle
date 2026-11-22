@@ -40,9 +40,20 @@ struct MenuTouchRouter {
     /// setup screens (issue #440). What the player sees under the finger
     /// wins over a button's near-miss cushion here, and over the button
     /// itself in `buttonYieldsToDrawnItem`.
+    ///
+    /// `bindingPending`: a row of a Key Bindings screen is waiting for the
+    /// input to bind (`TouchGamepad.isBindingPending`, issue #462). The
+    /// engine gives the row whatever arrives next, and everything this
+    /// overlay sends arrives as something bindable: a touch is the left
+    /// mouse button, the stick is four pad directions. So a touch is never
+    /// the stick then, not even a pending one that might become it. It is
+    /// the pointer, whose press the engine side drops and counts, or it is
+    /// nothing. The buttons stand down in `buttonStandsDownWhileBinding`.
     func began(menuActive: Bool, trackRoute: TouchTrackRoute,
-               nearButton: Bool, onDrawnItem: Bool = false, pointerOwned: Bool) -> Began {
+               nearButton: Bool, onDrawnItem: Bool = false,
+               bindingPending: Bool = false, pointerOwned: Bool) -> Began {
         guard menuActive else { return .passThrough }
+        if bindingPending { return nearButton || pointerOwned ? .ignore : .pointer }
         if nearButton && !onDrawnItem { return .ignore }
         if trackRoute == .stick { return .pending }
         return pointerOwned ? .ignore : .pointer
@@ -56,6 +67,17 @@ struct MenuTouchRouter {
     /// is up, so a prompt's buttons never yield either.)
     func buttonYieldsToDrawnItem(_ control: TouchOverlayControl, onDrawnItem: Bool) -> Bool {
         onDrawnItem && control != .menu
+    }
+
+    /// Whether `control`'s button must not press while a key-binding row is
+    /// waiting (issue #462). FIRE, USE and the weapon buttons are buttons of
+    /// the overlay's virtual pad, and the engine would bind that pad button
+    /// to the waiting row and take it from the action it had: measured, a
+    /// touch on USE left USE bound to Run and to nothing else. ≡ is the
+    /// exception because the engine reads it as "cancel" before it looks for
+    /// something to bind, and it is the only way out a touch has.
+    func buttonStandsDownWhileBinding(_ control: TouchOverlayControl, bindingPending: Bool) -> Bool {
+        bindingPending && control != .menu
     }
 
     /// Attract mode (title screen or demo, no menu): the stick/turn routing
