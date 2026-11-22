@@ -82,8 +82,9 @@ screen. What the logs show, on the iPhone leg of each run:
 | an underlay measured instead | 1 | 0.75 s | none | pass |
 
 `ImageRenderer` gives up after two seconds and hands back an empty drawing,
-which is what the tests then compare. Why a custom `Layout` in the on-screen
-shelf slows the test process's first pipeline build on the runner was not
+which is what the tests then compare. (The suite now throws such a drawing
+away and draws it again: `imagerenderer-hands-back-an-unfinished-drawing.md`.)
+Why a custom `Layout` in the on-screen shelf slows the test process's first pipeline build on the runner was not
 found: locally, on the same simulator model and runtime, the app is idle
 with it (0.00 CPU s in 10 s, no wakeups, the same 65 views), a lazy grid
 inside it stays lazy, and all 792 tests pass, on an erased simulator too.

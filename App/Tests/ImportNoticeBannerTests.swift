@@ -42,6 +42,57 @@ final class ImportNoticeBannerTests: XCTestCase {
         var size: CGSize { CGSize(width: width, height: height) }
     }
 
+    /// Longer than any whole drawing of the banner takes (about 0.1 s each on
+    /// CI's slowest leg) and shorter than the 2 s after which the renderer
+    /// gives up waiting on itself and hands back what it has.
+    private static let longestWholeDrawing: Duration = .milliseconds(1500)
+    /// The slowest first pipeline build CI has logged is 25 s.
+    private static let redrawBudget: Duration = .seconds(90)
+
+    private struct RendererNeverFinished: Error, CustomStringConvertible {
+        let description: String
+    }
+
+    /// A drawing of `content` that the renderer finished.
+    ///
+    /// The first drawing in a test process builds a Metal pipeline
+    /// (`primitive_color`). On CI's simulators that has taken from half a
+    /// second to 25 s, and while it builds `ImageRenderer` waits 2 s, logs
+    /// "image provider … timed out while waiting for phase 6", and returns a
+    /// drawing without the shapes still waiting on it, or blocks until the
+    /// build ends and returns one just as incomplete. Either way the drawing
+    /// took far longer than a whole one does, and that is the only sign of it
+    /// the renderer gives, so a slow drawing is thrown away and drawn again
+    /// (issue #439, `docs/learnings/imagerenderer-hands-back-an-unfinished-drawing.md`).
+    /// What a drawing is then asked is the same either way.
+    private func finishedDrawing(of content: some View, width: CGFloat,
+                                 describedAs label: String) throws -> CGImage {
+        let clock = ContinuousClock()
+        let started = clock.now
+        var discarded = 0
+        while true {
+            let renderer = ImageRenderer(content: content)
+            renderer.scale = Self.scale
+            renderer.proposedSize = ProposedViewSize(width: width, height: nil)
+            let began = clock.now
+            let image = renderer.cgImage
+            let took = clock.now - began
+            if took < Self.longestWholeDrawing {
+                if discarded > 0 {
+                    print("ImportNoticeBannerTests: \(discarded) unfinished drawing(s) of the banner at \(label) "
+                          + "thrown away over \(clock.now - started) before one finished in \(took)")
+                }
+                return try XCTUnwrap(image, "the banner did not draw at \(label)")
+            }
+            discarded += 1
+            print("ImportNoticeBannerTests: a drawing of the banner at \(label) took \(took); drawing it again")
+            guard clock.now - started < Self.redrawBudget else {
+                throw RendererNeverFinished(description: "the renderer took \(Self.longestWholeDrawing) or longer "
+                    + "on each of \(discarded) drawings of the banner at \(label) over \(clock.now - started)")
+            }
+        }
+    }
+
     private func coverage(of text: String, textShown: Bool, windowWidth: CGFloat,
                           size: DynamicTypeSize) throws -> Coverage {
         // The banner sets no colour on its text, so it takes the one handed
@@ -49,10 +100,8 @@ final class ImportNoticeBannerTests: XCTestCase {
         let banner = ImportNoticeBanner(text: text)
             .foregroundStyle(textShown ? Color.white : Color.clear)
             .environment(\.dynamicTypeSize, size)
-        let renderer = ImageRenderer(content: banner)
-        renderer.scale = Self.scale
-        renderer.proposedSize = ProposedViewSize(width: windowWidth - Theme.Spacing.base * 2, height: nil)
-        let image = try XCTUnwrap(renderer.cgImage, "the banner did not draw at \(size), \(windowWidth) pt")
+        let image = try finishedDrawing(of: banner, width: windowWidth - Theme.Spacing.base * 2,
+                                        describedAs: "\(size), \(windowWidth) pt")
         var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
         let drew = pixels.withUnsafeMutableBytes { buffer -> Bool in
             guard let context = CGContext(data: buffer.baseAddress, width: image.width, height: image.height,

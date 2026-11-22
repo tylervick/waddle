@@ -179,6 +179,11 @@ the form that last failed least. If that test goes red on the Duo leg again
 on a branch that touches the launcher, this is the place to start, and the
 counts above are too small to rule the reader out.
 
+What the failure itself was is now known: drawings made while the test
+process's first Metal pipeline built, which the suite now redraws
+(`imagerenderer-hands-back-an-unfinished-drawing.md`, issue #439). What made
+that build slow on this branch is not.
+
 ## Checking it
 
 `HalfOpenLauncherTests` (an extension of `PlayTabTests`, so a pull request
