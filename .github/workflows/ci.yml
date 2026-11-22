@@ -63,13 +63,27 @@ env:
   SIMULATOR_OS_DUO: "27.1"
 
 jobs:
-  build-and-test:
-    name: Build + unit tests
+  # Four jobs that start together instead of one job that ran them in a row:
+  # the shell suites here, and one unit-test leg per simulator below. Measured
+  # over the 29 green runs before the split (2026-11-21/22), the single job was
+  # a median 38.7 minutes: 8.3 of these suites, then 20.1 + 2.5 + 6.9 of the
+  # three legs, each waiting for the one before it. Nothing in this job needs
+  # the toolchain, the engine or a simulator, so it does not wait for them.
+  #
+  # The suites still run one after another inside the job. Six of them are
+  # 7 of the 8.6 minutes (test-upload-screenshots.sh 147s, then the two Duo
+  # suites, test-capture-export.sh, test-update-store-listing.sh and
+  # test-whats-to-test.sh), and running those side by side was considered and
+  # left alone: the Duo suites are timing nets (lock holders, hangs they must
+  # time out, a client they must outlast), a busy runner is exactly what makes
+  # such a suite flake, and this job is no longer the one a pull request
+  # waits for.
+  helper-suites:
+    name: Build-script helpers
     runs-on: xcode-27
-    # Measured on a hosted runner: cold (no cache) 8m37s, warm (cache hit)
-    # 4m14s -- setup alone drops from 3m59s to 12s. 90 minutes is deliberate
-    # headroom well beyond either figure, not a number derived from them.
-    timeout-minutes: 90
+    # The step below took 4.3 to 10.6 minutes across those 29 runs. Headroom,
+    # not a measurement.
+    timeout-minutes: 45
     steps:
       # fetch-depth: 0 (all history, all branches/tags), not the default
       # shallow depth-1 clone: the release-notes smoke below measures from the
@@ -82,9 +96,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Cheap (most ~0.1s; test-whats-to-test.sh ~20s -- it builds a throwaway
-      # git repository per case) and they guard the value both cache keys
-      # depend on, plus the check that stops a stale engine from being shipped.
+      # They guard the value both cache keys depend on, the check that stops
+      # a stale engine from being shipped, and the release path.
       #
       # This list must name EVERY Scripts/test-*.sh suite, not just the ones
       # that guard the build: a suite missing from it is a suite nobody runs
@@ -235,6 +248,78 @@ jobs:
           # absent, orphaned assets. python3 only, no extra tooling.
           Scripts/check-icon-json.sh
 
+  # One job per simulator, started together. They used to be three steps of
+  # one job, and the order cost more than the work did. Over the same 29 green
+  # runs the iPhone step was a median 20.7 minutes, of which:
+  #
+  #    8.0   xcodebuild printing nothing at all, before "Command line
+  #          invocation:". The job had just started the iPad booting in the
+  #          background (to overlap its first boot with this leg), and a
+  #          simulator's first boot holds up every other CoreSimulator client,
+  #          xcodebuild's destination lookup included. The same xcodebuild
+  #          call is past this point in 0.3 minutes in the iPad and Duo steps,
+  #          and in 0.4 in ui-tests.yml, where the simulator has settled.
+  #    6.3   compiling and linking, beside that simulator. ui-tests.yml builds
+  #          the same targets in 1.8 on a runner whose simulator has settled.
+  #    4.7   waiting for the phone to boot and take the test host.
+  #    1.4   running the tests.
+  #
+  # So the time is simulators booting for the first time on a fresh runner,
+  # not compiling, and three of them shared one machine. Here each leg has a
+  # runner to itself and boots exactly one simulator, which is also the end
+  # of the ordering rules the single job had grown (the iPad booted early,
+  # the Duo only after `simctl shutdown all`, because three simulators up at
+  # once lost run 42835006870 its runner).
+  #
+  # What it costs. Each leg compiles the app for itself, where the second and
+  # third used to reuse the first's products: about two minutes of runner
+  # time per extra leg, and none of wall time. A change to the engine
+  # fingerprint is built from source by all three at once instead of by one
+  # (whichever saves the cache second logs a warning; see the note on
+  # revyl-preview). And a pull request now holds four macOS runners for ten
+  # minutes rather than one for forty, on an account that runs five at a
+  # time, so several pull requests at once queue behind each other sooner.
+  #
+  # Not done, on purpose: building once and handing the products to the legs
+  # (build-for-testing, an artifact, test-without-building), or caching
+  # DerivedData. The compile is the two minutes above; an artifact hop or a
+  # cache restore costs about that, puts the legs behind a `needs:`, and a
+  # DerivedData cache has no key that is known to be right.
+  unit-tests:
+    name: Unit tests (${{ matrix.leg }})
+    runs-on: xcode-27
+    # Deliberate headroom, as it was for the single job: a leg is expected in
+    # about ten minutes, and the iPhone step alone has taken 48 on a slow
+    # runner (issue #415). A tight limit would add cancellations of its own.
+    timeout-minutes: 90
+    strategy:
+      # A red leg must not cancel the others. Each leg can fail on its own
+      # (see the test step), so the other two results are still wanted; and a
+      # sibling cancelled by fail-fast reads exactly like the unexplained
+      # job-level cancellations issue #415 is counting.
+      fail-fast: false
+      matrix:
+        include:
+          # The names are the ones the "Pick this leg's simulator" step
+          # switches on; `slug` only names the uploaded result bundle.
+          - leg: iPhone
+            slug: iphone
+          # The second destination, because the app ships universal and iPad
+          # is the device it is built for. Until this leg, every test path in
+          # the repository was pinned to one phone and the only thing that
+          # ever looked at an iPad was Scripts/capture-screenshots.sh, which
+          # asserts nothing (issue #131).
+          - leg: iPad
+            slug: ipad
+          # The third destination: an iPhone Duo, closed (issue #359).
+          - leg: iPhone Duo
+            slug: duo
+    steps:
+      # Plain shallow checkout: the release-notes smoke that needs tags and
+      # history lives in helper-suites. The only git reader on this path is
+      # generate-build-info.sh, which wants HEAD alone.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
       - uses: ./.github/actions/setup-waddle-build
         id: setup
         with:
@@ -250,10 +335,11 @@ jobs:
       # which hashes that script), so any change to SONIVOX_TAG misses both and
       # forces a rebuild -- meaning these run on exactly the pull requests that
       # could change their answer. A cache hit means the pin is byte-identical
-      # to one already verified.
+      # to one already verified. On such a pull request every leg misses, so
+      # every leg runs this; that is three answers to one question, and cheap.
       #
-      # The suites above run unconditionally and cover the guards' own logic;
-      # this step is what points them at the real checkout.
+      # The suites in helper-suites run unconditionally and cover the guards'
+      # own logic; this step is what points them at the real checkout.
       - name: Verify the MIDI synthesis path
         if: steps.setup.outputs.deps-built == 'true'
         # shell: bash is load-bearing, not style. The default for `run:` is
@@ -274,62 +360,96 @@ jobs:
           Scripts/check-eas-realtime.sh | tee "$RUNNER_TEMP/eas-rtf.txt"
           ! grep -q '^skip - ' "$RUNNER_TEMP/eas-rtf.txt"
 
+      # The matrix cannot read the workflow's `env:` pins (that context does
+      # not exist where a matrix is defined), so the leg's name is turned into
+      # its device and OS here, from the same pins everything else reads. An
+      # unknown name fails rather than falling back to the phone: a leg that
+      # quietly tested the wrong device would be green.
+      - name: Pick this leg's simulator
+        env:
+          LEG: ${{ matrix.leg }}
+        run: |
+          case "$LEG" in
+            iPhone)
+              device="$SIMULATOR_DEVICE"; os="$SIMULATOR_OS" ;;
+            iPad)
+              device="$SIMULATOR_DEVICE_IPAD"; os="$SIMULATOR_OS" ;;
+            # The one device the iOS 27.1 runtime supports, so it carries its
+            # own OS pin. The simulator boots closed, and nothing Apple ships
+            # opens it from a command line
+            # (docs/learnings/iphone-duo-simulator-traps.md), so this leg is
+            # the closed pose. The open pose has no CI coverage.
+            "iPhone Duo")
+              device="$SIMULATOR_DEVICE_DUO"; os="$SIMULATOR_OS_DUO" ;;
+            *)
+              echo "::error::no simulator is pinned for the leg \"$LEG\""
+              exit 1 ;;
+          esac
+          [ -n "$device" ] && [ -n "$os" ] \
+            || { echo "::error::the pins for the leg \"$LEG\" are empty"; exit 1; }
+          {
+            echo "LEG_DEVICE=$device"
+            echo "LEG_OS=$os"
+          } >> "$GITHUB_ENV"
+
       # CI run 31427755601 failed with an empty simulator enumeration on an
       # otherwise-clean commit and runner image; a bare re-run passed. This
-      # confirms both destinations actually exist before the build spends the
-      # whole run on them, using the same device/OS values the two DESTINATION
-      # values below do, so they can never disagree. See
+      # confirms the destination actually exists before the build spends the
+      # whole run on it, using the same device/OS values DESTINATION below
+      # does, so they can never disagree. See
       # docs/learnings/simulator-enumeration-race.md.
-      - name: Verify simulators are available
+      - name: Verify the simulator is available
+        env:
+          LEG: ${{ matrix.leg }}
         run: |
-          Scripts/check-simulator-available.sh "$SIMULATOR_DEVICE" "$SIMULATOR_OS"
-          # The iPad is created on demand rather than pre-provisioned, and the
-          # iPad a runner image does hand you is the wrong size class -- see
-          # the header of Scripts/ensure-ipad-simulator.sh.
-          #
-          # Deliberately AFTER the phone check: that one retries through the
-          # cold-runner enumeration race, and this script reads the same
-          # enumeration, so during such a window it would see no iPad and
-          # create a duplicate. Passing the phone check first is what makes
-          # its lookup trustworthy.
-          udid="$(Scripts/ensure-ipad-simulator.sh "$SIMULATOR_OS")"
-          Scripts/check-simulator-available.sh "$SIMULATOR_DEVICE_IPAD" "$SIMULATOR_OS"
-          # The iPhone Duo is pre-created by the runner image under the 27.1
-          # runtime, so it is only checked, not ensured. If an image ever
-          # drops it, this fails by name with the device list in the log,
-          # and the fix is an ensure script like the iPad's.
-          #
-          # BEFORE the iPad boot below, not after it. `simctl list` waits on
-          # CoreSimulator while a device is doing its first boot: on run
-          # 42849345701 this check sat directly after that boot and returned
-          # exactly three minutes later, which the job then spent idle.
-          #
-          # And the Duo is NOT booted here, unlike the iPad. Run 42835006870
-          # booted it early as well, and the hosted runner "lost communication
-          # with the server" 73 minutes into the iPhone leg, with three
-          # simulators up. The Duo boots in its own step, after the other two
-          # are shut down.
-          Scripts/check-simulator-available.sh "$SIMULATOR_DEVICE_DUO" "$SIMULATOR_OS_DUO"
-          # Start the iPad booting HERE rather than leaving it to its own test
-          # step. A simulator created seconds ago has never booted, and on run
-          # 31980014093 that first boot was ~87s of the iPad leg's 2m43s --
-          # more than the code-signing and the tests put together. `boot`
-          # returns immediately, so the device comes up while the iPhone leg
-          # (~3m) runs and the cost overlaps work the job was doing anyway.
-          #
-          # Non-fatal on purpose, and it must stay that way: if the boot fails
-          # or the device is already booting, xcodebuild boots it itself when
-          # the iPad step runs, exactly as it did before this line existed.
-          # This is an optimisation, not a precondition.
-          xcrun simctl boot "$udid" || true
+          if [ "$LEG" = iPad ]; then
+            # The iPad is created on demand rather than pre-provisioned, and
+            # the iPad a runner image does hand you is the wrong size class --
+            # see the header of Scripts/ensure-ipad-simulator.sh.
+            #
+            # The phone is checked first on purpose, though this leg never
+            # tests on it: that check retries through the cold-runner
+            # enumeration race, and ensure-ipad-simulator.sh reads the same
+            # enumeration, so during such a window it would see no iPad and
+            # create a duplicate. Passing the phone check first is what makes
+            # its lookup trustworthy.
+            Scripts/check-simulator-available.sh "$SIMULATOR_DEVICE" "$SIMULATOR_OS"
+            Scripts/ensure-ipad-simulator.sh "$SIMULATOR_OS" > /dev/null
+          fi
+          # The iPhone and the iPhone Duo are pre-created by the runner image,
+          # so they are only checked, not ensured. If an image ever drops
+          # one, this fails by name with the device list in the log, and the
+          # fix is an ensure script like the iPad's.
+          Scripts/check-simulator-available.sh "$LEG_DEVICE" "$LEG_OS"
+          # Nothing is booted here, and that is the lesson of the single job
+          # this replaced: it started the iPad booting in the background to
+          # save that leg its first boot, and xcodebuild then sat for a
+          # median eight minutes waiting on CoreSimulator before it compiled
+          # anything. xcodebuild boots the device itself when the tests are
+          # ready for it. See
+          # docs/learnings/a-first-boot-blocks-every-coresimulator-client.md.
 
       # -only-testing:WaddleTests is REQUIRED, not a tuning choice: the
       # Waddle scheme's test action also includes WaddleUITests, which boot
-      # the real engine and belong to the manually-dispatched ui-tests
-      # workflow.
-      - name: Run unit tests (iPhone)
+      # the real engine and belong to ui-tests.yml.
+      #
+      # What makes each leg able to fail on its own -- rather than agreeing
+      # with the others on every assertion, which would buy nothing -- is
+      # App/Tests/LiveDeviceOverlayLayoutTests.swift. It pins each device's
+      # displays to exact overlay scales, fails rather than falling back to
+      # the generic phone band when the device is a Duo, and checks the
+      # bottom cluster against Doom's status bar with the safe-area insets
+      # the window really has. That last one is issue #351's regression
+      # check, and it is the Duo's shape that makes it bite: with the layout
+      # reverted to assuming the bar is at the window's bottom, it fails on
+      # the Duo and passes on the phone. Read its header before adding a
+      # fourth destination.
+      #
+      # If a leg ever grows dear, the fallback is moving it to `push: main`
+      # (the cadence ui-tests.yml's full suite uses), not deleting it.
+      - name: Run unit tests
         env:
-          DESTINATION: platform=iOS Simulator,name=${{ env.SIMULATOR_DEVICE }},OS=${{ env.SIMULATOR_OS }}
+          DESTINATION: platform=iOS Simulator,name=${{ env.LEG_DEVICE }},OS=${{ env.LEG_OS }}
         run: |
           xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
             -destination "$DESTINATION" \
@@ -337,110 +457,35 @@ jobs:
             -resultBundlePath TestResults.xcresult \
             test
 
-      # The second destination, because the app ships universal and iPad is
-      # the device it is built for. Until this step, every test path in the
-      # repository was pinned to one phone and the only thing that ever looked
-      # at an iPad was Scripts/capture-screenshots.sh, which asserts nothing
-      # (issue #131).
-      #
-      # -only-testing:WaddleTests for the same REASON as the iPhone leg above:
-      # the scheme's test action includes WaddleUITests.
-      #
-      # What this leg costs, measured on the runner (run 31980014093) rather
-      # than locally -- a local figure is worthless here, because the local
-      # simulator is already booted and the runner's is not:
-      #
-      #   ~20s   link + code-sign. NO recompile: the two legs build identical
-      #          arm64-simulator products and share derived data.
-      #   ~87s   first boot of the simulator created minutes earlier.
-      #   ~48s   launching and running the 312 tests (17.9s of that is tests).
-      #
-      # 2m43s in total. The boot is the expensive part and it is not inherent,
-      # so the step above starts it early, overlapping the iPhone leg: run
-      # 31980939825 then measured this step at 1m33s, with the test phase
-      # falling from 135s to 34s. That 1m33s is the real per-pull-request cost
-      # of the iPad destination. If it ever grows back, the cheap fallback is
-      # moving this leg to `push: main` (the cadence ui-tests.yml uses), not
-      # deleting it.
-      #
-      # What makes this leg able to fail on its own -- rather than agreeing
-      # with the iPhone leg on every assertion, which would buy nothing -- is
-      # App/Tests/LiveDeviceOverlayLayoutTests.swift. Read its header before
-      # adding a third destination.
-      - name: Run unit tests (iPad)
-        env:
-          DESTINATION: platform=iOS Simulator,name=${{ env.SIMULATOR_DEVICE_IPAD }},OS=${{ env.SIMULATOR_OS }}
-        run: |
-          xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
-            -destination "$DESTINATION" \
-            -only-testing:WaddleTests \
-            -resultBundlePath TestResults-ipad.xcresult \
-            test
-
-      # The third destination: an iPhone Duo, closed (issue #359). Same
-      # products as the two legs above, so no recompile; -only-testing for the
-      # same reason as theirs.
-      #
-      # What makes this leg able to fail on its own is, again,
-      # App/Tests/LiveDeviceOverlayLayoutTests.swift: it pins the Duo's
-      # displays to exact overlay scales, fails rather than falling back to
-      # the generic phone band when the device is a Duo, and checks the
-      # bottom cluster against Doom's status bar with the safe-area insets
-      # this window really has. That last one is issue #351's regression
-      # check, and it is the Duo's shape that makes it bite: with the layout
-      # reverted to assuming the bar is at the window's bottom, it fails here
-      # and passes on the phone.
-      #
-      # The cost is in the pull request that added this step, measured on the
-      # runner. If it grows, the fallback is the same as the iPad's: move the
-      # leg to `push: main`, do not delete it.
-      - name: Run unit tests (iPhone Duo)
-        env:
-          DESTINATION: platform=iOS Simulator,name=${{ env.SIMULATOR_DEVICE_DUO }},OS=${{ env.SIMULATOR_OS_DUO }}
-        run: |
-          # One simulator at a time from here: the iPhone and iPad legs are
-          # done, and a third booted beside them is what starved the runner
-          # on run 42835006870. Non-fatal: with nothing booted, `shutdown
-          # all` has nothing to do and the leg runs as it would have.
-          xcrun simctl shutdown all || true
-          xcodebuild -project App/Waddle.xcodeproj -scheme Waddle \
-            -destination "$DESTINATION" \
-            -only-testing:WaddleTests \
-            -resultBundlePath TestResults-duo.xcresult \
-            test
-
       - name: Upload test results
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: ci-test-results
-          path: |
-            TestResults.xcresult
-            TestResults-ipad.xcresult
-            TestResults-duo.xcresult
-          # A failing leg ends the job before the legs after it run, so some
-          # of these legitimately do not exist on that path. Without
+          # One name per leg: two legs uploading under one name is an error.
+          name: ci-test-results-${{ matrix.slug }}
+          path: TestResults.xcresult
+          # A leg that fails before its test step has no bundle. Without
           # this, that normal case annotates the run with a warning about a
           # missing artifact.
           if-no-files-found: ignore
           retention-days: 7
 
-  # Deliberately a SEPARATE job with no `needs:` on build-and-test, and that
-  # independence is the whole point. As a step inside that job this was step 11
-  # of 12 -- behind both unit-test legs and the red-green proof -- so on run
+  # Deliberately a SEPARATE job with no `needs:` on the unit-test legs, and that
+  # independence is the whole point. As a step inside what was then the single
+  # build-and-test job this was step 11 of 12 -- behind both unit-test legs and
+  # the red-green proof -- so on run
   # 35410095359 (created 00:39:29) the upload did not start until 01:00:12,
   # roughly twenty minutes in. A preview build you can launch on a device at
   # minute five is worth far more than the same build at minute twenty, and
-  # adding `needs: build-and-test` would reintroduce exactly the latency this
+  # adding a `needs:` on the tests would reintroduce exactly the latency this
   # split removes. (The UI tests were never the blocker: ui-tests.yml is
   # `push: main` only and never runs on a pull request.)
   #
   # The cost of independence, stated plainly: this job repeats the checkout and
   # the setup action, so on a cold cache it builds SDL3/OpenAL and the engine a
-  # second time in parallel with build-and-test rather than sharing that work.
-  # That duplicated cost has NOT been measured on a runner yet -- the setup
-  # figures quoted on build-and-test above were measured for a single job, and
-  # nothing here should be read as a measurement of two running at once. Two
+  # second time in parallel with the unit-test legs rather than sharing that
+  # work. That duplicated cost has NOT been measured on a runner yet, and
+  # nothing here should be read as a measurement of it. Several
   # jobs racing on the same cache keys is also expected: whichever finishes
   # second finds the key already reserved and logs a cache-save warning. That
   # is a warning, not a failure, and the restore path is unaffected.
@@ -510,7 +555,7 @@ jobs:
     # runner on a checkout and a toolchain setup for a step that would skip.
     # The `success()` half of the old condition is gone with the move -- there
     # is no prior step in this job whose success it could mean, and gating on
-    # build-and-test is the thing this job exists not to do.
+    # the tests is the thing this job exists not to do.
     #
     # draft: pr_review.review_triggers.drafts is false, so Revyl would not
     # review a draft's artifact even if one arrived. Building it is spend with
@@ -536,7 +581,7 @@ jobs:
     # from burning an hour, not because anything approaches it.
     timeout-minutes: 45
     steps:
-      # Plain shallow checkout, unlike build-and-test's fetch-depth: 0. That
+      # Plain shallow checkout, unlike helper-suites' fetch-depth: 0. That
       # job needs the build-* tags and the history behind them for its
       # release-notes smoke; nothing here does. The only git
       # reader on this path is generate-build-info.sh, which wants HEAD alone.
@@ -545,7 +590,7 @@ jobs:
       # Same setup the test job uses, for the same reason: this build links the
       # WoofEngine xcframework, which the action either restores from cache or
       # builds. Its deps-built output is not consulted here -- the SONiVOX
-      # guards that depend on it live in build-and-test and stay there.
+      # guards that depend on it live in the unit-tests legs and stay there.
       - uses: ./.github/actions/setup-waddle-build
         with:
           xcode-version: ${{ env.XCODE_VERSION }}
@@ -570,7 +615,7 @@ jobs:
       # check-red-green.sh refuses to run against
       # (docs/learnings/fixture-stub-trips-own-dirty-tree-guard.md).
       #
-      # Measured on hosted runners while this still lived inside build-and-test:
+      # Measured on hosted runners while this still lived inside the test job:
       # 2m40s on run 35410095359 and 1m11s on 35410545973. The spread is the
       # engine cache -- this step's own -derivedDataPath is a fresh tree every
       # time (DerivedData is cached nowhere in this repository, deliberately),
@@ -653,7 +698,7 @@ jobs:
           # actually wants.
           #
           # --no-set-current is what makes running ungated safe. Nothing here
-          # knows whether the unit tests passed -- build-and-test is still
+          # knows whether the unit tests passed -- the unit-tests legs are still
           # running alongside -- so this publishes previews for builds that go
           # on to fail. That is the deliberate trade: a broken build is often
           # exactly the one you want to launch on a device and watch break.
@@ -682,16 +727,17 @@ jobs:
   # build of main has been promoted, it is by definition safe to promote:
   # it is what everyone has already merged.
   #
-  # `needs: build-and-test` is the gate the preview job cannot have: this
-  # runs only after the unit tests passed on this exact commit, so a red
-  # build never becomes current. Everything else mirrors the preview job --
+  # `needs:` is the gate the preview job cannot have: this runs only after
+  # the helper suites and every unit-test leg passed on this exact commit, so
+  # a red build never becomes current. The list is the same as the
+  # `testflight` job's, for the reason given there. Everything else mirrors the preview job --
   # same runner, same setup action, same xcodebuild line with the
   # WADDLE_PROOF_HARNESS flag (Scripts/check-proof-harness-flag.sh looks for
   # that exact string), same upload -- except the version is named after
   # main's sha, there is no --pr, and there is no --no-set-current.
   revyl-main:
     name: Revyl current build
-    needs: build-and-test
+    needs: [helper-suites, unit-tests]
     # REVYL-PAUSED 2026-11-11: see the note on changed-paths above.
     if: false && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: xcode-27
@@ -746,9 +792,19 @@ jobs:
             --commit "${{ github.sha }}" \
             --yes --json
 
-  # Ships the merge to TestFlight. `needs: build-and-test` is the whole of the
-  # gate on quality: this runs only after the unit tests passed on this exact
-  # commit, so a red build never reaches a tester. The called workflow's own
+  # Ships the merge to TestFlight. `needs:` is the whole of the gate on
+  # quality: this runs only after the helper suites and every unit-test leg
+  # passed on this exact commit, so a red build never reaches a tester.
+  #
+  # Both names are load-bearing, and the list must grow with the jobs. What
+  # used to be one job, and so one name here, is now two: `helper-suites` and
+  # the `unit-tests` matrix, which stands for all of its legs -- a `needs:` on
+  # a matrix job is satisfied only when every leg succeeded. A leg that
+  # failed or was cancelled (issue #415) leaves this job skipped, because the
+  # `if:` below calls no status function and so keeps its implicit
+  # `success()`; do not add `always()` or `!cancelled()` to it. A test job
+  # added to this workflow and not to this list would be a check a release
+  # does not wait for. Scripts/check-release-gate.sh refuses both mistakes. The called workflow's own
   # first job then decides whether anything that goes into the binary changed
   # since the last shipped build (Scripts/release-due.sh), so a docs-only or
   # test-only merge costs no macOS runner and sends no notification.
@@ -757,7 +813,7 @@ jobs:
   # definition for the merge path and the hand-dispatched path (dry runs,
   # retries, the cases the gate cannot see from git).
   testflight:
-    needs: build-and-test
+    needs: [helper-suites, unit-tests]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     # Read only: the called workflow pushes its build-N tag with
     # RELEASE_TAG_TOKEN rather than the job token (see testflight.yml's
