@@ -55,14 +55,22 @@ view's width whatever it measures. The content's width is then the scroll
 view's own by construction, and the traced measurement is 669.0 from the
 first frame.
 
+That was not the end of it (issue #469). The scroll view's width follows the
+content, so content held to it holds it: when the offer shrank, as it does
+when the panel's column opens beside the shelf, the scroll view kept a width
+it no longer had and was cut. The shelf is now built on
+`OfferedWidthScrollView`, which frames the content to a `GeometryReader`'s
+width, the offer, which nothing inside can change. That cuts this loop too:
+`a-scroll-view-held-to-its-container-keeps-its-old-width.md`.
+
 Anything that measures a container and feeds the result to that container's
 content has this shape. `GamePageView` measures itself the same way and was
 examined for issue #450: its form cannot be widened, its hero row could, and
 did. See `a-row-measured-off-its-own-frame-measures-its-content.md`.
 
 `ShelfContainerWidthTests` hosts the real `ShelfView` in a window too narrow
-for its content and fails when the modifier is deleted or moved off the
-scroll content, so the guard no longer rests on a hand launch.
+for its content and fails when the guard is taken away, so it no longer
+rests on a hand launch.
 
 ## A custom `Layout` cut the path too, and CI's picture tests failed with it
 

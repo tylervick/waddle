@@ -218,6 +218,8 @@ pixel, with two things to know first.
   gave `main`'s cut picture 3 times in 4. That state cannot be compared by
   pixels until it is stable, and it is `main`'s to fix (issue 469). An
   earlier version of this file said the content was cut in both pictures;
-  the second had been compared by pixel count and not looked at.
+  the second had been compared by pixel count and not looked at. Issue 469
+  then found the second too wide as well, by 24 pt, and fixed all of them:
+  `a-scroll-view-held-to-its-container-keeps-its-old-width.md`.
 
 The captures are in `assets/half-open-launcher-2026-11-21/`.
