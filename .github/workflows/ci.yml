@@ -462,6 +462,37 @@ jobs:
             -resultBundlePath TestResults.xcresult \
             test
 
+      # What the runner had left when the leg ended, however it ended. It is
+      # here for issue #415: unit-test jobs are cancelled from outside with
+      # "The operation was canceled." and nothing else in the log, and all
+      # twelve seen so far (the eleven in the issue, and the iPad leg of this
+      # layout's first run, 44973823949) were cancelled while the iPad
+      # simulator was up -- never in the Duo step, the helper suites or the
+      # iPhone-only UI tests. Whether that is memory is what this prints:
+      # compare a green iPad leg with a green iPhone leg, and read it on the
+      # next cancelled one.
+      #
+      # always(), so it runs after a cancel and after a failure as well as
+      # after a pass, and the passes are what a cancelled leg is compared
+      # with. It decides nothing: continue-on-error, and every command may
+      # fail on its own. About a second.
+      - name: Report the runner's memory and load
+        if: always()
+        continue-on-error: true
+        run: |
+          set +e
+          echo "leg: $LEG_DEVICE ($LEG_OS)"
+          sysctl -n hw.memsize hw.ncpu | paste -sd' ' - | awk '{ printf "memory: %.1f GB, cpus: %d\n", $1 / 1073741824, $2 }'
+          uptime
+          sysctl vm.swapusage
+          memory_pressure | tail -n 3
+          vm_stat | head -n 12
+          df -h / | tail -n 1
+          echo "--- largest processes by resident memory"
+          ps -axo rss=,pcpu=,comm= | sort -rn | head -n 12 \
+            | awk '{ rss = $1; cpu = $2; $1 = ""; $2 = ""; n = split($0, parts, "/"); printf "%7.0f MB %5s%%  %s\n", rss / 1024, cpu, parts[n] }'
+          xcrun simctl list devices booted
+
       - name: Upload test results
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
