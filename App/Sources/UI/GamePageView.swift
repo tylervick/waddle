@@ -17,6 +17,9 @@ struct GamePageMeasurements: Hashable {
     var captionWordWidth: CGFloat?
     /// The width the hero row is offered; zero until measured.
     var heroRowWidth: CGFloat
+    /// The wider of Continue's and New Game's labels at its natural width,
+    /// from `actionLabelGauge`; zero until measured, and with no save.
+    var actionLabelWidth: CGFloat = 0
 
     /// The arrangement the page draws from these.
     var arrangement: PlayableDetailLayout.HeroArrangement {
@@ -25,12 +28,38 @@ struct GamePageMeasurements: Hashable {
                                          minimumCaptionWidth: captionWordWidth ?? .infinity,
                                          rowWidth: heroRowWidth)
     }
+
+    /// The width the caption gives the action buttons: the hero row when
+    /// the art is above the caption, what is left of it beside the art.
+    var actionsWidth: CGFloat {
+        switch arrangement {
+        case .stacked:
+            return heroRowWidth > 0 ? heroRowWidth : artContentWidth
+        case .sideBySide:
+            return PlayableDetailLayout.sideBySideCaptionWidth(contentWidth: artContentWidth,
+                                                               viewportHeight: viewportHeight,
+                                                               rowWidth: heroRowWidth)
+        }
+    }
+
+    /// Continue and New Game in a row, or one over the other. The shelf's
+    /// hero answers the same question for the same two buttons, and its rule
+    /// is the one used: a row only where the caption holds two buttons of the
+    /// wider label's width (issue #424 there, #468 here).
+    var buttonArrangement: ShelfHeroLayout.ButtonArrangement {
+        let minimum = actionLabelWidth > 0 ? actionLabelWidth + Theme.Spacing.base * 2 : 0
+        return ShelfHeroLayout.buttonArrangement(captionWidth: actionsWidth, buttonMinimumWidth: minimum)
+    }
 }
 
 extension EnvironmentValues {
     /// Called with each new set of measurements a `GamePageView` takes.
     /// Tests set it; the app never does.
     @Entry var gamePageMeasurementsReport: ((GamePageMeasurements) -> Void)?
+
+    /// Called with where each of the hero's action buttons is drawn, by its
+    /// accessibility identifier. Tests set it; the app never does.
+    @Entry var gamePageActionFrameReport: ((String, CGRect) -> Void)?
 }
 
 /// One page for every tile (spec §3.2): art and Play, then what the game loads,
@@ -83,13 +112,18 @@ struct GamePageView: View {
     @State private var captionWordWidth: CGFloat?
     /// The hero row's measured width; zero until measured.
     @State private var heroRowWidth: CGFloat = 0
+    /// The wider action label, from `actionLabelGauge`; zero until measured.
+    @State private var actionLabelWidth: CGFloat = 0
 
     /// Where a test reads what the page measured; nil in the app.
     @Environment(\.gamePageMeasurementsReport) private var measurementsReport
+    /// Where a test reads where the action buttons were drawn; nil in the app.
+    @Environment(\.gamePageActionFrameReport) private var actionFrameReport
 
     private var measurements: GamePageMeasurements {
         GamePageMeasurements(artContentWidth: artContentWidth, viewportHeight: viewportHeight,
-                             captionWordWidth: captionWordWidth, heroRowWidth: heroRowWidth)
+                             captionWordWidth: captionWordWidth, heroRowWidth: heroRowWidth,
+                             actionLabelWidth: continuableSlot != nil ? actionLabelWidth : 0)
     }
 
     private var continuableSlot: Int? { EngineSaveSlot.newestLoadGameArgument(in: saves) }
@@ -201,7 +235,11 @@ struct GamePageView: View {
                 titleLabel(piece)
             }
             ForEach(Array(primaryActionWords.enumerated()), id: \.offset) { _, action in
+                // Title and icon, said outright: in a form row's background
+                // a `Label` is drawn as its icon alone, and this measured
+                // 40 pt of icon for every word (found with issue #468).
                 Label(action.word, systemImage: action.systemImage)
+                    .labelStyle(.titleAndIcon)
                     .font(Theme.Typography.button)
                     .padding(.horizontal, Theme.Spacing.base)
             }
@@ -295,6 +333,7 @@ struct GamePageView: View {
                 heroRowWidth = width
             }
             .background(alignment: .topLeading) { captionProbe }
+            .background(alignment: .topLeading) { actionLabelGauge }
             .padding(.top, PlayableDetailLayout.captionTopPadding)
             .padding(.bottom, PlayableDetailLayout.captionBottomPadding)
             .listRowInsets(EdgeInsets())
@@ -328,13 +367,65 @@ struct GamePageView: View {
         .accessibilityLabel("Rename \(game.name)")
     }
 
-    /// Side by side where both labels fit on one line, stacked where Dynamic
-    /// Type makes them too wide -- `ViewThatFits` measures the labels' ideal
-    /// widths, not the flexible frames the button style puts around them.
+    /// Side by side where each button can hold the wider label on one line,
+    /// stacked where it cannot (`GamePageMeasurements.buttonArrangement`).
+    ///
+    /// This was a `ViewThatFits`, which asks whether the two labels' natural
+    /// widths fit side by side. Both buttons stretch, so a row is drawn as
+    /// two equal halves, and wherever the sum fitted and twice the wider
+    /// label did not, the labels wrapped: "Contin-" / "ue" and "New" /
+    /// "Game" on a closed iPhone Duo held sideways at the default text size
+    /// (issue #468), the fault the shelf's hero had in #424.
     private var actionsRow: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: PlayableDetailLayout.captionSpacing) { primaryActions }
-            VStack(spacing: PlayableDetailLayout.captionSpacing) { primaryActions }
+        Group {
+            switch measurements.buttonArrangement {
+            case .row:
+                HStack(spacing: ShelfHeroLayout.buttonRowSpacing) { primaryActions }
+            case .column:
+                VStack(spacing: PlayableDetailLayout.captionSpacing) { primaryActions }
+            }
+        }
+    }
+
+    // Title and icon, said outright: a `Label` the page draws in a form
+    // row's background, where the gauges are, resolves to its icon alone,
+    // and a gauge of icons measured both labels at 40 pt.
+    private var continueLabel: some View {
+        Label("Continue", systemImage: "clock.arrow.circlepath").labelStyle(.titleAndIcon)
+    }
+
+    private var newGameLabel: some View {
+        Label("New Game", systemImage: "play.fill").labelStyle(.titleAndIcon)
+    }
+
+    /// Continue's and New Game's labels at their natural width, never drawn,
+    /// read back as the wider of the two. From the views, not from `UIFont`,
+    /// for the reason `captionProbe` gives; and a `fixedSize()` copy that no
+    /// offer reaches, so nothing the row decides can move it (issues #437,
+    /// #450). Labels only, so the buttons' identifiers are not doubled.
+    private var actionLabelGauge: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            continueLabel
+            newGameLabel
+        }
+        .font(Theme.Typography.button)
+        .lineLimit(1)
+        .fixedSize()
+        .hidden()
+        .accessibilityHidden(true)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            ceil(proxy.size.width)
+        } action: { width in
+            actionLabelWidth = width
+        }
+    }
+
+    /// Reports where an action button is drawn, for tests only.
+    private func reportingFrame(_ id: String) -> some View {
+        Color.clear.onGeometryChange(for: CGRect.self) { proxy in
+            proxy.frame(in: .global)
+        } action: { frame in
+            actionFrameReport?(id, frame)
         }
     }
 
@@ -348,19 +439,21 @@ struct GamePageView: View {
             Button {
                 onPlay(game, .continueNewest)
             } label: {
-                Label("Continue", systemImage: "clock.arrow.circlepath")
+                continueLabel
             }
             .buttonStyle(.waddlePrimary)
             .disabled(game.baseID == nil)
             .accessibilityIdentifier("continueButton")
+            .background { reportingFrame("continueButton") }
             Button {
                 onPlay(game, .newGame)
             } label: {
-                Label("New Game", systemImage: "play.fill")
+                newGameLabel
             }
             .buttonStyle(.waddleSecondary)
             .disabled(game.baseID == nil)
             .accessibilityIdentifier("playButton")
+            .background { reportingFrame("playButton") }
         } else {
             Button {
                 onPlay(game, .newGame)
