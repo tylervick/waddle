@@ -136,6 +136,11 @@ final class TouchOverlayView: UIView {
     /// element. In the tree only while a hint is up.
     private let controlHintsMarker = UIView()
     #endif
+    /// Carries `WoofIOS_DebugSetupState` for UI tests (issue #440): where
+    /// each row of the engine's setup screen takes a press and what it
+    /// draws. Its own element because it runs to a thousand characters, and
+    /// the HUD strip is drawn over the game. Present only with the debug HUD.
+    private let setupProbeMarker = UIView()
 
     init(gamepad: TouchGamepad, scheme: TouchControlScheme,
          tuning: TouchTuning, debugHUDEnabled: Bool,
@@ -343,6 +348,11 @@ final class TouchOverlayView: UIView {
             label.isUserInteractionEnabled = false // never intercepts touches
             addSubview(label)
             debugHUDLabel = label
+            setupProbeMarker.frame = CGRect(x: 18, y: 2, width: 2, height: 2)
+            setupProbeMarker.accessibilityIdentifier = "setupMenuProbe"
+            setupProbeMarker.isAccessibilityElement = true
+            setupProbeMarker.isUserInteractionEnabled = false
+            addSubview(setupProbeMarker)
             startDebugHUDTimer()
         }
     }
@@ -704,6 +714,7 @@ final class TouchOverlayView: UIView {
             String(cString: WoofIOS_DebugGameState()),
             String(cString: WoofIOS_DebugInputState()),
             String(cString: WoofIOS_DebugMenuState()))
+        setupProbeMarker.accessibilityLabel = String(cString: WoofIOS_DebugSetupState())
         // The line count can change with the text (a longer pad name, a
         // menu item), and the frame and the buttons below it follow it.
         if let debugHUDLabel, debugHUDLabel.frame.height != debugHUDStripHeight {
@@ -881,19 +892,23 @@ final class TouchOverlayView: UIView {
 
     // MARK: Touches (stick + turn; buttons handle their own)
 
-    /// A button drawn over a slot of the engine's Load or Save list gives
-    /// the touch up to the slot (issue #430): the touch comes to this view
-    /// instead, and `touchesBegan` makes it the menu's pointer. Without
-    /// this, on a closed iPhone Duo in landscape, a touch on the right of
-    /// the two lowest slots pressed USE (which closed the list) or FIRE
-    /// (which did nothing). `MenuTouchRouter.buttonYieldsToSaveSlot` says
-    /// which buttons stand down; ≡ never does.
+    /// A button drawn over something the engine's menu draws and takes a
+    /// press on gives the touch up to it: the touch comes to this view
+    /// instead, and `touchesBegan` makes it the menu's pointer. That is a
+    /// slot of the Load or Save list (issue #430) or a tab or row of a setup
+    /// screen (issue #440). Without this, on a closed iPhone Duo in
+    /// landscape, a touch on the right of the two lowest save slots pressed
+    /// USE (which closed the list), a touch on a slider under USE began
+    /// changing whichever row the cursor was on, and a touch on a setting
+    /// under a weapon button turned the tab.
+    /// `MenuTouchRouter.buttonYieldsToDrawnItem` says which buttons stand
+    /// down; ≡ never does.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hit = super.hitTest(point, with: event)
         guard let button = hit as? OverlayButton,
               let id = button.accessibilityIdentifier,
               let control = TouchOverlayControl(rawValue: id),
-              menuRouter.buttonYieldsToSaveSlot(control, onSaveSlot: gamepad.isSaveSlot(at: point))
+              menuRouter.buttonYieldsToDrawnItem(control, onDrawnItem: gamepad.isDrawnMenuItem(at: point))
         else { return hit }
         return self
     }
@@ -931,7 +946,7 @@ final class TouchOverlayView: UIView {
             let nearButton = router.isNearButton(point)
             switch menuRouter.began(menuActive: menuUp, trackRoute: route,
                                     nearButton: nearButton,
-                                    onSaveSlot: menuUp && gamepad.isSaveSlot(at: point),
+                                    onDrawnItem: menuUp && gamepad.isDrawnMenuItem(at: point),
                                     pointerOwned: menuTouch != nil) {
             case .pointer:
                 // Position first, then the press: the engine checks a press
