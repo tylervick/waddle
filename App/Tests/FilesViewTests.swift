@@ -185,4 +185,77 @@ final class FilesViewTests: XCTestCase {
             FilesView.BlockedFile(filename: "sunlust.wad", games: ["Sunlust MP"]),
         ])
     }
+
+    // MARK: Wrapping (issue #425)
+
+    /// A file name gets one place to wrap, in front of its extension, so a
+    /// line that cannot hold the whole name ends there instead of inside
+    /// ".wad". The break is a zero-width space: it draws nothing.
+    func testAFilenameMayWrapInFrontOfItsExtension() {
+        XCTAssertEqual(FilesView.wrappingFilename("freedoom1.wad"), "freedoom1\u{200B}.wad")
+        XCTAssertEqual(FilesView.wrappingFilename("Eviternity II.wad"), "Eviternity II\u{200B}.wad")
+        XCTAssertEqual(FilesView.wrappingFilename("a.b.deh"), "a.b\u{200B}.deh", "only the last dot is the extension's")
+    }
+
+    /// Nothing to keep whole, nothing added: a name with no extension, and a
+    /// dot-file, whose dot is not in front of an extension.
+    func testANameWithNoExtensionIsLeftAlone() {
+        XCTAssertEqual(FilesView.wrappingFilename("README"), "README")
+        XCTAssertEqual(FilesView.wrappingFilename(".hidden"), ".hidden")
+        XCTAssertEqual(FilesView.wrappingFilename(""), "")
+    }
+
+    /// The row is found and read by its name, so the break must not change
+    /// what the name is once it is taken out again.
+    func testTheWrapPointIsTheOnlyChange() {
+        for name in ["freedoom1.wad", "SCYTHE.WAD", "Eviternity II.wad", "README", "a.b.deh"] {
+            XCTAssertEqual(FilesView.wrappingFilename(name).replacingOccurrences(of: "\u{200B}", with: ""), name)
+        }
+    }
+
+    /// The metadata line may wrap after its dot and never before it.
+    func testTheMetadataDotStaysWithTheSizeInFrontOfIt() {
+        XCTAssertEqual(FilesView.metadataSeparator, "\u{00A0}· ")
+    }
+
+    /// `WholeWordText` allows a line per piece, which is what makes running
+    /// out of lines mean "a piece was broken".
+    func testWholeWordTextCountsWordsAsPieces() {
+        XCTAssertEqual(WholeWordText.pieces("Compatibility"), ["Compatibility"])
+        XCTAssertEqual(WholeWordText.pieces("Eviternity II"), ["Eviternity", "II"])
+        XCTAssertEqual(WholeWordText.pieces("  Touch   layout "), ["Touch", "layout"])
+        XCTAssertEqual(WholeWordText.pieces(""), [])
+    }
+
+    /// A file's name is one unspaced token, and as one piece it got one line:
+    /// it shrank where it used to wrap, and was cut where it could not shrink
+    /// enough (review of pull request 435). It may end a line after a hyphen
+    /// or an underscore and in front of a dot.
+    func testAnUnspacedNameBreaksAtHyphensUnderscoresAndDots() {
+        XCTAssertEqual(WholeWordText.pieces("sunlust_final_v13"), ["sunlust_", "final_", "v13"])
+        XCTAssertEqual(WholeWordText.pieces("Back-to-Saturn-X-E1"), ["Back-", "to-", "Saturn-", "X-", "E1"])
+        XCTAssertEqual(WholeWordText.pieces("mod.v1.2"), ["mod", ".v1", ".2"])
+        XCTAssertEqual(WholeWordText.pieces("-_."), ["-", "_", "."])
+    }
+
+    /// The drawn string offers a break between pieces and nowhere else, and
+    /// is the original once the breaks are taken out.
+    func testTheDrawnStringOnlyAddsBreaksBetweenPieces() {
+        XCTAssertEqual(WholeWordText.wrapping("sunlust_final_v13"), "sunlust_\u{200B}final_\u{200B}v13")
+        XCTAssertEqual(WholeWordText.wrapping("Eviternity II"), "Eviternity II")
+        XCTAssertEqual(WholeWordText.wrapping("Compatibility"), "Compatibility")
+        for name in ["sunlust_final_v13", "Back-to-Saturn-X-E1-Get-Out-Of-My-Stations", "a  b", " lead", "mod.v1.2", ""] {
+            XCTAssertEqual(WholeWordText.wrapping(name).replacingOccurrences(of: "\u{200B}", with: ""), name)
+        }
+    }
+
+    /// The sizes are tried largest first and start at the text's own, so
+    /// text that fits is not shrunk; and there is a floor, below which a
+    /// piece too wide for its line wraps instead of shrinking further.
+    func testTheSizesTriedStartAtFullSizeAndStopAtHalf() {
+        XCTAssertEqual(WholeWordText.scales.first, 1)
+        XCTAssertEqual(WholeWordText.scales, WholeWordText.scales.sorted(by: >))
+        XCTAssertEqual(WholeWordText.smallestScale, 0.5)
+        XCTAssertEqual(WholeWordText.scales.count, 6, "the body lists one child per size by index")
+    }
 }

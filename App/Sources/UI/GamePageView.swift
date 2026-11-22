@@ -46,6 +46,11 @@ struct GamePageView: View {
     @State private var deleteCandidate: Game?
     @State private var artContentWidth: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
+    /// The widest unbreakable thing in the hero's caption, from
+    /// `captionProbe`. Nil until measured, and until then the hero stacks.
+    @State private var captionWordWidth: CGFloat?
+    /// The hero row's measured width; zero until measured.
+    @State private var heroRowWidth: CGFloat = 0
 
     private var continuableSlot: Int? { EngineSaveSlot.newestLoadGameArgument(in: saves) }
 
@@ -137,6 +142,55 @@ struct GamePageView: View {
             primaryButtonCount: continuableSlot != nil ? 2 : 1)
     }
 
+    /// Measures the widest thing in the caption that cannot wrap: a word of
+    /// the title beside its pencil, or a word of a button's label beside its
+    /// icon, inside the button's padding. Drawn hidden at its natural size
+    /// and read back, because the first version worked this out from
+    /// `UIFont` and came out too wide: a font cannot say how wide a symbol
+    /// is drawn or how far a `Label` sets it from its title, and on a closed
+    /// iPhone Duo held sideways the over-count stacked a page whose caption
+    /// fitted beside the art with 13 pt to spare (review of pull request 435).
+    private var captionProbe: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(game.name.split(whereSeparator: \.isWhitespace).enumerated()), id: \.offset) { _, word in
+                titleLabel(String(word))
+            }
+            ForEach(Array(primaryActionWords.enumerated()), id: \.offset) { _, action in
+                Label(action.word, systemImage: action.systemImage)
+                    .font(Theme.Typography.button)
+                    .padding(.horizontal, Theme.Spacing.base)
+            }
+        }
+        .lineLimit(1)
+        .fixedSize()
+        .hidden()
+        .accessibilityHidden(true)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            captionWordWidth = width
+        }
+    }
+
+    /// Each word of each primary button's label, with that button's icon.
+    private var primaryActionWords: [(word: String, systemImage: String)] {
+        if continuableSlot != nil {
+            return [("Continue", "clock.arrow.circlepath"), ("New", "play.fill"), ("Game", "play.fill")]
+        }
+        return [("Play", "play.fill")]
+    }
+
+    /// The title as the page draws it, shared with `captionProbe` so the
+    /// measurement cannot drift from the thing measured.
+    private func titleLabel(_ name: String) -> some View {
+        HStack(spacing: Theme.Spacing.sm) {
+            Text(name).font(Theme.Typography.heroTitle)
+            Image(systemName: "pencil")
+                .font(Theme.Typography.secondary)
+                .foregroundStyle(Color.appSecondaryText)
+        }
+    }
+
     /// The hero row: art, title, actions. Zero row insets and a clear row
     /// background so it is drawn on the backdrop rather than in a grouped
     /// cell. The Form's own section margin (`rowHorizontalInset`) is the only
@@ -147,7 +201,9 @@ struct GamePageView: View {
         Section {
             Group {
                 switch PlayableDetailLayout.arrangement(contentWidth: artContentWidth,
-                                                        viewportHeight: viewportHeight) {
+                                                        viewportHeight: viewportHeight,
+                                                        minimumCaptionWidth: captionWordWidth ?? .infinity,
+                                                        rowWidth: heroRowWidth) {
                 case .stacked:
                     VStack(alignment: .leading, spacing: PlayableDetailLayout.captionSpacing) {
                         heroArt(height: PlayableDetailLayout.artHeight(
@@ -175,6 +231,18 @@ struct GamePageView: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // The row's own width, which is what the caption really has to
+            // fit in. It is not always the form's width less the insets the
+            // art is sized from: on a closed iPhone Duo held sideways the row
+            // is about 11 pt wider than that, and the caption fitted in the
+            // difference.
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                heroRowWidth = width
+            }
+            .background(alignment: .topLeading) { captionProbe }
             .padding(.top, PlayableDetailLayout.captionTopPadding)
             .padding(.bottom, PlayableDetailLayout.captionBottomPadding)
             .listRowInsets(EdgeInsets())
@@ -201,12 +269,7 @@ struct GamePageView: View {
             draftName = game.name
             showRename = true
         } label: {
-            HStack(spacing: Theme.Spacing.sm) {
-                Text(game.name).font(Theme.Typography.heroTitle)
-                Image(systemName: "pencil")
-                    .font(Theme.Typography.secondary)
-                    .foregroundStyle(Color.appSecondaryText)
-            }
+            titleLabel(game.name)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("gameNameButton")
@@ -265,7 +328,8 @@ struct GamePageView: View {
                 // Locked: this game *is* the IWAD (spec §3.2).
                 LabeledContent("Base", value: baseName)
             } else {
-                Picker("Base", selection: $baseSelection) {
+                MenuPickerRow(title: "Base", current: baseSelectionName,
+                              identifier: "basePicker", selection: $baseSelection) {
                     // Only offered while unpaired: once a game has a base,
                     // the picker must not be able to un-pair it back to none.
                     if game.baseID == nil {
@@ -275,8 +339,6 @@ struct GamePageView: View {
                         Text(wad.displayName).tag(UUID?.some(wad.id))
                     }
                 }
-                .pickerStyle(.menu)
-                .accessibilityIdentifier("basePicker")
                 .onChange(of: baseSelection) { _, newValue in
                     guard newValue != game.baseID else { return }
                     attempt(.base(newValue))
@@ -285,6 +347,10 @@ struct GamePageView: View {
         } header: {
             WaddleSectionHeader("Base game")
         }
+    }
+
+    private var baseSelectionName: String {
+        baseGames.first { $0.id == baseSelection }?.displayName ?? "Choose a base game"
     }
 
     private var baseName: String {
@@ -296,7 +362,7 @@ struct GamePageView: View {
         Section {
             ForEach(files, id: \.id) { file in
                 VStack(alignment: .leading, spacing: Theme.Spacing.xs / 2) {
-                    Text(file.displayName)
+                    WholeWordText(file.displayName)
                     Text(GamePage.roleLabel(for: file))
                         .font(Theme.Typography.caption)
                         .foregroundStyle(Color.appSecondaryText)
@@ -329,31 +395,33 @@ struct GamePageView: View {
 
     private var settingsSection: some View {
         Section {
-            Picker("Compatibility", selection: $complevel) {
+            MenuPickerRow(title: "Compatibility", current: complevel ?? "Auto",
+                          identifier: "complevelPicker", selection: $complevel) {
                 Text("Auto").tag(String?.none)
                 ForEach(["vanilla", "boom", "mbf", "mbf21"], id: \.self) {
                     Text($0).tag(String?.some($0))
                 }
             }
-            .pickerStyle(.menu)
-            .accessibilityIdentifier("complevelPicker")
             .onChange(of: complevel) { _, newValue in
                 guard newValue != game.complevel else { return }
                 try? library.setComplevel(game, newValue)
             }
-            Picker("Touch layout", selection: $scheme) {
-                Text("Default (\(TouchControlScheme.current().displayLabel))").tag(TouchControlScheme?.none)
+            MenuPickerRow(title: "Touch layout", current: scheme?.displayLabel ?? defaultSchemeLabel,
+                          identifier: "schemePicker", selection: $scheme) {
+                Text(defaultSchemeLabel).tag(TouchControlScheme?.none)
                 Text("Classic").tag(TouchControlScheme?.some(.classic))
                 Text("Modern").tag(TouchControlScheme?.some(.modern))
             }
-            .pickerStyle(.menu)
-            .accessibilityIdentifier("schemePicker")
             .onChange(of: scheme) { _, newValue in
                 guard newValue?.rawValue != game.schemeOverrideRaw else { return }
                 try? library.setSchemeOverride(newValue?.rawValue, for: game)
                 onChanged()
             }
         }
+    }
+
+    private var defaultSchemeLabel: String {
+        "Default (\(TouchControlScheme.current().displayLabel))"
     }
 
     @ViewBuilder
@@ -449,6 +517,58 @@ struct GamePageView: View {
     }
 }
 
+/// A row that picks one value from a menu.
+///
+/// At the ordinary text sizes it is the system's menu `Picker`, untouched. At
+/// the accessibility sizes the system lays that picker's title over its value
+/// and sizes the row as if the value were one line: a value that wraps
+/// ("Freedoom" / "Phase 2") spilled out of the row both ways, and pushed the
+/// title against the top edge of its card (issue #425). So there the row is
+/// built here: a `Menu` whose label is the title over the value, ordinary
+/// text the list can measure. The menu holds the same picker, so choosing is
+/// unchanged.
+private struct MenuPickerRow<Value: Hashable, Options: View>: View {
+    let title: String
+    /// The selected option's name, for the hand-built row to show.
+    let current: String
+    let identifier: String
+    @Binding var selection: Value
+    @ViewBuilder var options: Options
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            // The whole row is the menu's label, so a touch anywhere on it
+            // opens the menu, as it does on the system's row.
+            Menu {
+                Picker(title, selection: $selection) { options }
+            } label: {
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                    WholeWordText(title)
+                        .foregroundStyle(Color.primary)
+                    HStack(spacing: Theme.Spacing.sm) {
+                        Text(current).multilineTextAlignment(.leading)
+                        Image(systemName: "chevron.up.chevron.down").imageScale(.small)
+                    }
+                    .foregroundStyle(Color.appAccent)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            // What the system's menu picker reads: "Touch layout, Default
+            // (Classic)" as the label and no value (read off the default-size
+            // row by `GamePageTests`, which holds this row to it).
+            .accessibilityLabel("\(title), \(current)")
+            .accessibilityIdentifier(identifier)
+        } else {
+            Picker(title, selection: $selection) { options }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier(identifier)
+        }
+    }
+}
+
 /// The Add… picker (spec §3.2): every non-base file the game does not already
 /// load, grouped by role. Picking one attaches it at the end of the load order.
 struct AddFilePicker: View {
@@ -491,7 +611,7 @@ struct AddFilePicker: View {
                 dismiss()
             } label: {
                 VStack(alignment: .leading, spacing: Theme.Spacing.xs / 2) {
-                    Text(file.displayName)
+                    WholeWordText(file.displayName)
                     Text(GamePage.roleLabel(for: file))
                         .font(Theme.Typography.caption)
                         .foregroundStyle(Color.appSecondaryText)

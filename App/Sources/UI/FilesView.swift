@@ -29,6 +29,22 @@ struct FilesView: View {
         return components.url
     }
 
+    /// A file name that may wrap in front of its extension. With no break
+    /// offered, a name wider than its line is cut wherever the line ends,
+    /// which leaves a stub of the extension on a line of its own
+    /// ("freedoom1.wa" / "d", issue #425). A zero-width space before the last
+    /// dot gives the line somewhere better to end; it draws nothing, and the
+    /// row's accessibility label is the name without it.
+    nonisolated static func wrappingFilename(_ filename: String) -> String {
+        guard let dot = filename.lastIndex(of: "."), dot != filename.startIndex else { return filename }
+        return filename[..<dot] + "\u{200B}" + filename[dot...]
+    }
+
+    /// Between a file's size and its status on the one metadata line. The
+    /// space before the dot does not break, so a wrapped line ends "28.8 MB ·"
+    /// and never starts with the dot.
+    nonisolated static let metadataSeparator = "\u{00A0}· "
+
     /// Merges game names, dropping repeats.
     static func blockedNames(_ existing: [String], adding names: [String]) -> [String] {
         var merged = existing
@@ -118,22 +134,24 @@ struct FilesView: View {
         let games = usedBy[wad.id] ?? []
         let unpaired = games.contains { $0.baseID == nil }
         return VStack(alignment: .leading, spacing: Theme.Spacing.xs / 2) {
-            HStack {
-                Text(wad.filename)
+            // Beside the name while the text is an ordinary size, under it at
+            // an accessibility size: the badge would otherwise take the width
+            // the name needs to stay in one piece (issue #425).
+            AccessibilityStack(spacing: Theme.Spacing.sm) {
+                Text(Self.wrappingFilename(wad.filename))
+                    .accessibilityLabel(wad.filename)
                 if wad.role == .mapSet && unpaired {
                     StatusBadge("no base", tone: .warning)
                 }
             }
-            HStack(spacing: Theme.Spacing.xs) {
-                if let size {
-                    Text(size, format: .byteCount(style: .file))
-                    Text("·")
-                }
-                Text(statusLabel(status))
-                    .foregroundStyle(status == .missing ? Color.appDanger : Color.appSecondaryText)
-            }
-            .font(Theme.Typography.caption)
-            .foregroundStyle(Color.appSecondaryText)
+            // One `Text`, not an `HStack` of three: a stack shares the row's
+            // width out between its children and a child that gets less than
+            // its longest word breaks inside it ("Bun-" / "dled" at the
+            // largest accessibility size, issue #425). One text wraps at its
+            // spaces.
+            metadataLine(size: size, status: status)
+                .font(Theme.Typography.caption)
+                .foregroundStyle(Color.appSecondaryText)
             Text(GamePage.usedByLine(gameNames: games.map(\.name)))
                 .font(Theme.Typography.caption)
                 .foregroundStyle(Color.appSecondaryText)
@@ -149,6 +167,13 @@ struct FilesView: View {
                 Button(role: .destructive) { delete([wad]) } label: { Label("Delete", systemImage: "trash") }
             }
         }
+    }
+
+    private func metadataLine(size: Int64?, status: LibraryFileStatus) -> Text {
+        let state = Text(statusLabel(status))
+            .foregroundStyle(status == .missing ? Color.appDanger : Color.appSecondaryText)
+        guard let size else { return state }
+        return Text("\(Text(size, format: .byteCount(style: .file)))\(Self.metadataSeparator)\(state)")
     }
 
     private func statusLabel(_ status: LibraryFileStatus) -> String {

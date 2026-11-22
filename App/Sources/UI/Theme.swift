@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The shell's visual system (spec §5, extended by
 /// `2026-09-30-design-system-design.md`): always dark, art-forward, native
@@ -288,5 +289,164 @@ struct WaddleSectionHeader: View {
             .font(Theme.Typography.sectionHeader)
             .foregroundStyle(Color.appSecondaryText)
             .textCase(nil)
+    }
+}
+
+/// Children side by side at the ordinary text sizes and one under the other
+/// at the accessibility sizes, where two things on one line each get less
+/// width than their longest word needs (issue #425).
+struct AccessibilityStack<Content: View>: View {
+    var spacing: CGFloat?
+    @ViewBuilder var content: Content
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: spacing) { content }
+        } else {
+            HStack(spacing: spacing) { content }
+        }
+    }
+}
+
+/// A list row's label: icon and title at the ordinary text sizes, the title
+/// alone at the accessibility sizes. In the shelf's panel a row is about
+/// 280 pt wide, and at the largest size the icon left "Hidden Games" less
+/// than "Hidden" needs, so the word was hyphenated (issue #425). The icons
+/// repeat what the titles say; the titles are what has to stay whole.
+struct WaddleRowLabelStyle: LabelStyle {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    func makeBody(configuration: Configuration) -> some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            configuration.title
+        } else {
+            Label(configuration)
+        }
+    }
+}
+
+/// Text that keeps its words whole. Wrapping breaks a word that is wider
+/// than its line, and on iOS hyphenates it where it can ("Compatibili-" /
+/// "ty", "Eviter-" / "nity II" in the shelf's panel at the largest
+/// accessibility size, issue #425). So the text is never handed a line
+/// narrower than its widest piece: it is drawn at the largest of a few sizes
+/// at which that piece fits its line, and then every break the system makes
+/// falls between pieces. Text that fits is drawn as it always was, so this
+/// costs nothing at the ordinary sizes.
+///
+/// A piece is a word, or a part of one that ends at a hyphen or an underscore
+/// or starts at a dot: a file's name is usually one unspaced token
+/// ("sunlust_final_v13"), and it may wrap at those characters.
+///
+/// Nothing is ever cut. Shrinking stops at `smallestScale`; where the widest
+/// piece does not fit even then, the text is left to wrap as plain text
+/// does, broken but all there.
+///
+/// ## Why the size is chosen here and not by `minimumScaleFactor`
+///
+/// The first two versions set `lineLimit` to the number of pieces and let
+/// `minimumScaleFactor` shrink the text when it ran out of lines, on the
+/// reasoning that it only runs out when a piece has been broken. That holds
+/// for one piece and fails for two: "Eviter-" / "nity II" is two lines for
+/// two pieces, because the broken word's tail shares a line with the next
+/// word, so the limit is never reached and nothing shrinks (second review of
+/// pull request 435). The system offers no "do not hyphenate" for a SwiftUI
+/// `Text`, so the only sure way to keep a word whole is to give it room.
+struct WholeWordText: View {
+    let string: String
+    /// The text style this is drawn in. It is what the widest piece is
+    /// measured with, and what the smaller sizes are scaled from.
+    var textStyle: UIFont.TextStyle = .body
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    init(_ string: String, textStyle: UIFont.TextStyle = .body) {
+        self.string = string
+        self.textStyle = textStyle
+    }
+
+    /// The sizes tried, largest first, as fractions of the text style's own.
+    nonisolated static let scales: [CGFloat] = [1, 0.9, 0.8, 0.7, 0.6, 0.5]
+    nonisolated static var smallestScale: CGFloat { scales.last ?? 1 }
+
+    /// The parts no line may end inside: split at whitespace, after "-" and
+    /// "_", and before ".".
+    nonisolated static func pieces(_ string: String) -> [String] {
+        var pieces: [String] = []
+        var current = ""
+        func end() {
+            if !current.isEmpty { pieces.append(current) }
+            current = ""
+        }
+        for character in string {
+            if character.isWhitespace {
+                end()
+            } else if character == "." {
+                end()
+                current.append(character)
+            } else {
+                current.append(character)
+                if character == "-" || character == "_" { end() }
+            }
+        }
+        end()
+        return pieces
+    }
+
+    /// The string with a zero-width space between the pieces of each word,
+    /// which is where a line may end. It draws nothing.
+    nonisolated static func wrapping(_ string: String) -> String {
+        var result = ""
+        var previous: Character?
+        for character in string {
+            if let previous, !previous.isWhitespace, !character.isWhitespace,
+               previous == "-" || previous == "_" || character == "." {
+                result.append("\u{200B}")
+            }
+            result.append(character)
+            previous = character
+        }
+        return result
+    }
+
+    /// The text style's font at the reader's size, and the widest piece in
+    /// it. Reads the text size from the environment so that a change of it
+    /// measures again.
+    private var measured: (font: UIFont, widest: CGFloat) {
+        _ = dynamicTypeSize
+        let font = UIFont.preferredFont(forTextStyle: textStyle)
+        let widest = Self.pieces(string)
+            .map { ($0 as NSString).size(withAttributes: [.font: font]).width }
+            .max() ?? 0
+        return (font, widest)
+    }
+
+    var body: some View {
+        let text = Self.wrapping(string)
+        let (font, widest) = measured
+        // `ViewThatFits` takes the first child whose ideal width fits, and
+        // each child's ideal width is declared as its widest piece at that
+        // child's size. So the choice is the largest size at which no piece
+        // is wider than the line.
+        ViewThatFits(in: .horizontal) {
+            sized(text, widest: widest, font: font, scale: Self.scales[0])
+            sized(text, widest: widest, font: font, scale: Self.scales[1])
+            sized(text, widest: widest, font: font, scale: Self.scales[2])
+            sized(text, widest: widest, font: font, scale: Self.scales[3])
+            sized(text, widest: widest, font: font, scale: Self.scales[4])
+            sized(text, widest: widest, font: font, scale: Self.scales[5])
+            Text(text)
+        }
+        .accessibilityLabel(string)
+    }
+
+    /// The text at one size, saying how wide its widest piece is there. A
+    /// point over, because that width is `UIFont`'s measure and the line is
+    /// SwiftUI's. At full size the font is left alone, so text that fits is
+    /// exactly what a plain `Text` would be.
+    private func sized(_ text: String, widest: CGFloat, font: UIFont, scale: CGFloat) -> some View {
+        Text(text)
+            .font(scale == 1 ? nil : .system(size: font.pointSize * scale))
+            .frame(idealWidth: ceil(widest * scale) + 1, alignment: .leading)
     }
 }

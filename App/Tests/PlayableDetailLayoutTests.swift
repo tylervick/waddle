@@ -141,6 +141,85 @@ final class PlayableDetailLayoutTests: XCTestCase {
         XCTAssertEqual(PlayableDetailLayout.arrangement(contentWidth: 842, viewportHeight: .nan), .stacked)
     }
 
+    /// Issue #425: the shelf's panel on an open iPhone Duo is about 340 pt of
+    /// content (376 less the form's insets). With the rename prompt's
+    /// keyboard up it is shorter than it is wide, and side by side left the
+    /// title a column two letters across at the largest text size. "SCYTHE"
+    /// with its pencil measures about 280 pt there.
+    func testAPageTooNarrowForItsCaptionStacksHoweverShortItIs() {
+        let panelWidth: CGFloat = 376 - 32
+        let underTheKeyboard: CGFloat = 300
+        XCTAssertEqual(PlayableDetailLayout.arrangement(contentWidth: panelWidth,
+                                                        viewportHeight: underTheKeyboard),
+                       .sideBySide, "the shape alone says side by side; this is the case the caption has to veto")
+        let column = PlayableDetailLayout.sideBySideCaptionWidth(contentWidth: panelWidth,
+                                                                 viewportHeight: underTheKeyboard)
+        XCTAssertLessThan(column, 280)
+        XCTAssertEqual(PlayableDetailLayout.arrangement(contentWidth: panelWidth,
+                                                        viewportHeight: underTheKeyboard,
+                                                        minimumCaptionWidth: 280),
+                       .stacked)
+    }
+
+    /// The veto is only for a caption that does not fit: the landscape phone
+    /// and iPad the arrangement exists for have room for the same word, and
+    /// a caption exactly as wide as its column fits it.
+    func testACaptionThatFitsStaysBesideTheArt() {
+        for sheet in [Sheet.landscapePhone, Self.landscapePad] {
+            XCTAssertEqual(PlayableDetailLayout.arrangement(contentWidth: sheet.contentWidth,
+                                                            viewportHeight: sheet.height,
+                                                            minimumCaptionWidth: 280),
+                           .sideBySide)
+            let column = PlayableDetailLayout.sideBySideCaptionWidth(contentWidth: sheet.contentWidth,
+                                                                     viewportHeight: sheet.height)
+            XCTAssertEqual(PlayableDetailLayout.arrangement(contentWidth: sheet.contentWidth,
+                                                            viewportHeight: sheet.height,
+                                                            minimumCaptionWidth: column),
+                           .sideBySide)
+            XCTAssertEqual(PlayableDetailLayout.arrangement(contentWidth: sheet.contentWidth,
+                                                            viewportHeight: sheet.height,
+                                                            minimumCaptionWidth: column + 1),
+                           .stacked)
+        }
+    }
+
+    /// Review of pull request 435: on a closed iPhone Duo held sideways the
+    /// hero row measured about 11 pt wider than the width the art is sized
+    /// from, and "SCYTHE" with its pencil fitted beside the art in that
+    /// difference. Judged against the narrower width it was stacked, with
+    /// the art on its 96 pt floor, where `main` drew it side by side.
+    func testTheCaptionIsJudgedAgainstTheRowsOwnWidth() {
+        let contentWidth: CGFloat = 538, viewport: CGFloat = 390, word: CGFloat = 270
+        XCTAssertEqual(PlayableDetailLayout.arrangement(contentWidth: contentWidth, viewportHeight: viewport,
+                                                        minimumCaptionWidth: word),
+                       .stacked, "the unmeasured row no longer vetoes, so this case no longer describes the defect")
+        XCTAssertEqual(PlayableDetailLayout.arrangement(contentWidth: contentWidth, viewportHeight: viewport,
+                                                        minimumCaptionWidth: word, rowWidth: 549),
+                       .sideBySide)
+        // The row's width changes what is left for the caption and nothing
+        // about the art.
+        XCTAssertEqual(PlayableDetailLayout.sideBySideCaptionWidth(contentWidth: contentWidth, viewportHeight: viewport,
+                                                                   rowWidth: 549)
+                       - PlayableDetailLayout.sideBySideCaptionWidth(contentWidth: contentWidth, viewportHeight: viewport),
+                       11, accuracy: 0.01)
+        // An unmeasured row is the content width, not a zero-width column.
+        XCTAssertEqual(PlayableDetailLayout.sideBySideCaptionWidth(contentWidth: contentWidth, viewportHeight: viewport,
+                                                                   rowWidth: 0),
+                       PlayableDetailLayout.sideBySideCaptionWidth(contentWidth: contentWidth, viewportHeight: viewport))
+    }
+
+    /// The art and the caption column share the row with one gap between.
+    func testTheCaptionColumnIsWhatTheArtLeaves() {
+        for sheet in [Sheet.landscapePhone, Self.landscapePad] {
+            let art = PlayableDetailLayout.sideBySideArtWidth(contentWidth: sheet.contentWidth,
+                                                              viewportHeight: sheet.height)
+            let column = PlayableDetailLayout.sideBySideCaptionWidth(contentWidth: sheet.contentWidth,
+                                                                     viewportHeight: sheet.height)
+            XCTAssertEqual(art + PlayableDetailLayout.captionSpacing + column, sheet.contentWidth, accuracy: 0.01)
+        }
+        XCTAssertEqual(PlayableDetailLayout.sideBySideCaptionWidth(contentWidth: 0, viewportHeight: 300), 0)
+    }
+
     /// The point of the arrangement: on a landscape phone the art is a
     /// picture, well above the floor the stacked budget left it on.
     func testSideBySideLiftsTheLandscapePhoneOffTheFloor() {

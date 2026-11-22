@@ -23,6 +23,38 @@ final class FilesScreenTests: XCTestCase {
         XCTAssertFalse(app.navigationBars["Files"].buttons["importButton"].exists, "…nor in its toolbar")
     }
 
+    /// At an accessibility text size a row's name is drawn with an invisible
+    /// break in front of its extension, and its size and status are one text
+    /// (issue #425). Neither may change what the row says: the name as it is
+    /// on disk, with nothing invisible in it, and the status and users.
+    @MainActor
+    func testARowReadsTheSameAtAnAccessibilityTextSize() {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
+        app.launchArguments += ["-UIPreferredContentSizeCategoryName",
+                                "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+
+        XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 10), "Add missing from the shelf")
+        // Not `openFiles`: at this size Settings shows about three rows, and
+        // a lazy list leaves the Files row out of the hierarchy until it is
+        // scrolled to (docs/learnings/lazy-form-hides-rows-from-uitests.md).
+        app.buttons["touchSchemeMenu"].tap()
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "touchSchemePicker").firstMatch
+            .waitForExistence(timeout: 5), "Settings never appeared")
+        scrollTo(app.buttons["filesButton"], in: app, maxSwipes: 10)
+        app.buttons["filesButton"].tap()
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "filesScreen").firstMatch
+            .waitForExistence(timeout: 5), "Files screen never appeared")
+
+        let row = app.descendants(matching: .any).matching(identifier: "fileRow-freedoom1.wad").firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "bundled freedoom1.wad row missing")
+        XCTAssertTrue(row.label.contains("freedoom1.wad"), "the row does not read its file's name; label = '\(row.label)'")
+        XCTAssertFalse(row.label.unicodeScalars.contains("\u{200B}"), "the row reads an invisible character; label = '\(row.label)'")
+        XCTAssertTrue(row.label.contains("Bundled"), "row does not surface bundled status; label = '\(row.label)'")
+        XCTAssertTrue(row.label.contains("Used by Freedoom Phase 1"), "row does not say who uses it; label = '\(row.label)'")
+    }
+
     /// Swipe-to-delete on a tall Files row. The assertion is that the swipe
     /// reveals a Delete action at all; the screenshot is for a human, because
     /// the *shape* of that action is what
