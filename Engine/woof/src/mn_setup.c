@@ -4129,6 +4129,27 @@ static mrect_t IOS_TouchablePart(const setup_menu_t *item)
     return part;
 }
 
+// Touch menus (iOS), a product seam (issue 462): is a key-binding row
+// waiting for the input to bind? BindInput gives the row whatever arrives
+// next, a key, a pad button or a mouse button, and takes it from any other
+// action of the same group. That is right for a keyboard, a controller and
+// a mouse. The host's touch overlay is none of those, but it reaches the
+// engine as two of them: a touch on the screen is the left mouse button, and
+// its on-screen buttons are a virtual pad. So the host asks, and sends
+// nothing of its own while this is true except the menu button, whose
+// MENU_ESCAPE ChangeEntry takes as "no change" before BindInput is reached.
+// Not the reset confirmation, which also "selects" its row on these screens:
+// that one is a question, and MN_MenuMessageShowing answers for it.
+boolean MN_BindingPending(void)
+{
+    if (!setup_active || !set_keybnd_active || !setup_select || default_verify
+        || !current_menu)
+    {
+        return false;
+    }
+    return (current_menu[set_item_on].m_flags & S_INPUT) != 0;
+}
+
 // Touch menus (iOS), a product seam (issue 440): is this menu-space point
 // on something a setup screen draws and a press there would act on -- a
 // tab, or the touchable part of an item the cursor can land on? The host
