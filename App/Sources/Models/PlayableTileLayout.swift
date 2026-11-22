@@ -143,14 +143,25 @@ enum PlayableTileLayout {
         largerThanDefaultText ? 2 : 1
     }
 
-    /// The narrowest line that holds a title of `fullWidth` whole on one
-    /// line: its width at the smallest size the one-line title shrinks to. A
-    /// point over, because the width is `UIFont`'s measure and the line is
-    /// SwiftUI's. Above the default text size a tile whose line is narrower
-    /// than this gives the title its second line; one that is not draws the
-    /// title exactly as it did before there was a second line.
-    static func oneLineTitleMinimumWidth(fullWidth: CGFloat) -> CGFloat {
-        (max(0, fullWidth) * titleMinimumScaleFactor).rounded(.up) + 1
+    /// The narrowest line that holds a title whole on one line, given
+    /// `shrunkWidth`: the title's width set in its font at
+    /// `titleMinimumScaleFactor` of the font's size, the smallest the one-line
+    /// title shrinks to. A point over, because that width is `UIFont`'s
+    /// measure and the line is SwiftUI's. Above the default text size a tile
+    /// whose line is narrower than this gives the title its second line; one
+    /// that is not draws the title exactly as it did before there was a
+    /// second line.
+    ///
+    /// The width at the smaller size, not the full width scaled (issue #458):
+    /// type is not drawn in proportion to its size, and at 0.85 of its size a
+    /// title is wider than 0.85 of its full width. At
+    /// `accessibility-extra-extra-large` "Freedoom Phase 1" is 385.4 pt, so
+    /// 327.6 pt scaled, but 328.9 pt set at 40 pt, and SwiftUI drew it whole
+    /// only in a line of 329.5 pt or more. The scaled figure declared it fit
+    /// in 329, which is an iPhone 17e's landscape tile, and the title was cut
+    /// to "Freedoom Phase…" there.
+    static func oneLineTitleMinimumWidth(shrunkWidth: CGFloat) -> CGFloat {
+        max(0, shrunkWidth).rounded(.up) + 1
     }
 
     /// The scrim's total height: the paddings above and below, the title's own
