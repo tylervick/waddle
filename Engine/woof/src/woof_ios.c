@@ -951,18 +951,6 @@ bool WoofIOS_IsDrawnMenuItemAtPoint(float x_points, float y_points)
            || MN_PointOnSetupItem((int)mx, (int)my);
 }
 
-// The Load and Save lists alone, as issue 430 added it. The overlay moves
-// to WoofIOS_IsDrawnMenuItemAtPoint; this goes when nothing calls it.
-bool WoofIOS_IsSaveSlotAtPoint(float x_points, float y_points)
-{
-    extern boolean MN_PointOnSetupItem(int, int);
-    extern boolean I_MenuPointFromWindow(float, float, float *, float *);
-    float mx, my;
-    return WoofIOS_IsDrawnMenuItemAtPoint(x_points, y_points)
-           && I_MenuPointFromWindow(x_points, y_points, &mx, &my)
-           && !MN_PointOnSetupItem((int)mx, (int)my);
-}
-
 void WoofIOS_InjectMenuAnswer(bool yes)
 {
     extern boolean MN_MenuMessageShowing(void);

@@ -319,9 +319,6 @@ bool WoofIOS_InjectMenuTap(bool down);
 // chosen instead.
 bool WoofIOS_IsDrawnMenuItemAtPoint(float x_points, float y_points);
 
-// The Load and Save lists alone (issue 430). Superseded by the call above.
-bool WoofIOS_IsSaveSlotAtPoint(float x_points, float y_points);
-
 // Answer the Y/N prompt or save-delete confirmation on screen: a paired
 // keydown/keyup of 'y' or 'n'. Dropped unless one is showing.
 void WoofIOS_InjectMenuAnswer(bool yes);
