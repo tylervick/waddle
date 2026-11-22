@@ -20,7 +20,12 @@ import XCTest
 /// 27.0, 2026-11-21). It is now the row's *offered* width that is measured
 /// (`onOfferedWidthChange`).
 ///
-/// A window on that threshold depends on the fonts, so the sizes are not
+/// The same holds where the page chooses between Continue and New Game in a
+/// row and one over the other (issue #468): that choice is made from the
+/// caption's width and `actionLabelWidth`, and a window whose caption sits
+/// on its threshold is hosted too.
+///
+/// A window on either threshold depends on the fonts, so the sizes are not
 /// written down here. The test finds its own: windows where a third of a
 /// point on the row's width changes the arrangement. Those are hosted, and
 /// each measurement must have been taken once.
@@ -159,5 +164,74 @@ final class GamePageMeasurementTests: XCTestCase {
             }
         }
         XCTAssertGreaterThan(onThreshold, 0, "no window hosted was on the threshold, so nothing was tested")
+    }
+
+    /// Whether the buttons' row-or-column choice turns on a third of a
+    /// point of the hero row's width.
+    private func onTheButtonThreshold(_ measured: GamePageMeasurements) -> Bool {
+        var wider = measured
+        wider.heroRowWidth += 1.0 / 3.0
+        return measured.buttonArrangement != wider.buttonArrangement
+    }
+
+    /// The windows whose caption is expected to sit on the buttons'
+    /// threshold, worked out from one hosted page the way
+    /// `windowsNearTheThreshold` works out the hero's.
+    private func windowsNearTheButtonThreshold(settled: GamePageMeasurements, in reference: CGSize) -> [CGSize] {
+        guard settled.actionLabelWidth > 0 else { return [] }
+        let contentInset = reference.width - settled.artContentWidth
+        let rowInsets = Set([reference.width - settled.heroRowWidth, contentInset])
+        let chrome = reference.height - settled.viewportHeight
+        var found: [CGSize] = []
+        for height in stride(from: CGFloat(200), through: 800, by: 2) {
+            for width in stride(from: CGFloat(300), through: 1300, by: 1)
+            where rowInsets.contains(where: { inset in
+                var measured = settled
+                measured.artContentWidth = width - contentInset
+                measured.viewportHeight = height - chrome
+                measured.heroRowWidth = width - inset
+                return onTheButtonThreshold(measured)
+            }) {
+                found.append(CGSize(width: width, height: height))
+            }
+        }
+        return found
+    }
+
+    /// The buttons' choice is made from measurements it cannot move: the
+    /// row's offer and a fixed-size copy of the labels. Hosted where a third
+    /// of a point decides it, the page reports each measurement once and the
+    /// labels' width never changes after it is taken (issue #468; the
+    /// review of pull request 470 probed 122 such windows by hand).
+    func testNoMeasurementMovesWhereTheButtonsTurnOnAFractionOfAPoint() throws {
+        let fixture = ShelfPreviewFixture.continueHero()
+        let game = try XCTUnwrap(try fixture.library.shelfGames().first)
+        seededGameIDs.append(game.id)
+        let reference = CGSize(width: 900, height: 400)
+        var onThreshold = 0
+
+        for textSize in [DynamicTypeSize.large, .xxxLarge, .accessibility1, .accessibility3] {
+            let settled = try XCTUnwrap(
+                measurements(of: game, in: fixture.library, textSize: textSize, window: reference).last,
+                "the page reported nothing at \(textSize)")
+            XCTAssertGreaterThan(settled.actionLabelWidth, 0, "the action labels were never measured at \(textSize)")
+
+            for window in windowsNearTheButtonThreshold(settled: settled, in: reference).prefix(8) {
+                let reported = measurements(of: game, in: fixture.library, textSize: textSize, window: window)
+                let context = "\(textSize), \(window.width)x\(window.height): \(reported)"
+                XCTAssertEqual(Set(reported).count, reported.count,
+                               "the page came back to measurements it had left. \(context)")
+                XCTAssertLessThanOrEqual(Set(reported.map(\.actionLabelWidth).filter { $0 > 0 }).count, 1,
+                                         "the action labels' width moved after it was taken. \(context)")
+                if let last = reported.last, onTheButtonThreshold(last) || {
+                    var narrower = last
+                    narrower.heroRowWidth -= 1.0 / 3.0
+                    return narrower.buttonArrangement != last.buttonArrangement
+                }() {
+                    onThreshold += 1
+                }
+            }
+        }
+        XCTAssertGreaterThan(onThreshold, 0, "no window hosted was on the buttons' threshold, so nothing was tested")
     }
 }

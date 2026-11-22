@@ -203,4 +203,42 @@ final class GamePageActionRowTests: XCTestCase {
         XCTAssertGreaterThan(rows, 0, "no window had room for the buttons side by side")
         XCTAssertGreaterThan(columns, 0, "no window was too narrow for the buttons side by side")
     }
+
+    /// The issue's own window: a closed iPhone Duo on its side, at the
+    /// default text size. The caption beside the art is 267 pt and a button
+    /// needs 150 (the wider label, 118, and its padding), so the row rule
+    /// stacks them: two such buttons and the gap are 312.
+    ///
+    /// What put them side by side on `main` was not the even split. It was
+    /// the labels: in a form row a `Label` is drawn as its icon, and
+    /// `ViewThatFits` read the two as about 40 pt each, a 156 pt row. With
+    /// the labels drawn whole it reads about 302 pt and stacks here too, so
+    /// this window fails with the labels' style taken away, not with the
+    /// row alone; the searched band above is what fails with the row alone.
+    func testTheIssuesWindowStacksTheButtonsWhole() throws {
+        let fixture = ShelfPreviewFixture.continueHero()
+        let game = try XCTUnwrap(try fixture.library.shelfGames().first)
+        seededGameIDs.append(game.id)
+        let window = Window(name: "closed iPhone Duo on its side", size: CGSize(width: 678, height: 466),
+                            safeArea: Self.duoStatusColumn)
+        let hosted = host(game, in: fixture.library, textSize: .large, window: window)
+        let context = "\(hosted)"
+        let measured = try XCTUnwrap(hosted.measurements, context)
+        let continueFrame = try XCTUnwrap(hosted.actions["continueButton"], context)
+        let newGameFrame = try XCTUnwrap(hosted.actions["playButton"], context)
+
+        XCTAssertEqual(measured.arrangement, .sideBySide, "the art is no longer beside the caption. \(context)")
+        XCTAssertEqual(measured.buttonArrangement, .column, context)
+        XCTAssertLessThanOrEqual(continueFrame.maxY, newGameFrame.minY + 0.5,
+                                 "Continue and New Game share a row they do not fit. \(context)")
+        let need = neededWidth("New Game", systemImage: "play.fill", textSize: .large)
+        XCTAssertGreaterThanOrEqual(newGameFrame.width + 0.5, need, context)
+        XCTAssertGreaterThanOrEqual(continueFrame.width + 0.5,
+                                    neededWidth("Continue", systemImage: "clock.arrow.circlepath", textSize: .large),
+                                    context)
+        // The rule itself, with the numbers this window measured.
+        XCTAssertEqual(ShelfHeroLayout.buttonArrangement(captionWidth: measured.actionsWidth,
+                                                         buttonMinimumWidth: measured.actionLabelWidth + Theme.Spacing.base * 2),
+                       .column, context)
+    }
 }
