@@ -148,10 +148,16 @@ struct ShelfView: View {
         // Pushed, not presented (spec §3.2): one page for every tile, and no
         // second sheet to promote after the first dismisses.
         .navigationDestination(item: $pageGame) { game in
+            // The page's presentation state is the panel model's, so a
+            // page that moves to the lower half when the device is bent
+            // takes its open dialog with it (issue #429).
             GamePageView(game: game, library: library,
                          onPlay: { play($0, mode: $1) },
                          onChanged: refresh,
-                         onClose: { pageGame = nil })
+                         onClose: { pageGame = nil },
+                         presentation: panelModel.gamePagePresentation(for: game))
+                .environment(\.panelHost, panelModel.columnHost)
+                .onDisappear { if pageGame == nil { panelModel.pageClosed(game) } }
         }
         .deleteGamePrompt(game: $deleteCandidate, library: library, onDeleted: refresh)
         // .overlay, not .safeAreaInset -- a conditionally-empty safeAreaInset
@@ -171,8 +177,12 @@ struct ShelfView: View {
         // Files and Hidden Games live under Settings and can restore or
         // delete WADs, and without this the shelf would keep showing stale
         // tiles until some other trigger happened to call `refresh()`.
-        .sheet(isPresented: $showPlayerSettings, onDismiss: refresh) {
-            PlayerSettingsView(library: library)
+        .sheet(isPresented: $showPlayerSettings, onDismiss: {
+            panelModel.settingsSheetClosed()
+            refresh()
+        }) {
+            PlayerSettingsView(library: library, presentation: panelModel.settingsPresentation)
+                .environment(\.panelHost, panelModel.columnHost)
         }
         // The panel's content is built at the root, but starting a session
         // and reloading the shelf are this view's. Closing the panel
@@ -192,12 +202,14 @@ struct ShelfView: View {
         // half and the sheet would lie across the fold (issue #429).
         .onChange(of: panelModel.isSplit) { _, isSplit in
             guard isSplit else { return }
+            // The panel is set before the sheet or the page goes, so that
+            // when it has gone its state is seen to have moved, not closed.
             if showPlayerSettings {
-                showPlayerSettings = false
                 panelModel.panel = .settings
+                showPlayerSettings = false
             } else if let game = pageGame {
-                pageGame = nil
                 panelModel.panel = .game(game)
+                pageGame = nil
             }
         }
         #if DEBUG

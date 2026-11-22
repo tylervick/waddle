@@ -64,6 +64,7 @@ final class ShelfPanelModel {
             // still in flight would write over it.
             cancelStrayColumnClose()
             cancelColumnReturn()
+            forgetPresentation(of: content, replacedBy: newValue)
             content = newValue
             if isSplit {
                 openInLowerHalf = newValue != nil
@@ -99,6 +100,80 @@ final class ShelfPanelModel {
     /// page, or nil when the shelf has no game at all.
     var lowerHalf: ShelfPanel? { panel ?? restingGame.map(ShelfPanel.game) }
 
+    // MARK: What the panel's screens have pushed and presented
+
+    /// Settings' pushed screens and presentations, shared by every tree
+    /// that draws Settings. See `SettingsPresentation`.
+    private(set) var settingsPresentation = SettingsPresentation()
+
+    /// One per game whose page has been drawn. Not observed: a page asks for
+    /// its own while it is being drawn.
+    @ObservationIgnored private var gamePagePresentations: [UUID: GamePagePresentation] = [:]
+
+    /// The presentation state of `game`'s page, the same object for every
+    /// tree that draws that page.
+    func gamePagePresentation(for game: Game) -> GamePagePresentation {
+        if let existing = gamePagePresentations[game.id] { return existing }
+        let fresh = GamePagePresentation()
+        gamePagePresentations[game.id] = fresh
+        return fresh
+    }
+
+    /// A page the shelf pushed has been popped: its state goes with it,
+    /// unless that game is now the panel (the page moved, it did not close).
+    func pageClosed(_ game: Game) {
+        if content?.gameID != game.id { gamePagePresentations[game.id] = nil }
+    }
+
+    /// The shelf's Settings sheet has been dismissed: the same, for Settings.
+    func settingsSheetClosed() {
+        if content != .settings { settingsPresentation = SettingsPresentation() }
+    }
+
+    /// Closing a panel, or opening another over it, forgets where the old
+    /// one had got to. A panel that is merely moving between trees does not
+    /// come through here with a different value.
+    private func forgetPresentation(of old: ShelfPanel?, replacedBy new: ShelfPanel?) {
+        guard old != new else { return }
+        switch old {
+        case .settings: settingsPresentation = SettingsPresentation()
+        case .game(let game): gamePagePresentations[game.id] = nil
+        case nil: break
+        }
+    }
+
+    /// True while one tree is replacing another, and for a moment after.
+    /// Screens keep their sheets, alerts and dialogs down while it is, and
+    /// put them up again when it clears.
+    ///
+    /// What it waits for is the old tree's presentations finishing their
+    /// dismissal. A presentation begun while another is still leaving the
+    /// same presenter is refused by UIKit, and SwiftUI then believes it is
+    /// up. Nothing reports the end of a dismissal to a tree that no longer
+    /// exists, so this is a duration: longer than the system's dismissal
+    /// (about a third of a second for a sheet), and long enough for a
+    /// compact window's inspector sheet to have arrived for the screen
+    /// inside it to present from.
+    private(set) var presentationsHeld = false
+    @ObservationIgnored private var presentationHoldTask: Task<Void, Never>?
+    static let presentationHold: Duration = .milliseconds(700)
+
+    private func holdPresentationsAcrossSwap() {
+        presentationHoldTask?.cancel()
+        presentationsHeld = true
+        presentationHoldTask = Task { @MainActor in
+            try? await Task.sleep(for: Self.presentationHold)
+            guard !Task.isCancelled else { return }
+            self.presentationHoldTask = nil
+            self.presentationsHeld = false
+        }
+    }
+
+    /// What the column's tree tells its screens.
+    var columnHost: PanelHost { PanelHost(model: self, tree: .whole) }
+    /// What the lower half's tree tells its screens.
+    var lowerHalfHost: PanelHost { PanelHost(model: self, tree: .lowerHalf) }
+
     /// The game whose page is on screen, for the shelf to mark its tile: the
     /// open panel's, or in two halves the resting page's too.
     var shownGameID: UUID? { (isSplit ? lowerHalf : panel)?.gameID }
@@ -114,7 +189,16 @@ final class ShelfPanelModel {
         guard split != isSplit else { return }
         // Asked first: a column still on its way back up counts as open, and
         // the next line forgets that it was.
-        let wasOpen = panel != nil
+        var wasOpen = panel != nil
+        // A resting page with a question up (a save warning, a rename) is
+        // not open in this sense, and opening flat would take the lower
+        // half and the question away. It becomes the open panel instead.
+        if !split, !wasOpen, let resting = restingGame,
+           gamePagePresentations[resting.id]?.isAwaitingAnAnswer == true {
+            content = .game(resting)
+            wasOpen = true
+        }
+        holdPresentationsAcrossSwap()
         // While `isSplit` still has its old value, so a close in flight is
         // taken back under the rules it was started under.
         cancelStrayColumnClose()
@@ -131,7 +215,10 @@ final class ShelfPanelModel {
             openInLowerHalf = false
             // Closed in the lower half is closed: nothing is left for a
             // later write from the system to bring back.
-            if !open { content = nil }
+            if !open {
+                forgetPresentation(of: content, replacedBy: nil)
+                content = nil
+            }
             if open { returnColumn() }
         }
     }
@@ -141,18 +228,28 @@ final class ShelfPanelModel {
     private var columnIsReturning = false
     @ObservationIgnored private var columnReturnTask: Task<Void, Never>?
 
-    /// Puts the column back up a frame after the launcher became whole.
+    /// Puts the column back up on the main queue's next turn after the
+    /// launcher became whole.
     ///
-    /// Not in the same pass. Written there, alongside the change of layout,
-    /// the `true` was read back from the binding and nothing was shown: on
-    /// the simulator, 2026-11-21, the column failed to come back in 3 of 5
-    /// openings, with animations on or off, and came back in every one once
-    /// the write had a pass of its own. It is the mirror of
-    /// `closeStrayColumn`, where two writes in one pass cancel out.
+    /// The ordering it relies on: the pass that takes the lower half away
+    /// has ended before the binding is written. Written inside that pass,
+    /// alongside the change of layout, the `true` was read back from the
+    /// binding and nothing was shown: on the simulator, 2026-11-21, the
+    /// column failed to come back in 3 of 5 openings, with animations on or
+    /// off. `foldChanged` is called from the fold reader's own main-queue
+    /// block, the one that also sets the root's `halves`, so a block queued
+    /// behind it runs after SwiftUI has finished with that change. With the
+    /// write there the column came back in 6 of 6 (three fresh launches,
+    /// each opened flat twice). An earlier version waited 80 ms instead,
+    /// which also worked and said nothing about what it was waiting for.
+    /// It is the mirror of `closeStrayColumn`, where two writes in one pass
+    /// cancel out.
     private func returnColumn() {
         columnIsReturning = true
         columnReturnTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(80))
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                DispatchQueue.main.async { done.resume() }
+            }
             guard !Task.isCancelled else { return }
             self.columnReturnTask = nil
             self.columnIsReturning = false
@@ -308,13 +405,15 @@ struct ShelfPanelView: View {
         // `content`, not `panel`: the inspector asks for its content while it
         // is being put back after a fold, a moment at which `isPresented` has
         // been written false and not yet true again.
+        Group {
         switch model.content {
         case .game(let game):
             NavigationStack {
                 GamePageView(game: game, library: library,
                              onPlay: { model.play($0, $1) },
                              onChanged: { model.changed() },
-                             onClose: { model.panel = nil })
+                             onClose: { model.panel = nil },
+                             presentation: model.gamePagePresentation(for: game))
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("Done") { model.panel = nil }
@@ -326,10 +425,13 @@ struct ShelfPanelView: View {
             // new arguments: its saves, files and pickers are all `@State`.
             .id(game.id)
         case .settings:
-            PlayerSettingsView(library: library, onDone: { model.panel = nil })
+            PlayerSettingsView(library: library, onDone: { model.panel = nil },
+                               presentation: model.settingsPresentation)
         case nil:
             EmptyView()
         }
+        }
+        .environment(\.panelHost, model.columnHost)
     }
 }
 
@@ -356,7 +458,8 @@ struct LowerHalfPanelView: View {
                                  onChanged: { model.changed() },
                                  // The resting page closes to the shelf's
                                  // next answer; `changed` has already asked.
-                                 onClose: { model.panel = nil })
+                                 onClose: { model.panel = nil },
+                                 presentation: model.gamePagePresentation(for: game))
                         .toolbar {
                             if model.panel != nil {
                                 ToolbarItem(placement: .confirmationAction) {
@@ -368,7 +471,8 @@ struct LowerHalfPanelView: View {
                 }
                 .id(game.id)
             case .settings:
-                PlayerSettingsView(library: library, onDone: { model.panel = nil })
+                PlayerSettingsView(library: library, onDone: { model.panel = nil },
+                                   presentation: model.settingsPresentation)
             case nil:
                 // Every game hidden or deleted: the shelf above says so with
                 // its Add tile, and there is no page to show.
@@ -376,6 +480,7 @@ struct LowerHalfPanelView: View {
             }
         }
         .environment(\.launcherIsInTwoHalves, true)
+        .environment(\.panelHost, model.lowerHalfHost)
     }
 }
 

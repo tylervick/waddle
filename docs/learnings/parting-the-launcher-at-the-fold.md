@@ -53,9 +53,12 @@ spot, in the pass that also takes the lower half away. The binding then read
 `true` (logged, ten reads) and no column appeared: 3 of 5 openings on the
 simulator, on the first opening after a launch as well as later ones, with
 animations disabled or not. Bending again showed Settings below, so nothing
-was lost but the column. Written a frame later, in a pass of its own
-(`returnColumn`), it came back in 9 of 9: three fresh launches, each opened
-flat twice, and three more in one run.
+was lost but the column. Written after that pass, it came back every time.
+The first fix waited 80 ms (9 of 9); the review asked what the 80 ms was
+waiting for, and the answer is the end of the pass: `foldChanged` runs in
+the fold reader's own main-queue block, so `returnColumn` queues one block
+behind it and writes there (6 of 6: three fresh launches, each opened flat
+twice). A delay that works says nothing about what it depends on.
 
 The captures that showed this were taken with nothing open first, and those
 were all right. As the inspector learning says: try a transition with a
@@ -64,6 +67,53 @@ panel open as well as without, and more than once.
 A check of "did it come up" was tried and dropped: `onAppear` on the
 inspector's content fires at launch with nothing presented, so a flag set
 there says nothing.
+
+## Two trees draw the panel, and state inside either is lost at every fold
+
+The inspector's column and the lower half are separate view trees. The
+review of pull request 461 found what that costs: with Settings > Files
+pushed in the lower half, opening flat brought the column back at Settings.
+Everything a screen kept in `@State` went the same way: the navigation path,
+Control Feel, the rename alert, the save warning.
+
+The path and every presentation are now on `ShelfPanelModel`
+(`PanelPresentation.swift`), and each tree reads the same object. Four
+things about doing that were not obvious:
+
+- **A dialog outlives the tree that presented it, dead.** With the trees'
+  state still separate, a save warning that was up when the device opened
+  flat stayed on screen; "Change Anyway" could be pressed and did nothing,
+  because its action belonged to a view that was gone. The UI test for this
+  asserts the *answer applies*, not that the dialog is visible: visibility
+  passed on the broken code.
+- **The tree going down writes.** Its alert's dismissal writes `false` to
+  the binding, which with shared state clears what the next tree was about
+  to show. So only the tree on screen may write (`PanelHost`).
+- **"On screen" has to be asked at the moment of the write.** The first
+  `PanelHost` carried two flags worked out when its tree was last drawn, and
+  a binding keeps the value it was made with: the departing column still
+  said it was current. The rename alert survived opening flat and was lost
+  on bending, on the simulator's hinge only; a compact window, which is
+  what a UI test has, did not show it. The host now holds the model and
+  asks it. `ShelfPanelTests` pins that with a binding made before the fold
+  and written after it.
+- **A presentation is put up again, and not at once.** A presentation begun
+  while another is still leaving the same presenter is refused, and SwiftUI
+  then believes it is up. Nothing tells a new tree that the old one's
+  dismissal has finished, so presentations are held down for 0.7 s after a
+  fold (`presentationsHeld`). That one *is* a duration, and the comment on
+  it says what it stands in for.
+
+A resting page is not an open panel, so opening flat removes it. If it has
+a question up, `foldChanged` makes it the open panel first.
+
+## The import banner and the band
+
+Half open at `accessibility-extra-extra-extra-large`, the longest notice the
+app makes (three loose files adopted, one failed) is five lines on the Duo
+and sits in the lower half with its top 15 pt below the band. It is placed
+from the window's bottom edge, so a longer notice would reach the band;
+nothing makes one today.
 
 ## A game page as wide as a half breaks its buttons' labels
 
@@ -106,7 +156,15 @@ A build that logged what the reader saw on CI's Duo showed nothing to
 explain it: closed, one hinge reading, three layout passes, the same as a
 fresh simulator here, where the app sits idle. So the fold APIs are
 correlated with the slow pipeline build on that runner, in five runs, and no
-mechanism was found. The reader is installed through UIKit now, which is
+mechanism was found.
+
+The review then found the reader is not needed for the failure at all: the
+Duo leg failed the same way on `fix-issue-440` at c6b14bb (job
+137105151084), a branch with no `LauncherFold`. I confirmed the job, the
+leg and the commit; its log had gone by then, so the matching signature is
+the reviewer's reading. The reviewer's counts: about 1 Duo run in 29
+without the reader, 1 in 5 with it installed through UIKit. That is too
+thin to clear the reader or to convict it. The reader is installed through UIKit now, which is
 the form that last failed least. If that test goes red on the Duo leg again
 on a branch that touches the launcher, this is the place to start, and the
 counts above are too small to rule the reader out.

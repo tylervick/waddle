@@ -9,8 +9,12 @@ struct AboutView: View {
         let url: URL
         var id: URL { url }
     }
-    @State private var exportedZip: ExportedZip?
-    @State private var exportError: String?
+    /// Where the share sheet and the failure alert are kept when Settings is
+    /// the shelf's panel (`PanelPresentation.swift`); nil keeps them here.
+    var presentation: SettingsPresentation?
+    @State private var ownPresentation = SettingsPresentation()
+    private var shown: SettingsPresentation { presentation ?? ownPresentation }
+    @Environment(\.panelHost) private var host
 
     var body: some View {
         List {
@@ -56,8 +60,14 @@ struct AboutView: View {
             }
             Section {
                 ForEach(licenseFiles, id: \.0) { name, file in
-                    NavigationLink(name) {
-                        LicenseTextView(title: name, filename: file)
+                    // A value, where the stack this is in keeps its path
+                    // (Settings); a destination anywhere else.
+                    if presentation != nil {
+                        NavigationLink(name, value: SettingsPresentation.Route.license(title: name, filename: file))
+                    } else {
+                        NavigationLink(name) {
+                            LicenseTextView(title: name, filename: file)
+                        }
                     }
                 }
             } header: {
@@ -67,16 +77,16 @@ struct AboutView: View {
         .waddleScrollSurface()
         .navigationTitle("About")
         .accessibilityIdentifier("aboutView")
-        .sheet(item: $exportedZip) { zip in
+        .sheet(item: Binding(get: { host.presents ? shown.exportedZip.map(ExportedZip.init) : nil },
+                             set: { if host.presents { shown.exportedZip = $0?.url } })) { zip in
             ShareSheet(items: [zip.url])
         }
-        .alert("Export failed", isPresented: .init(
-            get: { exportError != nil },
-            set: { if !$0 { exportError = nil } }
+        .alert("Export failed", isPresented: host.presented(
+            { shown.exportError != nil }, dismiss: { shown.exportError = nil }
         )) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(exportError ?? "")
+            Text(shown.exportError ?? "")
         }
     }
 
@@ -111,9 +121,9 @@ struct AboutView: View {
                 let url = try DiagnosticsExporter.export(
                     diagnosticsDirectory: DiagnosticsPaths.directory,
                     libraryLines: lines)
-                await MainActor.run { exportedZip = ExportedZip(url: url) }
+                await MainActor.run { shown.exportedZip = url }
             } catch {
-                await MainActor.run { exportError = error.localizedDescription }
+                await MainActor.run { shown.exportError = error.localizedDescription }
             }
         }
     }

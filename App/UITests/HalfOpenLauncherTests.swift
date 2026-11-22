@@ -107,12 +107,113 @@ extension PlayTabTests {
         XCTAssertLessThan(settingsBar.frame.minY, window.midY - 20,
                           "flat, Settings is a sheet from the top of the window: \(settingsBar.frame)")
 
+        // One screen in, so the move is seen to keep it: the sheet's Files
+        // must be the lower half's Files, not Settings again.
+        app.buttons["filesButton"].tap()
+        let files = app.descendants(matching: .any).matching(identifier: "filesScreen").firstMatch
+        XCTAssertTrue(files.waitForExistence(timeout: 10), "Files never opened in the sheet")
+
         notify_post("com.tylervick.waddle.test.half-open-toggle")
         let band = try foldBand(in: app)
-        XCTAssertTrue(waitUntil { settingsBar.exists && settingsBar.frame.minY >= band.maxY - 0.5 },
-                      "bent, Settings should have moved below the fold: \(settingsBar.frame), band \(band)")
+        XCTAssertTrue(waitUntil { files.exists && files.frame.minY >= band.maxY - 0.5 },
+                      "bent, Files should have moved below the fold, still pushed: "
+                      + "Files \(files.exists ? "\(files.frame)" : "is gone"), band \(band)")
         XCTAssertLessThanOrEqual(try shelfScrollView(in: app).frame.maxY, band.minY + 0.5)
         XCTAssertTrue(app.buttons["importButton"].isHittable, "the shelf is still covered")
+    }
+
+    /// A fold keeps the screen pushed inside the panel, in both directions:
+    /// Settings > Files in the lower half is Files in the panel when the
+    /// device is opened flat, and Files again below the fold when it is
+    /// bent. The two arrangements are two view trees, and the path used to
+    /// be each tree's own (review of pull request 461).
+    @MainActor
+    func testAFoldKeepsTheScreenPushedInsideThePanel() throws {
+        let app = launchLauncher(halfOpen: "1")
+        let band = try foldBand(in: app)
+        app.buttons["touchSchemeMenu"].tap()
+        XCTAssertTrue(app.buttons["filesButton"].waitForExistence(timeout: 10), "Settings never opened")
+        app.buttons["filesButton"].tap()
+        let files = app.descendants(matching: .any).matching(identifier: "filesScreen").firstMatch
+        XCTAssertTrue(files.waitForExistence(timeout: 10), "Files never opened")
+        assertBelow(band, files, "Files", in: app)
+
+        notify_post("com.tylervick.waddle.test.half-open-toggle")
+        XCTAssertTrue(waitUntil { !app.otherElements["launcherLowerHalf"].exists },
+                      "the launcher stayed in two halves after opening flat")
+        XCTAssertTrue(waitUntil { files.exists && files.frame.minY < band.minY },
+                      "flat, the panel should still be on Files: "
+                      + (files.exists ? "\(files.frame)" : "Files is gone"))
+        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "touchSchemePicker").firstMatch.exists,
+                       "flat, the panel went back to Settings' first screen")
+
+        notify_post("com.tylervick.waddle.test.half-open-toggle")
+        let again = try foldBand(in: app)
+        XCTAssertTrue(waitUntil { files.exists && files.frame.minY >= again.maxY - 0.5 },
+                      "bent again, the lower half should still be on Files: "
+                      + (files.exists ? "\(files.frame)" : "Files is gone"))
+
+        // And back out the way a player goes: Files' back button is Settings.
+        app.buttons.matching(identifier: "BackButton").firstMatch.tap()
+        XCTAssertTrue(app.buttons["filesButton"].waitForExistence(timeout: 5), "back from Files did not reach Settings")
+    }
+
+    /// A save warning that is up when the device is opened flat, or bent, is
+    /// still up afterwards, and its answer still applies. It is a dialog,
+    /// which goes down with the tree that presented it, so the next tree
+    /// puts it up again; before the fix the edit it guarded was dropped
+    /// without a word (review of pull request 461).
+    ///
+    /// A game with a base to change and a save needs two launches: one to
+    /// duplicate Freedoom Phase 1, one to give the copy a save
+    /// (`WADDLE_TEST_SEED_SAVE_FOR`).
+    @MainActor
+    func testAFoldKeepsTheSaveWarningUpAndItsAnswerStillApplies() throws {
+        let copyName = "Freedoom Phase 1 copy"
+        let first = XCUIApplication()
+        first.launchEnvironment["WADDLE_RESET_STORE"] = "1"
+        first.launch()
+        openGamePage(first, tile: "playFreedoom1")
+        scrollTo(first.buttons["duplicateButton"], in: first)
+        first.buttons["duplicateButton"].tap()
+        XCTAssertTrue(first.buttons["game-\(copyName)"].waitForExistence(timeout: 5), "the copy never appeared")
+        first.terminate()
+
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_TEST_SEED_SAVE_FOR"] = copyName
+        app.launchEnvironment["WADDLE_TEST_HALF_OPEN"] = "1"
+        app.launch()
+        XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 30), "the shelf never appeared")
+        _ = try foldBand(in: app)
+        let tile = app.buttons["game-\(copyName)"]
+        XCTAssertTrue(tile.waitForExistence(timeout: 10), "the copy's tile is missing")
+        tile.press(forDuration: 1.0)
+        app.buttons["Details"].tap()
+        XCTAssertTrue(app.navigationBars[copyName].waitForExistence(timeout: 10), "the copy's page never opened")
+
+        // Change its base: with a save, that asks first.
+        let picker = app.buttons["basePicker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 5), "no base picker on the copy's page")
+        picker.tap()
+        app.buttons["Freedoom Phase 2"].firstMatch.tap()
+        let changeAnyway = app.buttons.matching(identifier: "changeAnywayAction").firstMatch
+        XCTAssertTrue(changeAnyway.waitForExistence(timeout: 8), "the save warning never came up")
+
+        // Open flat: the warning is up again, over the panel.
+        notify_post("com.tylervick.waddle.test.half-open-toggle")
+        XCTAssertTrue(waitUntil { !app.otherElements["launcherLowerHalf"].exists },
+                      "the launcher stayed in two halves after opening flat")
+        XCTAssertTrue(waitUntil(timeout: 12) { changeAnyway.exists && changeAnyway.isHittable },
+                      "opened flat, the save warning was dropped")
+
+        // Bend: up again, and this time it is answered.
+        notify_post("com.tylervick.waddle.test.half-open-toggle")
+        _ = try foldBand(in: app)
+        XCTAssertTrue(waitUntil(timeout: 12) { changeAnyway.exists && changeAnyway.isHittable },
+                      "bent again, the save warning was dropped")
+        changeAnyway.tap()
+        XCTAssertTrue(waitUntil { picker.exists && picker.label.contains("Freedoom Phase 2") },
+                      "the answer to the warning did not change the base: \(picker.exists ? picker.label : "no picker")")
     }
 
     // MARK: helpers

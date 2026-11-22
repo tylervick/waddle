@@ -11,7 +11,12 @@ struct ControlFeelView: View {
     private var stickDeadZone: Double = TouchTuning.default.stickDeadZone
     @AppStorage(TouchTuning.moveSensitivityKey)
     private var moveSensitivity: Double = TouchTuning.default.moveSensitivity
-    @State private var showLayoutEditor = false
+    /// Where the layout editor's presentation is kept when Settings is the
+    /// shelf's panel (`PanelPresentation.swift`); nil keeps it here.
+    var presentation: SettingsPresentation?
+    @State private var ownPresentation = SettingsPresentation()
+    private var shown: SettingsPresentation { presentation ?? ownPresentation }
+    @Environment(\.panelHost) private var host
     /// Pushed into the stack it is opened from, and not a sheet with a stack
     /// and a Done of its own: Settings in the lower half of a half-open
     /// iPhone Duo (issue #429), where a sheet would lie across the fold.
@@ -60,7 +65,7 @@ struct ControlFeelView: View {
                 // session's exact bounds for its geometry to be the
                 // overlay's (TouchLayoutEditorView).
                 Button {
-                    showLayoutEditor = true
+                    shown.showLayoutEditor = true
                 } label: {
                     Label("Edit Layout…", systemImage: "hand.draw")
                 }
@@ -84,7 +89,8 @@ struct ControlFeelView: View {
         .waddleScrollSurface()
         .navigationTitle("Control Feel")
         .navigationBarTitleDisplayMode(.inline)
-        .fullScreenCover(isPresented: $showLayoutEditor) {
+        .fullScreenCover(isPresented: host.presented({ shown.showLayoutEditor },
+                                                     dismiss: { shown.showLayoutEditor = false })) {
             TouchLayoutEditorView()
         }
     }

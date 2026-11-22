@@ -539,6 +539,16 @@ final class LibraryService {
         try Data().write(to: dir.appendingPathComponent(EngineSaveSlot.autoSaveFilename))
     }
 
+    /// Test-only seam (issue #429): gives the game of this name one save, an
+    /// empty autosave, which is all the game page counts. No-op when there
+    /// is no such game.
+    func seedSaveForTest(gameNamed name: String) throws {
+        guard let game = try games().first(where: { $0.name == name }) else { return }
+        let dir = Self.savesDirectory(forGameID: game.id)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data().write(to: dir.appendingPathComponent(EngineSaveSlot.autoSaveFilename))
+    }
+
     /// Test-only seam (issue #339): installs `bytes` as Freedoom Phase 1's
     /// suspend save and marks that game played, so the shelf offers Continue
     /// on it and tapping the hero launches `-loadgame 254` against exactly
