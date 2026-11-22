@@ -322,6 +322,96 @@ EOF
 run shellbash || fail "shell: bash was refused: $(cat "$TMP/err")"
 pass "a line or step that masks the suite's status is refused; shell: bash counts"
 
+# 12b. `set +e` hidden among other flags (review of PR #473, round 2): the
+#      first cut matched only `set +e` and `set +o errexit` with the flag
+#      first, so `set +x +e` and `set +xe` passed.
+i=0
+for line in 'set +x +e' 'set +xe' 'set -x +o errexit'; do
+  i=$((i + 1))
+  workflow "setflags$i" helpers <<EOF
+  helpers:
+    steps:
+      - run: |
+          Scripts/test-alpha.sh
+          Scripts/test-gamma.sh
+      - run: |
+          $line
+          Scripts/test-beta.sh
+EOF
+  refused_beta "setflags$i" "a suite after '$line'"
+done
+workflow setminus helpers <<'EOF'
+  helpers:
+    steps:
+      - run: |
+          set -x -e
+          Scripts/test-alpha.sh
+          Scripts/test-beta.sh
+          Scripts/test-gamma.sh
+EOF
+run setminus || fail "set -x -e was refused: $(cat "$TMP/err")"
+pass "set +e among other flags is refused; set -x -e counts"
+
+# 12c. The custom-shell rule one and two levels up (same review): a shell
+#      from `defaults: run: shell:` applies to every step under it without a
+#      `shell:` of its own, so `bash {0}` -- no -e -- there masks a failing
+#      line just as it does on a step. Job level masks that job's suites;
+#      workflow level, before or after `jobs:`, masks every suite.
+workflow jobdefaults helpers <<'EOF'
+  helpers:
+    defaults:
+      run:
+        shell: bash {0}
+    steps:
+      - run: |
+          Scripts/test-beta.sh
+  other:
+    steps:
+      - run: |
+          Scripts/test-alpha.sh
+          Scripts/test-gamma.sh
+EOF
+sed -i '' 's/needs: \[helpers\]/needs: [helpers, other]/' "$TMP/jobdefaults.yml"
+refused_beta jobdefaults "a suite in a job whose defaults shell is bash {0}"
+for where in before after; do
+  workflow "wfdefaults-$where" helpers <<'EOF'
+  helpers:
+    steps:
+      - run: |
+          Scripts/test-alpha.sh
+          Scripts/test-beta.sh
+          Scripts/test-gamma.sh
+EOF
+  defaults='defaults:
+  run:
+    shell: bash {0}'
+  if [ "$where" = before ]; then
+    { printf '%s\n' "$defaults"; cat "$TMP/wfdefaults-$where.yml"; } > "$TMP/wf.tmp"
+  else
+    { cat "$TMP/wfdefaults-$where.yml"; printf '%s\n' "$defaults"; } > "$TMP/wf.tmp"
+  fi
+  mv "$TMP/wf.tmp" "$TMP/wfdefaults-$where.yml"
+  if run "wfdefaults-$where"; then fail "a workflow-level bash {0} default ($where jobs:) was accepted"; fi
+  for s in alpha beta gamma; do
+    grep -q "Scripts/test-$s.sh is " "$TMP/err" \
+      || fail "workflow-level default ($where jobs:): test-$s.sh not named: $(cat "$TMP/err")"
+  done
+done
+workflow defaultsbash helpers <<'EOF'
+  helpers:
+    defaults:
+      run:
+        shell: bash
+        working-directory: .
+    steps:
+      - run: |
+          Scripts/test-alpha.sh
+          Scripts/test-beta.sh
+          Scripts/test-gamma.sh
+EOF
+run defaultsbash || fail "a job defaults shell of bash was refused: $(cat "$TMP/err")"
+pass "a defaults shell without -e is refused at job and workflow level; bash counts"
+
 # 13. Fail closed, exit 2, on input the check cannot read: a missing workflow,
 #     a directory with no suites (a wrong path must not read as "all
 #     registered"), a workflow with no release gate, and a gate that waits for

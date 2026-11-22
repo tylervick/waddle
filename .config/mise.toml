@@ -9,9 +9,10 @@
 #     rebuilds the engine from source for a tool the engine never runs.
 #
 # The rule that follows: nothing goes here that a build, archive or engine
-# script calls. cmake, ninja and xcodegen stay in mise.toml. Every [tools]
-# entry here is still checked by Scripts/check-mise-tools-registry.sh and
-# tracked by Renovate's mise manager.
+# script calls. cmake, ninja and xcodegen stay in mise.toml.
+# Scripts/check-mise-tools-registry.sh enforces it with an allowlist (uv
+# only), as well as checking every entry is registry-backed; Renovate's mise
+# manager tracks them.
 [tools]
 # Runs Scripts/build-mark.py, and the Pillow checks in test-build-mark.sh and
 # test-glyph-source.sh, which CI's helper job now runs (issue #454).

@@ -25,8 +25,10 @@
 #     the release does not wait for (changed-paths, revyl-main) is off or
 #     push-only, and does not count;
 #   - in a step with no `if:`, no `continue-on-error` other than false, no
-#     `shell:` other than bash or sh (a custom one can drop `-e`), and no
-#     `set +e` in its script;
+#     `shell:` other than bash or sh (a custom one can drop `-e`) -- its own,
+#     or one set by `defaults: run: shell:` on its job or the workflow -- and
+#     no `set` that turns errexit off (`set +e`, `set +x +e`, `set +xe`,
+#     `set +o errexit`) in its script;
 #   - starting its line, with nothing piped, chained with `||`, or backgrounded
 #     after it: `Scripts/test-x.sh || true`, `... | tee` (no pipefail under the
 #     default shell) and `echo Scripts/test-x.sh` all run nothing that can fail.
@@ -75,11 +77,23 @@ run_lines() {
       sub(/^[^:]*:[ \t]*/, "", s); sub(/[ \t]+#.*$/, "", s)
       gsub(/["\047]/, "", s); return s
     }
+    # Does a `set` line turn errexit off? `+e` may share its token with other
+    # flags (`+xe`) or follow them (`set +x +e`), and `+o errexit` may follow
+    # `-x`; the flag being first is not the rule.
+    function plus_e(s,   n, t, i) {
+      sub(/[;&|].*$/, "", s)
+      n = split(s, t, /[ \t]+/)
+      for (i = 2; i <= n; i++) {
+        if (t[i] ~ /^\+[A-Za-z]*e[A-Za-z]*$/) return 1
+        if (t[i] == "+o" && t[i + 1] == "errexit") return 1
+      }
+      return 0
+    }
     function emit(s) {
       sub(/^[ \t]+/, "", s)
       if (s == "" || s ~ /^#/) return
       sub(/[ \t]+#.*$/, "", s)
-      if (s ~ /^set[ \t]+(\+e|\+o[ \t]+errexit)/) stepbad = 1
+      if (s ~ /^set[ \t]/ && plus_e(s)) stepbad = 1
       stepbuf = stepbuf job "\t" s "\n"
     }
     function endstep() {
@@ -92,11 +106,19 @@ run_lines() {
     }
     # A job-level if: or continue-on-error may come after its steps, so the
     # verdict on each line is settled only when the job ends.
+    # A workflow-level `defaults:` may come after `jobs:`, so nothing is
+    # printed until END.
     function endjob() {
       endstep()
-      for (i = 1; i <= nl; i++)
-        printf "%s\t%s\n", ((lbad[i] || jobbad) ? "uncounted" : "counted"), ltext[i]
-      job = ""; jobbad = 0; nl = 0; insteps = 0
+      for (i = 1; i <= nl; i++) { no++; obad[no] = (lbad[i] || jobbad); otext[no] = ltext[i] }
+      job = ""; jobbad = 0; nl = 0; insteps = 0; injdefaults = 0
+    }
+    # `defaults: run: shell:` sets the shell of every step under it that has
+    # no `shell:` of its own. Anything but bash or sh can drop -e (`bash {0}`).
+    function bad_shell(line) {
+      if (line !~ /^[ ]+shell:/) return 0
+      v = value(line)
+      return (v != "bash" && v != "sh")
     }
     {
       if (inblock) {
@@ -106,8 +128,8 @@ run_lines() {
       }
       if ($0 ~ /^[ \t]*$/ || $0 ~ /^[ \t]*#/) next
       if ($0 ~ /^jobs:[ \t]*(#.*)?$/) { injobs = 1; next }
-      if ($0 ~ /^[^ ]/) { endjob(); injobs = 0; next }
-      if (!injobs) next
+      if ($0 ~ /^[^ ]/) { endjob(); injobs = 0; intopdefaults = ($0 ~ /^defaults:/); next }
+      if (!injobs) { if (intopdefaults && bad_shell($0)) wfbad = 1; next }
       line = $0
       if (line ~ /^  [^ ]/) {
         endjob()
@@ -119,10 +141,12 @@ run_lines() {
         endstep()
         key = line; sub(/^    /, "", key); sub(/:.*$/, "", key)
         insteps = (key == "steps")
+        injdefaults = (key == "defaults")
         if (key == "if") jobbad = 1
         if (key == "continue-on-error" && value(line) != "false") jobbad = 1
         next
       }
+      if (injdefaults && bad_shell(line)) jobbad = 1
       if (!insteps) next
       if (line ~ /^      - /) {
         endstep(); instep = 1
@@ -141,7 +165,11 @@ run_lines() {
         }
       }
     }
-    END { endjob() }
+    END {
+      endjob()
+      for (i = 1; i <= no; i++)
+        printf "%s\t%s\n", ((obad[i] || wfbad) ? "uncounted" : "counted"), otext[i]
+    }
   ' "$1"
 }
 
