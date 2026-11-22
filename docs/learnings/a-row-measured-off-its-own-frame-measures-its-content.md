@@ -66,6 +66,17 @@ sweep here did not, and died after about 2,500 in
 `AG::data::table::grow_region`, which read for a moment like the hang being
 looked for.
 
+A hosted page's measurements also change for a reason that is not the
+page's: the test window's own bars settle a pass after the form is first
+measured. On CI's iPad the viewport read 113 and then 165, and on its
+iPhone Duo the form read 434 and then 346 (88 pt of safe area at the
+sides). The first version of the test required each measurement to be taken
+once, passed on an iPhone 18 Pro and failed on both of those. What tells a
+loop from settling is that a loop comes back: the test requires that no set
+of measurements is seen twice, and that one width of form has one width of
+row. `ShelfContainerWidthTests` met the same 88 pt: a scroll view's content
+is its width less its safe area, not its width.
+
 ## The fix
 
 `onOfferedWidthChange` (`App/Sources/UI/ContainerWidth.swift`) puts the row

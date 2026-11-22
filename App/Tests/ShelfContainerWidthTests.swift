@@ -40,10 +40,18 @@ final class ShelfContainerWidthTests: XCTestCase {
         return found
     }
 
-    /// The frame, in the window, and the content size of each scroll view
-    /// the hosted shelf made.
-    private func shelfScrollViews(continueHero: Bool, width: CGFloat) throws
-        -> [(frame: CGRect, contentSize: CGSize)] {
+    private struct Scroll {
+        /// In the window's coordinates.
+        var frame: CGRect
+        var contentSize: CGSize
+        /// The scroll view's safe area at the sides, which the content's
+        /// container does not include: 88 pt on an iPhone Duo, where the
+        /// content of a 120 pt scroll view is 32 pt wide.
+        var sideInsets: CGFloat
+    }
+
+    /// Each scroll view the hosted shelf made.
+    private func shelfScrollViews(continueHero: Bool, width: CGFloat) throws -> [Scroll] {
         let fixture = continueHero ? ShelfPreviewFixture.continueHero() : ShelfPreviewFixture.factory()
         if continueHero, let played = try fixture.library.recentlyPlayed(limit: 1).first {
             seededGameIDs.append(played.id)
@@ -61,7 +69,8 @@ final class ShelfContainerWidthTests: XCTestCase {
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         }
         let found = scrollViews(in: window).map {
-            (frame: $0.convert($0.bounds, to: window), contentSize: $0.contentSize)
+            Scroll(frame: $0.convert($0.bounds, to: window), contentSize: $0.contentSize,
+                   sideInsets: $0.safeAreaInsets.left + $0.safeAreaInsets.right)
         }
         window.isHidden = true
         window.rootViewController = nil
@@ -69,21 +78,27 @@ final class ShelfContainerWidthTests: XCTestCase {
     }
 
     private func assertHeldToTheWindow(continueHero: Bool, file: StaticString = #filePath, line: UInt = #line) throws {
+        var checked = 0
         for width in Self.widths {
             let scrolls = try shelfScrollViews(continueHero: continueHero, width: width)
             XCTAssertEqual(scrolls.count, 1, "the shelf is one scroll view; found \(scrolls) at \(width) pt",
                            file: file, line: line)
-            for scroll in scrolls {
+            // A window with no room between its insets has no width to hold
+            // anything to: 60 pt on a Duo, whose insets are 88.
+            for scroll in scrolls where scroll.sideInsets < width {
+                checked += 1
                 XCTAssertEqual(scroll.frame.minX, 0, accuracy: 0.0001,
-                               "at \(width) pt the shelf's scroll view is \(scroll.frame)", file: file, line: line)
+                               "at \(width) pt the shelf's scroll view is \(scroll)", file: file, line: line)
                 XCTAssertEqual(scroll.frame.width, width, accuracy: 0.0001,
-                               "at \(width) pt the shelf's scroll view followed its content: \(scroll.frame)",
+                               "at \(width) pt the shelf's scroll view followed its content: \(scroll)",
                                file: file, line: line)
-                XCTAssertEqual(scroll.contentSize.width, width, accuracy: 0.0001,
-                               "at \(width) pt the shelf's content reports its own width: \(scroll.contentSize)",
+                XCTAssertEqual(scroll.contentSize.width, width - scroll.sideInsets, accuracy: 0.0001,
+                               "at \(width) pt the shelf's content reports its own width: \(scroll)",
                                file: file, line: line)
             }
         }
+        XCTAssertGreaterThan(checked, 0, "no window had room between its insets, so nothing was tested",
+                             file: file, line: line)
     }
 
     /// A returning player's shelf: the Continue hero over the grid, which is
@@ -92,7 +107,9 @@ final class ShelfContainerWidthTests: XCTestCase {
         try assertHeldToTheWindow(continueHero: true)
     }
 
-    /// A first launch: the welcome card over the grid.
+    /// A first launch: the welcome card over the grid. On an iPhone 18 Pro
+    /// this content only overflows the 60 pt window, so it is the case
+    /// above that fails at every width when the modifier goes.
     func testTheFirstLaunchShelfIsAsWideAsItsWindow() throws {
         try assertHeldToTheWindow(continueHero: false)
     }

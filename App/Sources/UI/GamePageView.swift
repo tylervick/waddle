@@ -8,7 +8,7 @@ import UIKit
 /// and nothing outside the page can see its state. `GamePageMeasurementTests`
 /// reads these through `gamePageMeasurementsReport` to check that none of
 /// them moves once it is taken.
-struct GamePageMeasurements: Equatable {
+struct GamePageMeasurements: Hashable {
     /// The form's width less its row insets; zero until measured.
     var artContentWidth: CGFloat
     /// The form's height; zero until measured.
