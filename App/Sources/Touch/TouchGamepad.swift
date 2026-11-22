@@ -183,6 +183,11 @@ extension TouchGamepad: TextInjecting {
         WoofIOS_InjectMenuAnswer(yes)
     }
 
+    /// True while a row of the engine's Key Bindings screen is waiting for
+    /// the input to bind. Nothing of the overlay's may reach the engine
+    /// then except ≡ (issue #462).
+    var isBindingPending: Bool { WoofIOS_IsBindingPending() }
+
     /// True while the engine shows a Y/N prompt or a delete confirmation.
     var isMenuMessageShowing: Bool { WoofIOS_IsMenuMessageShowing() }
 

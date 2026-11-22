@@ -902,12 +902,16 @@ void WoofIOS_InjectMenuPointer(float x_points, float y_points)
 bool WoofIOS_InjectMenuTap(bool down)
 {
     extern boolean MN_MenuMessageShowing(void);
+    extern boolean MN_BindingPending(void);
     if (down)
     {
         // A press on a Y/N prompt or a delete confirmation is "yes"
         // (docs/learnings/menu-click-answers-prompt-yes.md); the overlay's
         // Yes/No buttons are the only way to answer those.
-        if (!menuactive || MN_MenuMessageShowing())
+        // Nor on a key-binding row that is waiting for its input: the press
+        // would be bound to it as the left mouse button, and taken from Fire
+        // (issue 462).
+        if (!menuactive || MN_MenuMessageShowing() || MN_BindingPending())
         {
             touch_menu_tap_dropped++;
             return false;
@@ -977,6 +981,12 @@ void WoofIOS_InjectMenuAnswer(bool yes)
     up.data1.i = key;
     D_PostEvent(&up);
     touch_event_count++;
+}
+
+bool WoofIOS_IsBindingPending(void)
+{
+    extern boolean MN_BindingPending(void);
+    return menuactive && MN_BindingPending();
 }
 
 bool WoofIOS_IsMenuMessageShowing(void)

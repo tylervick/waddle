@@ -323,6 +323,15 @@ bool WoofIOS_IsDrawnMenuItemAtPoint(float x_points, float y_points);
 // keydown/keyup of 'y' or 'n'. Dropped unless one is showing.
 void WoofIOS_InjectMenuAnswer(bool yes);
 
+// True while a row of a Key Bindings screen is waiting for the input to
+// bind. The engine binds whatever arrives next, and the overlay arrives as
+// a mouse button (a touch) and as pad buttons (FIRE, USE, the weapon
+// buttons, the stick), so while this is true the overlay sends none of
+// them; WoofIOS_InjectMenuTap drops a press on its own account. The menu
+// button still cancels. A real keyboard, controller or mouse is not the
+// overlay's and binds as it always did.
+bool WoofIOS_IsBindingPending(void);
+
 // True while a Y/N prompt ("Quit?", "Load game?", ...) or the Load/Save
 // delete confirmation is up, so the overlay can show its Yes/No buttons.
 bool WoofIOS_IsMenuMessageShowing(void);

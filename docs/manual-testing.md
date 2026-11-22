@@ -131,6 +131,12 @@ overlay to remain visible even when input devices are connected.
       open Save Game and touch the right-hand end of the two lowest slots,
       on USE and on FIRE: the keyboard comes up for that slot each time and
       the list stays up. ≡ still leaves the entry and then the menu
+- [ ] Key bindings cannot be changed by the on-screen controls (issue
+      #462): Options > Key Bindings, touch the Run row so it blinks, then
+      touch the screen, USE, FIRE and ◀ ▶ in turn: no row's text changes.
+      ≡ ends the wait. Back in the level FIRE still fires and USE still
+      opens doors. With a hardware keyboard attached (overlay hidden), a row
+      still takes the next key pressed
 - [ ] Reset to defaults asks properly (issue #447): on Options > Enemies
       change a setting, touch the reset button in the bottom corner, then
       touch anywhere on the screen: nothing changes and Yes and No are
