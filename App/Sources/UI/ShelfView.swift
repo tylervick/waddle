@@ -95,7 +95,14 @@ struct ShelfView: View {
     }
 
     var body: some View {
-        ScrollView {
+        // The content is laid out at, and reports, the width the scroll view
+        // is offered and nothing else. The scroll view is measured below to
+        // size the hero, and a scroll view follows content that reports
+        // wider than offered: without this the measurement fed itself and a
+        // launch could spin for ever (issue #437). Not the scroll view's own
+        // width either: that follows the content too, and a column opening
+        // beside the shelf left it wider than its column and cut (issue #469).
+        OfferedWidthScrollView {
             VStack(alignment: .leading,
                    spacing: ShelfHeroLayout.sectionSpacing(compactHeight: compactHeight)) {
                 switch shownZone {
@@ -116,15 +123,10 @@ struct ShelfView: View {
                 }
             }
             .padding(contentPadding)
-            // The content reports the scroll view's width and nothing else.
-            // The scroll view is measured below to size the hero, and a
-            // scroll view follows content that reports wider than offered:
-            // without this the measurement fed itself and a launch could
-            // spin for ever (issue #437).
-            .reportingContainerWidth()
         }
-        // Measured on the ScrollView, so this is the viewport: what is visible
-        // between the toolbar and the home indicator, less the padding above.
+        // Measured round the ScrollView, at what it is offered, so this is the
+        // viewport: what is visible between the toolbar and the home
+        // indicator, less the padding above.
         // Rotation and window resizing both re-fire it.
         //
         // `proxy.size` is already that region -- 724 pt on an iPhone 17 Pro --

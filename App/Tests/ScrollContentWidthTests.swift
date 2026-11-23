@@ -10,13 +10,13 @@ import XCTest
 /// offered, so content a sixth of a point over (a wrapping `Text`) changed
 /// the measurement, which changed the content, and on an open iPhone Duo
 /// turned tall at the largest text size the first frame never came.
-/// `reportingContainerWidth()`, which `ShelfView` puts on its content, holds
-/// the content's reported width to the scroll view's.
+/// `OfferedWidthScrollView`, which `ShelfView` is built on, holds the
+/// content's reported width to the width the scroll view is offered.
 ///
 /// This is the loop itself in miniature, not the shelf: a scroll view,
 /// measured the way the shelf measures its own, around content that always
 /// reports a sixth of a point wider than the last measurement. It cannot say
-/// that `ShelfView` still applies the modifier: `ShelfContainerWidthTests`
+/// that `ShelfView` is still built on it: `ShelfContainerWidthTests`
 /// hosts the real shelf for that. Nor can it say that no other path feeds
 /// the measurement; the launch scan in the learning is the check of the real
 /// screen, and needs a Duo opened in Device Hub.
@@ -48,18 +48,20 @@ final class ScrollContentWidthTests: XCTestCase {
         @State private var measured: CGFloat = 0
 
         var body: some View {
-            ScrollView {
-                if guarded {
-                    content.reportingContainerWidth()
-                } else {
-                    content
-                }
-            }
+            scroll
             .onGeometryChange(for: CGFloat.self) { proxy in
                 proxy.size.width
             } action: { width in
                 record.widths.append(width)
                 if record.widths.count < ScrollContentWidthTests.steps { measured = width }
+            }
+        }
+
+        @ViewBuilder private var scroll: some View {
+            if guarded {
+                OfferedWidthScrollView { content }
+            } else {
+                ScrollView { content }
             }
         }
 
@@ -104,6 +106,75 @@ final class ScrollContentWidthTests: XCTestCase {
             XCTAssertEqual(width, Self.window.width, accuracy: 0.0001, "measured \(widths)")
         }
         XCTAssertEqual(widths.count, 1, "the measurement changed after it was first taken: \(widths)")
+    }
+
+    // MARK: An offer that shrinks (issue #469)
+
+    /// The open iPhone Duo held wide, and the column the shelf had beside
+    /// the Settings panel there.
+    private static let wide: CGFloat = 951
+    private static let column: CGFloat = 491
+
+    /// Content that fills what it is offered: a wrapping line over a block.
+    private struct Filling: View {
+        var body: some View {
+            VStack(alignment: .leading) {
+                Text("Bring your own WADs, or start with the Freedoom games below.")
+                Color.clear.frame(height: 100)
+            }
+            .padding(16)
+        }
+    }
+
+    /// The scroll view's frame in the window, after the window is laid out
+    /// at `wide` and then narrowed to `column`, as the panel's column
+    /// narrowed the shelf's.
+    private func scrollFrameAfterShrinking<V: View>(_ view: V) -> CGRect? {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: Self.wide, height: Self.window.width))
+        window.rootViewController = UIHostingController(rootView: view.ignoresSafeArea())
+        window.isHidden = false
+        func settle() {
+            for _ in 0..<20 {
+                window.layoutIfNeeded()
+                RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            }
+        }
+        settle()
+        window.frame = CGRect(x: 0, y: 0, width: Self.column, height: Self.window.width)
+        settle()
+        let frame = scrollViews(in: window).first.map { $0.convert($0.bounds, to: window) }
+        window.isHidden = true
+        window.rootViewController = nil
+        return frame
+    }
+
+    private func scrollViews(in view: UIView) -> [UIScrollView] {
+        var found: [UIScrollView] = []
+        if let scroll = view as? UIScrollView { found.append(scroll) }
+        for sub in view.subviews { found += scrollViews(in: sub) }
+        return found
+    }
+
+    /// The discrimination: content held to its container, which is how the
+    /// shelf was guarded until issue #469, keeps the scroll view at its old
+    /// width when the offer shrinks, centred on the new one and cut at both
+    /// sides. The container is the scroll view, and the scroll view is as
+    /// wide as that content. If this ever stops being true the test below
+    /// is no longer testing anything.
+    func testContentHeldToItsContainerKeepsAScrollViewWideWhenItsOfferShrinks() throws {
+        let frame = try XCTUnwrap(scrollFrameAfterShrinking(ScrollView {
+            Filling().containerRelativeFrame(.horizontal, alignment: .leading)
+        }))
+        XCTAssertGreaterThan(frame.width, Self.column + 1,
+                             "a scroll view held to its container now follows a shrinking offer: \(frame)")
+    }
+
+    /// Built on the offer, the scroll view is the new width, at the
+    /// window's leading edge.
+    func testAnOfferedWidthScrollViewFollowsAShrinkingOffer() throws {
+        let frame = try XCTUnwrap(scrollFrameAfterShrinking(OfferedWidthScrollView { Filling() }))
+        XCTAssertEqual(frame.minX, 0, accuracy: 0.0001, "the scroll view is at \(frame)")
+        XCTAssertEqual(frame.width, Self.column, accuracy: 0.0001, "the scroll view is at \(frame)")
     }
 
     // MARK: A form, and a row in it (issue #450)
