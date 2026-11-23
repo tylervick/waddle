@@ -4,9 +4,12 @@ import Foundation
 /// device and bundled into the diagnostics export the user chooses to share.
 ///
 /// Counts only, on purpose: no timestamp finer than a day, no identifiers,
-/// no paths, no file contents. Game names are the one string kept, and the
-/// export's library lines already carry them. The fields below are the whole
-/// vocabulary of `usage.json`; `DiagnosticsExporterTests` and
+/// no paths, no file contents, and **no names**. A game's name is either an
+/// imported file's title or text the user typed, and a name kept here would
+/// outlive the game's deletion or renaming until Reset (review of pull
+/// request 491). So sessions are bucketed: the two bundled Freedoom games by
+/// their fixed names, everything else as "imported". The fields below are
+/// the whole vocabulary of `usage.json`; `DiagnosticsExporterTests` and
 /// `UsageSummaryTests` spell the allowed keys out and fail on any other, so
 /// adding one is a deliberate act.
 ///
@@ -50,6 +53,7 @@ struct UsageSummary: Codable, Equatable {
 
     struct GameCounts: Codable, Equatable {
         var sessions = 0
+        /// Foreground play time only; see `UsageSession`.
         var minutes: Double = 0
 
         init() {}
@@ -58,6 +62,47 @@ struct UsageSummary: Codable, Equatable {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             sessions = (try? c.decodeIfPresent(Int.self, forKey: .sessions)) ?? 0
             minutes = (try? c.decodeIfPresent(Double.self, forKey: .minutes)) ?? 0
+        }
+    }
+
+    /// Fixed keys, never a name. A file written before the buckets existed
+    /// (keyed by game name) decodes to zeros here, so the first write after
+    /// an update drops every name it held.
+    struct GameBuckets: Codable, Equatable {
+        var freedoomPhase1 = GameCounts()
+        var freedoomPhase2 = GameCounts()
+        var imported = GameCounts()
+
+        enum CodingKeys: String, CodingKey {
+            case freedoomPhase1 = "freedoom_phase_1"
+            case freedoomPhase2 = "freedoom_phase_2"
+            case imported
+        }
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            freedoomPhase1 = (try? c.decodeIfPresent(GameCounts.self, forKey: .freedoomPhase1)) ?? GameCounts()
+            freedoomPhase2 = (try? c.decodeIfPresent(GameCounts.self, forKey: .freedoomPhase2)) ?? GameCounts()
+            imported = (try? c.decodeIfPresent(GameCounts.self, forKey: .imported)) ?? GameCounts()
+        }
+
+        subscript(bucket: UsageGameBucket) -> GameCounts {
+            get {
+                switch bucket {
+                case .freedoomPhase1: return freedoomPhase1
+                case .freedoomPhase2: return freedoomPhase2
+                case .imported: return imported
+                }
+            }
+            set {
+                switch bucket {
+                case .freedoomPhase1: freedoomPhase1 = newValue
+                case .freedoomPhase2: freedoomPhase2 = newValue
+                case .imported: imported = newValue
+                }
+            }
         }
     }
 
@@ -72,17 +117,25 @@ struct UsageSummary: Codable, Equatable {
     var sessionsClean = 0
     /// Any non-zero exit, including a launch that could not build its argv.
     var sessionsFailed = 0
+    /// Sessions that were in the background when the process ended (iOS
+    /// reclaimed it, or the user swiped it away), told apart from a crash:
+    /// started minus the three outcomes is what is left for crashes.
+    var sessionsEndedInBackground = 0
+    /// Foreground time only: a session left in the background overnight
+    /// adds nothing while it sits there.
     var playMinutesTotal: Double = 0
     var sessionsByControlScheme = ControlSchemeCounts()
     var sessionsByOrientation = OrientationCounts()
-    /// Keyed by game name; a bundled game (Freedoom) under its own name.
-    var sessionsByGame: [String: GameCounts] = [:]
+    var sessionsByGame = GameBuckets()
     var wadsImported = 0
     var gamesCreated = 0
+    /// Share sheets the user completed with a diagnostics file. Counted when
+    /// the sheet reports completion, so a cancelled share is not counted, and
+    /// a file never counts its own share.
     var diagnosticsExports = 0
 
-    /// Spelled out rather than left to a key strategy: `.convertToSnakeCase`
-    /// would also rewrite the game names that key `sessions_by_game`.
+    /// Spelled out rather than left to a key strategy, so the file's
+    /// vocabulary is visible in one place.
     enum CodingKeys: String, CodingKey {
         case firstSeenDay = "first_seen_day"
         case lastSeenDay = "last_seen_day"
@@ -91,6 +144,7 @@ struct UsageSummary: Codable, Equatable {
         case sessionsStarted = "sessions_started"
         case sessionsClean = "sessions_clean"
         case sessionsFailed = "sessions_failed"
+        case sessionsEndedInBackground = "sessions_ended_in_background"
         case playMinutesTotal = "play_minutes_total"
         case sessionsByControlScheme = "sessions_by_control_scheme"
         case sessionsByOrientation = "sessions_by_orientation"
@@ -113,13 +167,15 @@ struct UsageSummary: Codable, Equatable {
         sessionsStarted = (try? c.decodeIfPresent(Int.self, forKey: .sessionsStarted)) ?? 0
         sessionsClean = (try? c.decodeIfPresent(Int.self, forKey: .sessionsClean)) ?? 0
         sessionsFailed = (try? c.decodeIfPresent(Int.self, forKey: .sessionsFailed)) ?? 0
+        sessionsEndedInBackground = (try? c.decodeIfPresent(
+            Int.self, forKey: .sessionsEndedInBackground)) ?? 0
         playMinutesTotal = (try? c.decodeIfPresent(Double.self, forKey: .playMinutesTotal)) ?? 0
         sessionsByControlScheme = (try? c.decodeIfPresent(
             ControlSchemeCounts.self, forKey: .sessionsByControlScheme)) ?? ControlSchemeCounts()
         sessionsByOrientation = (try? c.decodeIfPresent(
             OrientationCounts.self, forKey: .sessionsByOrientation)) ?? OrientationCounts()
         sessionsByGame = (try? c.decodeIfPresent(
-            [String: GameCounts].self, forKey: .sessionsByGame)) ?? [:]
+            GameBuckets.self, forKey: .sessionsByGame)) ?? GameBuckets()
         wadsImported = (try? c.decodeIfPresent(Int.self, forKey: .wadsImported)) ?? 0
         gamesCreated = (try? c.decodeIfPresent(Int.self, forKey: .gamesCreated)) ?? 0
         diagnosticsExports = (try? c.decodeIfPresent(Int.self, forKey: .diagnosticsExports)) ?? 0
@@ -137,7 +193,10 @@ struct UsageSummary: Codable, Equatable {
     /// About screen's View Usage Summary both read these, so what the user
     /// sees before exporting is what the export says.
     var rows: [(label: String, value: String)] {
-        var rows: [(String, String)] = [
+        func game(_ counts: GameCounts) -> String {
+            "\(Self.sessionsText(counts.sessions)), \(Self.minutesText(counts.minutes))"
+        }
+        return [
             ("First seen", firstSeenDay ?? "never"),
             ("Last seen", lastSeenDay ?? "never"),
             ("App versions", appVersions.isEmpty ? "none" : appVersions.joined(separator: ", ")),
@@ -145,24 +204,20 @@ struct UsageSummary: Codable, Equatable {
             ("Sessions started", "\(sessionsStarted)"),
             ("Sessions ended cleanly", "\(sessionsClean)"),
             ("Sessions ended in an error", "\(sessionsFailed)"),
+            ("Sessions ended in the background", "\(sessionsEndedInBackground)"),
             ("Play time", Self.minutesText(playMinutesTotal)),
             ("Classic controls", Self.sessionsText(sessionsByControlScheme.classic)),
             ("Modern controls", Self.sessionsText(sessionsByControlScheme.modern)),
             ("With a game controller", Self.sessionsText(sessionsByControlScheme.gameController)),
             ("Portrait", Self.sessionsText(sessionsByOrientation.portrait)),
             ("Landscape", Self.sessionsText(sessionsByOrientation.landscape)),
-        ]
-        for name in sessionsByGame.keys.sorted() {
-            let counts = sessionsByGame[name]!
-            rows.append(("Game: \(name)",
-                         "\(Self.sessionsText(counts.sessions)), \(Self.minutesText(counts.minutes))"))
-        }
-        rows += [
+            ("Freedoom Phase 1", game(sessionsByGame.freedoomPhase1)),
+            ("Freedoom Phase 2", game(sessionsByGame.freedoomPhase2)),
+            ("Imported games", game(sessionsByGame.imported)),
             ("WADs imported", "\(wadsImported)"),
             ("Games created", "\(gamesCreated)"),
-            ("Diagnostics exports", "\(diagnosticsExports)"),
+            ("Diagnostics files shared", "\(diagnosticsExports)"),
         ]
-        return rows
     }
 
     static func sessionsText(_ count: Int) -> String {
@@ -186,14 +241,49 @@ enum UsageOrientation {
     case landscape
 }
 
+/// Which bucket a session is counted in. Never a name: see `UsageSummary`.
+enum UsageGameBucket: CaseIterable {
+    case freedoomPhase1
+    case freedoomPhase2
+    case imported
+
+    /// A game is one of the bundled Freedoom games only when it plays that
+    /// bundled IWAD and nothing else; anything with a file the user brought
+    /// (a map set, an add-on) or a base the user imported is "imported".
+    static func of(baseFilename: String?, baseIsBundled: Bool, hasFiles: Bool) -> UsageGameBucket {
+        guard baseIsBundled, !hasFiles else { return .imported }
+        switch baseFilename?.lowercased() {
+        case "freedoom1.wad": return .freedoomPhase1
+        case "freedoom2.wad": return .freedoomPhase2
+        default: return .imported
+        }
+    }
+}
+
+extension UsageGameBucket {
+    /// The bucket `game` counts under, read from its base's row: the
+    /// bundled flag and the fixed filename, never anything the user named.
+    @MainActor
+    static func of(_ game: Game, in library: LibraryService) -> UsageGameBucket {
+        let base = game.baseID.flatMap { try? library.wad(id: $0) }
+        return of(baseFilename: base?.filename, baseIsBundled: base?.isBundled ?? false,
+                  hasFiles: !game.fileIDs.isEmpty)
+    }
+}
+
 /// Reads and writes `usage.json` in the diagnostics directory. Nothing reads
 /// the file except this store, and only the exporter and the About screen
 /// read the store.
 ///
-/// Every write happens on the main thread around a session (never from the
-/// engine's), at launch, on an import or a new game, or from the exporter.
+/// Every write happens on the main thread: at launch, around a session and
+/// its background transitions, on an import or a new game, or when a share
+/// completes.
 final class UsageStore: @unchecked Sendable {
     static let fileName = "usage.json"
+    /// Present while a session is in the background. Seen at the next launch,
+    /// it means the process ended there, not in a crash. Never exported: the
+    /// exporter copies an allowlist, and this is not on it.
+    static let backgroundedMarkerName = "usage-session-in-background"
 
     static let shared = UsageStore(directory: DiagnosticsPaths.directory)
 
@@ -209,6 +299,7 @@ final class UsageStore: @unchecked Sendable {
     }
 
     var fileURL: URL { directory.appendingPathComponent(Self.fileName) }
+    var backgroundedMarkerURL: URL { directory.appendingPathComponent(Self.backgroundedMarkerName) }
 
     /// The stored counts. A missing or unreadable file is all zeros: a bad
     /// file must never fail the export it rides in.
@@ -234,17 +325,22 @@ final class UsageStore: @unchecked Sendable {
         return summary
     }
 
+    /// Also settles the previous process: a session it left in the
+    /// background is counted as ended there.
     func recordLaunch(version: String, at date: Date = .now, timeZone: TimeZone = .current) {
+        let endedInBackground = FileManager.default.fileExists(atPath: backgroundedMarkerURL.path)
         update { summary in
             Self.markSeen(&summary, at: date, timeZone: timeZone)
             if !summary.appVersions.contains(version) {
                 summary.appVersions.append(version)
             }
             summary.launches += 1
+            if endedInBackground { summary.sessionsEndedInBackground += 1 }
         }
+        setBackgrounded(false)
     }
 
-    func recordSessionStart(game: String, scheme: TouchControlScheme,
+    func recordSessionStart(bucket: UsageGameBucket, scheme: TouchControlScheme,
                             controllerConnected: Bool, orientation: UsageOrientation,
                             at date: Date = .now, timeZone: TimeZone = .current) {
         update { summary in
@@ -259,13 +355,25 @@ final class UsageStore: @unchecked Sendable {
             case .portrait: summary.sessionsByOrientation.portrait += 1
             case .landscape: summary.sessionsByOrientation.landscape += 1
             }
-            summary.sessionsByGame[game, default: .init()].sessions += 1
+            summary.sessionsByGame[bucket].sessions += 1
         }
     }
 
-    func recordSessionEnd(game: String, exitCode: Int32, duration: TimeInterval,
+    /// The session went to the background: its foreground time so far is
+    /// saved now, so a kill there keeps it, and the marker is set.
+    func recordSessionBackgrounded(bucket: UsageGameBucket, playTime: TimeInterval) {
+        addPlayTime(playTime, to: bucket)
+        setBackgrounded(true)
+    }
+
+    /// Back in the foreground: the process did not end in the background.
+    func recordSessionForegrounded() {
+        setBackgrounded(false)
+    }
+
+    func recordSessionEnd(bucket: UsageGameBucket, exitCode: Int32, playTime: TimeInterval,
                           at date: Date = .now, timeZone: TimeZone = .current) {
-        let minutes = UsageSummary.rounded(max(0, duration) / 60)
+        let minutes = UsageSummary.rounded(max(0, playTime) / 60)
         update { summary in
             Self.markSeen(&summary, at: date, timeZone: timeZone)
             if exitCode == 0 {
@@ -273,11 +381,9 @@ final class UsageStore: @unchecked Sendable {
             } else {
                 summary.sessionsFailed += 1
             }
-            summary.playMinutesTotal = UsageSummary.rounded(summary.playMinutesTotal + minutes)
-            var counts = summary.sessionsByGame[game, default: .init()]
-            counts.minutes = UsageSummary.rounded(counts.minutes + minutes)
-            summary.sessionsByGame[game] = counts
+            Self.add(minutes, to: bucket, in: &summary)
         }
+        setBackgrounded(false)
     }
 
     /// Counts what an import added: files, and the games they became.
@@ -293,14 +399,38 @@ final class UsageStore: @unchecked Sendable {
         update { $0.gamesCreated += 1 }
     }
 
-    @discardableResult
-    func recordExport() -> UsageSummary {
+    /// A share sheet holding a diagnostics file completed.
+    func recordExport() {
         update { $0.diagnosticsExports += 1 }
     }
 
     /// Zeroes every count: the About screen's Reset Usage Counts.
     func reset() {
         update { $0 = UsageSummary() }
+        setBackgrounded(false)
+    }
+
+    private func addPlayTime(_ playTime: TimeInterval, to bucket: UsageGameBucket) {
+        let minutes = UsageSummary.rounded(max(0, playTime) / 60)
+        guard minutes > 0 else { return }
+        update { Self.add(minutes, to: bucket, in: &$0) }
+    }
+
+    private static func add(_ minutes: Double, to bucket: UsageGameBucket,
+                            in summary: inout UsageSummary) {
+        summary.playMinutesTotal = UsageSummary.rounded(summary.playMinutesTotal + minutes)
+        summary.sessionsByGame[bucket].minutes =
+            UsageSummary.rounded(summary.sessionsByGame[bucket].minutes + minutes)
+    }
+
+    private func setBackgrounded(_ backgrounded: Bool) {
+        let url = backgroundedMarkerURL
+        if backgrounded {
+            try? DiagnosticsPaths.ensureExcludedDirectory(directory)
+            try? Data().write(to: url, options: .atomic)
+        } else if FileManager.default.fileExists(atPath: url.path) {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     private func load() -> UsageSummary {

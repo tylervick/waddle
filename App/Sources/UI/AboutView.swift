@@ -112,7 +112,10 @@ struct AboutView: View {
         .accessibilityIdentifier("aboutView")
         .sheet(item: Binding(get: { host.presents ? shown.exportedZip.map(ExportedZip.init) : nil },
                              set: { if host.presents { shown.exportedZip = $0?.url } })) { zip in
-            ShareSheet(items: [zip.url])
+            ShareSheet(items: [zip.url]) { completed in
+                // Counted only when the user actually shared or saved it.
+                if completed { UsageStore.shared.recordExport() }
+            }
         }
         .alert("Export failed", isPresented: host.presented(
             { shown.exportError != nil }, dismiss: { shown.exportError = nil }
@@ -247,8 +250,13 @@ struct LicenseTextView: View {
 /// the zip is assembled on tap, so the sheet is presented item-driven.
 struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]
+    /// Called once the sheet is done: true when an activity completed, false
+    /// when the user cancelled.
+    var onComplete: (Bool) -> Void = { _ in }
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
+        let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        controller.completionWithItemsHandler = { _, completed, _, _ in onComplete(completed) }
+        return controller
     }
     func updateUIViewController(_ controller: UIActivityViewController,
                                 context: Context) {}

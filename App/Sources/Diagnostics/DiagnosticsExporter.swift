@@ -16,11 +16,10 @@ enum DiagnosticsExporter {
         try FileManager.default.createDirectory(at: payload,
                                                 withIntermediateDirectories: true)
 
-        // This export is counted before the summary is read, so the file the
-        // user shares says how many times they have shared one, this time
-        // included. Written from the summary in hand rather than copied: a
-        // missing or unreadable usage file is zeros here, never a failure.
-        let usage = UsageStore(directory: diagnosticsDirectory).recordExport()
+        // Written from the summary in hand rather than copied: a missing or
+        // unreadable usage file is zeros here, never a failure. The export
+        // itself is counted only when the share sheet completes (AboutView).
+        let usage = UsageStore(directory: diagnosticsDirectory).summary()
         try usage.jsonData()
             .write(to: payload.appendingPathComponent(UsageStore.fileName))
 

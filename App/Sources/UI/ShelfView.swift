@@ -840,20 +840,16 @@ struct ShelfView: View {
         // Counted here for the same reason, and on the main thread before the
         // engine starts: a session the engine never returns from (a crash)
         // then shows as started and never ended. The scheme is resolved the
-        // way `GameLauncher.prepare` resolves it.
-        let usageGame = game.name
-        let sessionStart = Date.now
+        // way `GameLauncher.prepare` resolves it. The bucket, never the name:
+        // see `UsageSummary`.
         var usageExitCode = EngineSession.ExitCode.argumentFailure
-        UsageStore.shared.recordSessionStart(
-            game: usageGame,
+        let usage = UsageSession(
+            store: .shared,
+            bucket: UsageGameBucket.of(game, in: library),
             scheme: TouchControlScheme.effective(override: game.schemeOverrideRaw),
             controllerConnected: !GCController.controllers().isEmpty,
             orientation: Self.currentUsageOrientation())
-        defer {
-            UsageStore.shared.recordSessionEnd(
-                game: usageGame, exitCode: usageExitCode,
-                duration: Date.now.timeIntervalSince(sessionStart))
-        }
+        defer { usage.end(exitCode: usageExitCode) }
         do {
             let plan = try GameLauncher.prepare(game, library: library, mode: mode)
             let exitCode = EngineSession.play(arguments: plan.arguments, scheme: plan.scheme)

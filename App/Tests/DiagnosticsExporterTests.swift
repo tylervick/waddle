@@ -82,26 +82,30 @@ final class DiagnosticsExporterTests: XCTestCase {
         return data
     }
 
-    func testExportedUsageHasOnlyTheListedKeysAndCountsThisExport() throws {
+    func testExportedUsageHasOnlyTheListedKeysAtEveryLevel() throws {
         let usage = UsageStore(directory: tmp)
         usage.recordLaunch(version: "1.5 (295)")
-        usage.recordSessionStart(game: "Freedoom: Phase 1", scheme: .modern,
+        usage.recordSessionStart(bucket: .freedoomPhase1, scheme: .modern,
                                  controllerConnected: true, orientation: .landscape)
-        usage.recordSessionEnd(game: "Freedoom: Phase 1", exitCode: 0, duration: 120)
+        usage.recordSessionEnd(bucket: .freedoomPhase1, exitCode: 0, playTime: 120)
 
         let zip = try DiagnosticsExporter.export(diagnosticsDirectory: tmp,
                                                  libraryLines: [])
         let object = try XCTUnwrap(JSONSerialization.jsonObject(
             with: extracted(UsageStore.fileName, from: zip)) as? [String: Any])
-        XCTAssertEqual(Set(object.keys), [
-            "first_seen_day", "last_seen_day", "app_versions", "launches",
-            "sessions_started", "sessions_clean", "sessions_failed", "play_minutes_total",
-            "sessions_by_control_scheme", "sessions_by_orientation", "sessions_by_game",
-            "wads_imported", "games_created", "diagnostics_exports",
-        ], "usage.json carries exactly the fields issue #487 lists, nothing else")
+        // usage.json carries exactly the fields issue #487 lists, at every
+        // level, nothing else.
+        try UsageKeys.assertExact(object)
         XCTAssertEqual(object["sessions_started"] as? Int, 1)
-        XCTAssertEqual(object["diagnostics_exports"] as? Int, 1,
-                       "the export being made is counted in the file it makes")
+        XCTAssertEqual(object["diagnostics_exports"] as? Int, 0,
+                       "building the file is not sharing it; the share sheet counts that")
+    }
+
+    func testTheBackgroundMarkerIsNeverExported() throws {
+        UsageStore(directory: tmp).recordSessionBackgrounded(bucket: .imported, playTime: 60)
+        let zip = try DiagnosticsExporter.export(diagnosticsDirectory: tmp,
+                                                 libraryLines: [])
+        XCTAssertFalse(try zipEntryNames(zip).contains(UsageStore.backgroundedMarkerName))
     }
 
     func testCorruptUsageFileDoesNotFailTheExport() throws {
@@ -110,16 +114,14 @@ final class DiagnosticsExporterTests: XCTestCase {
                                                  libraryLines: [])
         let summary = try JSONDecoder().decode(
             UsageSummary.self, from: extracted(UsageStore.fileName, from: zip))
-        var expected = UsageSummary()
-        expected.diagnosticsExports = 1
-        XCTAssertEqual(summary, expected, "a damaged file starts again from zero")
+        XCTAssertEqual(summary, UsageSummary(), "a damaged file starts again from zero")
     }
 
     func testInfoTextShowsTheUsageCounts() throws {
         let usage = UsageStore(directory: tmp)
-        usage.recordSessionStart(game: "Nuts", scheme: .classic,
+        usage.recordSessionStart(bucket: .imported, scheme: .classic,
                                  controllerConnected: false, orientation: .portrait)
-        usage.recordSessionEnd(game: "Nuts", exitCode: -1, duration: 30)
+        usage.recordSessionEnd(bucket: .imported, exitCode: -1, playTime: 30)
 
         let zip = try DiagnosticsExporter.export(diagnosticsDirectory: tmp,
                                                  libraryLines: [])
@@ -128,8 +130,8 @@ final class DiagnosticsExporterTests: XCTestCase {
         XCTAssertTrue(info.contains("Sessions ended in an error: 1"), info)
         XCTAssertTrue(info.contains("Classic controls: 1 session"), info)
         XCTAssertTrue(info.contains("Portrait: 1 session"), info)
-        XCTAssertTrue(info.contains("Game: Nuts: 1 session, 0.5 min"), info)
-        XCTAssertTrue(info.contains("Diagnostics exports: 1"), info)
+        XCTAssertTrue(info.contains("Imported games: 1 session, 0.5 min"), info)
+        XCTAssertTrue(info.contains("Diagnostics files shared: 0"), info)
     }
 
     func testExportNeverIncludesWADFiles() throws {
