@@ -80,26 +80,19 @@ enum DiagnosticsExporter {
     }
 
     static func infoText(libraryLines: [String]) -> String {
-        var model = utsname()
-        uname(&model)
-        let device = withUnsafeBytes(of: &model.machine) { buf in
-            String(decoding: buf.prefix(while: { $0 != 0 }), as: UTF8.self)
-        }
-        let bundle = Bundle.main
-        let version = bundle.object(
-            forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
-        let buildNumber = bundle.object(
-            forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+        // Shared with the bug-report form and the feedback email (issue
+        // #484), so the three cannot drift apart.
+        let facts = DeviceFacts.current
 
         var lines = [
             "Waddle diagnostics",
             "generated: \(ISO8601DateFormatter().string(from: .now))",
             "",
-            "app version: \(version) (\(buildNumber))",
+            "app version: \(facts.appVersion)",
             "commit: \(BuildInfo.commit) (\(BuildInfo.branch))",
             "built at: \(BuildInfo.builtAt)",
-            "iOS: \(ProcessInfo.processInfo.operatingSystemVersionString)",
-            "device: \(device)",
+            "iOS: \(facts.iosVersion)",
+            "device: \(facts.device)",
             "",
             "library (names only; WAD contents are never exported):",
         ]

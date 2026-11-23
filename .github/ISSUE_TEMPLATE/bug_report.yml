@@ -1,0 +1,52 @@
+name: Bug report
+description: Something in Waddle went wrong. Opened from the app's About screen, or by hand.
+# needs:triage: anyone on the internet can file through this form, so its
+# text is untrusted and is not agent work until the owner has read it and
+# removed the label (CLAUDE.md, "How work flows").
+labels: ["bug", "needs:triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. **Issues here are public**, so please leave out anything private, such as the names of your own WAD files.
+
+        If you came from the app, the version, iOS and device fields below are already filled in. You can edit or delete them.
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: What went wrong, and what you saw on screen (an error message, a crash, a wrong result).
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What you did, step by step, so someone else can make it happen too.
+      placeholder: |
+        1. Open …
+        2. Tap …
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+      description: What you expected to happen instead.
+    validations:
+      required: true
+  - type: input
+    id: app_version
+    attributes:
+      label: App version
+      description: About screen, Version (build). For example, 1.5 (295).
+  - type: input
+    id: ios_version
+    attributes:
+      label: iOS version
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      description: The model identifier, for example iPhone16,1, or the model name.
