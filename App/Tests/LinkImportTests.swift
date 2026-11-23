@@ -14,6 +14,8 @@ final class StubURLProtocol: URLProtocol {
         /// A response and the first part of the body, then nothing: the
         /// download stays open until it is cancelled.
         case stall(headers: [String: String], firstChunk: Data)
+        /// A 302 to another URL.
+        case redirect(to: String)
     }
 
     private static let lock = NSLock()
@@ -63,6 +65,11 @@ final class StubURLProtocol: URLProtocol {
                                            headerFields: headers)!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: firstChunk)
+        case .redirect(let target):
+            let response = HTTPURLResponse(url: url, statusCode: 302, httpVersion: "HTTP/1.1",
+                                           headerFields: ["Location": target])!
+            client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: URL(string: target)!),
+                                redirectResponse: response)
         }
     }
 
@@ -257,6 +264,24 @@ final class LinkImportTests: XCTestCase {
         XCTAssertEqual(model.invalidLink, LinkDownloadError.insecure.reason)
         XCTAssertEqual(model.phase, .idle)
         XCTAssertEqual(StubURLProtocol.requestedURLs, [])
+    }
+
+    /// An https link that redirects to plain http is refused at the
+    /// redirect, with the same reason as a typed http link, and the http
+    /// URL is never requested.
+    func testARedirectToHTTPIsRefused() async throws {
+        let link = "https://files.example/map.wad"
+        let insecure = "http://files.example/map.wad"
+        StubURLProtocol.set(.redirect(to: insecure), for: link)
+        StubURLProtocol.set(.respond(status: 200, headers: ["Content-Type": "application/octet-stream"],
+                                     body: makeWAD(magic: "PWAD", lumps: ["MAP01"])), for: insecure)
+
+        let outcome = await linkImport().run(URL(string: link)!)
+
+        XCTAssertNil(outcome)
+        XCTAssertEqual(notices.current, "Import failed: \(LinkDownloadError.insecure.reason)")
+        XCTAssertEqual(StubURLProtocol.requestedURLs, [link])
+        try assertNothingLeftBehind()
     }
 
     func testValidation() {

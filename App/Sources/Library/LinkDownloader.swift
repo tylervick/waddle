@@ -168,6 +168,12 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate, @uncheck
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask,
                     didReceive response: URLResponse,
                     completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void) {
+        // A refused redirect hands its 3xx over as the response; keep the
+        // reason it was refused for.
+        if failure != nil {
+            completionHandler(.cancel)
+            return
+        }
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             return refuse(.httpStatus(http.statusCode), completionHandler)
         }
