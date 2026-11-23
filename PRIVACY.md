@@ -8,8 +8,9 @@ Waddle does not collect any data of any kind.
   you send it, when you send it. The app version, iOS version and device
   model reach GitHub when you tap Open GitHub to start a bug report, and
   become a public issue only if you submit it there.
-- There are no analytics, no tracking, and no third-party SDKs that phone
-  home.
+- There are no analytics services, no tracking, and no third-party SDKs
+  that phone home. The app keeps simple usage counts on your device, which
+  leave it only inside a diagnostics file you choose to send.
 - WAD files you import stay on your device. They are never uploaded or
   shared anywhere.
 
