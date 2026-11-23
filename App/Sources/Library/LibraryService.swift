@@ -638,26 +638,36 @@ final class LibraryService {
     /// would give it, so the tiles keep the `playFreedoom1`/`playFreedoom2`
     /// identifiers every UI test taps.
     ///
-    /// Safe to run every launch. A row already holding the content is reused,
-    /// never duplicated: an imported one whose file is present is left alone,
-    /// one whose file has gone is pointed at a fresh copy, and a bundled one
-    /// (left by an earlier launch without the seam and without
-    /// `WADDLE_RESET_STORE`) becomes imported under the same id, so its saves
-    /// stay where they are. A missing source file throws.
+    /// Safe to run every launch, with or without `WADDLE_RESET_STORE`. Rows
+    /// already holding the content are reused, and collapsed to one. An
+    /// earlier launch *without* the seam runs the bundled seeder, which
+    /// registers a bundled row beside the imported one (the seeder matches by
+    /// filename and bundled flag, not by content), and two rows mean two
+    /// `playFreedoom1` tiles. So the row kept is an imported one whose file is
+    /// present if there is one, else any; it is made imported, pointed at a
+    /// fresh copy if its file has gone, and every other row with the same
+    /// content is deleted with its base game. A missing source file throws.
     func installFreedoomForTest(from directory: URL) throws {
         for entry in Self.freedoomIWADs {
             let source = directory.appendingPathComponent(entry.file)
             let sha1 = try WADStore.sha1(ofFileAt: source)
+            let rows = try context.fetch(FetchDescriptor<WADFile>(predicate: #Predicate { $0.sha1 == sha1 }))
+            let present = { (wad: WADFile) in
+                !wad.isBundled && FileManager.default.fileExists(atPath: self.fileURL(for: wad).path)
+            }
             let wad: WADFile
-            if let existing = try findWAD(sha1: sha1) {
-                wad = existing
-                if existing.isBundled
-                    || !FileManager.default.fileExists(atPath: fileURL(for: existing).path) {
+            if let keep = rows.first(where: present) ?? rows.first {
+                wad = keep
+                if !present(keep) {
                     let stored = try store.store(fileAt: source, preferredName: entry.file,
                                                  precomputedSHA1: sha1)
-                    existing.filename = stored.filename
-                    existing.isBundled = false
-                    existing.hasMaps = true
+                    keep.filename = stored.filename
+                    keep.isBundled = false
+                    keep.hasMaps = true
+                }
+                for extra in rows where extra.id != keep.id {
+                    if let game = try game(id: extra.id) { context.delete(game) }
+                    context.delete(extra)
                 }
             } else {
                 let stored = try store.store(fileAt: source, preferredName: entry.file,

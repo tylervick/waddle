@@ -43,6 +43,64 @@ final class LibraryServiceTests: XCTestCase {
         }
     }
 
+    // MARK: WADDLE_TEST_FREEDOOM_DIR (issue #504)
+
+    func testTestFreedoomSeamInstallsBothAsImportedBaseGames() throws {
+        try service.installFreedoomForTest(from: try FreedoomFixture.directory())
+        let wads = try service.allWADs()
+        XCTAssertEqual(wads.map(\.displayName).sorted(), ["Freedoom Phase 1", "Freedoom Phase 2"])
+        for wad in wads {
+            XCTAssertFalse(wad.isBundled)
+            XCTAssertEqual(service.fileStatus(for: wad), .imported, "\(wad.filename) was not copied into the store")
+            XCTAssertEqual(wad.role, .base)
+        }
+        XCTAssertEqual(try service.games().map(\.name).sorted(), ["Freedoom Phase 1", "Freedoom Phase 2"],
+                       "the tiles must carry Freedoom's titles, which give them their playFreedoom identifiers")
+        XCTAssertTrue(try service.games().allSatisfy(\.isBaseGame))
+    }
+
+    func testTestFreedoomSeamIsIdempotent() throws {
+        let dir = try FreedoomFixture.directory()
+        try service.installFreedoomForTest(from: dir)
+        let ids = Set(try service.allWADs().map(\.id))
+        try service.installFreedoomForTest(from: dir)
+        XCTAssertEqual(Set(try service.allWADs().map(\.id)), ids)
+        XCTAssertEqual(try service.games().count, 2)
+    }
+
+    /// A launch without the seam and without a reset runs the bundled seeder,
+    /// which adds a bundled row beside the imported one; the next seam launch
+    /// must leave one row, and one tile, per game.
+    func testTestFreedoomSeamCollapsesARowTheBundledSeederAdded() throws {
+        let dir = try FreedoomFixture.directory()
+        try service.installFreedoomForTest(from: dir)
+        let imported = Set(try service.allWADs().map(\.id))
+        try service.seedBundledContentIfNeeded()
+        XCTAssertEqual(try service.allWADs().count, 4, "precondition: the seeder duplicated both")
+
+        try service.installFreedoomForTest(from: dir)
+
+        XCTAssertEqual(Set(try service.allWADs().map(\.id)), imported)
+        XCTAssertTrue(try service.allWADs().allSatisfy { !$0.isBundled })
+        XCTAssertEqual(try service.games().map(\.name).sorted(), ["Freedoom Phase 1", "Freedoom Phase 2"])
+    }
+
+    /// A store left by a launch without the seam: bundled rows only. They
+    /// become imported under the same ids, so their saves stay put.
+    func testTestFreedoomSeamTurnsBundledRowsImportedUnderTheSameIDs() throws {
+        let dir = try FreedoomFixture.directory()
+        try service.seedBundledContentIfNeeded()
+        let ids = Set(try service.allWADs().map(\.id))
+
+        try service.installFreedoomForTest(from: dir)
+
+        XCTAssertEqual(Set(try service.allWADs().map(\.id)), ids)
+        for wad in try service.allWADs() {
+            XCTAssertEqual(service.fileStatus(for: wad), .imported)
+        }
+        XCTAssertEqual(Set(try service.games().map(\.id)), ids)
+    }
+
     func testRegisterAndFindBySHA1() throws {
         let wad = try service.registerImported(filename: "sunlust.wad", sha1: "abc123",
                                                kind: WADKind.pwad.rawValue, family: "doom2")
