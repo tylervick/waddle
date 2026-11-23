@@ -42,6 +42,71 @@ final class ImportNoticeBannerTests: XCTestCase {
         var size: CGSize { CGSize(width: width, height: height) }
     }
 
+    /// Longer than any whole drawing of the banner takes (about 0.1 s each on
+    /// CI's slowest leg) and shorter than the 2 s after which the renderer
+    /// gives up waiting on itself and hands back what it has.
+    private static let longestWholeDrawing: Duration = .milliseconds(1500)
+    /// The slowest first pipeline build CI has logged is 25 s.
+    private static let redrawBudget: Duration = .seconds(90)
+
+    private struct RendererNeverFinished: Error, CustomStringConvertible {
+        let description: String
+    }
+
+    /// A drawing of `content` that the renderer finished, as RGBA bytes.
+    ///
+    /// The first drawing in a test process builds a Metal pipeline
+    /// (`primitive_color`). On CI's simulators that has taken from half a
+    /// second to 25 s. The `CGImage` the renderer returns is drawn only when
+    /// its pixels are read, and a read made while the pipeline builds waits
+    /// 2 s, logs "image provider … timed out while waiting for phase 6", and
+    /// gives back pixels without the shapes still waiting on it, or blocks
+    /// until the build ends with pixels just as incomplete. Either way the
+    /// read took far longer than a whole one does, and that is the only sign
+    /// of it the renderer gives, so a slow drawing is thrown away and drawn
+    /// again (issue #439,
+    /// `docs/learnings/imagerenderer-hands-back-an-unfinished-drawing.md`).
+    /// What a drawing is then asked is the same either way.
+    private func finishedDrawing(of content: some View, width: CGFloat,
+                                 describedAs label: String) throws -> (width: Int, height: Int, rgba: [UInt8]) {
+        let clock = ContinuousClock()
+        let started = clock.now
+        var discarded = 0
+        while true {
+            let began = clock.now
+            let renderer = ImageRenderer(content: content)
+            renderer.scale = Self.scale
+            renderer.proposedSize = ProposedViewSize(width: width, height: nil)
+            let image = try XCTUnwrap(renderer.cgImage, "the banner did not draw at \(label)")
+            // Reading the pixels is what draws them, so it is inside the time.
+            var rgba = [UInt8](repeating: 0, count: image.width * image.height * 4)
+            let drew = rgba.withUnsafeMutableBytes { buffer -> Bool in
+                guard let context = CGContext(data: buffer.baseAddress, width: image.width, height: image.height,
+                                              bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                                              space: CGColorSpaceCreateDeviceRGB(),
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+                else { return false }
+                context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+                return true
+            }
+            let took = clock.now - began
+            XCTAssertTrue(drew, "no bitmap context")
+            if took < Self.longestWholeDrawing {
+                if discarded > 0 {
+                    NSLog("ImportNoticeBannerTests: %@", "\(discarded) unfinished drawing(s) of the banner at \(label) "
+                          + "thrown away over \(clock.now - started) before one finished in \(took)")
+                }
+                return (image.width, image.height, rgba)
+            }
+            discarded += 1
+            NSLog("ImportNoticeBannerTests: %@", "a drawing of the banner at \(label) took \(took); drawing it again")
+            guard clock.now - started < Self.redrawBudget else {
+                throw RendererNeverFinished(description: "the renderer took \(Self.longestWholeDrawing) or longer "
+                    + "on each of \(discarded) drawings of the banner at \(label) over \(clock.now - started)")
+            }
+        }
+    }
+
     private func coverage(of text: String, textShown: Bool, windowWidth: CGFloat,
                           size: DynamicTypeSize) throws -> Coverage {
         // The banner sets no colour on its text, so it takes the one handed
@@ -49,24 +114,12 @@ final class ImportNoticeBannerTests: XCTestCase {
         let banner = ImportNoticeBanner(text: text)
             .foregroundStyle(textShown ? Color.white : Color.clear)
             .environment(\.dynamicTypeSize, size)
-        let renderer = ImageRenderer(content: banner)
-        renderer.scale = Self.scale
-        renderer.proposedSize = ProposedViewSize(width: windowWidth - Theme.Spacing.base * 2, height: nil)
-        let image = try XCTUnwrap(renderer.cgImage, "the banner did not draw at \(size), \(windowWidth) pt")
-        var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
-        let drew = pixels.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(data: buffer.baseAddress, width: image.width, height: image.height,
-                                          bitsPerComponent: 8, bytesPerRow: image.width * 4,
-                                          space: CGColorSpaceCreateDeviceRGB(),
-                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
-            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-            return true
-        }
-        XCTAssertTrue(drew, "no bitmap context")
-        let count = image.width * image.height
-        return Coverage(width: image.width, height: image.height,
-                        alpha: (0..<count).map { pixels[$0 * 4 + 3] },
-                        red: (0..<count).map { pixels[$0 * 4] })
+        let drawing = try finishedDrawing(of: banner, width: windowWidth - Theme.Spacing.base * 2,
+                                          describedAs: "\(size), \(windowWidth) pt")
+        let count = drawing.width * drawing.height
+        return Coverage(width: drawing.width, height: drawing.height,
+                        alpha: (0..<count).map { drawing.rgba[$0 * 4 + 3] },
+                        red: (0..<count).map { drawing.rgba[$0 * 4] })
     }
 
     /// Pixels the text marks where there is no background at all.
