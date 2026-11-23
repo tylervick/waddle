@@ -130,9 +130,10 @@ struct UsageSummary: Codable, Equatable {
     var sessionsByGame = GameBuckets()
     var wadsImported = 0
     var gamesCreated = 0
-    /// Share sheets the user completed with a diagnostics file. Counted when
-    /// the sheet reports completion, so a cancelled share is not counted, and
-    /// a file never counts its own share.
+    /// Export Diagnostics share sheets the user completed. Counted when the
+    /// sheet reports completion, so a cancelled share is not counted, and a
+    /// file never counts its own share. A feedback email (issue #484) is not
+    /// counted: the mail sheet keeps no record.
     var diagnosticsExports = 0
 
     /// Spelled out rather than left to a key strategy, so the file's

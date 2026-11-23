@@ -81,6 +81,10 @@ final class FeedbackRoutesTests: XCTestCase {
         XCTAssertTrue(mail.body.contains("app version: 1.5 (295)"))
         XCTAssertTrue(mail.body.contains("iOS: Version 27.1 (Build 24B83) & more"))
         XCTAssertTrue(mail.body.contains("device: iPhone16,1"))
+        // Issue #487: the zip now carries usage counts, and the email says so
+        // in the words View Usage Summary uses.
+        XCTAssertTrue(mail.body.contains("usage counts shown under About > View Usage Summary"),
+                      mail.body)
         XCTAssertEqual(mail.attachments.count, 1)
         XCTAssertEqual(mail.attachments.first?.fileName, "Waddle-diagnostics.zip")
         XCTAssertEqual(mail.attachments.first?.mimeType, "application/zip")

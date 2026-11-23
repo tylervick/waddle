@@ -66,7 +66,7 @@ struct AboutView: View {
                     .accessibilityIdentifier("reportBugButton")
                 Button("Send feedback") { sendFeedback() }
                     .accessibilityIdentifier("sendFeedbackButton")
-                Text("Attaches the same diagnostics file as Export Diagnostics. You can remove it before sending.")
+                Text("Attaches the same diagnostics file as Export Diagnostics, including the usage counts shown under View Usage Summary (launches, sessions, play time, control scheme). You can remove it before sending.")
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Color.appSecondaryText)
             } header: {
