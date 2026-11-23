@@ -131,6 +131,36 @@ set -e
 [ "$rc" -eq 2 ] || fail "a checkout without mise.toml exited $rc, expected 2"
 pass "every config mise loads is read, each pin named with its file; mise.toml must exist"
 
+# 5c. .config/mise.toml may pin only the non-binary tools (uv). It is
+#     excluded from release-due.sh and keys no build cache, so a build tool
+#     there would change the build without shipping or rebuilding anything
+#     (review of PR #473, round 2). Every way of naming a tool is read: a plain
+#     key, a quoted backend key, and a [tools.name] table -- whose own keys
+#     (version) are not tools. The same pins in the root mise.toml pass.
+mkdir -p "$TMP/allow/.config"
+cp "$TMP/clean.toml" "$TMP/allow/mise.toml"
+printf '[tools]\nuv = "0.13.7"\n[tools.uv]\nversion = "0.13.7"\n' > "$TMP/allow/.config/mise.toml"
+MISE_TOOLS_ROOT="$TMP/allow" "$CHECK" > /dev/null 2> "$TMP/err" \
+  || fail "uv, as a key and as a table, was refused in .config/mise.toml: $(cat "$TMP/err")"
+for pin in 'ccache = "4.11"' '"aqua:ccache/ccache" = "4.11"' '[tools.ccache]
+version = "4.11"'; do
+  printf '[tools]\nuv = "0.13.7"\n%s\n' "$pin" > "$TMP/allow/.config/mise.toml"
+  if MISE_TOOLS_ROOT="$TMP/allow" "$CHECK" > /dev/null 2> "$TMP/err"; then
+    fail "a build tool in .config/mise.toml was accepted: $pin"
+  fi
+  grep -q '\.config/mise\.toml:3: pins .*ccache.*Put build tools in the root mise\.toml' "$TMP/err" \
+    || fail "the build tool was not named with its line and the fix: $(cat "$TMP/err")"
+  if grep -q "pins 'version'" "$TMP/err"; then fail "a table's version key was read as a tool: $(cat "$TMP/err")"; fi
+  if grep -q 'pin tools from a registry only' "$TMP/err"; then
+    fail "an allowlist refusal printed the registry advice: $(cat "$TMP/err")"
+  fi
+done
+printf '[tools]\nuv = "0.13.7"\n' > "$TMP/allow/.config/mise.toml"
+printf 'ccache = "4.11"\n' >> "$TMP/allow/mise.toml"
+MISE_TOOLS_ROOT="$TMP/allow" "$CHECK" > /dev/null 2> "$TMP/err" \
+  || fail "a build tool in the root mise.toml was refused: $(cat "$TMP/err")"
+pass ".config/mise.toml may pin only uv; a build tool there is refused, named, with the fix"
+
 # 6. Live: the repository's own mise.toml must pass. This is the assertion
 #    that bites if someone pins a vendor-hosted tool again.
 "$CHECK" > /dev/null 2> "$TMP/err" || fail "the real mise.toml was refused: $(cat "$TMP/err")"

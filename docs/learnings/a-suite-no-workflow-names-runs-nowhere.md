@@ -35,7 +35,9 @@ helper job installs the mise-pinned tools, rather than by being exempted. `uv`
 is pinned in `.config/mise.toml`, not `mise.toml`: `Scripts/release-due.sh`
 counts `mise.toml` as a change to what ships, and both build caches key on its
 hash, so a pin there would have shipped a TestFlight build identical to the
-last and rebuilt the engine for a tool the engine never runs. Their Pillow is
+last and rebuilt the engine for a tool the engine never runs. The flip side is
+that a build tool pinned there would ship nothing and rebuild nothing, so
+`Scripts/check-mise-tools-registry.sh` allows that file uv alone. Their Pillow is
 pinned in `Scripts/build-mark.py` and locked with hashes beside it, and a
 failed download reports itself as one. A suite that genuinely cannot run on a
 runner goes on the check's `EXEMPT` list with its reason; a reasonless or

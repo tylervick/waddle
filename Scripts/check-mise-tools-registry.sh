@@ -18,6 +18,10 @@
 # ever wanted, install it outside [tools] -- a task, or a developer's own
 # mise config -- so CI never downloads it.
 #
+# It also holds .config/mise.toml to the tools on NON_BINARY_TOOLS below (uv):
+# that file ships no release and keys no build cache, so a build tool pinned
+# there would change the build silently.
+#
 # Exit 0: no such pin. Exit 1: at least one, each named with its file and line.
 # Exit 2: mise.toml (or a config found beside it) missing or unreadable -- fail closed; a guard that cannot read its
 # input has proved nothing.
@@ -52,10 +56,23 @@ for CONFIG in "${CONFIGS[@]}"; do
   fi
 done
 
+# .config/mise.toml is for tools no build step runs. Scripts/release-due.sh
+# excludes it, so a change there ships no TestFlight build, and neither build
+# cache keys on it, so a change there rebuilds nothing. A build tool pinned
+# there would therefore change the build without either -- so the file may
+# pin only the tools named here (review of PR #473, round 2). Add to this list
+# only a tool that no build, archive or engine script, and no Xcode build
+# phase, ever runs.
+NON_BINARY_TOOLS=" uv "
+
 status=0
+allow_status=0
 for CONFIG in "${CONFIGS[@]}"; do
 in_tools=0
+plain_tools=0
 lineno=0
+non_binary=0
+case "$CONFIG" in */.config/mise.toml|.config/mise.toml) non_binary=1 ;; esac
 while IFS= read -r line || [ -n "$line" ]; do
   lineno=$((lineno + 1))
   # TOML allows leading whitespace before a key or a table header, and a
@@ -69,9 +86,31 @@ while IFS= read -r line || [ -n "$line" ]; do
     # Any table header decides whether the lines after it belong to [tools].
     # `[tools]` and `[tools."name"]`/`[tools.name]` do; `[tasks.x]`, `[env]`
     # and the rest do not.
-    \[tools\]*|\[tools.*) in_tools=1 ;;
-    \[*) in_tools=0 ;;
+    \[tools\]*) in_tools=1; plain_tools=1 ;;
+    \[tools.*) in_tools=1; plain_tools=0 ;;
+    \[*) in_tools=0; plain_tools=0 ;;
   esac
+  # The allowlist: which tool does this line pin, if any? A `[tools.name]`
+  # table header, or a `name = ...` key directly under `[tools]` (a key under
+  # a `[tools.name]` table is that tool's version or options, not a tool).
+  if [ "$non_binary" -eq 1 ] && [ "$in_tools" -eq 1 ]; then
+    tool=""
+    case "$trimmed" in
+      \[tools.*)
+        tool="${trimmed#\[tools.}"; tool="${tool%%]*}" ;;
+      \[*) ;;
+      *=*)
+        if [ "$plain_tools" -eq 1 ]; then tool="${trimmed%%=*}"; fi ;;
+    esac
+    tool="$(printf '%s' "$tool" | tr -d '"'"'"' \t')"
+    if [ -n "$tool" ]; then
+      case "$NON_BINARY_TOOLS" in
+        *" $tool "*) ;;
+        *) echo "error: $CONFIG:$lineno: pins '$tool', which is not on the non-binary list ($(echo $NON_BINARY_TOOLS)). This file is excluded from Scripts/release-due.sh and keys no build cache, so a build tool here would change the build without shipping it or rebuilding the engine. Put build tools in the root mise.toml" >&2
+           allow_status=1 ;;
+      esac
+    fi
+  fi
   if [ "$in_tools" -eq 1 ]; then
     case "$trimmed" in
       # The backend in the table name: [tools."http:blink"]
@@ -99,4 +138,7 @@ done
 if [ "$status" -ne 0 ]; then
   echo "error: every tool in [tools] is installed by CI; pin tools from a registry only (see docs/learnings/vendor-hosted-tool-pin-took-ci-down.md)" >&2
 fi
-exit "$status"
+if [ "$status" -ne 0 ] || [ "$allow_status" -ne 0 ]; then
+  exit 1
+fi
+exit 0
