@@ -231,6 +231,38 @@ extension XCTestCase {
         notify_post("com.tylervick.waddle.test.autoquit-release")
     }
 
+    /// Dismisses iOS's one-time "Slide to Type" introduction if it is
+    /// covering the system keyboard, so a tap aimed at a key reaches it.
+    /// Call it once the keyboard is up and before tapping a key; when there
+    /// is no panel it does nothing.
+    ///
+    /// The first keyboard a newly created simulator shows carries this panel
+    /// ("Speed up your typing by sliding your finger across the letters...",
+    /// `Continue`) in its own window above the keys. The keys stay in the
+    /// accessibility tree underneath it, so `waitForExistence` on a key
+    /// succeeds and the tap then lands on the panel instead (issue #511).
+    /// `typeText` is not affected. The panel is found by its view's
+    /// identifier, not by the word "Continue", which the launcher behind the
+    /// game also uses. See
+    /// docs/learnings/new-simulator-keyboard-shows-slide-to-type-tutorial.md.
+    ///
+    /// `timeout` is how long the panel is given to appear after the keyboard
+    /// has; it came up with the keys in every run seen, so this is only
+    /// insurance against it trailing them.
+    func dismissSlideToTypeIntroduction(in app: XCUIApplication, timeout: TimeInterval = 1,
+                                        file: StaticString = #filePath, line: UInt = #line) {
+        let intro = app.otherElements["UIContinuousPathIntroductionView"]
+        guard intro.waitForExistence(timeout: timeout) else { return }
+        let proceed = intro.buttons.firstMatch
+        XCTAssertTrue(proceed.waitForExistence(timeout: 2),
+                      "the Slide to Type introduction has no button to dismiss it",
+                      file: file, line: line)
+        proceed.tap()
+        XCTAssertTrue(intro.waitForNonExistence(timeout: 5),
+                      "the Slide to Type introduction stayed over the keyboard after Continue",
+                      file: file, line: line)
+    }
+
     /// The Rename alert's text field. SwiftUI does not forward an
     /// `accessibilityIdentifier` set on an alert's `TextField`, so it is found
     /// through the alert itself.
