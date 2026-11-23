@@ -1033,4 +1033,93 @@ final class ImportServiceTests: XCTestCase {
 
         try assertRestored(id, outcome)
     }
+
+    /// Another `freedoom1.wad` with different bytes (a different Freedoom
+    /// release, say), imported after Phase 1 was released, must not be
+    /// attached to the released row: it gets a row and a stored file of its
+    /// own, and the original bytes still restore the released row.
+    private func importOtherFreedoom1() async throws -> (outcome: ImportOutcome, row: WADFile) {
+        let data = makeWAD(magic: "IWAD", lumps: ["E1M1", "THINGS"])
+        let dir = tmp.appendingPathComponent("Other", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("freedoom1.wad")
+        try data.write(to: url)
+        let outcome = await importer.importFiles(at: [url], from: .picker)
+        let row = try XCTUnwrap(try library.findWAD(sha1: WADStore.sha1(of: data)))
+        return (outcome, row)
+    }
+
+    func testADifferentFileNamedLikeAReleasedRowGetsItsOwnRowAndFile() async throws {
+        let original = tmp.appendingPathComponent("original.wad")
+        let id = try releaseBundledFreedoom(copyTo: original)
+
+        let (other, otherRow) = try await importOtherFreedoom1()
+
+        XCTAssertEqual(other.imported.count, 1)
+        XCTAssertNotEqual(otherRow.id, id)
+        let released = try XCTUnwrap(try library.wad(id: id))
+        XCTAssertNotEqual(otherRow.filename, released.filename, "each row needs its own stored file")
+        XCTAssertEqual(library.fileStatus(for: released), .missing,
+                       "the released row must not pick up a different file's bytes")
+        XCTAssertEqual(library.fileStatus(for: otherRow), .imported)
+
+        let restore = await importer.importFiles(at: [original], from: .picker)
+
+        XCTAssertTrue(restore.duplicates.isEmpty, "only bytes matching the row's hash restore it")
+        XCTAssertEqual(restore.imported.count, 1)
+        let restored = try XCTUnwrap(try library.wad(id: id))
+        XCTAssertEqual(library.fileStatus(for: restored), .imported)
+        XCTAssertEqual(try WADStore.sha1(ofFileAt: library.fileURL(for: restored)), restored.sha1)
+        XCTAssertEqual(try WADStore.sha1(ofFileAt: library.fileURL(for: otherRow)), otherRow.sha1)
+        XCTAssertEqual(library.saveSlots(forKey: id).map(\.id), ["woofsav0.dsg"])
+    }
+
+    func testDeletingAReleasedRowLeavesAnotherRowsFileOfTheSameName() async throws {
+        let id = try releaseBundledFreedoom(copyTo: tmp.appendingPathComponent("original.wad"))
+        let (_, otherRow) = try await importOtherFreedoom1()
+
+        try library.deleteWAD(try XCTUnwrap(try library.wad(id: id)))
+
+        XCTAssertEqual(library.fileStatus(for: otherRow), .imported)
+    }
+
+    /// #506's import gate and #503's reserved store names compose: imports
+    /// of different files with the same name, started at once from two
+    /// routes, each end up with a row and a stored file of their own, and
+    /// the released Freedoom row is restored only by its own bytes.
+    func testConcurrentImportsOfDifferentFilesWithOneNameEachGetTheirOwnFile() async throws {
+        let original = tmp.appendingPathComponent("Original", isDirectory: true)
+        try FileManager.default.createDirectory(at: original, withIntermediateDirectories: true)
+        let originalURL = original.appendingPathComponent("freedoom1.wad")
+        let id = try releaseBundledFreedoom(copyTo: originalURL)
+
+        var others: [(url: URL, sha1: String)] = []
+        for (index, lumps) in [["E1M1", "THINGS"], ["E1M2", "THINGS"]].enumerated() {
+            let data = makeWAD(magic: "IWAD", lumps: lumps)
+            let dir = tmp.appendingPathComponent("Other\(index)", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let url = dir.appendingPathComponent("freedoom1.wad")
+            try data.write(to: url)
+            others.append((url, WADStore.sha1(of: data)))
+        }
+
+        let importer = self.importer!
+        let tasks = [
+            Task { _ = await importer.importFiles(at: [others[0].url], from: .picker) },
+            Task { _ = await importer.importFiles(at: [originalURL], from: .openIn) },
+            Task { _ = await importer.importFiles(at: [others[1].url], from: .picker) },
+        ]
+        for task in tasks { await task.value }
+
+        let restored = try XCTUnwrap(try library.wad(id: id))
+        let rows = try [restored] + others.map { try XCTUnwrap(try library.findWAD(sha1: $0.sha1)) }
+        XCTAssertEqual(Set(rows.map(\.id)).count, 3, "every file has a row of its own")
+        XCTAssertEqual(Set(rows.map(\.filename)).count, 3, "every row has a stored file of its own")
+        for row in rows {
+            XCTAssertEqual(library.fileStatus(for: row), .imported, row.filename)
+            XCTAssertEqual(try WADStore.sha1(ofFileAt: library.fileURL(for: row)), row.sha1,
+                           "\(row.filename) must hold its own row's bytes")
+        }
+        XCTAssertEqual(library.saveSlots(forKey: id).map(\.id), ["woofsav0.dsg"])
+    }
 }

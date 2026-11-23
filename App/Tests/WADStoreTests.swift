@@ -81,6 +81,14 @@ final class WADStoreTests: XCTestCase {
         XCTAssertFalse(second.isDuplicate)
     }
 
+    /// A row whose file is missing still owns its name (issue #503): a new
+    /// file must not be stored under it even though nothing is on disk.
+    func testReservedNameIsSkippedWithNoFileOnDisk() throws {
+        let stored = try store.store(fileAt: writeSource("x.wad", "one"), preferredName: "map.wad",
+                                     precomputedSHA1: nil, reserved: ["map.wad"])
+        XCTAssertEqual(stored.filename, "map (2).wad")
+    }
+
     func testFilenameWithSpacesSurvives() throws {
         let src = try writeSource("Eviternity II.wad", "big")
         let stored = try store.store(fileAt: src, preferredName: "Eviternity II.wad")

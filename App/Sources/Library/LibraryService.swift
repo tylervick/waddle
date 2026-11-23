@@ -130,23 +130,41 @@ final class LibraryService {
     /// `fileStatus` reports it `.missing`, so importing byte-identical content
     /// takes `ImportService`'s repair path and restores it under the same id.
     ///
-    /// Its filename is kept unless the store already holds a *different* file
-    /// by that name, which the row would otherwise claim as its own: content
-    /// matching the row's hash cannot have been imported (it deduped against
-    /// the bundled row), so any file there is someone else's. The row then
-    /// takes a name nothing in the store uses, and the repair repoints it.
+    /// Its filename is kept unless another row already claims that store
+    /// name, or the store holds a *different* file by it. In both cases the
+    /// row would take over someone else's file: content matching the row's
+    /// hash cannot have been imported (it deduped against the bundled row),
+    /// so any file there is someone else's. The row then takes a name
+    /// nothing uses, and the repair repoints it. From here on the row keeps
+    /// its name reserved (`claimedStoreFilenames`), so a later import of a
+    /// different file by the same name is stored under a name of its own.
     private func releaseFromBundle(_ wad: WADFile) throws {
         wad.isBundled = false
+        let claimed = try claimedStoreFilenames(excluding: wad)
         let base = (wad.filename as NSString).deletingPathExtension
         let ext = (wad.filename as NSString).pathExtension
         var candidate = wad.filename
         var counter = 2
-        while FileManager.default.fileExists(atPath: store.url(forFilename: candidate).path),
-              (try? WADStore.sha1(ofFileAt: store.url(forFilename: candidate))) != wad.sha1 {
+        func isTaken(_ name: String) -> Bool {
+            if claimed.contains(name) { return true }
+            let url = store.url(forFilename: name)
+            return FileManager.default.fileExists(atPath: url.path)
+                && (try? WADStore.sha1(ofFileAt: url)) != wad.sha1
+        }
+        while isTaken(candidate) {
             candidate = ext.isEmpty ? "\(base) (\(counter))" : "\(base) (\(counter)).\(ext)"
             counter += 1
         }
         wad.filename = candidate
+    }
+
+    /// Store filenames that library rows own, whether or not the file is on
+    /// disk right now — what `WADStore.store` must not hand to a new file
+    /// (its `reserved`). `excluding` leaves out the row a repair is about to
+    /// repoint, so it may take its own old name back. Bundled rows name
+    /// files in the app bundle, not the store, so they claim nothing.
+    func claimedStoreFilenames(excluding wad: WADFile? = nil) throws -> Set<String> {
+        Set(try allWADs().filter { !$0.isBundled && $0.id != wad?.id }.map(\.filename))
     }
 
     /// `UserDefaults` keys for the one-time launch-order migration steps (see
@@ -513,7 +531,10 @@ final class LibraryService {
             try? FileManager.default.removeItem(at: Self.savesDirectory(forGameID: own.id))
             context.delete(own)
         }
-        if !wad.isBundled {
+        // Another row naming the same store file (data from before store
+        // names were reserved, issue #503) keeps it: deleting this row must
+        // never take that row's file.
+        if !wad.isBundled, !(try claimedStoreFilenames(excluding: wad).contains(wad.filename)) {
             try? store.delete(filename: wad.filename)
         }
         context.delete(wad)

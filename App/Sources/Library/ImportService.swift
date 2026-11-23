@@ -500,7 +500,8 @@ final class ImportService {
             // and repoint the row, under its own id, rather than reporting a
             // duplicate that doesn't actually exist anywhere.
             do {
-                let stored = try await copyIntoStore(url: url, name: name, sha1: sha1)
+                let stored = try await copyIntoStore(url: url, name: name, sha1: sha1,
+                                                     reserved: library.claimedStoreFilenames(excluding: existing))
                 try library.repairFilename(of: existing, to: stored.filename, hasMaps: hasMaps)
                 let displayName = (stored.filename as NSString).deletingPathExtension
                 outcome.imported.append(displayName)
@@ -516,7 +517,8 @@ final class ImportService {
             return
         }
         do {
-            let stored = try await copyIntoStore(url: url, name: name, sha1: sha1)
+            let stored = try await copyIntoStore(url: url, name: name, sha1: sha1,
+                                                 reserved: library.claimedStoreFilenames())
             let wad = try library.registerImported(filename: stored.filename, sha1: stored.sha1,
                                                     kind: kind, family: family, hasMaps: hasMaps)
             let displayName = (stored.filename as NSString).deletingPathExtension
@@ -531,10 +533,11 @@ final class ImportService {
     /// shared state, so a local copy of it is safe to hand into a detached
     /// task (capturing `self`, the MainActor-isolated ImportService,
     /// wouldn't be).
-    private func copyIntoStore(url: URL, name: String, sha1: String) async throws -> StoredWAD {
+    private func copyIntoStore(url: URL, name: String, sha1: String,
+                               reserved: Set<String>) async throws -> StoredWAD {
         let store = self.store
         return try await Task.detached {
-            try store.store(fileAt: url, preferredName: name, precomputedSHA1: sha1)
+            try store.store(fileAt: url, preferredName: name, precomputedSHA1: sha1, reserved: reserved)
         }.value
     }
 }

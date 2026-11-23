@@ -260,4 +260,17 @@ final class LibraryServiceTests: XCTestCase {
         XCTAssertNotEqual(released.filename, "freedoom1.wad")
         XCTAssertEqual(service.fileStatus(for: released), .missing)
     }
+
+    /// Rows from before store names were reserved can name one store file
+    /// twice. Deleting either must leave the file for the other.
+    func testDeletingARowLeavesAFileAnotherRowStillNames() throws {
+        let kept = try registerWithBacking("shared.wad", kind: .pwad)
+        let deleted = try service.registerImported(filename: "shared.wad", sha1: "sha-other",
+                                                   kind: WADKind.pwad.rawValue,
+                                                   family: GameFamily.unknown.rawValue)
+
+        try service.deleteWAD(deleted)
+
+        XCTAssertEqual(service.fileStatus(for: kept), .imported)
+    }
 }
