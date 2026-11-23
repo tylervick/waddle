@@ -490,11 +490,15 @@ final class ImportService {
         // indexed DB lookup on Main, before ever touching the (potentially
         // huge) file again for a copy.
         if let existing = try? library.findWAD(sha1: sha1) {
-            if existing.isBundled ||
-               FileManager.default.fileExists(atPath: library.fileURL(for: existing).path) {
+            if FileManager.default.fileExists(atPath: library.fileURL(for: existing).path) {
                 outcome.duplicates.append((name as NSString).deletingPathExtension)
                 return
             }
+            // The DB row is legit but its backing file vanished from disk
+            // (deleted out-of-band, or a bundled file the app no longer
+            // ships — issue #503) — restore it under a fresh store filename
+            // and repoint the row, under its own id, rather than reporting a
+            // duplicate that doesn't actually exist anywhere.
             do {
                 let stored = try await copyIntoStore(url: url, name: name, sha1: sha1)
                 try library.repairFilename(of: existing, to: stored.filename, hasMaps: hasMaps)

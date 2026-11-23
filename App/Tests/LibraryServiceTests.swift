@@ -171,4 +171,93 @@ final class LibraryServiceTests: XCTestCase {
         XCTAssertTrue(service.saveSlots(forKey: freedoom1.id).isEmpty,
                       "seeded a save for an item that was never played")
     }
+
+    // MARK: A build that no longer bundles Freedoom (issue #503)
+
+    /// Points the service's bundle location at an empty directory under `tmp`,
+    /// which is how a build without `GameData/freedoom*.wad` looks to it.
+    private func shipWithoutFreedoom() throws {
+        let empty = tmp.appendingPathComponent("EmptyGameData-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        service.bundledContentDirectory = empty
+    }
+
+    private func writeSave(forGameID id: UUID) throws -> URL {
+        let dir = LibraryService.savesDirectory(forGameID: id)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        try Data("save".utf8).write(to: dir.appendingPathComponent("woofsav0.dsg"))
+        return dir
+    }
+
+    func testSeederOnAFreshStoreWithoutBundledFilesRegistersNothing() throws {
+        try shipWithoutFreedoom()
+
+        XCTAssertNoThrow(try service.seedBundledContentIfNeeded(),
+                         "WaddleApp.init turns a throw here into fatalError on first launch")
+
+        XCTAssertTrue(try service.allWADs().isEmpty)
+        XCTAssertTrue(try service.games().isEmpty)
+    }
+
+    func testSeederReleasesABundledRowWhoseFileIsGoneKeepingItsGameAndSaves() throws {
+        try service.seedBundledContentIfNeeded()
+        let before = try service.allWADs()
+        let phase1 = try XCTUnwrap(before.first { $0.filename == "freedoom1.wad" })
+        let id = phase1.id, sha1 = phase1.sha1
+        let game = try XCTUnwrap(try service.game(id: id))
+        try service.hide(game)
+        let saves = try writeSave(forGameID: id)
+
+        try shipWithoutFreedoom()
+        try service.seedBundledContentIfNeeded()
+
+        XCTAssertEqual(Set(try service.allWADs().map(\.id)), Set(before.map(\.id)),
+                       "no row may be dropped or re-created under a fresh id")
+        let released = try XCTUnwrap(try service.wad(id: id))
+        XCTAssertEqual(service.fileStatus(for: released), .missing)
+        XCTAssertFalse(released.isBundled)
+        XCTAssertEqual(released.displayName, "Freedoom Phase 1")
+        XCTAssertEqual(released.sha1, sha1, "the hash is what a re-import is matched on")
+        XCTAssertEqual(released.kindRaw, WADKind.iwad.rawValue)
+        let kept = try XCTUnwrap(try service.game(id: id), "its base game must survive")
+        XCTAssertTrue(kept.isBaseGame)
+        XCTAssertTrue(kept.isHidden, "the player's Remove from Shelf must survive")
+        XCTAssertEqual(try service.games().count, 2)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: saves.path))
+        XCTAssertEqual(service.saveSlots(forKey: id).map(\.id), ["woofsav0.dsg"])
+    }
+
+    func testSeederWithoutBundledFilesIsIdempotent() throws {
+        try service.seedBundledContentIfNeeded()
+        try shipWithoutFreedoom()
+
+        func snapshot() throws -> [String] {
+            try service.allWADs().map {
+                "\($0.id) \($0.filename) \($0.isBundled) \($0.displayName) \(service.fileStatus(for: $0))"
+            }.sorted()
+            + service.games().map { "\($0.id) \($0.name) \($0.isHidden)" }.sorted()
+        }
+        try service.seedBundledContentIfNeeded()
+        let once = try snapshot()
+        try service.seedBundledContentIfNeeded()
+
+        XCTAssertEqual(try snapshot(), once)
+    }
+
+    /// Content matching the bundled hash can never have been imported (it
+    /// deduped against the bundled row), so a store file under the bundled
+    /// name is somebody else's. The released row must not claim it.
+    func testReleasedRowDoesNotClaimADifferentStoredFileWithItsName() throws {
+        try service.seedBundledContentIfNeeded()
+        let phase1 = try XCTUnwrap(try service.allWADs().first { $0.filename == "freedoom1.wad" })
+        try Data(repeating: 0xCD, count: 64).write(to: tmp.appendingPathComponent("freedoom1.wad"))
+
+        try shipWithoutFreedoom()
+        try service.seedBundledContentIfNeeded()
+
+        let released = try XCTUnwrap(try service.wad(id: phase1.id))
+        XCTAssertNotEqual(released.filename, "freedoom1.wad")
+        XCTAssertEqual(service.fileStatus(for: released), .missing)
+    }
 }

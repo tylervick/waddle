@@ -976,4 +976,61 @@ final class ImportServiceTests: XCTestCase {
         let asZip = await importer.importFiles(at: [named], from: .openIn)
         XCTAssertEqual(asZip.rejected, ["report.zip": "No WAD or DEH files inside the zip."])
     }
+
+    // MARK: Restoring Freedoom a build no longer bundles (issue #503)
+
+    /// Seeds the real bundled rows, gives Phase 1 a save, keeps a copy of its
+    /// bytes, then relaunches as a build that ships no Freedoom. Returns the
+    /// Phase 1 row's id and the copy.
+    private func releaseBundledFreedoom(copyTo copy: URL) throws -> UUID {
+        try library.seedBundledContentIfNeeded()
+        let phase1 = try XCTUnwrap(library.allWADs().first { $0.isBundled && $0.filename == "freedoom1.wad" })
+        try FileManager.default.copyItem(at: library.fileURL(for: phase1), to: copy)
+        let saves = LibraryService.savesDirectory(forGameID: phase1.id)
+        try FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: saves) }
+        try Data("save".utf8).write(to: saves.appendingPathComponent("woofsav0.dsg"))
+
+        let empty = tmp.appendingPathComponent("EmptyGameData", isDirectory: true)
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        library.bundledContentDirectory = empty
+        try library.seedBundledContentIfNeeded()
+        XCTAssertEqual(library.fileStatus(for: phase1), .missing, "precondition")
+        return phase1.id
+    }
+
+    private func assertRestored(_ id: UUID, _ outcome: ImportOutcome,
+                                file: StaticString = #filePath, line: UInt = #line) throws {
+        XCTAssertTrue(outcome.duplicates.isEmpty, "a missing file is not a duplicate", file: file, line: line)
+        XCTAssertEqual(outcome.imported.count, 1, file: file, line: line)
+        XCTAssertEqual(try library.allWADs().count, 2, "restored in place, not added", file: file, line: line)
+        let restored = try XCTUnwrap(try library.wad(id: id), file: file, line: line)
+        XCTAssertEqual(library.fileStatus(for: restored), .imported, file: file, line: line)
+        XCTAssertEqual(restored.displayName, "Freedoom Phase 1", file: file, line: line)
+        XCTAssertNotNil(try library.game(id: id), "its base game keeps its id", file: file, line: line)
+        XCTAssertEqual(library.saveSlots(forKey: id).map(\.id), ["woofsav0.dsg"],
+                       "the game's existing saves are listed again", file: file, line: line)
+    }
+
+    func testImportingFreedoomAgainRestoresTheReleasedRowUnderItsOriginalID() async throws {
+        let copy = tmp.appendingPathComponent("freedoom1.wad")
+        let id = try releaseBundledFreedoom(copyTo: copy)
+
+        let outcome = await importer.importFiles(at: [copy], from: .picker)
+
+        try assertRestored(id, outcome)
+        XCTAssertEqual(outcome.games, outcome.imported, "an IWAD is reported as a game")
+    }
+
+    func testAdoptingFreedoomAgainRestoresTheReleasedRowUnderItsOriginalID() async throws {
+        // adoptLooseFiles scans the real Documents directory, so the copy has
+        // to be dropped there.
+        let copy = URL.documentsDirectory.appendingPathComponent("freedoom1-\(UUID().uuidString).wad")
+        defer { try? FileManager.default.removeItem(at: copy) }
+        let id = try releaseBundledFreedoom(copyTo: copy)
+
+        let outcome = await importer.adoptLooseFiles()
+
+        try assertRestored(id, outcome)
+    }
 }
