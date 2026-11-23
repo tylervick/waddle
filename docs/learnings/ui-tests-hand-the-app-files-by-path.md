@@ -26,6 +26,12 @@ Two things about the Freedoom seam that are easy to trip on:
   Freedoom, including relaunches and cleanup launches.
 - **Imported Freedoom is not factory state.** `LibraryService.isFactoryState()`
   is false as soon as a non-bundled file exists, so a seam launch never shows
-  the welcome card. A test of the welcome card or of bundled status (the
-  "Bundled" label in `FilesScreenTests`) still reads the bundle until #505
-  changes what those mean.
+  the welcome card. Every reset test that taps a first-row tile used to check,
+  incidentally, that the row stays tappable under the card (the defect
+  `EngineSmokeTests` caught in a30d17d8); with the seam none of them does.
+  `EngineSmokeTests.testFirstRowTileStartsASessionUnderTheWelcomeCard` keeps
+  that check on purpose, on the bundle.
+- **Some suites stay on the bundle until #505.** Anything that tests the
+  welcome card, bundled status (the "Bundled" label in `FilesScreenTests`), or
+  what the App Store sees (`ScreenshotCaptureTests`, whose shots must show the
+  shipping build's bundled Freedoom) does not call `provideFreedoom()`.

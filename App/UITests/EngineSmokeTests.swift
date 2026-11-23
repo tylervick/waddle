@@ -52,4 +52,45 @@ final class EngineSmokeTests: XCTestCase {
                 "it should run ~\(autoquitSeconds)s until WADDLE_AUTOQUIT_SECONDS fires")
         }
     }
+
+    /// The first tile row stays playable in one tap while the welcome card
+    /// is above it: a fresh, factory-state library, at the default text size
+    /// and at the largest, where the card is tallest and the first row is a
+    /// single full-width tile that reaches past the fold.
+    ///
+    /// Every other suite that plays Freedoom does it through
+    /// `provideFreedoom()`, which imports it, and an imported file ends
+    /// factory state (`LibraryService.isFactoryState()`), so none of them
+    /// sees the welcome card any more (issue #504's review). Before the seam,
+    /// those reset tests tapped `playFreedoom1` under the card on every run,
+    /// and that is how this suite caught the card pushing the row out of
+    /// reach (a30d17d8, `ShelfHeroLayout.welcomeCardShowsDescription`). This
+    /// test keeps that check on purpose, so it runs on the bundle: no
+    /// `provideFreedoom()`. #505, which stops bundling Freedoom, decides what a
+    /// factory-state shelf holds and moves this test onto it.
+    @MainActor
+    func testFirstRowTileStartsASessionUnderTheWelcomeCard() throws {
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orientation = .portrait
+        for size in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryAccessibilityXXXL"] {
+            let app = XCUIApplication()
+            app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
+            app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "3"
+            app.launchArguments = ["-UIPreferredContentSizeCategoryName", size]
+            app.launch()
+
+            let card = app.descendants(matching: .any).matching(identifier: "welcomeCard").firstMatch
+            XCTAssertTrue(card.waitForExistence(timeout: 10),
+                          "\(size): no welcome card on a reset store, so this test checks nothing")
+            let play = app.buttons["playFreedoom1"]
+            XCTAssertTrue(play.waitForExistence(timeout: 10), "\(size): no Freedoom Phase 1 tile")
+            play.tap()
+
+            let exitLabel = app.staticTexts["engineExitLabel"]
+            XCTAssertTrue(exitLabel.waitForExistence(timeout: 90),
+                          "\(size): tapping the first-row tile under the welcome card started no session")
+            XCTAssertEqual(exitLabel.label, "Engine exited: 0", "\(size)")
+            app.terminate()
+        }
+    }
 }
