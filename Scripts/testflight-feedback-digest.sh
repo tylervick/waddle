@@ -136,31 +136,78 @@ def ids(path):
         return {line.strip() for line in f if line.strip()}
 new_ids = ids(os.environ["STATE_AFTER"]) - ids(os.environ["SEEN_BEFORE"])
 
-def safe(text):
-    # A tester's text must not become structure: no HTML comment (a forged
-    # tf-feedback-id marker would mark another submission seen), no tags, no
-    # @mention that notifies a stranger from the repository's bot. Entities
-    # and a zero-width space keep it readable.
-    return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            .replace("@", "@\u200b"))
+# Everything after a heading is the fetcher's copy of what Apple returned,
+# and the comment is a tester's own words: Markdown, HTML, `#1`, `@login`,
+# fences. Escaping entities is not enough -- `# X` or `---` still makes a
+# heading, a `- ` line a fake field, `#1` a cross-reference -- and entities
+# are shown literally inside a tester's own backticks. So the comment goes
+# into a fenced code block whose backtick fence is longer than any backtick
+# run in the text (the text cannot close it), and each one-line field into a
+# code span chosen the same way. Inside both, GitHub renders nothing: no
+# heading, tag, mention or reference. One thing survives code: the markers
+# are read back from the RAW body, so an HTML comment opener in the text is
+# broken with a zero-width space, which a reader cannot see.
+ZWSP = "​"
+
+def inert(text):
+    return text.replace("<!--", "<!" + ZWSP + "--")
+
+def ticks(text, least):
+    return "`" * max(least, max((len(r) for r in re.findall(r"`+", text)), default=0) + 1)
+
+def code_span(text):
+    text = inert(text)
+    t = ticks(text, 1)
+    return f"{t} {text} {t}"
+
+def fenced(text, indent):
+    text = inert(text)
+    t = ticks(text, 3)
+    lines = [indent + l if l.strip() else "" for l in text.split("\n")]
+    return [indent + t] + lines + [indent + t]
 
 heading = re.compile(r"^## (Screenshot feedback|Crash feedback) (\S+)$")
-sections = []  # (id, lines)
+field = re.compile(r"^- ([a-z]+): ?(.*)$")
+
+class Section:
+    def __init__(self, sid, head):
+        self.sid, self.head = sid, head
+        self.fields = []      # (label, value): the one-line fields before the comment
+        self.comment = None   # the tester's text, every line of it
+        self.cut = False
+
+    def add(self, line):
+        m = field.match(line)
+        if self.comment is None and m and m.group(1) != "comment":
+            self.fields.append((m.group(1), m.group(2)))
+        elif self.comment is None and m:
+            self.comment = m.group(2)
+        elif self.comment is None and not line.strip():
+            pass
+        elif self.comment is None:
+            # Not the fetcher's shape: keep it, but only as inert text.
+            self.comment = line
+        else:
+            self.comment += "\n" + line
+
+    def render(self):
+        out = [self.head] + [f"- {k}: {code_span(v)}" for k, v in self.fields]
+        if self.comment is not None:
+            out.append("- comment:")
+            out += fenced(self.comment.rstrip("\n").rstrip() or "-", "  ")
+        if self.cut:
+            out.append("  _... (truncated: the submission is larger than one comment allows)_")
+        return "\n".join(out)
+
+sections = []
 with open(os.environ["RENDER"]) as f:
     for line in f:
         line = line.rstrip("\n")
         m = heading.match(line)
         if m and m.group(2) in new_ids:
-            sections.append((m.group(2), [line]))
+            sections.append(Section(m.group(2), line))
         elif sections:
-            # Every line after the heading carries the fetcher's copy of what
-            # Apple returned, the tester's comment included: escape it all.
-            line = safe(line)
-            # Continuation of a multi-line field (a tester's comment): keep it
-            # inside the list item so it cannot read as structure of its own.
-            if line and not line.startswith("- "):
-                line = "  " + line
-            sections[-1][1].append(line)
+            sections[-1].add(line)
 
 today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
 MARK = "<!-- tf-feedback-id: {} -->\n"
@@ -168,12 +215,12 @@ MARK = "<!-- tf-feedback-id: {} -->\n"
 def body(kept, deferred):
     n = len(kept)
     out = [f"### TestFlight feedback, {today}: {n} new submission{'s' if n != 1 else ''}\n\n"]
-    for sid, lines in kept:
-        out.append("\n".join(lines).rstrip("\n") + "\n\n")
+    for sec in kept:
+        out.append(sec.render() + "\n\n")
     if deferred:
         out.append(f"_{deferred} more submission{'s' if deferred != 1 else ''} waiting; the next run posts them._\n\n")
-    for sid, _ in kept:
-        out.append(MARK.format(sid))
+    for sec in kept:
+        out.append(MARK.format(sec.sid))
     return "".join(out)
 
 def size(text):
@@ -181,18 +228,16 @@ def size(text):
     # and what `wc -c` measures when the suite checks the posted body.
     return len(text.encode("utf-8"))
 
-def truncated(section, deferred):
+def truncated(sec, deferred):
     # A single submission larger than the whole budget would block the queue
-    # forever; cut its text until the complete body fits, and say so.
-    sid, lines = section
-    note = "\n  ... (truncated: the submission is larger than one comment allows)"
-    text = "\n".join(lines)
+    # forever; cut its comment until the complete body fits, and say so. The
+    # cut is made in the text, before fencing, so the fence always closes.
+    sec.cut = True
     while True:
-        candidate = (sid, (text + note).split("\n"))
-        over = size(body([candidate], deferred)) - budget
-        if over <= 0 or len(text) <= len(lines[0]):
-            return candidate
-        text = text[:max(len(lines[0]), len(text) - over)]
+        over = size(body([sec], deferred)) - budget
+        if over <= 0 or not sec.comment:
+            return sec
+        sec.comment = sec.comment[:max(0, len(sec.comment) - over)]
 
 # Greedy: add submissions while the COMPLETE body (header, deferred line and
 # markers included) stays within the budget. GitHub rejects a comment over

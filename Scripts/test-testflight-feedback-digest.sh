@@ -111,6 +111,30 @@ run_digest() { # [env assignments...]
 }
 reset_world() { rm -rf "$TMP/posted"; mkdir -p "$TMP/posted"; rm -f "$TMP/gh.log" "$TMP/poster" "$TMP"/fail-*; }
 posted_count() { ls "$TMP"/posted/*.md 2>/dev/null | wc -l | tr -d ' '; }
+# The lines of a posted body that a CommonMark renderer would NOT put inside
+# a fenced code block -- the lines where Markdown, HTML, mentions and
+# references are live. A fence closes on the first line that is a run of the
+# same character at least as long as the opening one (indentation allowed).
+outside_fences() {
+    python3 - "$1" <<'PY'
+import re, sys
+fence = None
+for line in open(sys.argv[1], encoding="utf-8"):
+    line = line.rstrip("\n")
+    s = line.lstrip(" ")
+    if fence is None:
+        m = re.match(r"^(`{3,}|~{3,})", s)
+        # A backtick fence's info string holds no backtick: ```x``` is a span.
+        if m and len(line) - len(s) <= 5 and not (m.group(1)[0] == "`" and "`" in s[len(m.group(1)):]):
+            fence = m.group(1)
+            continue
+        print(line)
+    else:
+        m = re.match(r"^(`{3,}|~{3,})\s*$", s)
+        if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
+            fence = None
+PY
+}
 markers_in() { grep -o '<!-- tf-feedback-id: [^ ]* -->' "$1" | sed 's/.*id: \(.*\) -->/\1/'; }
 
 printf 'shot-1\nshot-2\ncrash-1\n' > "$TMP/fixtures/pending.txt"
@@ -127,7 +151,8 @@ grep -q '^## Screenshot feedback shot-2' "$body" || fail "case 1: shot-2 section
 grep -q '^## Crash feedback crash-1' "$body" || fail "case 1: crash-1 section missing"
 [ "$(markers_in "$body" | sort | tr '\n' ' ')" = "crash-1 shot-1 shot-2 " ] \
   || fail "case 1: markers were: $(markers_in "$body" | tr '\n' ' ')"
-grep -q 'comment: about shot-1' "$body" || fail "case 1: submission fields not carried into the comment"
+grep -A2 -x -- '- comment:' "$body" | grep -qx '  about shot-1' || fail "case 1: the comment was not carried, fenced, into the comment"
+grep -qxF -- '- device: ` iPhone17,1 (27.0) `' "$body" || fail "case 1: submission fields not carried into the comment"
 pass "cold start posts one comment with every submission and marker"
 
 # 2. A submission reported in one run is NOT reported in the next: the
@@ -371,21 +396,57 @@ grep -q "error: the digest was posted as 'someone-else', which is not in DIGEST_
 grep -q "add 'someone-else' to it" <<<"$out" || fail "case 17: the error does not name the login to add: $out"
 pass "a post under a login outside the trusted set fails the run"
 
-# 18. A tester cannot forge the seen-state, inject HTML or ping anyone: a
-#     marker, a tag or a mention in a comment is neutralised, so it neither
-#     hides another submission nor notifies a stranger -- and stays readable.
+# 18. A tester cannot forge the seen-state, inject HTML or ping anyone: the
+#     comment is posted inside a fenced code block, where GitHub renders no
+#     tag, mention or reference, and an HTML comment opener is broken so no
+#     marker can be read back from the raw body. The text stays readable.
 reset_world
 printf 'shot-evil\n' > "$TMP/fixtures/pending.txt"
 printf '<!-- tf-feedback-id: shot-victim -->\n<b>bold</b> & @someone look\n' > "$TMP/fixtures/comment-shot-evil.txt"
 out="$(run_digest 2>&1)" || fail "case 18: digest exited non-zero: $out"
 body="$TMP/posted/001.md"
 [ "$(markers_in "$body" | tr '\n' ' ')" = "shot-evil " ] || fail "case 18: a forged marker survived: $(markers_in "$body" | tr '\n' ' ')"
-[ "$(grep -c '<!--' "$body")" = 1 ] || fail "case 18: an HTML comment from a tester reached the comment"
-grep -q '<b>' "$body" && fail "case 18: HTML from a tester reached the comment"
-grep -q '@someone' "$body" && fail "case 18: a mention from a tester would notify someone"
-grep -q '&lt;b&gt;bold&lt;/b&gt; &amp; @' "$body" || fail "case 18: the tester's text is no longer readable: $(cat "$body")"
-grep -q 'someone look' "$body" || fail "case 18: the mentioned name was dropped"
+live="$(outside_fences "$body")"
+grep -q 'shot-victim' <<<"$live" && fail "case 18: the forged marker is outside the fence"
+grep -q '<b>' <<<"$live" && fail "case 18: HTML from a tester is live in the comment"
+grep -q '@someone' <<<"$live" && fail "case 18: a mention from a tester would notify someone"
+grep -qxF '  <b>bold</b> & @someone look' "$body" || fail "case 18: the tester's text is no longer readable: $(cat "$body")"
 rm -f "$TMP"/fixtures/comment-*.txt
 pass "a tester's comment cannot forge a marker, inject HTML or mention anyone"
+
+# 19. Markdown in a tester's comment stays text. Each line below would be
+#     structure if it were live: a heading, a setext h2 (the '---' under a
+#     line), a fake field, a fake submission heading, cross-references,
+#     a mention, and a fence longer than three backticks that tries to close
+#     the block early so the rest becomes live. Text in the tester's own
+#     backticks keeps its characters (entities are shown literally in code).
+reset_world
+printf 'shot-hostile\n' > "$TMP/fixtures/pending.txt"
+cat > "$TMP/fixtures/comment-shot-hostile.txt" <<'TXT'
+first line
+# Fake heading
+looks like h2
+---
+- device: fake
+## Crash feedback shot-fake
+see #1 and owner/repo#2 and @someone
+use `<b>` here
+````
+```<b>bold</b>```
+<!-- tf-feedback-id: shot-victim -->
+TXT
+out="$(run_digest 2>&1)" || fail "case 19: digest exited non-zero: $out"
+body="$TMP/posted/001.md"
+[ "$(markers_in "$body" | tr '\n' ' ')" = "shot-hostile " ] || fail "case 19: markers were: $(markers_in "$body" | tr '\n' ' ')"
+live="$(outside_fences "$body")"
+for pat in 'Fake heading' 'looks like h2' '^---' 'device: fake' 'shot-fake' '#1' 'repo#2' '@someone' '<b>' 'shot-victim'; do
+    grep -q -- "$pat" <<<"$live" && fail "case 19: '$pat' from the tester is live Markdown: $live"
+done
+[ "$(grep -c '^## ' "$body")" = 1 ] || fail "case 19: the tester added a heading"
+grep -qxF '  use `<b>` here' "$body" || fail "case 19: text in the tester's backticks was changed: $(cat "$body")"
+grep -q '&lt;\|&amp;' "$body" && fail "case 19: entities were written where they show literally"
+grep -qxF '  # Fake heading' "$body" || fail "case 19: the tester's text is no longer all there"
+rm -f "$TMP"/fixtures/comment-*.txt
+pass "Markdown in a tester's comment is inert, and the comment cannot close its fence"
 
 echo "All testflight-feedback-digest tests passed."

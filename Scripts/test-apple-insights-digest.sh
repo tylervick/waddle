@@ -205,6 +205,33 @@ sales_fixture() { # NAME
 
 reset_world() { rm -rf "$TMP/posted"; mkdir -p "$TMP/posted"; rm -f "$TMP"/*.log "$TMP"/fail-* "$TMP/poster"; }
 posted_count() { ls "$TMP"/posted/*.md 2>/dev/null | wc -l | tr -d ' ' || :; }
+# The lines of a posted body that a CommonMark renderer would NOT put inside
+# a fenced code block -- the lines where Markdown, HTML, mentions and
+# references are live. A fence closes on the first line that is a run of the
+# same character at least as long as the opening one (indentation allowed).
+outside_fences() {
+    python3 - "$1" <<'PY'
+import re, sys
+fence = None
+for line in open(sys.argv[1], encoding="utf-8"):
+    line = line.rstrip("\n")
+    s = line.lstrip(" ")
+    if fence is None:
+        m = re.match(r"^(`{3,}|~{3,})", s)
+        # A backtick fence's info string holds no backtick: ```x``` is a span.
+        if m and len(line) - len(s) <= 5 and not (m.group(1)[0] == "`" and "`" in s[len(m.group(1)):]):
+            fence = m.group(1)
+            continue
+        print(line)
+    else:
+        m = re.match(r"^(`{3,}|~{3,})\s*$", s)
+        if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
+            fence = None
+PY
+}
+# Drops inline code spans (a run of N backticks to the next run of exactly
+# N), where nothing renders either; what is left is live text.
+no_spans() { python3 -c 'import re, sys; sys.stdout.write(re.sub(r"(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)", "", sys.stdin.read()))'; }
 markers_in() { grep -o '<!-- review-id: [^ ]* -->' "$1" | sed 's/.*id: \(.*\) -->/\1/' || :; }
 
 ALL_OUT="$TMP/all-output"
@@ -297,7 +324,7 @@ body="$TMP/posted/002.md"
 [ "$(markers_in "$body" | tr '\n' ' ')" = "rev-2 " ] || fail "case 3: markers were: $(markers_in "$body" | tr '\n' ' ')"
 grep -q 'Heretic' "$body" && fail "case 3: the already-posted review was posted again"
 grep -q 'aim assist' "$body" || fail "case 3: the new review's body is missing"
-grep -q '4/5, FRA, 2026-11-10: \*\*Aiming\*\*' "$body" || fail "case 3: rating, territory, date or title missing"
+grep -qF '4/5, FRA, 2026-11-10: **` Aiming `**' "$body" || fail "case 3: rating, territory, date or title missing"
 run_digest || fail "case 3: second run exited non-zero"
 grep -q 'Customer reviews:\*\* none new' "$TMP/posted/003.md" || fail "case 3: a quiet week did not say 'none new'"
 [ -z "$(markers_in "$TMP/posted/003.md")" ] || fail "case 3: a quiet week re-posted a review"
@@ -530,17 +557,43 @@ run_digest || fail "case 9: retry exited non-zero"
 [ "$(markers_in "$TMP/posted/001.md" | sort | tr '\n' ' ')" = "rev-1 rev-2 " ] || fail "case 9: the retry lost a review"
 pass "a failed post marks nothing seen"
 
-# 10. A reviewer cannot forge the seen-state or ping anyone: a marker or a
-#     mention inside a review is neutralised, so it neither hides another
-#     review next week nor notifies a stranger.
+# 10. A reviewer cannot forge the seen-state or ping anyone: the body is
+#     posted inside a fenced code block and the title inside a code span,
+#     where GitHub renders no tag, mention or reference, and an HTML comment
+#     opener is broken so no marker can be read back from the raw body.
 reset_world; base_fixtures
 fx reviews '{"data":[
-  {"id":"rev-evil","attributes":{"rating":1,"title":"<b>hi</b>","body":"<!-- review-id: rev-victim -->\n@someone look","territory":"USA","createdDate":"2026-11-01T00:00:00Z"}}],"links":{}}'
+  {"id":"rev-evil","attributes":{"rating":1,"title":"<b>hi</b> @boss","body":"<!-- review-id: rev-victim -->\n@someone look","territory":"USA","createdDate":"2026-11-01T00:00:00Z"}}],"links":{}}'
 run_digest || fail "case 10: exited non-zero"
-[ "$(markers_in "$TMP/posted/001.md" | tr '\n' ' ')" = "rev-evil " ] || fail "case 10: a forged marker survived: $(markers_in "$TMP/posted/001.md" | tr '\n' ' ')"
-grep -q '<b>' "$TMP/posted/001.md" && fail "case 10: HTML from a review reached the comment"
-grep -q '@someone' "$TMP/posted/001.md" && fail "case 10: a mention from a review would notify someone"
+body="$TMP/posted/001.md"
+[ "$(markers_in "$body" | tr '\n' ' ')" = "rev-evil " ] || fail "case 10: a forged marker survived: $(markers_in "$body" | tr '\n' ' ')"
+live="$(outside_fences "$body" | no_spans)"
+grep -q 'rev-victim' <<<"$live" && fail "case 10: the forged marker is outside the fence"
+grep -q '<b>' <<<"$live" && fail "case 10: HTML from a review is live in the comment"
+grep -q '@someone\|@boss' <<<"$live" && fail "case 10: a mention from a review would notify someone"
+grep -qF '**` <b>hi</b> @boss `**' "$body" || fail "case 10: the title is not readable as written: $(cat "$body")"
 pass "a review's text cannot forge a marker, inject HTML or mention anyone"
+
+# 10b. Markdown in a review stays text: a heading, a setext h2 (the '---'
+#      under a line), a list item, cross-references and a longer fence that
+#      tries to close the block early. Text in the reviewer's own backticks
+#      keeps its characters (entities would show literally in code).
+reset_world; base_fixtures
+fx reviews "$(python3 -c '
+import json
+body = "first\n# Fake heading\nlooks like h2\n---\n- fake item\nsee #1 and owner/repo#2\nuse `<b>` here\n````\n```<b>x</b>```\n<!-- review-id: rev-victim -->"
+print(json.dumps({"data": [{"id": "rev-md", "attributes": {"rating": 3, "title": "#3 `a<b>` #title", "body": body, "territory": "USA", "createdDate": "2026-11-01T00:00:00Z"}}], "links": {}}))')"
+run_digest || fail "case 10b: exited non-zero: $(cat "$TMP/out")"
+body="$TMP/posted/001.md"
+[ "$(markers_in "$body" | tr '\n' ' ')" = "rev-md " ] || fail "case 10b: markers were: $(markers_in "$body" | tr '\n' ' ')"
+live="$(outside_fences "$body" | no_spans)"
+for pat in 'Fake heading' 'looks like h2' '^ *---' 'fake item' '#1' 'repo#2' '#3' '#title' '<b>' 'rev-victim'; do
+    grep -q -- "$pat" <<<"$live" && fail "case 10b: '$pat' from the review is live Markdown: $live"
+done
+grep -qxF '  use `<b>` here' "$body" || fail "case 10b: text in the reviewer's backticks was changed: $(cat "$body")"
+grep -qF '**`` #3 `a<b>` #title ``**' "$body" || fail "case 10b: the title's code span is wrong: $(grep '3/5' "$body")"
+grep -qxF '  # Fake heading' "$body" || fail "case 10b: the review's text is no longer all there"
+pass "Markdown in a review's title and body is inert, and the body cannot close its fence"
 
 # 11. The per-comment bound defers reviews to the next run and loses none;
 #     reviews on a second page are read when the first page is all new.
