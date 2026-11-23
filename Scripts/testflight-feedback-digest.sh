@@ -28,14 +28,29 @@
 #   DIGEST_BYTES   max characters in one comment, everything included
 #                  (default: 60000)
 #   GH_TOKEN       for `gh api` (issues: write)
+#   DIGEST_TRUSTED_AUTHORS  space-separated logins whose comments are read
+#                  for markers (default: github-actions[bot], which the
+#                  workflow's GITHUB_TOKEN posts as, and the owner of
+#                  DIGEST_REPO, for a run from a person's checkout). The
+#                  set, not one login: the bot and the owner must each see
+#                  the other's markers, or each re-posts what the other did.
+#                  A post that lands under a login outside it fails the run.
 #   FETCH_SCRIPT   override the fetcher (tests use this)
 #   plus whatever the fetcher needs: ASC_KEY_ID / ASC_ISSUER_ID / ASC_KEY_PATH,
 #   or ASC_JWT to override the token minter.
 #
+# The digest issue is public, so the seen-state is read only from comments by
+# a trusted login, and everything a tester wrote is escaped before it is
+# quoted: otherwise a stranger's comment, or a tester's text, could carry a
+# `<!-- tf-feedback-id: X -->` marker that hides submission X for good
+# (docs/learnings/digest-markers-can-be-forged-by-quoted-text.md).
+#
 # Exit 0 with "No new feedback." when there is nothing to post. Non-zero,
-# with an `error:` line, when the issue cannot be read (a failed listing must
+# with an `error:` line, when the trusted set is empty or not GitHub logins,
+# when the issue cannot be read (a failed listing must
 # NOT read as "no comments yet" -- that would replay the whole backlog), when
-# the fetcher fails, or when the post fails.
+# the fetcher fails, when the post fails, or when the post lands under a
+# login outside the trusted set.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -58,7 +73,25 @@ BODY="$WORK/body.md"
 # 1. Seen-state from the issue. Status tested directly (masked-exit-status
 #    rule): a failed listing is an error, never an empty list. An EMPTY
 #    successful listing is a fully measured zero -- the cold start.
-if bodies="$(gh api "repos/$REPO/issues/$ISSUE/comments?per_page=100" --paginate --jq '.[].body')"; then
+#    Only comments by a trusted login count: #299 is public and unlocked, and
+#    a stranger's comment carrying a marker would otherwise hide that
+#    submission for good, with nothing in the digest or the log to show it.
+TRUSTED="${DIGEST_TRUSTED_AUTHORS:-github-actions[bot] ${REPO%%/*}}"
+#    Each login is spliced into the jq filter below, so each must be a plain
+#    GitHub login; the filter is built only from logins that passed. Globbing
+#    off for the split: `[bot]` is a bracket pattern, and a file named
+#    github-actionsb in the working directory would replace the login.
+FILTER=""
+set -f
+for login in $TRUSTED; do
+    printf '%s' "$login" | grep -Eq '^[A-Za-z0-9-]+(\[bot\])?$' \
+        || { echo "error: DIGEST_TRUSTED_AUTHORS must hold GitHub logins, got '$login'" >&2; exit 2; }
+    FILTER="${FILTER:+$FILTER or }.user.login == \"$login\""
+done
+set +f
+[ -n "$FILTER" ] || { echo "error: DIGEST_TRUSTED_AUTHORS is empty; no comment could be trusted" >&2; exit 2; }
+if bodies="$(gh api "repos/$REPO/issues/$ISSUE/comments?per_page=100" --paginate \
+        --jq ".[] | select($FILTER) | .body")"; then
     printf '%s\n' "$bodies" | grep -o '<!-- tf-feedback-id: [^ ]* -->' \
         | sed 's/<!-- tf-feedback-id: \(.*\) -->/\1/' > "$STATE" || :
 else
@@ -103,20 +136,97 @@ def ids(path):
         return {line.strip() for line in f if line.strip()}
 new_ids = ids(os.environ["STATE_AFTER"]) - ids(os.environ["SEEN_BEFORE"])
 
+# Everything after a heading is the fetcher's copy of what Apple returned,
+# and the comment is a tester's own words: Markdown, HTML, `#1`, `@login`,
+# fences. Escaping entities is not enough -- `# X` or `---` still makes a
+# heading, a `- ` line a fake field, `#1` a cross-reference -- and entities
+# are shown literally inside a tester's own backticks. So every line of the
+# comment, and each one-line field, goes into a code span whose backtick
+# delimiter is longer than any backtick run in it (the text cannot close
+# it). Inside one, GitHub renders nothing: no heading, tag, mention or
+# reference. One thing survives code: the markers
+# are read back from the RAW body, so an HTML comment opener in the text is
+# broken with a zero-width space, which a reader cannot see.
+ZWSP = "\u200b"
+
+def inert(text):
+    return text.replace("<!--", "<!" + ZWSP + "--")
+
+def ticks(text, least):
+    return "`" * max(least, max((len(r) for r in re.findall(r"`+", text)), default=0) + 1)
+
+def code_span(text):
+    text = inert(text)
+    t = ticks(text, 1)
+    return f"{t} {text} {t}"
+
+def spanned(text, indent):
+    # One code span per line, not a fenced block: GitHub shows a fence with
+    # white-space: pre, so a long paragraph became one sideways-scrolling
+    # line, while a code span wraps. splitlines(), not split("\n"):
+    # CommonMark also ends a line at a lone \r, and text after one would
+    # start at column 0, outside the list item, live. Lines of a paragraph
+    # are joined by a trailing-backslash hard break; a blank line starts a
+    # new paragraph inside the list item.
+    paras, cur = [], []
+    for line in text.splitlines():
+        if line.strip():
+            cur.append(indent + code_span(line))
+        elif cur:
+            paras.append(cur)
+            cur = []
+    if cur:
+        paras.append(cur)
+    out = []
+    for p in paras:
+        if out:
+            out.append("")
+        out += [l + "\\" for l in p[:-1]] + [p[-1]]
+    return out
+
 heading = re.compile(r"^## (Screenshot feedback|Crash feedback) (\S+)$")
-sections = []  # (id, lines)
+field = re.compile(r"^- ([a-z]+): ?(.*)$")
+
+class Section:
+    def __init__(self, sid, head):
+        self.sid, self.head = sid, head
+        self.fields = []      # (label, value): the one-line fields before the comment
+        self.comment = None   # the tester's text, every line of it
+        self.cut = False
+
+    def add(self, line):
+        m = field.match(line)
+        if self.comment is None and m and m.group(1) != "comment":
+            self.fields.append((m.group(1), m.group(2)))
+        elif self.comment is None and m:
+            self.comment = m.group(2)
+        elif self.comment is None and not line.strip():
+            pass
+        elif self.comment is None:
+            # Not the fetcher's shape: keep it, but only as inert text.
+            self.comment = line
+        else:
+            self.comment += "\n" + line
+
+    def render(self):
+        out = [self.head] + [f"- {k}: {code_span(v)}" for k, v in self.fields]
+        if self.comment is not None:
+            out.append("- comment:")
+            out.append("")
+            out += spanned(self.comment, "  ") or ["  -"]
+        if self.cut:
+            out.append("  _... (truncated: the submission is larger than one comment allows)_")
+        return "\n".join(out)
+
+sections = []
 with open(os.environ["RENDER"]) as f:
     for line in f:
         line = line.rstrip("\n")
         m = heading.match(line)
         if m and m.group(2) in new_ids:
-            sections.append((m.group(2), [line]))
+            sections.append(Section(m.group(2), line))
         elif sections:
-            # Continuation of a multi-line field (a tester's comment): keep it
-            # inside the list item so it cannot read as structure of its own.
-            if line and not line.startswith("- "):
-                line = "  " + line
-            sections[-1][1].append(line)
+            sections[-1].add(line)
 
 today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
 MARK = "<!-- tf-feedback-id: {} -->\n"
@@ -124,12 +234,12 @@ MARK = "<!-- tf-feedback-id: {} -->\n"
 def body(kept, deferred):
     n = len(kept)
     out = [f"### TestFlight feedback, {today}: {n} new submission{'s' if n != 1 else ''}\n\n"]
-    for sid, lines in kept:
-        out.append("\n".join(lines).rstrip("\n") + "\n\n")
+    for sec in kept:
+        out.append(sec.render() + "\n\n")
     if deferred:
         out.append(f"_{deferred} more submission{'s' if deferred != 1 else ''} waiting; the next run posts them._\n\n")
-    for sid, _ in kept:
-        out.append(MARK.format(sid))
+    for sec in kept:
+        out.append(MARK.format(sec.sid))
     return "".join(out)
 
 def size(text):
@@ -137,18 +247,16 @@ def size(text):
     # and what `wc -c` measures when the suite checks the posted body.
     return len(text.encode("utf-8"))
 
-def truncated(section, deferred):
+def truncated(sec, deferred):
     # A single submission larger than the whole budget would block the queue
-    # forever; cut its text until the complete body fits, and say so.
-    sid, lines = section
-    note = "\n  ... (truncated: the submission is larger than one comment allows)"
-    text = "\n".join(lines)
+    # forever; cut its comment until the complete body fits, and say so. The
+    # cut is made in the text, before fencing, so the fence always closes.
+    sec.cut = True
     while True:
-        candidate = (sid, (text + note).split("\n"))
-        over = size(body([candidate], deferred)) - budget
-        if over <= 0 or len(text) <= len(lines[0]):
-            return candidate
-        text = text[:max(len(lines[0]), len(text) - over)]
+        over = size(body([sec], deferred)) - budget
+        if over <= 0 or not sec.comment:
+            return sec
+        sec.comment = sec.comment[:max(0, len(sec.comment) - over)]
 
 # Greedy: add submissions while the COMPLETE body (header, deferred line and
 # markers included) stays within the budget. GitHub rejects a comment over
@@ -181,9 +289,16 @@ fi
 
 # 4. Post. This is the output and the state write in one; a failure here
 #    leaves the issue exactly as it was, and the next run starts over.
-if ! gh api -X POST "repos/$REPO/issues/$ISSUE/comments" -F body=@"$BODY" > /dev/null; then
+if ! poster="$(gh api -X POST "repos/$REPO/issues/$ISSUE/comments" -F body=@"$BODY" --jq .user.login)"; then
     echo "error: could not post the digest comment to $REPO#$ISSUE; nothing was marked seen" >&2
     exit 1
 fi
+# The markers just posted count only if the next run trusts this login. One
+# outside the set would re-post the same submissions every day, so say so.
+case " $TRUSTED " in
+    *" $poster "*) ;;
+    *) echo "error: the digest was posted as '$poster', which is not in DIGEST_TRUSTED_AUTHORS ('$TRUSTED'); the next run will not see its markers -- add '$poster' to it" >&2
+       exit 1 ;;
+esac
 echo "Posted $kept submission(s) to $REPO#$ISSUE ($deferred deferred to the next run):"
 cat "$BODY"
