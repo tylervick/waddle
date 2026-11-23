@@ -76,6 +76,36 @@ shelf at 951 pt and narrows the window to 491; with the old hold it fails at
 x −230 and 951 wide. `ScrollContentWidthTests` pins the trap itself
 (content held to its container keeps a scroll view wide) beside the fix.
 
+## Any change of offer, either way, not only a panel
+
+The hold is not specific to the panel: anything that changes the shelf's
+offer after it has been laid out can show it. Checked 2026-11-22 against
+the same three builds: `main`, this fix, and `main` with the shelf's scroll
+view unguarded. The last is the form the shelf had in 1.5 (`build-295`) and
+before #434.
+
+| Change | `main` | fix | unguarded |
+|---|---|---|---|
+| iPhone 18 Pro, portrait → landscape | wrong 3/3: a portrait-width column centred, black at the sides (`main-iphone-rotated-to-landscape.webp`) | 3/3 = fresh landscape launch | 3/3 right |
+| iPhone 18 Pro, landscape → portrait | right 3/3 | right 3/3 | right 3/3 |
+| iPad Pro 11, portrait → landscape | wrong 3/3 (`main-ipad-rotated-to-landscape.webp`) | right 3/3 | right 3/3 |
+| iPad Pro 11, landscape → portrait | right 3/3 | right 3/3 | right 3/3 |
+| iPad, Settings beside the shelf (`WADDLE_OPEN_PANEL`), either orientation | cut, 3/3 each (`main-ipad-settings-portrait.webp`) | right 3/3 each | not checked |
+| Duo open → closed | cut 3/3 (`main-duo-folded-closed.webp`) | = fresh closed launch 3/3 | 2/2 right |
+| Duo closed → open | in bounds, but tiles larger than a fresh launch's, 3/3 | = fresh open launch 3/3 | 2/2 right |
+
+Landscape → portrait comes out right on `main` because the phone's and the
+iPad's landscape shelf is already a column about as wide as portrait, so the
+offer hardly changes. Growing shows the hold as plainly as shrinking: the
+scroll view, which carries the shelf's background, stays at the old width.
+Fresh launches are pixel-identical across the three builds. So the
+regression came in with #434 (merged 2026-11-22) and is not in 1.5. That is
+inferred from the unguarded build, not from running the 1.5 binary.
+
+Not checked: iPad Split View and Slide Over, which need gestures there is no
+hook for. They are a window narrowing, like the Mac windows of #488, and the
+unit test's narrowed window stands in for them.
+
 ## Still open: a stray column, on `main` too
 
 In 4 launches of 32 with the fix, and 1 of 16 on `main`, a launch after
