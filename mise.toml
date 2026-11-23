@@ -1,7 +1,7 @@
 [tools]
-cmake = "4.5.0"
+cmake = "4.5.1"
 ninja = "1.13.2"
-xcodegen = "2.46.0"
+xcodegen = "2.48.0"
 
 [tasks.build-deps]
 description = "SDL3 + OpenAL Soft static libs (device + simulator)"
