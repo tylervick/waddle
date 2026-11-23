@@ -107,6 +107,19 @@ struct WaddleApp: App {
                let bytes = try? (compressed as NSData).decompressed(using: .zlib) as Data {
                 try? library.seedSuspendSaveForTest(bytes)
             }
+            // Test-only seam (issue #513): WADDLE_TEST_LOOSE_FILE is a file's
+            // bytes, base64 encoded, written into Documents under the name
+            // WADDLE_TEST_LOOSE_FILE_NAME before the launch's adoption pass,
+            // exactly where a Files-app drop (or Scripts/provision-test-wads.sh)
+            // puts one. It lets a UI test bring its own small synthetic WAD
+            // rather than depend on a fixture provisioned by hand. Same
+            // WADDLE_* family as the seams above; never set in production.
+            if let encoded = ProcessInfo.processInfo.environment["WADDLE_TEST_LOOSE_FILE"],
+               let name = ProcessInfo.processInfo.environment["WADDLE_TEST_LOOSE_FILE_NAME"],
+               let bytes = Data(base64Encoded: encoded) {
+                let leaf = URL(fileURLWithPath: name).lastPathComponent
+                try? bytes.write(to: URL.documentsDirectory.appendingPathComponent(leaf))
+            }
             #endif
 
             self.container = container

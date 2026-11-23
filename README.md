@@ -336,13 +336,15 @@ Freedoom Phase 1+2 are bundled as base games.
 ### Real-WAD test matrix
 
 `App/UITests/RealWADTests.swift` verifies vanilla/Boom/MBF21 content against
-real community WADs, plus a negative case built from a synthetic,
-unrecognized-IWAD fixture that `Scripts/provision-test-wads.sh` generates
-itself — not a real wrong-IWAD-pairing WAD. (Woof never auto-warps into a
-level without an explicit `-warp` flag, which this app never passes, so a
-real mismatched IWAD/PWAD pairing just idles harmlessly on the title screen
-instead of erroring; an unrecognized IWAD is the reliable way to make the
-engine actually fail.) The vanilla/Boom/MBF21 cases expect the real WADs in
+real community WADs. Its negative counterpart,
+`App/UITests/UnrecognizedIWADTests.swift`, needs no real WAD and runs in CI:
+it hands the app a synthetic, unrecognized 12-byte IWAD through the
+`WADDLE_TEST_LOOSE_FILE` launch seam — not a real wrong-IWAD-pairing WAD.
+(Woof never auto-warps into a level without an explicit `-warp` flag, which
+this app never passes, so a real mismatched IWAD/PWAD pairing just idles
+harmlessly on the title screen instead of erroring; an unrecognized IWAD is
+the reliable way to make the engine actually fail.) The real-WAD cases expect
+the real WADs in
 `~/Downloads/doom-test-wads/` (see the script header) provisioned via
 `Scripts/provision-test-wads.sh` after installing the app on the simulator;
 without them, only that test class fails.

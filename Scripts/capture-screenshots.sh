@@ -62,9 +62,9 @@
 # must not be needed there; taps land.
 #
 # WAD provisioning: copies the same real test WADs as
-# Scripts/provision-test-wads.sh but deliberately NOT the synthetic
-# `badiwad.wad` negative-test fixture — it would show up as a bogus base game
-# tile on the shelf and in the Files screen in the marketing shots.
+# Scripts/provision-test-wads.sh. Never a synthetic `badiwad.wad` (the
+# UnrecognizedIWADTests fixture): it would show up as a bogus base game tile
+# on the shelf and in the Files screen in the marketing shots.
 #
 # In-game shots launch with WADDLE_TEST_WARP (menu-free path into a level;
 # Woof never auto-warps otherwise) and WADDLE_FORCE_TOUCH_OVERLAY (the
