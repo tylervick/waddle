@@ -123,6 +123,7 @@ struct PlayerSettingsView: View {
                 case .hiddenGames: HiddenGamesView(library: library)
                 case .about: AboutView(library: library, presentation: shown)
                 case .license(let title, let filename): LicenseTextView(title: title, filename: filename)
+                case .usageSummary: UsageSummaryView(presentation: shown)
                 }
             }
         }

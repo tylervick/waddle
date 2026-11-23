@@ -120,6 +120,7 @@ struct WaddleApp: App {
         // launch, and a trail that begins after a failed setup would be
         // describing a process that never got this far.
         BreadcrumbLog.shared.record(.appLaunch)
+        UsageStore.shared.recordLaunch(version: UsageStore.currentAppVersion())
     }
 
     var body: some Scene {
@@ -141,6 +142,7 @@ struct WaddleApp: App {
                     }
                     .onOpenURL { url in
                         let outcome = importer.importFiles(at: [url])
+                        UsageStore.shared.recordImport(outcome)
                         ImportNotices.shared.post(outcome: outcome)
                         NotificationCenter.default.post(name: .libraryDidChange, object: nil)
                     }
@@ -181,8 +183,9 @@ struct WaddleApp: App {
         defer { isAdopting = false }
         repeat {
             adoptionQueued = false
-            ImportNotices.shared.post(outcome: await importer.adoptLooseFiles(),
-                                      quarantines: true)
+            let outcome = await importer.adoptLooseFiles()
+            UsageStore.shared.recordImport(outcome)
+            ImportNotices.shared.post(outcome: outcome, quarantines: true)
             NotificationCenter.default.post(name: .libraryDidChange, object: nil)
         } while adoptionQueued
     }

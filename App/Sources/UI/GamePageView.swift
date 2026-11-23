@@ -211,6 +211,7 @@ struct GamePageView: View {
                             titleVisibility: .visible, presenting: shown.pendingEdit) { edit in
             Button("Duplicate Instead") {
                 if (try? library.duplicate(game, applying: edit)) != nil {
+                    UsageStore.shared.recordGameCreated()
                     onChanged()
                     onClose()
                 }
@@ -624,6 +625,7 @@ struct GamePageView: View {
         Section {
             Button("Duplicate") {
                 if (try? library.duplicate(game)) != nil {
+                    UsageStore.shared.recordGameCreated()
                     onChanged()
                     onClose()
                 }

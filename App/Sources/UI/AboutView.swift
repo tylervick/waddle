@@ -75,9 +75,19 @@ struct AboutView: View {
             Section {
                 Button("Export Diagnostics") { exportDiagnostics() }
                     .accessibilityIdentifier("exportDiagnosticsButton")
-                Text("Bundles recent engine session logs (which can include the names of your WAD files), a log of app events like launches and sessions, crash reports, and device details. Nothing leaves your device unless you share this file.")
+                Text("Bundles recent engine session logs (which can include the names of your WAD files), a log of app events like launches and sessions, crash reports, device details, and counts of how you use the app (launches, sessions, play time, control scheme). Nothing leaves your device unless you share this file.")
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Color.appSecondaryText)
+                // The counts, on screen before any export (issue #487).
+                if presentation != nil {
+                    NavigationLink("View Usage Summary", value: SettingsPresentation.Route.usageSummary)
+                        .accessibilityIdentifier("viewUsageSummaryButton")
+                } else {
+                    NavigationLink("View Usage Summary") {
+                        UsageSummaryView(presentation: nil)
+                    }
+                    .accessibilityIdentifier("viewUsageSummaryButton")
+                }
             } header: {
                 WaddleSectionHeader("Diagnostics")
             }
