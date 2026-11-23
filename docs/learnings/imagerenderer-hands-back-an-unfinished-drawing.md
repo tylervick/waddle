@@ -62,8 +62,8 @@ blocked longer was no more complete. The only sign of an unfinished drawing
 the renderer gives the caller is the time it took: a whole drawing of the
 banner, pixels read, takes about 0.1 s on CI's slowest leg, an unfinished
 one 2 s or more. So a drawing that took 1.5 s or longer is thrown away and
-drawn again, for up to 90 s; a drawing that never finishes inside that
-throws rather than being compared. Each redraw is an `NSLog` line starting
+drawn again. The 90 s allowed for drawings thrown away is the suite's, not
+each drawing's, and once it is spent every later drawing throws at once. Each redraw is an `NSLog` line starting
 `ImportNoticeBannerTests:` in the test log (`print` from the test host does
 not reach CI's log). With the provocation, and on one ordinary run that met a
 6.9 s build, three drawings were thrown away and the suite passed.
@@ -76,5 +76,24 @@ It does not excuse a wrong shape: with the banner put back to a capsule the
 suite still fails, 20 failures across the corner and glyph tests, with no
 drawing thrown away.
 
+**The budget is the suite's, or a slow runner times the job out.** The
+first version gave each drawing its own 90 s, and the glyph sweep records a
+thrown error and moves to its next case: on a runner where every drawing
+was slow that is 75 budgets, about 112 minutes, past the unit leg's
+90-minute timeout, and the job is cancelled with no failure to read.
+Scaled to a 3 s budget with every drawing counted slow, the old code ran
+226 s and the new one 3.8 s (issue #439's follow-up).
+
+**Throw the cold drawing away before any test.** Timing catches a read
+that waited out the renderer's 2 s, but a read that blocked until the build
+ended can come back unfinished in under 1.5 s, if the build ends soon after
+it starts. Only the drawings made while the build runs can be that, so the
+class's `setUp()` draws the banner until two drawings in a row come in under
+1.5 s and keeps neither; no test's first drawing is the cold one, whatever
+order the tests run in. What stays unpinned: that a read made during the
+build only ever times out or blocks (inferred from logs, never seen
+otherwise), and any other pipeline a later drawing might build for the
+first time (none has been logged).
+
 A new picture test that uses `ImageRenderer` should draw through the same
-helper rather than trusting its first drawing.
+helper, after the same warm-up, rather than trusting its first drawing.
