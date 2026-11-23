@@ -109,7 +109,15 @@ enum FeedbackMail {
         "Waddle feedback – \(facts.appVersion)"
     }
 
-    /// An empty first line for the user's own text, then the three facts.
+    /// Says what the attachment carries beyond logs: the usage counts
+    /// (issue #487), in the words the About screen's View Usage Summary uses.
+    static let attachmentNote =
+        "The attached diagnostics file includes the usage counts shown under About > View Usage Summary "
+        + "(launches, sessions, play time, control scheme). Remove the attachment before sending "
+        + "if you would rather not include it."
+
+    /// An empty first line for the user's own text, then the three facts and
+    /// what the attachment holds.
     static func body(facts: DeviceFacts) -> String {
         [
             "",
@@ -118,6 +126,8 @@ enum FeedbackMail {
             "app version: \(facts.appVersion)",
             "iOS: \(facts.iosVersion)",
             "device: \(facts.device)",
+            "",
+            attachmentNote,
         ].joined(separator: "\n")
     }
 

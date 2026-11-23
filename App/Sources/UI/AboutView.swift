@@ -66,7 +66,7 @@ struct AboutView: View {
                     .accessibilityIdentifier("reportBugButton")
                 Button("Send feedback") { sendFeedback() }
                     .accessibilityIdentifier("sendFeedbackButton")
-                Text("Attaches the same diagnostics file as Export Diagnostics. You can remove it before sending.")
+                Text("Attaches the same diagnostics file as Export Diagnostics, including the usage counts shown under View Usage Summary (launches, sessions, play time, control scheme). You can remove it before sending.")
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Color.appSecondaryText)
             } header: {
@@ -75,9 +75,19 @@ struct AboutView: View {
             Section {
                 Button("Export Diagnostics") { exportDiagnostics() }
                     .accessibilityIdentifier("exportDiagnosticsButton")
-                Text("Bundles recent engine session logs (which can include the names of your WAD files), a log of app events like launches and sessions, crash reports, and device details. Nothing leaves your device unless you share this file.")
+                Text("Bundles recent engine session logs (which can include the names of your WAD files), a log of app events like launches and sessions, crash reports, device details, and counts of how you use the app (launches, sessions, play time, control scheme). Nothing leaves your device unless you share this file.")
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Color.appSecondaryText)
+                // The counts, on screen before any export (issue #487).
+                if presentation != nil {
+                    NavigationLink("View Usage Summary", value: SettingsPresentation.Route.usageSummary)
+                        .accessibilityIdentifier("viewUsageSummaryButton")
+                } else {
+                    NavigationLink("View Usage Summary") {
+                        UsageSummaryView(presentation: nil)
+                    }
+                    .accessibilityIdentifier("viewUsageSummaryButton")
+                }
             } header: {
                 WaddleSectionHeader("Diagnostics")
             }
@@ -102,7 +112,10 @@ struct AboutView: View {
         .accessibilityIdentifier("aboutView")
         .sheet(item: Binding(get: { host.presents ? shown.exportedZip.map(ExportedZip.init) : nil },
                              set: { if host.presents { shown.exportedZip = $0?.url } })) { zip in
-            ShareSheet(items: [zip.url])
+            ShareSheet(items: [zip.url]) { completed in
+                // Counted only when the user actually shared or saved it.
+                if completed { UsageStore.shared.recordExport() }
+            }
         }
         .alert("Export failed", isPresented: host.presented(
             { shown.exportError != nil }, dismiss: { shown.exportError = nil }
@@ -237,8 +250,13 @@ struct LicenseTextView: View {
 /// the zip is assembled on tap, so the sheet is presented item-driven.
 struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]
+    /// Called once the sheet is done: true when an activity completed, false
+    /// when the user cancelled.
+    var onComplete: (Bool) -> Void = { _ in }
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
+        let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        controller.completionWithItemsHandler = { _, completed, _, _ in onComplete(completed) }
+        return controller
     }
     func updateUIViewController(_ controller: UIActivityViewController,
                                 context: Context) {}

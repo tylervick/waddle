@@ -39,6 +39,7 @@ extension View {
                      allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }
             let outcome = importer.importFiles(at: urls)
+            UsageStore.shared.recordImport(outcome)
             ImportNotices.shared.post(outcome: outcome)
             onOutcome(outcome)
         }

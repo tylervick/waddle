@@ -41,7 +41,7 @@ final class DiagnosticsExporterTests: XCTestCase {
                                                  libraryLines: [])
         XCTAssertEqual(try zipEntryNames(zip),
                        ["info.txt", "session-a.log", "metrickit-2026-b.json",
-                        BreadcrumbLog.fileName],
+                        BreadcrumbLog.fileName, UsageStore.fileName],
                        "exactly the allowlisted files, nothing else")
     }
 
@@ -62,13 +62,76 @@ final class DiagnosticsExporterTests: XCTestCase {
                        "the trail must arrive intact, not merely be named in the zip")
     }
 
-    func testExportWithEmptyDiagnosticsStillProducesInfoOnlyZip() throws {
+    func testExportWithEmptyDiagnosticsStillProducesInfoAndUsageOnlyZip() throws {
         let empty = tmp.appendingPathComponent("empty", isDirectory: true)
         // Deliberately never created: the directory may not exist on a fresh
-        // install that has never run a session. Export must still succeed.
+        // install that has never run a session. Export must still succeed,
+        // and usage.json is written from zeros rather than copied (#487).
         let zip = try DiagnosticsExporter.export(diagnosticsDirectory: empty,
                                                  libraryLines: [])
-        XCTAssertEqual(try zipEntryNames(zip), ["info.txt"])
+        XCTAssertEqual(try zipEntryNames(zip), ["info.txt", UsageStore.fileName])
+    }
+
+    private func extracted(_ name: String, from zip: URL) throws -> Data {
+        let archive = try Archive(url: zip, accessMode: .read)
+        let entry = try XCTUnwrap(archive.first {
+            ($0.path as NSString).lastPathComponent == name
+        })
+        var data = Data()
+        _ = try archive.extract(entry, consumer: { data.append($0) })
+        return data
+    }
+
+    func testExportedUsageHasOnlyTheListedKeysAtEveryLevel() throws {
+        let usage = UsageStore(directory: tmp)
+        usage.recordLaunch(version: "1.5 (295)")
+        usage.recordSessionStart(bucket: .freedoomPhase1, scheme: .modern,
+                                 controllerConnected: true, orientation: .landscape)
+        usage.recordSessionEnd(bucket: .freedoomPhase1, exitCode: 0, playTime: 120)
+
+        let zip = try DiagnosticsExporter.export(diagnosticsDirectory: tmp,
+                                                 libraryLines: [])
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: extracted(UsageStore.fileName, from: zip)) as? [String: Any])
+        // usage.json carries exactly the fields issue #487 lists, at every
+        // level, nothing else.
+        try UsageKeys.assertExact(object)
+        XCTAssertEqual(object["sessions_started"] as? Int, 1)
+        XCTAssertEqual(object["diagnostics_exports"] as? Int, 0,
+                       "building the file is not sharing it; the share sheet counts that")
+    }
+
+    func testTheInactiveMarkerIsNeverExported() throws {
+        UsageStore(directory: tmp).recordSessionInactive(bucket: .imported, playTime: 60)
+        let zip = try DiagnosticsExporter.export(diagnosticsDirectory: tmp,
+                                                 libraryLines: [])
+        XCTAssertFalse(try zipEntryNames(zip).contains(UsageStore.inactiveMarkerName))
+    }
+
+    func testCorruptUsageFileDoesNotFailTheExport() throws {
+        try Data("{not json".utf8).write(to: UsageStore(directory: tmp).fileURL)
+        let zip = try DiagnosticsExporter.export(diagnosticsDirectory: tmp,
+                                                 libraryLines: [])
+        let summary = try JSONDecoder().decode(
+            UsageSummary.self, from: extracted(UsageStore.fileName, from: zip))
+        XCTAssertEqual(summary, UsageSummary(), "a damaged file starts again from zero")
+    }
+
+    func testInfoTextShowsTheUsageCounts() throws {
+        let usage = UsageStore(directory: tmp)
+        usage.recordSessionStart(bucket: .imported, scheme: .classic,
+                                 controllerConnected: false, orientation: .portrait)
+        usage.recordSessionEnd(bucket: .imported, exitCode: -1, playTime: 30)
+
+        let zip = try DiagnosticsExporter.export(diagnosticsDirectory: tmp,
+                                                 libraryLines: [])
+        let info = String(decoding: try extracted("info.txt", from: zip), as: UTF8.self)
+        XCTAssertTrue(info.contains("Sessions started: 1"), info)
+        XCTAssertTrue(info.contains("Sessions ended in an error: 1"), info)
+        XCTAssertTrue(info.contains("Classic controls: 1 session"), info)
+        XCTAssertTrue(info.contains("Portrait: 1 session"), info)
+        XCTAssertTrue(info.contains("Imported games: 1 session, 0.5 min"), info)
+        XCTAssertTrue(info.contains("Diagnostics files shared: 0"), info)
     }
 
     func testExportNeverIncludesWADFiles() throws {

@@ -29,6 +29,7 @@ final class SettingsPresentation {
         case hiddenGames
         case about
         case license(title: String, filename: String)
+        case usageSummary
     }
 
     var path: [Route] = []
@@ -46,6 +47,8 @@ final class SettingsPresentation {
     var confirmBugReport = false
     var feedbackMail: FeedbackMail.Composition?
     var mailUnavailable = false
+    /// Usage Summary's Reset Usage Counts confirmation.
+    var confirmUsageReset = false
 }
 
 /// The same for one game's page.

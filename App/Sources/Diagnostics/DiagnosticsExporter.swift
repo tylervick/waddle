@@ -16,7 +16,14 @@ enum DiagnosticsExporter {
         try FileManager.default.createDirectory(at: payload,
                                                 withIntermediateDirectories: true)
 
-        try infoText(libraryLines: libraryLines)
+        // Written from the summary in hand rather than copied: a missing or
+        // unreadable usage file is zeros here, never a failure. The export
+        // itself is counted only when the share sheet completes (AboutView).
+        let usage = UsageStore(directory: diagnosticsDirectory).summary()
+        try usage.jsonData()
+            .write(to: payload.appendingPathComponent(UsageStore.fileName))
+
+        try infoText(libraryLines: libraryLines, usage: usage)
             .write(to: payload.appendingPathComponent("info.txt"),
                    atomically: true, encoding: .utf8)
 
@@ -79,7 +86,9 @@ enum DiagnosticsExporter {
         }
     }
 
-    static func infoText(libraryLines: [String]) -> String {
+    /// `usage`, when given, is rendered as a block after the library: the
+    /// same rows the About screen shows under View Usage Summary.
+    static func infoText(libraryLines: [String], usage: UsageSummary? = nil) -> String {
         // Shared with the bug-report form and the feedback email (issue
         // #484), so the three cannot drift apart.
         let facts = DeviceFacts.current
@@ -97,6 +106,10 @@ enum DiagnosticsExporter {
             "library (names only; WAD contents are never exported):",
         ]
         lines += libraryLines.isEmpty ? ["(empty)"] : libraryLines
+        if let usage {
+            lines += ["", "usage (counts kept only on this device; also in \(UsageStore.fileName)):"]
+            lines += usage.rows.map { "\($0.label): \($0.value)" }
+        }
         return lines.joined(separator: "\n") + "\n"
     }
 }
