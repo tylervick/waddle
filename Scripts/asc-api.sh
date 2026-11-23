@@ -1,8 +1,9 @@
 #!/bin/bash
 # App Store Connect API client shared by the scripts that write the App Store
-# listing: Scripts/upload-screenshots.sh and Scripts/update-store-listing.sh.
-# SOURCED, not run. One copy, so a fix to the retry or parsing rules reaches
-# every writer at once instead of drifting between two.
+# listing (Scripts/upload-screenshots.sh, Scripts/update-store-listing.sh,
+# Scripts/submit-for-review.sh) and by the read-only weekly digest
+# Scripts/apple-insights-digest.sh. SOURCED, not run. One copy, so a fix to
+# the retry or parsing rules reaches every caller at once instead of drifting.
 #
 # The caller must define, before sourcing:
 #   ROOT   the repository root
@@ -15,6 +16,9 @@
 #   ASC_APP_ID           override the App Store Connect app id
 #   API_RETRIES          429 retries before failing (default 4)
 #   API_RETRY_MAX_SLEEP  cap on one Retry-After wait, seconds (default 120)
+#   ASC_ACCEPT           an Accept header for api() calls, when an endpoint
+#                        answers in something other than JSON (salesReports
+#                        is gzip; perfPowerMetrics has its own media type)
 
 API="https://api.appstoreconnect.apple.com"
 APP_ID="${ASC_APP_ID:-6792905089}"
@@ -71,16 +75,19 @@ PY
 # one status retried: Apple is saying "later", and says when in Retry-After.
 api() {
     local method="$1" url="$2" body="${3:-}" out="$WORK/resp" hdrs="$WORK/resp-headers" code wait asked n=0
+    # Unset, this is curl's own default, so the existing callers send what
+    # they always sent.
+    local accept="Accept: ${ASC_ACCEPT:-*/*}"
     if [ -n "$body" ]; then printf '%s' "$body" > "$WORK/req"; fi
     while :; do
         rm -f "$out" "$hdrs"
         if [ -n "$body" ]; then
             code="$(curl -sS --connect-timeout 10 --max-time 120 -X "$method" \
-                -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+                -H "Authorization: Bearer $TOKEN" -H "$accept" -H "Content-Type: application/json" \
                 --data-binary "@$WORK/req" -D "$hdrs" -o "$out" -w '%{http_code}' "$url")" || return 1
         else
             code="$(curl -sS --connect-timeout 10 --max-time 120 -X "$method" \
-                -H "Authorization: Bearer $TOKEN" -D "$hdrs" -o "$out" -w '%{http_code}' "$url")" || return 1
+                -H "Authorization: Bearer $TOKEN" -H "$accept" -D "$hdrs" -o "$out" -w '%{http_code}' "$url")" || return 1
         fi
         [ "$code" = 429 ] || break
         n=$((n + 1))

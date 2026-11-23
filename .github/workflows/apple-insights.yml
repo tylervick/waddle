@@ -1,0 +1,68 @@
+name: Apple Insights
+
+# Posts a weekly digest of what Apple already collects about Waddle --
+# diagnostic signatures and power metrics for the live version, new customer
+# reviews, App Analytics and a Sales and Trends unit summary -- to its
+# tracking issue (issue #486). The tracking issue is also the review
+# seen-state, as for the TestFlight digest. Scripts/apple-insights-digest.sh
+# has the full contract; Scripts/test-apple-insights-digest.sh pins it.
+#
+# READ-ONLY against App Store Connect: the script only issues GET requests.
+#
+# Diagnostics and reviews use the everyday key (ASC_*). Analytics needs a
+# key with the Sales and Reports role (ASC_REPORTS_KEY_ID,
+# ASC_REPORTS_ISSUER_ID, ASC_REPORTS_PRIVATE_KEY) and sales needs
+# ASC_VENDOR_NUMBER; while those are unset or refused, the comment says the
+# part was skipped and why, and the run stays green.
+on:
+  schedule:
+    # Mondays, off the hour and away from the daily TestFlight digest
+    # (10:41). Weekly: reviews arrive a few a month, and Apple's analytics
+    # and sales reports are weekly anyway.
+    - cron: "17 13 * * 1"
+  workflow_dispatch:
+
+# issues: write is for the one digest comment. contents: read for checkout.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: apple-insights
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    name: Post the weekly Apple insights digest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Verify the digest script's own suite first
+        run: Scripts/test-apple-insights-digest.sh
+
+      - name: Install the App Store Connect key
+        env:
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          umask 077
+          # Explicit /usr/bin/base64, as testflight.yml does: a bare `base64`
+          # is PATH-shadowable. The reports key is not installed here: the
+          # script takes its text (PEM or base64) from the environment, so
+          # that decoding and its "did not decode" reason are under test.
+          printf '%s' "$ASC_PRIVATE_KEY" | /usr/bin/base64 --decode > "$RUNNER_TEMP/main.p8"
+
+      - name: Post the digest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ASC_KEY_PATH: ${{ runner.temp }}/main.p8
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_REPORTS_KEY_ID: ${{ secrets.ASC_REPORTS_KEY_ID }}
+          ASC_REPORTS_ISSUER_ID: ${{ secrets.ASC_REPORTS_ISSUER_ID }}
+          ASC_REPORTS_PRIVATE_KEY: ${{ secrets.ASC_REPORTS_PRIVATE_KEY }}
+          ASC_VENDOR_NUMBER: ${{ secrets.ASC_VENDOR_NUMBER }}
+          DIGEST_REPO: ${{ github.repository }}
+          DIGEST_ISSUE: "497"
+        run: Scripts/apple-insights-digest.sh

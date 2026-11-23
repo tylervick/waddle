@@ -171,6 +171,11 @@ jobs:
           # the real fetcher behind a curl stub. Guards testflight-feedback.yml,
           # whose failure modes are a replayed backlog or a silently lost report.
           Scripts/test-testflight-feedback-digest.sh
+          # Hermetic: the real digest behind curl and gh stubs; the curl stub
+          # refuses anything but GET. Guards apple-insights.yml, whose failure
+          # modes are a review posted twice or lost, or an account identifier
+          # printed to a public issue.
+          Scripts/test-apple-insights-digest.sh
           # Hermetic: curl and the token minter are stubs. Guards
           # promote-build.yml, which changes who receives a TestFlight build;
           # its refusals (missing build, not VALID, missing group, failed
