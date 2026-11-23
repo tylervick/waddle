@@ -8,7 +8,8 @@
 # One comment per run, always -- an empty week still posts, so the run is
 # visibly alive. Four sections:
 #
-#   1. Diagnostics. For each App Store version that is READY_FOR_SALE, its
+#   1. Diagnostics. For each App Store version that is live on the store
+#      (appVersionState READY_FOR_DISTRIBUTION), its
 #      build's diagnostic signatures counted by type, the top ones by weight
 #      with their logs endpoint, and whether perfPowerMetrics holds any
 #      product data or regressions. All empty is ONE line saying so: Apple
@@ -19,7 +20,10 @@
 #      seen-state.md): each posted review carries a hidden
 #      `<!-- review-id: <id> -->` marker, read back at the start of the next
 #      run. Posting is the output and the state write in one step, so a run
-#      that fails anywhere before the post marks nothing seen.
+#      that fails anywhere before the post marks nothing seen. Only markers
+#      in comments written by the posting account count: #497 is public,
+#      and a stranger's comment carrying a marker would otherwise hide that
+#      review for good.
 #   3. App Analytics: the latest WEEKLY instance of the App Store engagement
 #      and app usage reports, as totals.
 #   4. Sales and Trends: the latest weekly sales summary, as UNIT COUNTS
@@ -50,9 +54,16 @@
 #                  GitHub refuses one over 65,536)
 #   DIGEST_TODAY   YYYY-MM-DD to treat as today (tests use this)
 #   GH_TOKEN       for `gh api` (issues: write)
+#   DIGEST_AUTHOR  the login this run posts as; only its comments are read
+#                  for markers. Unset, it is `gh api user`'s login, which
+#                  works for a person's token. The workflow's GITHUB_TOKEN
+#                  cannot read /user, so the workflow sets it. A post that
+#                  comes back under a different login fails the run.
 #   ASC_KEY_ID / ASC_ISSUER_ID / ASC_KEY_PATH          the everyday key
-#   ASC_REPORTS_KEY_ID / ASC_REPORTS_ISSUER_ID / ASC_REPORTS_KEY_PATH
-#                  the Sales and Reports key (analytics; sales when set)
+#   ASC_REPORTS_KEY_ID / ASC_REPORTS_ISSUER_ID / ASC_REPORTS_PRIVATE_KEY
+#                  the Sales and Reports key (analytics; sales when set).
+#                  The private key is the .p8's PEM text or base64 of it;
+#                  ASC_REPORTS_KEY_PATH (a .p8 file) may stand in for it.
 #   ASC_VENDOR_NUMBER  the account's vendor number (sales)
 #   ASC_JWT        override the token minter (tests use this); it is run
 #                  with ASC_KEY_ID etc. set to whichever key is wanted
@@ -86,7 +97,16 @@ export SCRUB_VALUES="${ASC_VENDOR_NUMBER:-} ${ASC_KEY_ID:-} ${ASC_ISSUER_ID:-} $
 # Status tested directly (masked-exit-status rule): a failed listing is an
 # error, never "no comments yet" -- that would re-post every review.
 STATE="$WORK/seen"
-if bodies="$(gh api "repos/$REPO/issues/$ISSUE/comments?per_page=100" --paginate --jq '.[].body')"; then
+AUTHOR="${DIGEST_AUTHOR:-}"
+if [ -z "$AUTHOR" ]; then
+    AUTHOR="$(gh api user --jq .login)" \
+        || die "DIGEST_AUTHOR is not set and \`gh api user\` failed; cannot tell which comments are this digest's own"
+fi
+# Spliced into the jq filter below, so it must be a plain GitHub login.
+printf '%s' "$AUTHOR" | grep -Eq '^[A-Za-z0-9-]+(\[bot\])?$' \
+    || die "DIGEST_AUTHOR must be a GitHub login, got '$AUTHOR'"
+if bodies="$(gh api "repos/$REPO/issues/$ISSUE/comments?per_page=100" --paginate \
+        --jq ".[] | select(.user.login == \"$AUTHOR\") | .body")"; then
     printf '%s\n' "$bodies" | grep -o '<!-- review-id: [^ ]* -->' \
         | sed 's/<!-- review-id: \(.*\) -->/\1/' > "$STATE" || :
 else
@@ -103,7 +123,11 @@ printf '%s' "$resp" > "$WORK/versions.json"
 more="$(json "(d.get('links') or {}).get('next') or ''" < "$WORK/versions.json")" \
     || die "could not read the version list"
 [ -z "$more" ] || die "the app has more than 50 iOS versions; this reads one page and will not call the rest absent"
-json "[f'{v[\"id\"]} {v[\"attributes\"][\"versionString\"]}' for v in d['data'] if 'READY_FOR_SALE' in (v['attributes'].get('appVersionState'), v['attributes'].get('appStoreState'))]" \
+# Live on the store: appVersionState READY_FOR_DISTRIBUTION. The deprecated
+# appStoreState says READY_FOR_SALE for the same versions (measured
+# 2026-11-23, all six); it is the fallback only for a version that carries no
+# appVersionState at all, should Apple ever drop the field from a response.
+json "[f'{v[\"id\"]} {v[\"attributes\"][\"versionString\"]}' for v in d['data'] if (v['attributes'].get('appVersionState') or ('READY_FOR_DISTRIBUTION' if v['attributes'].get('appStoreState') == 'READY_FOR_SALE' else '')) == 'READY_FOR_DISTRIBUTION']" \
     < "$WORK/versions.json" > "$WORK/live" || die "could not read the version list"
 
 : > "$WORK/diag-manifest"
@@ -198,14 +222,34 @@ fetch_url() { # URL OUT
 
 REPORTS_TOKEN=""
 REPORTS_MISSING=""
-for v in ASC_REPORTS_KEY_ID ASC_REPORTS_ISSUER_ID ASC_REPORTS_KEY_PATH; do
-    if [ -z "${!v:-}" ]; then
-        case "$v" in ASC_REPORTS_KEY_PATH) REPORTS_MISSING="$REPORTS_MISSING ASC_REPORTS_PRIVATE_KEY" ;;
-                     *) REPORTS_MISSING="$REPORTS_MISSING $v" ;; esac
-    fi
+REPORTS_KEY_BAD=""
+for v in ASC_REPORTS_KEY_ID ASC_REPORTS_ISSUER_ID; do
+    if [ -z "${!v:-}" ]; then REPORTS_MISSING="$REPORTS_MISSING $v"; fi
 done
+# The private key: a file path, or the secret's text -- the .p8's PEM as
+# pasted (what the owner set), or base64 of it like ASC_PRIVATE_KEY.
+if [ -z "${ASC_REPORTS_KEY_PATH:-}" ]; then
+    if [ -z "${ASC_REPORTS_PRIVATE_KEY:-}" ]; then
+        REPORTS_MISSING="$REPORTS_MISSING ASC_REPORTS_PRIVATE_KEY"
+    else
+        ASC_REPORTS_KEY_PATH="$WORK/reports.p8"
+        if ! (umask 077; python3 -c '
+import base64, binascii, os, sys
+text = os.environ["ASC_REPORTS_PRIVATE_KEY"].strip()
+if "-----BEGIN" not in text:
+    try:
+        text = base64.b64decode("".join(text.split()), validate=True).decode("ascii").strip()
+    except (binascii.Error, UnicodeDecodeError):
+        sys.exit(1)
+if "-----BEGIN" not in text:
+    sys.exit(1)
+open(sys.argv[1], "w").write(text + "\n")' "$ASC_REPORTS_KEY_PATH"); then
+            REPORTS_KEY_BAD=1
+        fi
+    fi
+fi
 REPORTS_MISSING="${REPORTS_MISSING# }"
-if [ -z "$REPORTS_MISSING" ]; then
+if [ -z "$REPORTS_MISSING" ] && [ -z "$REPORTS_KEY_BAD" ]; then
     if ! REPORTS_TOKEN="$(ASC_KEY_ID="$ASC_REPORTS_KEY_ID" ASC_ISSUER_ID="$ASC_REPORTS_ISSUER_ID" \
             ASC_KEY_PATH="$ASC_REPORTS_KEY_PATH" "$ASC_JWT" 2> "$WORK/mint-err")"; then
         REPORTS_TOKEN=""
@@ -219,6 +263,9 @@ analytics() {
     local rid cat rep iid seg i=0
     if [ -n "$REPORTS_MISSING" ]; then
         echo "the Sales and Reports key is not configured (secrets not set: $REPORTS_MISSING)" > "$WORK/analytics.skip"; return 0
+    fi
+    if [ -n "$REPORTS_KEY_BAD" ]; then
+        echo "ASC_REPORTS_PRIVATE_KEY is set but is neither the .p8's PEM text nor base64 of it" > "$WORK/analytics.skip"; return 0
     fi
     if [ -z "$REPORTS_TOKEN" ]; then
         echo "could not mint a token from the Sales and Reports key; check ASC_REPORTS_PRIVATE_KEY" > "$WORK/analytics.skip"; return 0
@@ -385,13 +432,13 @@ if app_line:
     empty = False
     diag.append(f"- whole app: {app_line}")
 if not versions:
-    diag_text = "**Diagnostics:** no App Store version is READY_FOR_SALE, so there is nothing to read.\n"
+    diag_text = "**Diagnostics:** no App Store version is live (READY_FOR_DISTRIBUTION), so there is nothing to read.\n"
 elif empty:
     diag_text = (f"**Diagnostics:** nothing yet. 0 diagnostic signatures and no power or performance data for "
                  f"{', '.join(names)}. Apple reports only from devices whose owners opted in, so empty means too few "
                  f"opted-in devices so far, not no crashes.\n")
 else:
-    diag_text = "**Diagnostics** (versions READY_FOR_SALE; top signatures by weight):\n\n" + "\n".join(diag) + "\n"
+    diag_text = "**Diagnostics** (live versions; top signatures by weight):\n\n" + "\n".join(diag) + "\n"
 
 # Analytics.
 def table(path):
@@ -520,8 +567,13 @@ counts="$(cat "$WORK/counts")"
 kept="${counts% *}"; deferred="${counts#* }"
 
 # --- 7. Post: the output and the seen-state write in one step ------------------
-if ! gh api -X POST "repos/$REPO/issues/$ISSUE/comments" -F body=@"$WORK/body.md" > /dev/null; then
+if ! poster="$(gh api -X POST "repos/$REPO/issues/$ISSUE/comments" -F body=@"$WORK/body.md" --jq .user.login)"; then
     die "could not post the digest to $REPO#$ISSUE; nothing was marked seen"
+fi
+# The markers just posted count only if the next run reads this author's
+# comments. A mismatch would re-post the same reviews every week, so say so.
+if [ "$poster" != "$AUTHOR" ]; then
+    die "the digest was posted as '$poster' but DIGEST_AUTHOR is '$AUTHOR'; the next run will not see its markers -- set DIGEST_AUTHOR to '$poster'"
 fi
 echo "Posted the Apple insights digest to $REPO#$ISSUE ($kept new review(s), $deferred deferred):"
 cat "$WORK/body.md"

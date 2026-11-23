@@ -26,20 +26,35 @@ RKEY_ID=REPKEY0002
 RISSUER=99999999-8888-7777-6666-555555555555
 
 mkdir -p "$TMP/bin" "$TMP/posted" "$TMP/fix"
-touch "$TMP/reports.p8" "$TMP/main.p8"
+# The minter stub refuses a key file without a PEM header, so a key the
+# digest decoded wrongly cannot mint.
+PEM="-----BEGIN PRIVATE KEY-----
+TUFERS1VUC1OT1QtQS1SRUFMLUtFWQ==
+-----END PRIVATE KEY-----"
+printf '%s\n' "$PEM" > "$TMP/reports.p8"; printf '%s\n' "$PEM" > "$TMP/main.p8"
 
 # --- gh stub (the tracking issue) ---------------------------------------------
+# Each posted comment NNN.md has an author in NNN.author (default digest-bot,
+# the login the suite runs the digest as). A GET applies the one filter the
+# digest uses -- `select(.user.login == "X")` -- and prints every body when
+# the filter has none, which is what real jq would do. A POST is authored by
+# $TMP/poster (default digest-bot) and `--jq .user.login` prints it.
+# `gh api user` prints $TMP/user, or fails when that file is absent.
 cat > "$TMP/bin/gh" <<STUB
 #!/bin/bash
 [ "\$1" = "api" ] || { echo "stub gh: unhandled args: \$*" >&2; exit 64; }
 shift
-method=GET; body_file=""; endpoint=""
+if [ "\$1" = user ]; then
+    [ -f "$TMP/user" ] || { echo "stub gh: HTTP 403 Resource not accessible by integration" >&2; exit 1; }
+    cat "$TMP/user"; exit 0
+fi
+method=GET; body_file=""; endpoint=""; jq=""
 while [ \$# -gt 0 ]; do
     case "\$1" in
         -X) method="\$2"; shift ;;
         -F|-f) case "\$2" in body=@*) body_file="\${2#body=@}" ;; esac; shift ;;
         --paginate) ;;
-        --jq) shift ;;
+        --jq) jq="\$2"; shift ;;
         repos/*) endpoint="\$1" ;;
         *) echo "stub gh: unhandled arg: \$1" >&2; exit 64 ;;
     esac
@@ -49,15 +64,25 @@ case "\$endpoint" in repos/example/repo/issues/42/comments*) ;; *) echo "stub gh
 echo "\$method \$endpoint" >> "$TMP/gh.log"
 if [ "\$method" = GET ]; then
     [ -f "$TMP/fail-gh-get" ] && { echo "stub gh: HTTP 502" >&2; exit 1; }
-    for f in "$TMP"/posted/*.md; do [ -f "\$f" ] && cat "\$f"; done
+    want=""
+    case "\$jq" in *'select(.user.login == "'*) want="\${jq#*select(.user.login == \"}"; want="\${want%%\"*}" ;; esac
+    for f in "$TMP"/posted/*.md; do
+        [ -f "\$f" ] || continue
+        a=digest-bot; [ -f "\${f%.md}.author" ] && a="\$(cat "\${f%.md}.author")"
+        if [ -z "\$want" ] || [ "\$a" = "\$want" ]; then cat "\$f"; fi
+    done
     exit 0
 fi
 if [ "\$method" = POST ]; then
     [ -f "$TMP/fail-gh-post" ] && { echo "stub gh: HTTP 502" >&2; exit 1; }
     [ -n "\$body_file" ] || { echo "stub gh: POST without -F body=@file" >&2; exit 64; }
-    n=\$(ls "$TMP"/posted | wc -l | tr -d ' ')
-    cp "\$body_file" "$TMP/posted/\$(printf '%03d' \$((n + 1))).md"
-    echo '{"id": 1}'
+    n=\$(ls "$TMP"/posted/*.md 2>/dev/null | wc -l | tr -d ' ')
+    f="$TMP/posted/\$(printf '%03d' \$((n + 1)))"
+    cp "\$body_file" "\$f.md"
+    p=digest-bot; [ -f "$TMP/poster" ] && p="\$(cat "$TMP/poster")"
+    echo "\$p" > "\$f.author"
+    [ "\$jq" = .user.login ] || { echo "stub gh: POST expected --jq .user.login" >&2; exit 64; }
+    echo "\$p"
     exit 0
 fi
 echo "stub gh: unhandled method \$method" >&2; exit 64
@@ -68,6 +93,7 @@ chmod +x "$TMP/bin/gh"
 cat > "$TMP/bin/jwt" <<'STUB'
 #!/bin/bash
 [ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ] && [ -f "${ASC_KEY_PATH:-/nonexistent}" ] \
+  && grep -q -- '-----BEGIN PRIVATE KEY-----' "$ASC_KEY_PATH" \
   || { echo "stub jwt: incomplete key" >&2; exit 1; }
 echo "jwt-$ASC_KEY_ID"
 STUB
@@ -138,9 +164,9 @@ code() { printf '%s' "$2" > "$FIX/$1.code"; }
 base_fixtures() {
     rm -rf "$FIX"; mkdir -p "$FIX"
     fx versions '{"data":[
-      {"id":"V15","attributes":{"versionString":"1.5","appVersionState":"READY_FOR_SALE"}},
-      {"id":"V14","attributes":{"versionString":"1.4","appVersionState":"REPLACED_WITH_NEW_VERSION"}},
-      {"id":"V16","attributes":{"versionString":"1.6","appVersionState":"PREPARE_FOR_SUBMISSION"}}],"links":{}}'
+      {"id":"V15","attributes":{"versionString":"1.5","appVersionState":"READY_FOR_DISTRIBUTION","appStoreState":"READY_FOR_SALE"}},
+      {"id":"V14","attributes":{"versionString":"1.4","appVersionState":"PROCESSING_FOR_DISTRIBUTION","appStoreState":"PROCESSING_FOR_APP_STORE"}},
+      {"id":"V16","attributes":{"versionString":"1.6","appVersionState":"PREPARE_FOR_SUBMISSION","appStoreState":"PREPARE_FOR_SUBMISSION"}}],"links":{}}'
     fx build-V15 '{"data":{"type":"builds","id":"B295","attributes":{"version":"295"}}}'
     fx sigs-B295 '{"data":[],"links":{}}'
     fx perf-B295 '{"productData":[],"insights":{"trendingUp":[],"regressions":[]}}'
@@ -180,8 +206,8 @@ sales_fixture() { # NAME
     gz "$1" < "$TMP/sales.tsv"
 }
 
-reset_world() { rm -rf "$TMP/posted"; mkdir -p "$TMP/posted"; rm -f "$TMP"/*.log "$TMP"/fail-*; }
-posted_count() { ls "$TMP/posted" | wc -l | tr -d ' '; }
+reset_world() { rm -rf "$TMP/posted"; mkdir -p "$TMP/posted"; rm -f "$TMP"/*.log "$TMP"/fail-* "$TMP/poster" "$TMP/user"; }
+posted_count() { ls "$TMP"/posted/*.md 2>/dev/null | wc -l | tr -d ' ' || :; }
 markers_in() { grep -o '<!-- review-id: [^ ]* -->' "$1" | sed 's/.*id: \(.*\) -->/\1/' || :; }
 
 ALL_OUT="$TMP/all-output"
@@ -191,7 +217,7 @@ ALL_OUT="$TMP/all-output"
 run_digest() {
     local rc=0
     env PATH="$TMP/bin:/usr/bin:/bin" GH_TOKEN=stub GITHUB_ACTIONS= \
-        DIGEST_REPO=example/repo DIGEST_ISSUE=42 DIGEST_TODAY=2026-11-23 \
+        DIGEST_REPO=example/repo DIGEST_ISSUE=42 DIGEST_TODAY=2026-11-23 DIGEST_AUTHOR=digest-bot \
         ASC_APP_ID=APP1 ASC_JWT="$TMP/bin/jwt" API_RETRIES=0 \
         ASC_KEY_ID="$KEY_ID" ASC_ISSUER_ID="$ISSUER" ASC_KEY_PATH="$TMP/main.p8" \
         "$@" "$ROOT/Scripts/apple-insights-digest.sh" > "$TMP/out" 2>&1 || rc=$?
@@ -226,6 +252,26 @@ grep -q 'analyticsReportRequests\|salesReports' "$TMP/curl.log" && fail "case 1:
 only_get "case 1"
 pass "empty diagnostics post one 'nothing yet' line; gated parts skip with the secrets they need"
 
+# 1b. Live means appVersionState READY_FOR_DISTRIBUTION, which is what Apple
+#     returns (measured 2026-11-23). The deprecated appStoreState is the
+#     fallback only when the current field is absent; a READY_FOR_SALE there
+#     never overrides a current field that says otherwise.
+reset_world; base_fixtures
+fx versions '{"data":[
+  {"id":"V15","attributes":{"versionString":"1.5","appVersionState":"READY_FOR_DISTRIBUTION"}},
+  {"id":"V14","attributes":{"versionString":"1.4","appStoreState":"READY_FOR_SALE"}},
+  {"id":"V13","attributes":{"versionString":"1.3","appVersionState":"REPLACED_WITH_NEW_VERSION","appStoreState":"READY_FOR_SALE"}}],"links":{}}'
+fx build-V14 '{"data":{"type":"builds","id":"B282","attributes":{"version":"282"}}}'
+fx sigs-B282 '{"data":[],"links":{}}'
+fx perf-B282 '{"productData":[],"insights":{"trendingUp":[],"regressions":[]}}'
+run_digest || fail "case 1b: exited non-zero: $(cat "$TMP/out")"
+grep -q 'for 1.5 (build 295), 1.4 (build 282)\.' "$TMP/posted/001.md" || fail "case 1b: wrong versions read: $(grep Diagnostics "$TMP/posted/001.md")"
+grep -q 'appStoreVersions/V13' "$TMP/curl.log" && fail "case 1b: a version whose current state is not live was read"
+fx versions '{"data":[{"id":"V16","attributes":{"versionString":"1.6","appVersionState":"PREPARE_FOR_SUBMISSION","appStoreState":"PREPARE_FOR_SUBMISSION"}}],"links":{}}'
+run_digest || fail "case 1b: no live version exited non-zero"
+grep -q 'no App Store version is live (READY_FOR_DISTRIBUTION)' "$TMP/posted/002.md" || fail "case 1b: no-live wording wrong"
+pass "live versions are matched on READY_FOR_DISTRIBUTION, with the deprecated field as a fallback"
+
 # 2. Signatures present: counted by type, listed by weight descending with
 #    the logs endpoint; regressions reported. No "nothing yet" line.
 reset_world; base_fixtures
@@ -259,6 +305,38 @@ run_digest || fail "case 3: second run exited non-zero"
 grep -q 'Customer reviews:\*\* none new' "$TMP/posted/003.md" || fail "case 3: a quiet week did not say 'none new'"
 [ -z "$(markers_in "$TMP/posted/003.md")" ] || fail "case 3: a quiet week re-posted a review"
 pass "a review is posted once; a quiet week still posts and says none new"
+
+# 3b. Issue #497 is public: a marker in a comment by anyone but the posting
+#     account must not count, or a stranger could hide a review for good.
+#     The marker for rev-1 here is in a stranger's comment, so rev-1 is
+#     still posted.
+reset_world; base_fixtures
+printf 'hello\n<!-- review-id: rev-1 -->\n' > "$TMP/posted/001.md"; echo stranger > "$TMP/posted/001.author"
+run_digest || fail "case 3b: exited non-zero: $(cat "$TMP/out")"
+[ "$(markers_in "$TMP/posted/002.md" | sort | tr '\n' ' ')" = "rev-1 rev-2 " ] \
+  || fail "case 3b: a stranger's marker suppressed a review: $(markers_in "$TMP/posted/002.md" | tr '\n' ' ')"
+pass "a marker in another author's comment does not suppress the review"
+
+# 3c. Without DIGEST_AUTHOR the posting login comes from `gh api user` (a
+#     person's token); when that fails too, the run refuses before reading
+#     anything rather than guess whose markers count.
+reset_world; base_fixtures
+echo digest-bot > "$TMP/user"
+run_digest DIGEST_AUTHOR= || fail "case 3c: deriving the author from gh api user failed: $(cat "$TMP/out")"
+[ "$(posted_count)" = 1 ] || fail "case 3c: nothing posted with a derived author"
+rm -f "$TMP/user"
+if run_digest DIGEST_AUTHOR=; then fail "case 3c: an unknown author exited 0"; fi
+grep -q 'DIGEST_AUTHOR is not set' "$TMP/out" || fail "case 3c: wrong error: $(cat "$TMP/out")"
+[ "$(posted_count)" = 1 ] || fail "case 3c: posted without knowing the author"
+pass "the author is derived from gh api user, and an unknown author is refused"
+
+# 3d. A post that comes back under another login fails the run: its markers
+#     would be invisible next week and the same reviews re-posted forever.
+reset_world; base_fixtures
+echo someone-else > "$TMP/poster"
+if run_digest; then fail "case 3d: a post under the wrong login exited 0"; fi
+grep -q "posted as 'someone-else' but DIGEST_AUTHOR is 'digest-bot'" "$TMP/out" || fail "case 3d: wrong error: $(cat "$TMP/out")"
+pass "a post under a login other than DIGEST_AUTHOR fails the run"
 
 # 4. A 403 on analytics (a key without the role) skips that part with
 #    Apple's reason and the run still succeeds. The key ids stay out of it.
@@ -309,6 +387,28 @@ grep -q "GET jwt-$RKEY_ID .*analyticsReportRequests" "$TMP/curl.log" || fail "ca
 no_ids "$body" "case 6"; no_ids "$TMP/out" "case 6"
 only_get "case 6"
 pass "analytics posts the latest weekly Standard reports as totals with the reports key"
+
+# 6f. The reports key as the secret's TEXT, in each form the owner may set:
+#     the .p8's PEM as pasted (what is set today), base64 of it, and neither
+#     -- which is a stated "did not decode", not "secrets not set".
+for form in pem base64 garbage; do
+    reset_world; base_fixtures; analytics_fixtures
+    case "$form" in
+        pem) key="$PEM" ;;
+        base64) key="$(printf '%s\n' "$PEM" | /usr/bin/base64 | tr -d '\n')" ;;
+        garbage) key="not a key at all!" ;;
+    esac
+    run_digest ASC_REPORTS_KEY_ID="$RKEY_ID" ASC_REPORTS_ISSUER_ID="$RISSUER" ASC_REPORTS_PRIVATE_KEY="$key" \
+      || fail "case 6f ($form): exited non-zero: $(cat "$TMP/out")"
+    if [ "$form" = garbage ]; then
+        grep -q 'App Analytics:\*\* skipped: ASC_REPORTS_PRIVATE_KEY is set but is neither' "$TMP/posted/001.md" \
+          || fail "case 6f ($form): $(grep Analytics "$TMP/posted/001.md")"
+    else
+        grep -q 'App Sessions Standard' "$TMP/posted/001.md" || fail "case 6f ($form): analytics did not run: $(grep Analytics "$TMP/posted/001.md")"
+    fi
+    grep -q 'BEGIN PRIVATE KEY' "$TMP/out" && fail "case 6f ($form): the key text was printed"
+done
+pass "the reports key works as PEM text or base64, and anything else is a stated skip"
 
 # 6b. The reports key works but no ONGOING request exists yet: skipped, saying so.
 reset_world; base_fixtures; analytics_fixtures
