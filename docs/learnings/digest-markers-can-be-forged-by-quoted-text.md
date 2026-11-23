@@ -15,18 +15,23 @@ under `---` becomes a heading (a fake `## Crash feedback …` reads as another
 submission), a `- ` line a fake field, `#1` or `owner/repo#2` a
 cross-reference the bot creates. And inside the stranger's own backticks
 entities are not decoded, so their `<b>` shows as `&lt;b&gt;`. The rendering
-that closes all of it: put quoted multi-line text in a fenced code block
-whose backtick fence is longer than any backtick run in the text (so the
-text cannot close it), and one-line text in a code span chosen the same way.
-GitHub renders no heading, tag, mention or reference inside either, and the
-text is shown exactly as written. Code is still the raw body that the next
-run greps for markers, so break `<!--` with a zero-width space as well.
+that closes all of it: every line of quoted text in its own code span whose
+backtick delimiter is longer than any backtick run in the line (so the text
+cannot close it), lines joined by a trailing-backslash hard break, a blank
+line starting a new paragraph. GitHub renders no heading, tag, mention or
+reference inside a code span, and shows the text exactly as written. Split
+with `splitlines()`, never `split("\n")`: CommonMark also ends a line at a
+lone `\r`, and the text after one starts at column 0, outside the list
+item -- live. A fenced block is inert too, but GitHub shows it
+`white-space: pre`, so a long paragraph is one line scrolling sideways; code
+spans wrap. Code is still the raw body that the next run greps for markers,
+so break `<!--` with a zero-width space as well.
 
 Both `Scripts/apple-insights-digest.sh` (review title and body) and
 `Scripts/testflight-feedback-digest.sh` (the tester's comment) render this
-way; cases 10 and 10b of `Scripts/test-apple-insights-digest.sh` and 18 and
-19 of `Scripts/test-testflight-feedback-digest.sh` check it, with a
-CommonMark fence-closing rule rather than a grep for the raw string.
+way; cases 10 to 10d of `Scripts/test-apple-insights-digest.sh` and 18 to
+21 of `Scripts/test-testflight-feedback-digest.sh` check it, by what a
+CommonMark renderer would leave live rather than a grep for the raw string.
 
 The same forgery needs no quoting at all on a public, unlocked issue: anyone
 can comment there, and a comment carrying a marker counts unless the digest
@@ -44,7 +49,7 @@ split with globbing off -- `[bot]` is a bracket pattern. Cases 3b to 3d.
 `Scripts/testflight-feedback-digest.sh` had both weaknesses until issue
 #509: it read markers from every author's comments on the public #299, and
 quoted tester comments unescaped. It now takes the same shape -- the same
-`DIGEST_TRUSTED_AUTHORS` default and checks, and the fenced rendering above
--- pinned by cases 13 to 19 of
+`DIGEST_TRUSTED_AUTHORS` default and checks, and the code-span rendering
+above -- pinned by cases 13 to 21 of
 `Scripts/test-testflight-feedback-digest.sh`. A new digest that keeps its
 state in markers needs both from the start.

@@ -390,10 +390,10 @@ def safe(text):
 # A reviewer's title and body are a stranger's own words. Entity-escaping
 # them (safe) still leaves Markdown live -- `# X` and `---` make headings, a
 # `- ` line a list, `#1` a cross-reference -- and shows entities literally
-# inside the reviewer's own backticks. So the body goes into a fenced code
-# block whose fence is longer than any backtick run in it (it cannot be
-# closed from inside) and the title into a code span chosen the same way:
-# GitHub renders nothing inside either. The markers are read back from the
+# inside the reviewer's own backticks. So every line of the body, and the
+# title, goes into a code span whose backtick delimiter is longer than any
+# backtick run in it (it cannot be closed from inside): GitHub renders
+# nothing inside one. The markers are read back from the
 # RAW body, so an HTML comment opener is broken with a zero-width space.
 def inert(text):
     text = str(text or "")
@@ -409,10 +409,29 @@ def code_span(text):
     t = ticks(text, 1)
     return f"{t} {text} {t}"
 
-def fenced(text, indent):
-    text = inert(text)
-    t = ticks(text, 3)
-    return "\n".join([indent + t] + [indent + l if l.strip() else "" for l in text.split("\n")] + [indent + t])
+def spanned(text, indent):
+    # One code span per line, not a fenced block: GitHub shows a fence with
+    # white-space: pre, so a long paragraph became one sideways-scrolling
+    # line, while a code span wraps. splitlines(), not split("\n"):
+    # CommonMark also ends a line at a lone \r, and text after one would
+    # start at column 0, outside the list item, live. Lines of a paragraph
+    # are joined by a trailing-backslash hard break; a blank line starts a
+    # new paragraph inside the list item.
+    paras, cur = [], []
+    for line in text.splitlines():
+        if line.strip():
+            cur.append(indent + code_span(line))
+        elif cur:
+            paras.append(cur)
+            cur = []
+    if cur:
+        paras.append(cur)
+    out = []
+    for p in paras:
+        if out:
+            out.append("")
+        out += [l + "\\" for l in p[:-1]] + [p[-1]]
+    return out
 
 def plural(n, word):
     return f"{n} {word}{'' if n == 1 else 's'}"
@@ -569,10 +588,10 @@ def review(r):
     body = (a.get("body") or "").strip()
     if len(body) > 4000:
         body = body[:4000] + " ... (truncated)"
-    quoted = fenced(body, "  ") if body else "  (no text)"
+    quoted = "\n".join(spanned(body, "  ")) or "  (no text)"
     title = (a.get("title") or "").strip()
     return (f"- {'★' * rating}{'☆' * (5 - rating)} {rating}/5, {safe(a.get('territory'))}, "
-            f"{safe((a.get('createdDate') or '')[:10])}: {('**' + code_span(title) + '**') if title else '(untitled)'}\n{quoted}\n")
+            f"{safe((a.get('createdDate') or '')[:10])}: {('**' + code_span(title) + '**') if title else '(untitled)'}\n\n{quoted}\n")
 
 def compose(kept, deferred):
     out = [f"### Apple insights, {os.environ['TODAY']}\n\n", diag_text, "\n"]

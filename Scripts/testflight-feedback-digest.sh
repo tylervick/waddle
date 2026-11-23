@@ -140,14 +140,14 @@ new_ids = ids(os.environ["STATE_AFTER"]) - ids(os.environ["SEEN_BEFORE"])
 # and the comment is a tester's own words: Markdown, HTML, `#1`, `@login`,
 # fences. Escaping entities is not enough -- `# X` or `---` still makes a
 # heading, a `- ` line a fake field, `#1` a cross-reference -- and entities
-# are shown literally inside a tester's own backticks. So the comment goes
-# into a fenced code block whose backtick fence is longer than any backtick
-# run in the text (the text cannot close it), and each one-line field into a
-# code span chosen the same way. Inside both, GitHub renders nothing: no
-# heading, tag, mention or reference. One thing survives code: the markers
+# are shown literally inside a tester's own backticks. So every line of the
+# comment, and each one-line field, goes into a code span whose backtick
+# delimiter is longer than any backtick run in it (the text cannot close
+# it). Inside one, GitHub renders nothing: no heading, tag, mention or
+# reference. One thing survives code: the markers
 # are read back from the RAW body, so an HTML comment opener in the text is
 # broken with a zero-width space, which a reader cannot see.
-ZWSP = "​"
+ZWSP = "\u200b"
 
 def inert(text):
     return text.replace("<!--", "<!" + ZWSP + "--")
@@ -160,11 +160,29 @@ def code_span(text):
     t = ticks(text, 1)
     return f"{t} {text} {t}"
 
-def fenced(text, indent):
-    text = inert(text)
-    t = ticks(text, 3)
-    lines = [indent + l if l.strip() else "" for l in text.split("\n")]
-    return [indent + t] + lines + [indent + t]
+def spanned(text, indent):
+    # One code span per line, not a fenced block: GitHub shows a fence with
+    # white-space: pre, so a long paragraph became one sideways-scrolling
+    # line, while a code span wraps. splitlines(), not split("\n"):
+    # CommonMark also ends a line at a lone \r, and text after one would
+    # start at column 0, outside the list item, live. Lines of a paragraph
+    # are joined by a trailing-backslash hard break; a blank line starts a
+    # new paragraph inside the list item.
+    paras, cur = [], []
+    for line in text.splitlines():
+        if line.strip():
+            cur.append(indent + code_span(line))
+        elif cur:
+            paras.append(cur)
+            cur = []
+    if cur:
+        paras.append(cur)
+    out = []
+    for p in paras:
+        if out:
+            out.append("")
+        out += [l + "\\" for l in p[:-1]] + [p[-1]]
+    return out
 
 heading = re.compile(r"^## (Screenshot feedback|Crash feedback) (\S+)$")
 field = re.compile(r"^- ([a-z]+): ?(.*)$")
@@ -194,7 +212,8 @@ class Section:
         out = [self.head] + [f"- {k}: {code_span(v)}" for k, v in self.fields]
         if self.comment is not None:
             out.append("- comment:")
-            out += fenced(self.comment.rstrip("\n").rstrip() or "-", "  ")
+            out.append("")
+            out += spanned(self.comment, "  ") or ["  -"]
         if self.cut:
             out.append("  _... (truncated: the submission is larger than one comment allows)_")
         return "\n".join(out)

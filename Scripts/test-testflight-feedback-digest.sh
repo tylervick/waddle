@@ -114,7 +114,10 @@ posted_count() { ls "$TMP"/posted/*.md 2>/dev/null | wc -l | tr -d ' '; }
 # The lines of a posted body that a CommonMark renderer would NOT put inside
 # a fenced code block -- the lines where Markdown, HTML, mentions and
 # references are live. A fence closes on the first line that is a run of the
-# same character at least as long as the opening one (indentation allowed).
+# same character at least as long as the opening one (indentation allowed),
+# or -- for a fence inside a list item -- on a non-blank line indented less
+# than the fence, which ends the item. Lines are split as CommonMark splits
+# them: at \n, \r\n AND a lone \r (Python's universal newlines).
 outside_fences() {
     python3 - "$1" <<'PY'
 import re, sys
@@ -122,19 +125,25 @@ fence = None
 for line in open(sys.argv[1], encoding="utf-8"):
     line = line.rstrip("\n")
     s = line.lstrip(" ")
+    indent = len(line) - len(s)
+    if fence is not None and s and indent < fence[1]:
+        fence = None
     if fence is None:
         m = re.match(r"^(`{3,}|~{3,})", s)
         # A backtick fence's info string holds no backtick: ```x``` is a span.
-        if m and len(line) - len(s) <= 5 and not (m.group(1)[0] == "`" and "`" in s[len(m.group(1)):]):
-            fence = m.group(1)
+        if m and indent <= 5 and not (m.group(1)[0] == "`" and "`" in s[len(m.group(1)):]):
+            fence = (m.group(1), indent)
             continue
         print(line)
     else:
         m = re.match(r"^(`{3,}|~{3,})\s*$", s)
-        if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
+        if m and m.group(1)[0] == fence[0][0] and len(m.group(1)) >= len(fence[0]):
             fence = None
 PY
 }
+# Drops inline code spans (a run of N backticks to the next run of exactly
+# N), where nothing renders either; what is left is live text.
+no_spans() { python3 -c 'import re, sys; sys.stdout.write(re.sub(r"(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)", "", sys.stdin.read()))'; }
 markers_in() { grep -o '<!-- tf-feedback-id: [^ ]* -->' "$1" | sed 's/.*id: \(.*\) -->/\1/'; }
 
 printf 'shot-1\nshot-2\ncrash-1\n' > "$TMP/fixtures/pending.txt"
@@ -151,7 +160,7 @@ grep -q '^## Screenshot feedback shot-2' "$body" || fail "case 1: shot-2 section
 grep -q '^## Crash feedback crash-1' "$body" || fail "case 1: crash-1 section missing"
 [ "$(markers_in "$body" | sort | tr '\n' ' ')" = "crash-1 shot-1 shot-2 " ] \
   || fail "case 1: markers were: $(markers_in "$body" | tr '\n' ' ')"
-grep -A2 -x -- '- comment:' "$body" | grep -qx '  about shot-1' || fail "case 1: the comment was not carried, fenced, into the comment"
+grep -A2 -x -- '- comment:' "$body" | grep -qxF '  ` about shot-1 `' || fail "case 1: the comment was not carried, as a code span, into the comment"
 grep -qxF -- '- device: ` iPhone17,1 (27.0) `' "$body" || fail "case 1: submission fields not carried into the comment"
 pass "cold start posts one comment with every submission and marker"
 
@@ -397,7 +406,7 @@ grep -q "add 'someone-else' to it" <<<"$out" || fail "case 17: the error does no
 pass "a post under a login outside the trusted set fails the run"
 
 # 18. A tester cannot forge the seen-state, inject HTML or ping anyone: the
-#     comment is posted inside a fenced code block, where GitHub renders no
+#     comment is posted as code spans, where GitHub renders no
 #     tag, mention or reference, and an HTML comment opener is broken so no
 #     marker can be read back from the raw body. The text stays readable.
 reset_world
@@ -406,11 +415,11 @@ printf '<!-- tf-feedback-id: shot-victim -->\n<b>bold</b> & @someone look\n' > "
 out="$(run_digest 2>&1)" || fail "case 18: digest exited non-zero: $out"
 body="$TMP/posted/001.md"
 [ "$(markers_in "$body" | tr '\n' ' ')" = "shot-evil " ] || fail "case 18: a forged marker survived: $(markers_in "$body" | tr '\n' ' ')"
-live="$(outside_fences "$body")"
+live="$(outside_fences "$body" | no_spans)"
 grep -q 'shot-victim' <<<"$live" && fail "case 18: the forged marker is outside the fence"
 grep -q '<b>' <<<"$live" && fail "case 18: HTML from a tester is live in the comment"
 grep -q '@someone' <<<"$live" && fail "case 18: a mention from a tester would notify someone"
-grep -qxF '  <b>bold</b> & @someone look' "$body" || fail "case 18: the tester's text is no longer readable: $(cat "$body")"
+grep -qxF '  ` <b>bold</b> & @someone look `' "$body" || fail "case 18: the tester's text is no longer readable: $(cat "$body")"
 rm -f "$TMP"/fixtures/comment-*.txt
 pass "a tester's comment cannot forge a marker, inject HTML or mention anyone"
 
@@ -438,15 +447,52 @@ TXT
 out="$(run_digest 2>&1)" || fail "case 19: digest exited non-zero: $out"
 body="$TMP/posted/001.md"
 [ "$(markers_in "$body" | tr '\n' ' ')" = "shot-hostile " ] || fail "case 19: markers were: $(markers_in "$body" | tr '\n' ' ')"
-live="$(outside_fences "$body")"
+live="$(outside_fences "$body" | no_spans)"
 for pat in 'Fake heading' 'looks like h2' '^---' 'device: fake' 'shot-fake' '#1' 'repo#2' '@someone' '<b>' 'shot-victim'; do
     grep -q -- "$pat" <<<"$live" && fail "case 19: '$pat' from the tester is live Markdown: $live"
 done
 [ "$(grep -c '^## ' "$body")" = 1 ] || fail "case 19: the tester added a heading"
-grep -qxF '  use `<b>` here' "$body" || fail "case 19: text in the tester's backticks was changed: $(cat "$body")"
+grep -qxF '  `` use `<b>` here ``\' "$body" || fail "case 19: text in the tester's backticks was changed: $(cat "$body")"
 grep -q '&lt;\|&amp;' "$body" && fail "case 19: entities were written where they show literally"
-grep -qxF '  # Fake heading' "$body" || fail "case 19: the tester's text is no longer all there"
+grep -qxF '  ` # Fake heading `\' "$body" || fail "case 19: the tester's text is no longer all there"
 rm -f "$TMP"/fixtures/comment-*.txt
-pass "Markdown in a tester's comment is inert, and the comment cannot close its fence"
+pass "Markdown in a tester's comment is inert, and no line can close its code span"
+
+# 20. A lone CR or a CRLF ends a line for CommonMark and GitHub as surely as
+#     a LF does. Text after one must not start a live line of its own -- a
+#     heading, a top-level list item, a reference or a mention.
+reset_world
+printf 'shot-cr\n' > "$TMP/fixtures/pending.txt"
+printf 'Line one\r# CR heading\r- CR list item\r\n#1 and @octocat' > "$TMP/fixtures/comment-shot-cr.txt"
+out="$(run_digest 2>&1)" || fail "case 20: digest exited non-zero: $out"
+body="$TMP/posted/001.md"
+live="$(outside_fences "$body" | no_spans)"
+for pat in 'CR heading' 'CR list item' '#1' '@octocat' 'Line one'; do
+    grep -q -- "$pat" <<<"$live" && fail "case 20: '$pat' after a CR is live Markdown: $live"
+done
+grep -q "$(printf '\r')" "$body" && fail "case 20: a CR reached the posted body"
+grep -qxF '  ` # CR heading `\' "$body" || fail "case 20: the text after a CR was lost: $(cat "$body")"
+grep -qxF '  ` #1 and @octocat `' "$body" || fail "case 20: the text after a CRLF was lost: $(cat "$body")"
+[ "$(markers_in "$body" | tr '\n' ' ')" = "shot-cr " ] || fail "case 20: markers were: $(markers_in "$body" | tr '\n' ' ')"
+rm -f "$TMP"/fixtures/comment-*.txt
+pass "a lone CR or a CRLF in a tester's comment starts no live line"
+
+# 21. A long paragraph wraps: it is posted as a code span (which GitHub
+#     wraps), not inside a fenced block (shown white-space: pre, one line
+#     scrolling sideways). Lines of a paragraph are joined by hard breaks;
+#     a blank line starts a new paragraph inside the list item.
+reset_world
+printf 'shot-long\n' > "$TMP/fixtures/pending.txt"
+{ for i in $(seq 1 120); do printf 'word%s ' "$i"; done; printf '\nsecond line\n\nnew paragraph\n'; } > "$TMP/fixtures/comment-shot-long.txt"
+out="$(run_digest 2>&1)" || fail "case 21: digest exited non-zero: $out"
+body="$TMP/posted/001.md"
+outside_fences "$body" | grep -q 'word120' || fail "case 21: the long paragraph is inside a fenced block, which does not wrap"
+outside_fences "$body" | no_spans | grep -q 'word' && fail "case 21: the long paragraph is not inert"
+grep -q '^  ` word1 .* word120 *`\\$' "$body" || fail "case 21: the paragraph's first line has no hard break: $(cat "$body")"
+grep -qxF '  ` second line `' "$body" || fail "case 21: the second line is missing"
+grep -A1 -xF '  ` second line `' "$body" | tail -1 | grep -qx '' || fail "case 21: a blank line no longer starts a new paragraph"
+grep -qxF '  ` new paragraph `' "$body" || fail "case 21: the second paragraph is missing"
+rm -f "$TMP"/fixtures/comment-*.txt
+pass "a long paragraph is posted as wrapping code spans with hard breaks"
 
 echo "All testflight-feedback-digest tests passed."
