@@ -142,7 +142,8 @@ final class ShelfTileLargeTextTests: XCTestCase {
         let size = DynamicTypeSize.xxxLarge
         let open = [Viewport(contentWidth: 835, height: 555), Viewport(contentWidth: 637, height: 850)]
         for name in Self.bundled {
-            let least = PlayableTileLayout.oneLineTitleMinimumWidth(fullWidth: width(name, size))
+            let least = PlayableTileLayout.oneLineTitleMinimumWidth(
+                shrunkWidth: PlayableTileTitle.shrunkWidth(of: name, at: size))
             for viewport in open {
                 XCTAssertLessThanOrEqual(least, titleLine(viewport, size),
                                          "\(name) lost its one line in \(viewport.contentWidth)")

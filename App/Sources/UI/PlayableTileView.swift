@@ -96,6 +96,21 @@ struct PlayableTileView: View {
         )
     }
 
+    private var title: some View {
+        PlayableTileTitle(name: game.name)
+    }
+}
+
+/// A tile's title: its own type so a test can lay it out in a line of a
+/// chosen width (issue #458), as `ImportNoticeBannerTests` does a banner.
+struct PlayableTileTitle: View {
+    let name: String
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        title
+    }
+
     @ViewBuilder
     private var title: some View {
         let lines = PlayableTileLayout.titleLineLimit(
@@ -115,14 +130,14 @@ struct PlayableTileView: View {
             ViewThatFits(in: .horizontal) {
                 oneLineTitle
                     .frame(idealWidth: PlayableTileLayout.oneLineTitleMinimumWidth(
-                        fullWidth: titleWidth))
+                        shrunkWidth: shrunkTitleWidth))
                 // `WholeWordText` and not a `Text` with a scale factor: a
                 // wrapped `Text` breaks a word wider than its line rather
                 // than shrink
                 // (`docs/learnings/words-broken-mid-word-at-accessibility-sizes.md`).
                 // Its smaller sizes are plain system fonts, so the weight is
                 // put back here. A name longer than the lines still truncates.
-                WholeWordText(game.name, textStyle: Theme.Typography.tileTitleStyle)
+                WholeWordText(name, textStyle: Theme.Typography.tileTitleStyle)
                     .font(Theme.Typography.tileTitle)
                     .fontWeight(.semibold)
                     .lineLimit(lines)
@@ -132,7 +147,7 @@ struct PlayableTileView: View {
     }
 
     private var oneLineTitle: some View {
-        Text(game.name)
+        Text(name)
             .font(Theme.Typography.tileTitle)
             .lineLimit(1)
             // Shrink a little before truncating: two games whose names
@@ -142,12 +157,20 @@ struct PlayableTileView: View {
             .minimumScaleFactor(PlayableTileLayout.titleMinimumScaleFactor)
     }
 
-    /// The name on one line at the reader's text size, as `UIFont` measures
-    /// it. Reads the size from the environment so a change of it measures
-    /// again.
-    private var titleWidth: CGFloat {
-        _ = dynamicTypeSize
-        let font = UIFont.preferredFont(forTextStyle: Theme.Typography.tileTitleStyle)
-        return (game.name as NSString).size(withAttributes: [.font: font]).width
+    /// The name on one line at the smallest size the one-line title shrinks
+    /// to, as `UIFont` measures it: set in the font at that size, not the
+    /// full width scaled, which is narrower (issue #458). The font is the one
+    /// for the environment's text size, so a change of it measures again and
+    /// a test can lay the title out at any size.
+    private var shrunkTitleWidth: CGFloat {
+        Self.shrunkWidth(of: name, at: dynamicTypeSize)
+    }
+
+    static func shrunkWidth(of name: String, at size: DynamicTypeSize) -> CGFloat {
+        let font = UIFont.preferredFont(
+            forTextStyle: Theme.Typography.tileTitleStyle,
+            compatibleWith: UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(size)))
+        let shrunk = font.withSize(font.pointSize * PlayableTileLayout.titleMinimumScaleFactor)
+        return (name as NSString).size(withAttributes: [.font: shrunk]).width
     }
 }

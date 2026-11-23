@@ -180,6 +180,61 @@ enum ShelfHeroLayout {
                                  captionMinimumWidth: captionMinimumWidth))
     }
 
+    /// Gap between the rows of the hero's caption: the title, the last-played
+    /// line and the buttons.
+    static let captionSpacing: CGFloat = 6
+
+    /// Extra space above the caption's buttons, on top of `captionSpacing`.
+    static let captionButtonsTopPadding: CGFloat = Theme.Spacing.sm
+
+    /// Where the Continue button ends, measured from the top of the caption
+    /// beside the art. Continue is the caption's first button whether the
+    /// buttons share a row or are stacked, so the answer is the same for
+    /// both. A `lastPlayedHeight` of zero is a caption without that line.
+    static func sideBySideContinueBottom(titleHeight: CGFloat,
+                                         lastPlayedHeight: CGFloat,
+                                         buttonHeight: CGFloat) -> CGFloat {
+        let lastPlayed = lastPlayedHeight > 0 ? lastPlayedHeight + captionSpacing : 0
+        return titleHeight + lastPlayed + captionSpacing + captionButtonsTopPadding + buttonHeight
+    }
+
+    /// Whether the caption beside the art keeps its "Last played" line
+    /// (issue #457).
+    ///
+    /// On a closed iPhone Duo held on its side (a 350 pt viewport) at the
+    /// largest accessibility size the caption is the title on two lines, the
+    /// last-played line on two more, then the buttons, and it is taller than
+    /// the viewport: Continue, the screen's primary action, ended 23 pt into
+    /// the strip under the home indicator. The line is the one part of the
+    /// caption that can go: the art beside it already says which game, and
+    /// the game page says when it was played. So it gives way wherever, and
+    /// only where, Continue would otherwise end below the viewport with the
+    /// shelf at its top; everywhere Continue already fits nothing changes.
+    ///
+    /// Every input is arithmetic over the viewport the scroll view reports
+    /// and the reader's fonts, never a frame of the hero's own: a hero that
+    /// measured itself to decide its own content could feed itself
+    /// (`docs/learnings/a-scroll-view-measured-to-lay-out-its-own-content-can-spin.md`).
+    ///
+    /// - Parameters:
+    ///   - viewportHeight: height visible without scrolling. Zero or
+    ///     non-finite means "not measured yet", and the line is kept.
+    ///   - contentPadding: the inset above the hero.
+    ///   - titleHeight: the title as it wraps at the caption's width.
+    ///   - lastPlayedHeight: the last-played line as it wraps there.
+    ///   - buttonHeight: one button at the reader's text size.
+    static func sideBySideCaptionShowsLastPlayed(viewportHeight: CGFloat,
+                                                 contentPadding: CGFloat,
+                                                 titleHeight: CGFloat,
+                                                 lastPlayedHeight: CGFloat,
+                                                 buttonHeight: CGFloat) -> Bool {
+        guard viewportHeight.isFinite, viewportHeight > 0 else { return true }
+        let bottom = contentPadding + sideBySideContinueBottom(titleHeight: titleHeight,
+                                                               lastPlayedHeight: lastPlayedHeight,
+                                                               buttonHeight: buttonHeight)
+        return bottom <= viewportHeight
+    }
+
     /// How the caption's two buttons, Continue and New Game, are stacked.
     enum ButtonArrangement: Equatable {
         case row

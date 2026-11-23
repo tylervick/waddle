@@ -59,6 +59,9 @@ struct ShelfView: View {
     /// SwiftUI lays it out at the reader's text size (`heroButtonLabelGauge`).
     /// Zero until measured, which asks nothing of the art.
     @State private var heroButtonLabelWidth: CGFloat = 0
+    /// The taller of the two labels, from the same gauge: a `Label`'s icon
+    /// makes it a little taller than its text's line (issue #457).
+    @State private var heroButtonLabelHeight: CGFloat = 0
 
     /// Adaptive, and re-derived from the current Dynamic Type size rather than
     /// fixed: at accessibility sizes the wider floor fits fewer columns, which
@@ -396,7 +399,7 @@ struct ShelfView: View {
         "Bring your own WADs, or start with the Freedoom games below."
 
     /// Gap between the hero's art, title and Continue line.
-    private var heroCaptionSpacing: CGFloat { 6 }
+    private var heroCaptionSpacing: CGFloat { ShelfHeroLayout.captionSpacing }
 
     /// What the hero's title and Continue line need below the art, measured
     /// rather than assumed: `UIFont` already carries the reader's Dynamic Type
@@ -562,31 +565,37 @@ struct ShelfView: View {
     /// game page's (design-system spec §3): Continue is the primary action
     /// and wears the accent, New Game sits next to it.
     private func sideBySideHeroCaption(_ game: Game) -> some View {
-        VStack(alignment: .leading, spacing: heroCaptionSpacing) {
-            Text(game.name).font(Theme.Typography.heroTitle)
-            if let played = game.lastPlayed {
-                Text("Last played \(played, format: .relative(presentation: .named))")
-                    .font(Theme.Typography.secondary)
-                    .foregroundStyle(Color.appSecondaryText)
-            }
+        let captionWidth = ShelfHeroLayout.sideBySideCaptionWidth(
+            contentWidth: heroContentWidth, viewportHeight: viewportHeight,
+            captionMinimumWidth: heroButtonMinimumWidth)
+        let lastPlayed = game.lastPlayed.map(HeroSideBySideCaption.lastPlayedText)
+        let category = UIContentSizeCategory(dynamicTypeSize)
+        // The last-played line gives way where it would push Continue below
+        // the viewport (issue #457). Arithmetic over the reader's fonts at
+        // the caption's width, never a frame of the caption's own.
+        let showsLastPlayed = lastPlayed.map { text in
+            ShelfHeroLayout.sideBySideCaptionShowsLastPlayed(
+                viewportHeight: viewportHeight,
+                contentPadding: contentPadding,
+                titleHeight: HeroSideBySideCaption.titleHeight(game.name, width: captionWidth,
+                                                               category: category),
+                lastPlayedHeight: HeroSideBySideCaption.lastPlayedHeight(text, width: captionWidth,
+                                                                         category: category),
+                buttonHeight: HeroSideBySideCaption.buttonHeight(labelHeight: heroButtonLabelHeight))
+        } ?? false
+        return HeroSideBySideCaption(
+            title: game.name,
+            lastPlayed: showsLastPlayed ? lastPlayed : nil,
             // In a row where the caption holds two buttons as wide as the
             // wider label, stacked where it does not. `ShelfHeroLayout`
             // owns the rule and is where it is tested; `ViewThatFits` asked
             // a different question and let through rows that cut "New Game".
-            Group {
-                switch ShelfHeroLayout.buttonArrangement(
-                    captionWidth: ShelfHeroLayout.sideBySideCaptionWidth(
-                        contentWidth: heroContentWidth, viewportHeight: viewportHeight,
-                        captionMinimumWidth: heroButtonMinimumWidth),
-                    buttonMinimumWidth: heroButtonMinimumWidth) {
-                case .row:
-                    HStack(spacing: ShelfHeroLayout.buttonRowSpacing) { heroButtons(game) }
-                case .column:
-                    VStack(spacing: Theme.Spacing.sm) { heroButtons(game) }
-                }
-            }
-            .padding(.top, Theme.Spacing.sm)
-        }
+            buttonArrangement: ShelfHeroLayout.buttonArrangement(
+                captionWidth: captionWidth, buttonMinimumWidth: heroButtonMinimumWidth),
+            buttonsDisabled: game.baseID == nil,
+            continueAccessibilityLabel: "Continue \(TileAccessibility.label(for: game))",
+            onContinue: { play(game, mode: .continueNewest) },
+            onNewGame: { play(game, mode: .newGame) })
     }
 
     /// The narrowest caption column that shows either button's label whole:
@@ -596,57 +605,31 @@ struct ShelfView: View {
         heroButtonLabelWidth > 0 ? heroButtonLabelWidth + Theme.Spacing.base * 2 : 0
     }
 
-    private var heroContinueLabel: some View {
-        Label("Continue", systemImage: "clock.arrow.circlepath").lineLimit(1)
-    }
-
-    private var heroNewGameLabel: some View {
-        Label("New Game", systemImage: "play.fill").lineLimit(1)
-    }
-
     /// The two labels at their natural width, never drawn: measured from the
     /// views themselves rather than from `UIFont`, because a `Label`'s icon
     /// and the gap after it are SwiftUI's to size and both grow with the text.
     /// At the largest accessibility size a label is wider than half the row
     /// of an open iPhone Duo turned tall, and the buttons were cut to
     /// "Contin…" and "New Ga…" (issue #424).
+    ///
+    /// One over the other, so the gauge is as wide as the wider label and as
+    /// tall as the taller. It is laid out on its own, at its ideal size, so
+    /// nothing the hero draws can change what it reads.
     private var heroButtonLabelGauge: some View {
-        VStack {
-            heroContinueLabel
-            heroNewGameLabel
+        ZStack {
+            HeroSideBySideCaption.continueLabel
+            HeroSideBySideCaption.newGameLabel
         }
         .font(Theme.Typography.button)
         .fixedSize()
         .hidden()
         .accessibilityHidden(true)
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            ceil(proxy.size.width)
-        } action: { width in
-            heroButtonLabelWidth = width
+        .onGeometryChange(for: CGSize.self) { proxy in
+            CGSize(width: ceil(proxy.size.width), height: ceil(proxy.size.height))
+        } action: { size in
+            heroButtonLabelWidth = size.width
+            heroButtonLabelHeight = size.height
         }
-    }
-
-    /// Continue and New Game, for whichever stack `sideBySideHeroCaption`
-    /// chose. Labels stay on one line.
-    @ViewBuilder
-    private func heroButtons(_ game: Game) -> some View {
-        Button {
-            play(game, mode: .continueNewest)
-        } label: {
-            heroContinueLabel
-        }
-        .buttonStyle(.waddlePrimary)
-        .disabled(game.baseID == nil)
-        .accessibilityIdentifier("continueHero")
-        .accessibilityLabel("Continue \(TileAccessibility.label(for: game))")
-        Button {
-            play(game, mode: .newGame)
-        } label: {
-            heroNewGameLabel
-        }
-        .buttonStyle(.waddleSecondary)
-        .disabled(game.baseID == nil)
-        .accessibilityIdentifier("heroNewGameButton")
     }
 
     private func heroArt(_ game: Game, height: CGFloat) -> some View {
@@ -903,5 +886,108 @@ struct ShelfView: View {
         zone = Shelf.heroZone(from: all,
                               isFactoryState: (try? library.isFactoryState()) ?? false,
                               hasResumableSave: hasResumableSave)
+    }
+}
+
+/// The Continue hero's caption beside its art: the title, when it was last
+/// played, and the Continue and New Game buttons (design-system spec §3).
+///
+/// Its own type so a test can draw it: the heights `ShelfView` hands
+/// `ShelfHeroLayout.sideBySideCaptionShowsLastPlayed` are worked out from
+/// the reader's fonts below, and `HeroCaptionFitTests` checks them against
+/// this view as SwiftUI lays it out (issue #457).
+struct HeroSideBySideCaption: View {
+    let title: String
+    /// Nil draws the caption without the line.
+    let lastPlayed: String?
+    let buttonArrangement: ShelfHeroLayout.ButtonArrangement
+    var buttonsDisabled = false
+    var continueAccessibilityLabel = "Continue"
+    var onContinue: () -> Void = {}
+    var onNewGame: () -> Void = {}
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: ShelfHeroLayout.captionSpacing) {
+            Text(title).font(Theme.Typography.heroTitle)
+            if let lastPlayed {
+                Text(lastPlayed)
+                    .font(Theme.Typography.secondary)
+                    .foregroundStyle(Color.appSecondaryText)
+            }
+            Group {
+                switch buttonArrangement {
+                case .row:
+                    HStack(spacing: ShelfHeroLayout.buttonRowSpacing) { buttons }
+                case .column:
+                    VStack(spacing: Theme.Spacing.sm) { buttons }
+                }
+            }
+            .padding(.top, ShelfHeroLayout.captionButtonsTopPadding)
+        }
+    }
+
+    /// Continue and New Game, for whichever stack `buttonArrangement` chose.
+    /// Labels stay on one line.
+    @ViewBuilder
+    private var buttons: some View {
+        Button(action: onContinue) { Self.continueLabel }
+            .buttonStyle(.waddlePrimary)
+            .disabled(buttonsDisabled)
+            .accessibilityIdentifier("continueHero")
+            .accessibilityLabel(continueAccessibilityLabel)
+        Button(action: onNewGame) { Self.newGameLabel }
+            .buttonStyle(.waddleSecondary)
+            .disabled(buttonsDisabled)
+            .accessibilityIdentifier("heroNewGameButton")
+    }
+
+    static var continueLabel: some View {
+        Label("Continue", systemImage: "clock.arrow.circlepath").lineLimit(1)
+    }
+
+    static var newGameLabel: some View {
+        Label("New Game", systemImage: "play.fill").lineLimit(1)
+    }
+
+    /// One copy of the line's wording, because it is both drawn and measured.
+    static func lastPlayedText(_ date: Date) -> String {
+        "Last played \(date.formatted(.relative(presentation: .named)))"
+    }
+
+    // MARK: Heights, from the reader's fonts
+
+    /// The title as it wraps at `width`.
+    static func titleHeight(_ title: String, width: CGFloat, category: UIContentSizeCategory) -> CGFloat {
+        let base = font(.title2, category)
+        let bold = base.fontDescriptor.withSymbolicTraits(.traitBold).map { UIFont(descriptor: $0, size: 0) } ?? base
+        return wrappedHeight(title, font: bold, width: width)
+    }
+
+    /// The last-played line as it wraps at `width`.
+    static func lastPlayedHeight(_ text: String, width: CGFloat, category: UIContentSizeCategory) -> CGFloat {
+        wrappedHeight(text, font: font(.subheadline, category), width: width)
+    }
+
+    /// One button: its label and the style's vertical padding, never below
+    /// the tap target (`WaddlePrimaryButtonStyle`). The label's height is
+    /// measured from the label, as its width is: its icon makes it up to a
+    /// point taller than `UIFont`'s line, and an estimate short of the drawn
+    /// button would keep a line that pushes Continue out of sight.
+    static func buttonHeight(labelHeight: CGFloat) -> CGFloat {
+        max(Theme.minimumTapTarget, labelHeight + Theme.buttonVerticalPadding * 2)
+    }
+
+    private static func font(_ style: UIFont.TextStyle, _ category: UIContentSizeCategory) -> UIFont {
+        UIFont.preferredFont(forTextStyle: style,
+                             compatibleWith: UITraitCollection(preferredContentSizeCategory: category))
+    }
+
+    private static func wrappedHeight(_ text: String, font: UIFont, width: CGFloat) -> CGFloat {
+        guard width > 0 else { return font.lineHeight }
+        let box = (text as NSString).boundingRect(
+            with: CGSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font], context: nil)
+        return ceil(box.height)
     }
 }
