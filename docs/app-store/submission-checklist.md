@@ -213,8 +213,10 @@ no longer tracks the build number, so set `CURRENT_PROJECT_VERSION` yourself
 and pick a value above the highest already in App Store Connect.
 - [ ] Export compliance never prompts at upload:
       `ITSAppUsesNonExemptEncryption = NO` is baked into the Info.plist
-      via `App/project.yml`. (Rationale in §9 of metadata.md: no network
-      connections, no non-exempt crypto — SHA-1 dedupe hashing is exempt.)
+      via `App/project.yml`. (Rationale in §9 of metadata.md: the one
+      network use is an OS-provided HTTPS download of a link the player
+      gives, which is exempt; no non-exempt crypto — SHA-1 dedupe hashing
+      is exempt.)
 - [ ] Wait for the build to finish processing (email from App Store
       Connect), then select it on the version page.
 - [ ] Tester feedback needs no pulling: `testflight-feedback.yml` posts new
@@ -324,7 +326,7 @@ existing version. The dry run only says what it would create; with
       the owner's to make, not an agent's.
 
 - [ ] **App Privacy:** "Data Not Collected" across the board — the app
-      makes no network requests and collects nothing (matches
+      collects nothing (matches
       `App/PrivacyInfo.xcprivacy`: `NSPrivacyCollectedDataTypes` empty,
       `NSPrivacyTracking` false, UserDefaults reason CA92.1 and
       FileTimestamp only). The answer never changes, but the questionnaire
@@ -334,8 +336,14 @@ existing version. The dry run only says what it would create; with
       it cannot be scripted or even inspected from a tool.
 
       The on-device diagnostics export does not change this. Nothing is
-      transmitted — the app links no networking APIs at all — and
-      `AboutView` discloses the behaviour in-app.
+      transmitted, and `AboutView` discloses the behaviour in-app.
+
+      Import from a link (#500) does not change it either. The app's only
+      network request downloads a link the player pasted, from a server
+      the player chose; nothing about the player is sent to the developer
+      or any partner of the developer's, which is what Apple's "collect"
+      means. The owner confirms that reading when first publishing the
+      questionnaire after #500 ships.
 - [ ] **Age rating:** answer the questionnaire exactly per the §8 table,
       which covers all 29 `ageRatingDeclaration` fields. Three answers are
       non-None — Cartoon/Fantasy Violence: Frequent/Intense; **Guns or

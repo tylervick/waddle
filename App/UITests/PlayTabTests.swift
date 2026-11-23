@@ -69,4 +69,36 @@ final class PlayTabTests: XCTestCase {
         XCTAssertTrue(reopened.label.contains("Modern"),
                       "scheme override did not persist across reopen; picker label = '\(reopened.label)'")
     }
+
+    /// Add is a menu of two doors (#500): From Files… and From a Link….
+    /// The link sheet refuses a plain `http` link in place, with the reason,
+    /// and fetches nothing; Cancel closes it. No step here touches the
+    /// network.
+    @MainActor
+    func testAddFromALinkRefusesAPlainHTTPLink() {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
+        app.launch()
+        let add = app.buttons["importButton"]
+        XCTAssertTrue(add.waitForExistence(timeout: 10), "Add missing from the shelf")
+        add.tap()
+        XCTAssertTrue(app.buttons["importFromFiles"].waitForExistence(timeout: 5), "Add's menu has no From Files…")
+        let fromLink = app.buttons["importFromLink"]
+        XCTAssertTrue(fromLink.waitForExistence(timeout: 5), "Add's menu has no From a Link…")
+        fromLink.tap()
+
+        let field = app.textFields["linkImportField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "the link sheet never opened")
+        field.tap()
+        field.typeText("http://example.com/map.wad")
+        app.buttons["linkImportDownload"].tap()
+
+        let error = app.staticTexts["linkImportError"]
+        XCTAssertTrue(error.waitForExistence(timeout: 5), "a plain http link was not refused")
+        XCTAssertTrue(error.label.contains("https://"), "the refusal does not say what to do; label = '\(error.label)'")
+        XCTAssertFalse(app.buttons["linkImportCancel"].exists, "a refused link started a download")
+
+        app.navigationBars["Add From a Link"].buttons["Cancel"].tap()
+        XCTAssertTrue(field.waitForNonExistence(timeout: 5), "Cancel did not close the link sheet")
+    }
 }

@@ -127,6 +127,8 @@ enum ImportRoute: Sendable, Equatable {
     case picker
     /// "Open in Waddle" and the share sheet (`.onOpenURL`).
     case openIn
+    /// A file downloaded from a link the player gave (`LinkImport`, #500).
+    case link
     /// Loose files in Documents/ and Documents/Inbox/, swept on launch and
     /// on return to the foreground.
     case adoption

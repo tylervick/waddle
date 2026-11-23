@@ -233,7 +233,9 @@ targets:
         buildPhase: resources
       # Privacy manifest (App Store requirement). App-scoped settings only
       # — scheme/tuning/debug toggles via UserDefaults (reason CA92.1); no
-      # tracking, no data collection, no network. A loose file reference
+      # tracking, no data collection. The only network use is a download of
+      # a link the player gives (#500), which collects nothing, so
+      # NSPrivacyCollectedDataTypes stays empty. A loose file reference
       # lands it at the bundle root, where App Store Connect expects it.
       - path: PrivacyInfo.xcprivacy
         type: file
