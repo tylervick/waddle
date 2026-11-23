@@ -21,7 +21,7 @@
 #      `<!-- review-id: <id> -->` marker, read back at the start of the next
 #      run. Posting is the output and the state write in one step, so a run
 #      that fails anywhere before the post marks nothing seen. Only markers
-#      in comments written by the posting account count: #497 is public,
+#      in comments by a trusted login count: #497 is public,
 #      and a stranger's comment carrying a marker would otherwise hide that
 #      review for good.
 #   3. App Analytics: the latest WEEKLY instance of the App Store engagement
@@ -54,11 +54,13 @@
 #                  GitHub refuses one over 65,536)
 #   DIGEST_TODAY   YYYY-MM-DD to treat as today (tests use this)
 #   GH_TOKEN       for `gh api` (issues: write)
-#   DIGEST_AUTHOR  the login this run posts as; only its comments are read
-#                  for markers. Unset, it is `gh api user`'s login, which
-#                  works for a person's token. The workflow's GITHUB_TOKEN
-#                  cannot read /user, so the workflow sets it. A post that
-#                  comes back under a different login fails the run.
+#   DIGEST_TRUSTED_AUTHORS  space-separated logins whose comments are read
+#                  for markers (default: github-actions[bot], which the
+#                  workflow's GITHUB_TOKEN posts as, and the owner of
+#                  DIGEST_REPO, for a run from a person's checkout). The
+#                  set, not one login: the bot and the owner must each see
+#                  the other's markers, or each re-posts what the other did.
+#                  A post that lands under a login outside it fails the run.
 #   ASC_KEY_ID / ASC_ISSUER_ID / ASC_KEY_PATH          the everyday key
 #   ASC_REPORTS_KEY_ID / ASC_REPORTS_ISSUER_ID / ASC_REPORTS_PRIVATE_KEY
 #                  the Sales and Reports key (analytics; sales when set).
@@ -97,16 +99,22 @@ export SCRUB_VALUES="${ASC_VENDOR_NUMBER:-} ${ASC_KEY_ID:-} ${ASC_ISSUER_ID:-} $
 # Status tested directly (masked-exit-status rule): a failed listing is an
 # error, never "no comments yet" -- that would re-post every review.
 STATE="$WORK/seen"
-AUTHOR="${DIGEST_AUTHOR:-}"
-if [ -z "$AUTHOR" ]; then
-    AUTHOR="$(gh api user --jq .login)" \
-        || die "DIGEST_AUTHOR is not set and \`gh api user\` failed; cannot tell which comments are this digest's own"
-fi
-# Spliced into the jq filter below, so it must be a plain GitHub login.
-printf '%s' "$AUTHOR" | grep -Eq '^[A-Za-z0-9-]+(\[bot\])?$' \
-    || die "DIGEST_AUTHOR must be a GitHub login, got '$AUTHOR'"
+TRUSTED="${DIGEST_TRUSTED_AUTHORS:-github-actions[bot] ${REPO%%/*}}"
+# Each login is spliced into the jq filter below, so each must be a plain
+# GitHub login; the filter is built only from logins that passed.
+# Globbing off for the split: `[bot]` is a bracket pattern, and a file
+# named github-actionsb in the working directory would replace the login.
+FILTER=""
+set -f
+for login in $TRUSTED; do
+    printf '%s' "$login" | grep -Eq '^[A-Za-z0-9-]+(\[bot\])?$' \
+        || die "DIGEST_TRUSTED_AUTHORS must hold GitHub logins, got '$login'"
+    FILTER="${FILTER:+$FILTER or }.user.login == \"$login\""
+done
+set +f
+[ -n "$FILTER" ] || die "DIGEST_TRUSTED_AUTHORS is empty; no comment could be trusted"
 if bodies="$(gh api "repos/$REPO/issues/$ISSUE/comments?per_page=100" --paginate \
-        --jq ".[] | select(.user.login == \"$AUTHOR\") | .body")"; then
+        --jq ".[] | select($FILTER) | .body")"; then
     printf '%s\n' "$bodies" | grep -o '<!-- review-id: [^ ]* -->' \
         | sed 's/<!-- review-id: \(.*\) -->/\1/' > "$STATE" || :
 else
@@ -570,10 +578,11 @@ kept="${counts% *}"; deferred="${counts#* }"
 if ! poster="$(gh api -X POST "repos/$REPO/issues/$ISSUE/comments" -F body=@"$WORK/body.md" --jq .user.login)"; then
     die "could not post the digest to $REPO#$ISSUE; nothing was marked seen"
 fi
-# The markers just posted count only if the next run reads this author's
-# comments. A mismatch would re-post the same reviews every week, so say so.
-if [ "$poster" != "$AUTHOR" ]; then
-    die "the digest was posted as '$poster' but DIGEST_AUTHOR is '$AUTHOR'; the next run will not see its markers -- set DIGEST_AUTHOR to '$poster'"
-fi
+# The markers just posted count only if the next run trusts this login. One
+# outside the set would re-post the same reviews every week, so say so.
+case " $TRUSTED " in
+    *" $poster "*) ;;
+    *) die "the digest was posted as '$poster', which is not in DIGEST_TRUSTED_AUTHORS ('$TRUSTED'); the next run will not see its markers -- add '$poster' to it" ;;
+esac
 echo "Posted the Apple insights digest to $REPO#$ISSUE ($kept new review(s), $deferred deferred):"
 cat "$WORK/body.md"

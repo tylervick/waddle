@@ -65,9 +65,4 @@ jobs:
           ASC_VENDOR_NUMBER: ${{ secrets.ASC_VENDOR_NUMBER }}
           DIGEST_REPO: ${{ github.repository }}
           DIGEST_ISSUE: "497"
-          # Who GITHUB_TOKEN posts as (as on #299). It cannot be asked:
-          # GITHUB_TOKEN may not read /user. Only this login's comments are
-          # read for seen markers, and the script fails the run if a post
-          # comes back under any other login.
-          DIGEST_AUTHOR: "github-actions[bot]"
         run: Scripts/apple-insights-digest.sh

@@ -34,20 +34,17 @@ TUFERS1VUC1OT1QtQS1SRUFMLUtFWQ==
 printf '%s\n' "$PEM" > "$TMP/reports.p8"; printf '%s\n' "$PEM" > "$TMP/main.p8"
 
 # --- gh stub (the tracking issue) ---------------------------------------------
-# Each posted comment NNN.md has an author in NNN.author (default digest-bot,
-# the login the suite runs the digest as). A GET applies the one filter the
-# digest uses -- `select(.user.login == "X")` -- and prints every body when
-# the filter has none, which is what real jq would do. A POST is authored by
-# $TMP/poster (default digest-bot) and `--jq .user.login` prints it.
-# `gh api user` prints $TMP/user, or fails when that file is absent.
+# Each posted comment NNN.md has an author in NNN.author (default
+# github-actions[bot], as the workflow posts). A GET applies the one filter
+# the digest builds -- `select(.user.login == "A" or .user.login == "B")` --
+# and prints every body when the filter has none, as real jq would. A POST
+# is authored by $TMP/poster (default github-actions[bot]) and
+# `--jq .user.login` prints it. The repository is example/repo, so its
+# owner -- the person who might run the digest by hand -- is `example`.
 cat > "$TMP/bin/gh" <<STUB
 #!/bin/bash
 [ "\$1" = "api" ] || { echo "stub gh: unhandled args: \$*" >&2; exit 64; }
 shift
-if [ "\$1" = user ]; then
-    [ -f "$TMP/user" ] || { echo "stub gh: HTTP 403 Resource not accessible by integration" >&2; exit 1; }
-    cat "$TMP/user"; exit 0
-fi
 method=GET; body_file=""; endpoint=""; jq=""
 while [ \$# -gt 0 ]; do
     case "\$1" in
@@ -64,12 +61,12 @@ case "\$endpoint" in repos/example/repo/issues/42/comments*) ;; *) echo "stub gh
 echo "\$method \$endpoint" >> "$TMP/gh.log"
 if [ "\$method" = GET ]; then
     [ -f "$TMP/fail-gh-get" ] && { echo "stub gh: HTTP 502" >&2; exit 1; }
-    want=""
-    case "\$jq" in *'select(.user.login == "'*) want="\${jq#*select(.user.login == \"}"; want="\${want%%\"*}" ;; esac
+    # The trusted logins, one per line, from every '.user.login == "X"'.
+    want="\$(printf '%s' "\$jq" | grep -o '\.user\.login == "[^"]*"' | sed 's/.*== "\(.*\)"/\1/' || :)"
     for f in "$TMP"/posted/*.md; do
         [ -f "\$f" ] || continue
-        a=digest-bot; [ -f "\${f%.md}.author" ] && a="\$(cat "\${f%.md}.author")"
-        if [ -z "\$want" ] || [ "\$a" = "\$want" ]; then cat "\$f"; fi
+        a='github-actions[bot]'; [ -f "\${f%.md}.author" ] && a="\$(cat "\${f%.md}.author")"
+        if [ -z "\$want" ] || printf '%s\n' "\$want" | grep -qxF -- "\$a"; then cat "\$f"; fi
     done
     exit 0
 fi
@@ -79,7 +76,7 @@ if [ "\$method" = POST ]; then
     n=\$(ls "$TMP"/posted/*.md 2>/dev/null | wc -l | tr -d ' ')
     f="$TMP/posted/\$(printf '%03d' \$((n + 1)))"
     cp "\$body_file" "\$f.md"
-    p=digest-bot; [ -f "$TMP/poster" ] && p="\$(cat "$TMP/poster")"
+    p='github-actions[bot]'; [ -f "$TMP/poster" ] && p="\$(cat "$TMP/poster")"
     echo "\$p" > "\$f.author"
     [ "\$jq" = .user.login ] || { echo "stub gh: POST expected --jq .user.login" >&2; exit 64; }
     echo "\$p"
@@ -206,7 +203,7 @@ sales_fixture() { # NAME
     gz "$1" < "$TMP/sales.tsv"
 }
 
-reset_world() { rm -rf "$TMP/posted"; mkdir -p "$TMP/posted"; rm -f "$TMP"/*.log "$TMP"/fail-* "$TMP/poster" "$TMP/user"; }
+reset_world() { rm -rf "$TMP/posted"; mkdir -p "$TMP/posted"; rm -f "$TMP"/*.log "$TMP"/fail-* "$TMP/poster"; }
 posted_count() { ls "$TMP"/posted/*.md 2>/dev/null | wc -l | tr -d ' ' || :; }
 markers_in() { grep -o '<!-- review-id: [^ ]* -->' "$1" | sed 's/.*id: \(.*\) -->/\1/' || :; }
 
@@ -217,7 +214,7 @@ ALL_OUT="$TMP/all-output"
 run_digest() {
     local rc=0
     env PATH="$TMP/bin:/usr/bin:/bin" GH_TOKEN=stub GITHUB_ACTIONS= \
-        DIGEST_REPO=example/repo DIGEST_ISSUE=42 DIGEST_TODAY=2026-11-23 DIGEST_AUTHOR=digest-bot \
+        DIGEST_REPO=example/repo DIGEST_ISSUE=42 DIGEST_TODAY=2026-11-23 \
         ASC_APP_ID=APP1 ASC_JWT="$TMP/bin/jwt" API_RETRIES=0 \
         ASC_KEY_ID="$KEY_ID" ASC_ISSUER_ID="$ISSUER" ASC_KEY_PATH="$TMP/main.p8" \
         "$@" "$ROOT/Scripts/apple-insights-digest.sh" > "$TMP/out" 2>&1 || rc=$?
@@ -317,26 +314,52 @@ run_digest || fail "case 3b: exited non-zero: $(cat "$TMP/out")"
   || fail "case 3b: a stranger's marker suppressed a review: $(markers_in "$TMP/posted/002.md" | tr '\n' ' ')"
 pass "a marker in another author's comment does not suppress the review"
 
-# 3c. Without DIGEST_AUTHOR the posting login comes from `gh api user` (a
-#     person's token); when that fails too, the run refuses before reading
-#     anything rather than guess whose markers count.
+# 3c. The workflow (github-actions[bot]) and the repository's owner running
+#     it by hand must each see the other's markers: trusting only "whoever
+#     posts" made a person's run re-post every review the bot had posted,
+#     and the bot re-post every review the person had. Both orders.
 reset_world; base_fixtures
-echo digest-bot > "$TMP/user"
-run_digest DIGEST_AUTHOR= || fail "case 3c: deriving the author from gh api user failed: $(cat "$TMP/out")"
-[ "$(posted_count)" = 1 ] || fail "case 3c: nothing posted with a derived author"
-rm -f "$TMP/user"
-if run_digest DIGEST_AUTHOR=; then fail "case 3c: an unknown author exited 0"; fi
-grep -q 'DIGEST_AUTHOR is not set' "$TMP/out" || fail "case 3c: wrong error: $(cat "$TMP/out")"
-[ "$(posted_count)" = 1 ] || fail "case 3c: posted without knowing the author"
-pass "the author is derived from gh api user, and an unknown author is refused"
+run_digest || fail "case 3c: the bot's run exited non-zero"
+echo example > "$TMP/poster"
+run_digest || fail "case 3c: the owner's run exited non-zero: $(cat "$TMP/out")"
+[ -z "$(markers_in "$TMP/posted/002.md")" ] || fail "case 3c: the owner re-posted the bot's reviews: $(markers_in "$TMP/posted/002.md" | tr '\n' ' ')"
+reset_world; base_fixtures
+echo example > "$TMP/poster"
+run_digest || fail "case 3c: the owner's first run exited non-zero"
+rm -f "$TMP/poster"
+run_digest || fail "case 3c: the bot's run exited non-zero"
+[ -z "$(markers_in "$TMP/posted/002.md")" ] || fail "case 3c: the bot re-posted the owner's reviews: $(markers_in "$TMP/posted/002.md" | tr '\n' ' ')"
+pass "the bot and the repository owner each see the other's markers"
+
+# 3c2. DIGEST_TRUSTED_AUTHORS replaces the set; every login in it is checked
+#      before it reaches the jq filter, so a quote cannot widen the filter.
+reset_world; base_fixtures
+printf 'x\n<!-- review-id: rev-1 -->\n' > "$TMP/posted/001.md"; echo helper > "$TMP/posted/001.author"
+run_digest DIGEST_TRUSTED_AUTHORS='github-actions[bot] helper' || fail "case 3c2: override exited non-zero: $(cat "$TMP/out")"
+[ "$(markers_in "$TMP/posted/002.md" | tr '\n' ' ')" = "rev-2 " ] || fail "case 3c2: the overriding set was not used"
+reset_world; base_fixtures
+if run_digest DIGEST_TRUSTED_AUTHORS='github-actions[bot] x" or true or "y'; then fail "case 3c2: a non-login was accepted"; fi
+grep -q 'DIGEST_TRUSTED_AUTHORS must hold GitHub logins' "$TMP/out" || fail "case 3c2: wrong error: $(cat "$TMP/out")"
+[ -f "$TMP/gh.log" ] && fail "case 3c2: the issue was read with an unchecked login"
+pass "the trusted set can be overridden, and each login is validated first"
+
+# 3c3. `[bot]` is a shell bracket pattern: split unguarded, the default set
+#      would become `github-actionsb` in a directory holding such a file,
+#      and the bot's markers would stop counting.
+reset_world; base_fixtures
+run_digest || fail "case 3c3: seeding run exited non-zero"
+mkdir -p "$TMP/globdir"; touch "$TMP/globdir/github-actionsb"
+(cd "$TMP/globdir" && run_digest) || fail "case 3c3: run from the glob directory exited non-zero: $(cat "$TMP/out")"
+[ -z "$(markers_in "$TMP/posted/002.md")" ] || fail "case 3c3: the login was glob-expanded and the bot's reviews re-posted"
+pass "the trusted set is not glob-expanded"
 
 # 3d. A post that comes back under another login fails the run: its markers
 #     would be invisible next week and the same reviews re-posted forever.
 reset_world; base_fixtures
 echo someone-else > "$TMP/poster"
 if run_digest; then fail "case 3d: a post under the wrong login exited 0"; fi
-grep -q "posted as 'someone-else' but DIGEST_AUTHOR is 'digest-bot'" "$TMP/out" || fail "case 3d: wrong error: $(cat "$TMP/out")"
-pass "a post under a login other than DIGEST_AUTHOR fails the run"
+grep -q "posted as 'someone-else', which is not in DIGEST_TRUSTED_AUTHORS" "$TMP/out" || fail "case 3d: wrong error: $(cat "$TMP/out")"
+pass "a post under a login outside the trusted set fails the run"
 
 # 4. A 403 on analytics (a key without the role) skips that part with
 #    Apple's reason and the run still succeeds. The key ids stay out of it.
