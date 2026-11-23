@@ -1,4 +1,4 @@
-# iOS 27 made SDL size a landscape window as portrait, and the fix lives in a patch, not the pin
+# iOS 27 made SDL size a landscape window as portrait; a patch carried the fix until `release-3.4.20`
 
 Found 2026-09-30 while proving #158's committed capture test (issue #291).
 
@@ -51,3 +51,29 @@ stays; `build-deps.sh` applied it unchanged. The one iOS-relevant change in
 the range is `295ca921` "implement joystick hotplugging", which is the path the
 overlay's virtual gamepad attaches through, so `TouchControlsTests` is the
 suite to watch on this bump, not only the orientation test.
+
+**Bumped to `release-3.4.20` in #489, and the patch is deleted.** The patch
+no longer applied either way, which is what stopped CI. `114aca172` itself
+is not an ancestor of `release-3.4.20` (`git merge-base --is-ancestor` says
+no), but the release has its cherry-pick `ca97578d7` ("cherry picked from
+commit 114aca17…"), whose `+`/`-` lines are identical to upstream's apart
+from the `#pragma` wrappers the release branch lacks. It also has a
+follow-up, `2ee7eb621` "Fixed window orientation on iOS 27" (cherry-pick of
+`22a4d8b25`, SDL issue 16436), which is why the patch stopped fitting:
+
+- it fixes upstream's SDK guard to `>= 270000`, the same correction this
+  patch made, and keeps the `statusBarOrientation` fallback for pre-27
+  systems, so `UIKit_GetInterfaceOrientation()` in 3.4.20 is byte for byte
+  the patch's helper;
+- `UIKit_IsDisplayLandscape` and `SDL_OnApplicationDidChangeStatusBarOrientation`
+  now treat `UIInterfaceOrientationUnknown` (no active scene yet) as "not
+  known", falling back to the screen bounds or waiting for the next
+  notification instead of reading it as portrait;
+- `UIKit_ComputeViewFrame` no longer flips the fullscreen frame by
+  orientation at all on iOS 13 and later; it uses the window bounds as-is.
+
+So the mechanism the patch relied on for the landscape-start case (flip the
+frame by the scene's orientation) is gone, replaced by trusting the window
+bounds. `TouchControlsTests.testSessionStartedInLandscapeFillsTheScreen` is
+still the check that it comes out the same.
+
