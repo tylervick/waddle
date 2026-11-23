@@ -68,6 +68,9 @@ final class SoftKeyboardTests: XCTestCase {
             NSPredicate(format: "label CONTAINS[c] 'return'")).firstMatch
         XCTAssertTrue(returnKey.waitForExistence(timeout: 5),
                       "system keyboard never appeared to dismiss via Return")
+        // A newly created simulator's first keyboard is covered by iOS's
+        // Slide to Type introduction, and Return under it never gets the tap.
+        dismissSlideToTypeIntroduction(in: app)
         returnKey.tap()
         // waitForExistence returns false once the marker leaves the tree.
         let gone = NSPredicate(format: "exists == false")
