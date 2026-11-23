@@ -17,10 +17,15 @@ into a comment or a tag, or notify anyone. Case 10 of
 The same forgery needs no quoting at all on a public, unlocked issue: anyone
 can comment there, and a comment carrying a marker counts unless the digest
 reads markers only from its own comments. `Scripts/apple-insights-digest.sh`
-reads only comments by `DIGEST_AUTHOR` (`github-actions[bot]` under the
-workflow's `GITHUB_TOKEN`, which cannot ask `/user` who it is), and fails the
-run if a post comes back under another login, since its markers would then
-be invisible and the same reviews re-posted every week. Cases 3b and 3d.
+reads only comments by a trusted SET of logins, `DIGEST_TRUSTED_AUTHORS`:
+by default `github-actions[bot]` (what the workflow's `GITHUB_TOKEN` posts
+as; it cannot ask `/user` who it is) and the repository's owner. A set, not
+"whoever is posting now": a first cut trusted only the current poster, so a
+person's manual run ignored every marker the bot had posted and re-posted all
+of it, and the bot then did the same to the person's. A post that lands under
+a login outside the set fails the run, since its markers would be invisible.
+Each login is validated before it reaches the jq filter, and the list is
+split with globbing off -- `[bot]` is a bracket pattern. Cases 3b to 3d.
 
 `Scripts/testflight-feedback-digest.sh` has both weaknesses as of
 2026-11-23: it reads markers from every author's comments on the public #299,
