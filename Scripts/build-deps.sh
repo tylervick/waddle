@@ -82,7 +82,9 @@ fetch() { # dir url tag
 
 # Fixes taken from upstream commits that no release we can pin yet contains,
 # as files under Scripts/patches/<dep>/, each carrying its provenance above
-# the diff (issue #291: SDL's iOS 27 orientation fix). Applied with git apply
+# the diff. There are none at present: the first, SDL's iOS 27 orientation
+# fix (issue #291), was deleted when release-3.4.20 shipped it (#489), and an
+# absent directory is the ordinary state. Applied with git apply
 # on top of the pinned checkout, which stays at the pinned commit, so at_pin
 # above still recognises it. A patch that is already in (a re-run over the
 # same checkout) is detected in reverse and skipped. One that applies
