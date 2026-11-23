@@ -86,21 +86,35 @@ before #434.
 
 | Change | `main` | fix | unguarded |
 |---|---|---|---|
-| iPhone 18 Pro, portrait → landscape | wrong 3/3: a portrait-width column centred, black at the sides (`main-iphone-rotated-to-landscape.webp`) | 3/3 = fresh landscape launch | 3/3 right |
-| iPhone 18 Pro, landscape → portrait | right 3/3 | right 3/3 | right 3/3 |
-| iPad Pro 11, portrait → landscape | wrong 3/3 (`main-ipad-rotated-to-landscape.webp`) | right 3/3 | right 3/3 |
-| iPad Pro 11, landscape → portrait | right 3/3 | right 3/3 | right 3/3 |
+| iPhone 18 Pro, launched portrait, turned landscape | wrong 3/3: a portrait-width column centred, black at the sides (`main-iphone-rotated-to-landscape.webp`) | 3/3 = fresh landscape launch | 3/3 right |
+| iPhone 18 Pro, launched landscape, turned portrait | wrong 3/3: cut at the left, tiles in two columns | 3/3 = fresh portrait launch | 3/3 right |
+| iPad Pro 11, launched portrait, turned landscape | wrong 3/3 (`main-ipad-rotated-to-landscape.webp`) | right 3/3 | right 3/3 |
+| iPad Pro 13, launched landscape, turned portrait | wrong 3/3, cut at the left | right 3/3 | right 3/3 |
 | iPad, Settings beside the shelf (`WADDLE_OPEN_PANEL`), either orientation | cut, 3/3 each (`main-ipad-settings-portrait.webp`) | right 3/3 each | not checked |
 | Duo open → closed | cut 3/3 (`main-duo-folded-closed.webp`) | = fresh closed launch 3/3 | 2/2 right |
 | Duo closed → open | in bounds, but tiles larger than a fresh launch's, 3/3 | = fresh open launch 3/3 | 2/2 right |
 
-Landscape → portrait comes out right on `main` because the phone's and the
-iPad's landscape shelf is already a column about as wide as portrait, so the
-offer hardly changes. Growing shows the hold as plainly as shrinking: the
-scroll view, which carries the shelf's background, stays at the old width.
+Every rotation is wrong on `main`, growing as plainly as shrinking: the
+scroll view, which carries the shelf's background, stays at the width it
+was first laid out at.
+
+**Start from a fresh launch in the pose you turn from.** An earlier version
+of this table said `main` turned landscape → portrait correctly, with an
+explanation that the landscape shelf is already about portrait width. Both
+were wrong. That run launched in portrait, turned to landscape, and then
+back, so the landscape shelf it started from was the held portrait width
+itself, and turning back needed no change. An independent review launched
+in landscape and saw it cut; launched that way, it is cut 3 times in 3 on
+both phone and iPad.
+
 Fresh launches are pixel-identical across the three builds. So the
 regression came in with #434 (merged 2026-11-22) and is not in 1.5. That is
 inferred from the unguarded build, not from running the 1.5 binary.
+
+The navigation bar's scroll-edge effect is unchanged by the `GeometryReader`
+round the scroll view: at the largest text size, scrolled by a UI test
+under the bar on an iPhone 18 Pro, `main` and the fix are pixel-identical,
+at the top and scrolled.
 
 Not checked: iPad Split View and Slide Over, which need gestures there is no
 hook for. They are a window narrowing, like the Mac windows of #488, and the
