@@ -46,11 +46,60 @@ final class ImportNoticeBannerTests: XCTestCase {
     /// CI's slowest leg) and shorter than the 2 s after which the renderer
     /// gives up waiting on itself and hands back what it has.
     private static let longestWholeDrawing: Duration = .milliseconds(1500)
-    /// The slowest first pipeline build CI has logged is 25 s.
+    /// All the time the suite may spend on drawings it throws away, together.
+    /// The slowest first pipeline build CI has logged is 46 s, starved on
+    /// purpose. Per drawing rather than per suite, a runner on which every
+    /// drawing was slow would have spent 90 s on each of the sweep's 72 cases and
+    /// been cancelled at the leg's timeout with no failure to read.
     private static let redrawBudget: Duration = .seconds(90)
+
+    /// Time spent so far, by every test of the suite, on drawings thrown away.
+    private static var redrawSpent: Duration = .zero
+    /// Set once the budget is spent: every drawing after it fails at once.
+    private static var gaveUp: RendererNeverFinished?
+    /// Set when the warm-up in `setUp()` could not finish a drawing.
+    private static var warmUpFailure: RendererNeverFinished?
 
     private struct RendererNeverFinished: Error, CustomStringConvertible {
         let description: String
+    }
+
+    /// Draws one banner and throws it away before any test asks a drawing
+    /// anything, so that whichever test runs first, its first drawing is not
+    /// the one that builds the pipeline.
+    ///
+    /// The timing rule in `finishedDrawing` catches a read that waited out
+    /// the renderer's 2 s, but not one that blocked until the build ended and
+    /// came back unfinished in under 1.5 s. Only the drawings made while the
+    /// pipeline builds can be that, and here they are all thrown away: the
+    /// warm-up ends at the second drawing in a row under 1.5 s, which starts
+    /// after the first has returned, and a read made during the build returns
+    /// only once it has ended or after the 2 s the timing rule catches.
+    override nonisolated class func setUp() {
+        super.setUp()
+        MainActor.assumeIsolated {
+            let warmUp = ImportNoticeBanner(text: Self.longest)
+                .foregroundStyle(Color.white)
+                .environment(\.dynamicTypeSize, .accessibility5)
+            do {
+                for _ in 0..<2 {
+                    _ = try Self.finishedDrawing(of: warmUp, width: 466 - Theme.Spacing.base * 2,
+                                                 describedAs: "the warm-up")
+                }
+            } catch let failure as RendererNeverFinished {
+                Self.warmUpFailure = failure
+            } catch {
+                Self.warmUpFailure = RendererNeverFinished(description: "the warm-up failed: \(error)")
+            }
+        }
+    }
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        if let failure = Self.warmUpFailure {
+            throw RendererNeverFinished(description: "no drawing of the banner finished before the tests: "
+                                        + failure.description)
+        }
     }
 
     /// A drawing of `content` that the renderer finished, as RGBA bytes.
@@ -61,14 +110,16 @@ final class ImportNoticeBannerTests: XCTestCase {
     /// its pixels are read, and a read made while the pipeline builds waits
     /// 2 s, logs "image provider … timed out while waiting for phase 6", and
     /// gives back pixels without the shapes still waiting on it, or blocks
-    /// until the build ends with pixels just as incomplete. Either way the
-    /// read took far longer than a whole one does, and that is the only sign
-    /// of it the renderer gives, so a slow drawing is thrown away and drawn
-    /// again (issue #439,
+    /// until the build ends with pixels just as incomplete. A read that took
+    /// far longer than a whole one does is the only sign of it the renderer
+    /// gives, so a slow drawing is thrown away and drawn again (issue #439,
     /// `docs/learnings/imagerenderer-hands-back-an-unfinished-drawing.md`).
     /// What a drawing is then asked is the same either way.
-    private func finishedDrawing(of content: some View, width: CGFloat,
-                                 describedAs label: String) throws -> (width: Int, height: Int, rgba: [UInt8]) {
+    private static func finishedDrawing(of content: some View, width: CGFloat,
+                                        describedAs label: String) throws -> (width: Int, height: Int, rgba: [UInt8]) {
+        if let gaveUp {
+            throw RendererNeverFinished(description: "not drawn at \(label): earlier, \(gaveUp.description)")
+        }
         let clock = ContinuousClock()
         let started = clock.now
         var discarded = 0
@@ -77,7 +128,9 @@ final class ImportNoticeBannerTests: XCTestCase {
             let renderer = ImageRenderer(content: content)
             renderer.scale = Self.scale
             renderer.proposedSize = ProposedViewSize(width: width, height: nil)
-            let image = try XCTUnwrap(renderer.cgImage, "the banner did not draw at \(label)")
+            guard let image = renderer.cgImage else {
+                throw RendererNeverFinished(description: "the banner did not draw at \(label)")
+            }
             // Reading the pixels is what draws them, so it is inside the time.
             var rgba = [UInt8](repeating: 0, count: image.width * image.height * 4)
             let drew = rgba.withUnsafeMutableBytes { buffer -> Bool in
@@ -89,8 +142,8 @@ final class ImportNoticeBannerTests: XCTestCase {
                 context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
                 return true
             }
+            guard drew else { throw RendererNeverFinished(description: "no bitmap context at \(label)") }
             let took = clock.now - began
-            XCTAssertTrue(drew, "no bitmap context")
             if took < Self.longestWholeDrawing {
                 if discarded > 0 {
                     NSLog("ImportNoticeBannerTests: %@", "\(discarded) unfinished drawing(s) of the banner at \(label) "
@@ -99,10 +152,14 @@ final class ImportNoticeBannerTests: XCTestCase {
                 return (image.width, image.height, rgba)
             }
             discarded += 1
+            redrawSpent += took
             NSLog("ImportNoticeBannerTests: %@", "a drawing of the banner at \(label) took \(took); drawing it again")
-            guard clock.now - started < Self.redrawBudget else {
-                throw RendererNeverFinished(description: "the renderer took \(Self.longestWholeDrawing) or longer "
-                    + "on each of \(discarded) drawings of the banner at \(label) over \(clock.now - started)")
+            guard redrawSpent < Self.redrawBudget else {
+                let failure = RendererNeverFinished(description: "the renderer took \(Self.longestWholeDrawing) "
+                    + "or longer on drawings thrown away for \(redrawSpent) in this suite, the last \(discarded) "
+                    + "of them of the banner at \(label)")
+                gaveUp = failure
+                throw failure
             }
         }
     }
@@ -114,8 +171,8 @@ final class ImportNoticeBannerTests: XCTestCase {
         let banner = ImportNoticeBanner(text: text)
             .foregroundStyle(textShown ? Color.white : Color.clear)
             .environment(\.dynamicTypeSize, size)
-        let drawing = try finishedDrawing(of: banner, width: windowWidth - Theme.Spacing.base * 2,
-                                          describedAs: "\(size), \(windowWidth) pt")
+        let drawing = try Self.finishedDrawing(of: banner, width: windowWidth - Theme.Spacing.base * 2,
+                                               describedAs: "\(size), \(windowWidth) pt")
         let count = drawing.width * drawing.height
         return Coverage(width: drawing.width, height: drawing.height,
                         alpha: (0..<count).map { drawing.rgba[$0 * 4 + 3] },
@@ -138,8 +195,10 @@ final class ImportNoticeBannerTests: XCTestCase {
     func testEveryGlyphIsOverTheBackgroundAtEveryTextSizeAndWidth() throws {
         for size in DynamicTypeSize.allCases {
             for width in Self.windowWidths {
-                XCTAssertEqual(try pixelsOutsideBackground(Self.longest, windowWidth: width, size: size), 0,
-                               "text outside the banner's background at \(size) in a \(width) pt window")
+                // `try` outside the assertion: a renderer that gave up ends
+                // the sweep here rather than once for each case left.
+                let outside = try pixelsOutsideBackground(Self.longest, windowWidth: width, size: size)
+                XCTAssertEqual(outside, 0, "text outside the banner's background at \(size) in a \(width) pt window")
             }
         }
     }
