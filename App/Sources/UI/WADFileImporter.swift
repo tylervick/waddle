@@ -11,22 +11,21 @@ enum WADImport {
     /// What the picker offers. `.zip` is first-class: a mod downloaded on a
     /// phone almost always arrives zipped, and `ImportService` unpacks it.
     ///
-    /// The three extension-derived types are built rather than hard-coded
-    /// because `.wad`, `.deh` and `.bex` have no system-declared UTI; each is
-    /// dropped when the system cannot make one rather than substituting
-    /// something broader.
+    /// The accepted extensions come from `ImportFileType`, the one list
+    /// every route shares. `.wad`, `.deh` and `.bex` have no system-declared
+    /// UTI, so theirs are built from the extension; each is dropped when the
+    /// system cannot make one rather than substituting something broader.
     static var contentTypes: [UTType] {
-        var types: [UTType] = [.zip]
-        for ext in ["wad", "deh", "bex"] {
-            if let type = UTType(filenameExtension: ext) { types.append(type) }
+        ImportFileType.acceptedExtensions.compactMap { ext in
+            ImportFileType(extension: ext) == .zip ? .zip : UTType(filenameExtension: ext)
         }
-        return types
     }
 }
 
 extension View {
-    /// Presents the standard multi-select importer and runs the outcome
-    /// through the shared notice banner, handing it on to `onOutcome` for
+    /// Presents the standard multi-select importer and hands the picked files
+    /// to `ImportService`'s one entry point, which imports them off the main
+    /// thread and posts the notice; the outcome then goes to `onOutcome` for
     /// whatever else the presenting screen owes (a refresh, its own summary).
     ///
     /// A cancelled or failed pick is deliberately silent: the user closing the
@@ -38,10 +37,10 @@ extension View {
                      allowedContentTypes: WADImport.contentTypes,
                      allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }
-            let outcome = importer.importFiles(at: urls)
-            UsageStore.shared.recordImport(outcome)
-            ImportNotices.shared.post(outcome: outcome)
-            onOutcome(outcome)
+            Task {
+                let outcome = await importer.importFiles(at: urls, from: .picker)
+                onOutcome(outcome)
+            }
         }
     }
 }

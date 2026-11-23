@@ -7,7 +7,8 @@ struct ExtractedFile {
 }
 
 enum ZipExtractor {
-    private static let gameExtensions: Set<String> = ["wad", "deh", "bex"]
+    /// What gets extracted; the rest of the archive is ignored.
+    private static let gameExtensions = ImportFileType.zipMemberExtensions
 
     /// Zip entries larger than this are skipped rather than extracted, so a
     /// hostile or merely absurd archive can't blow past the store's disk
