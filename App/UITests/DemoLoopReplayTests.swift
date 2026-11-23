@@ -40,6 +40,7 @@ final class DemoLoopReplayTests: XCTestCase {
 
     private func launchApp() -> XCUIApplication {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
         app.launch()
         XCTAssertTrue(app.navigationBars["Waddle"].waitForExistence(timeout: 90),

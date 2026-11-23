@@ -18,6 +18,7 @@ final class TouchLayoutEditorTests: XCTestCase {
     private func launchClean() -> XCUIApplication {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launch()
         return app
@@ -44,6 +45,7 @@ final class TouchLayoutEditorTests: XCTestCase {
         addTeardownBlock {
             // Wipe the persisted layout whatever happened above.
             let cleanup = XCUIApplication()
+            cleanup.provideFreedoom()
             cleanup.launchEnvironment["WADDLE_RESET_STORE"] = "1"
             cleanup.launch()
             cleanup.terminate()
@@ -73,6 +75,7 @@ final class TouchLayoutEditorTests: XCTestCase {
         // the persisted layout.
         app.terminate()
         app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "12"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
@@ -111,6 +114,7 @@ final class TouchLayoutEditorTests: XCTestCase {
         let app = launchClean()
         addTeardownBlock {
             let cleanup = XCUIApplication()
+            cleanup.provideFreedoom()
             cleanup.launchEnvironment["WADDLE_RESET_STORE"] = "1"
             cleanup.launch()
             cleanup.terminate()

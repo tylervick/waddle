@@ -19,6 +19,7 @@ final class QuitGameTests: XCTestCase {
     @MainActor
     func testQuitGameFromTheOverlayEndsTheSessionTwiceInARow() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launchEnvironment["WADDLE_TEST_WARP"] = "1"

@@ -382,6 +382,7 @@ final class SetupScreenOverlapTests: XCTestCase {
     private func startLandscapeSession(arguments: [String]) throws
         -> (XCUIApplication, XCUIElement, SetupScreenWalker) {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "20"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_TEST_WARP"] = "1"

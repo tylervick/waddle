@@ -19,6 +19,7 @@ final class GameMigrationTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         service = LibraryService(context: context, store: WADStore(directory: tmp))
+        service.bundledContentDirectory = try FreedoomFixture.directory()
         defaults = UserDefaults(suiteName: "migrate-\(UUID().uuidString)")!
     }
 
@@ -124,6 +125,7 @@ final class GameMigrationTests: XCTestCase {
     func testMigrationThenSeedMakesOneBaseGamePerBundledRowAndAddsNoDuplicate() throws {
         // An old install: bundled rows exist (seeded by the old build).
         let old = LibraryService(context: context, store: WADStore(directory: tmp))
+        old.bundledContentDirectory = try FreedoomFixture.directory()
         try old.seedBundledContentIfNeeded()   // new seeder — also makes games; undo that to fake an old store
         for game in try old.games() { context.delete(game) }
         try context.save()

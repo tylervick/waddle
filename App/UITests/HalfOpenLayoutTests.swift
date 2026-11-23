@@ -143,6 +143,7 @@ final class HalfOpenLayoutTests: XCTestCase {
     @MainActor
     private func startSession(halfOpen: String) -> (XCUIApplication, XCUIElement) {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "20"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"

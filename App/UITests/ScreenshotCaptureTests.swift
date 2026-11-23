@@ -263,6 +263,7 @@ final class ScreenshotCaptureTests: XCTestCase {
     @MainActor
     func testA_InGameScreens() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         // Menu-free path in-game + overlay visible under XCUITest's phantom
         // controller; neither adds any on-screen debug chrome.
         app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
@@ -317,6 +318,7 @@ final class ScreenshotCaptureTests: XCTestCase {
             throw XCTSkip("no WADDLE_SCREENSHOT_POSE_REQUEST: only the script's inner-display leg takes this shot")
         }
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launch()
@@ -347,6 +349,7 @@ final class ScreenshotCaptureTests: XCTestCase {
     @MainActor
     func testB_MenuScreens() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         // The one seam this test needs. Woof autosaves only from
         // `G_DoWorldDone` (level completion); testA warps in via `G_InitNew`
         // and never finishes the level, so it leaves no save and the shelf

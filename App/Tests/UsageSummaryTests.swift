@@ -452,6 +452,7 @@ final class UsageNamePrivacyTests: XCTestCase {
         diagnostics = tmp.appendingPathComponent("Diagnostics", isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         service = LibraryService(context: ModelContext(container), store: WADStore(directory: tmp))
+        service.bundledContentDirectory = try FreedoomFixture.directory()
         try service.seedBundledContentIfNeeded()
     }
 

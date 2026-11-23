@@ -9,6 +9,7 @@ final class EngineSmokeTests: XCTestCase {
         let autoquitSeconds = 10.0
 
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
         app.launch()
 

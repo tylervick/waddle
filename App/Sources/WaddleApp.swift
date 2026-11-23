@@ -70,7 +70,28 @@ struct WaddleApp: App {
             // `Game.baseGame(for:)` under the same guard. The order that is
             // load-bearing is seed before adopt.
             try library.migrateToGames()
+            // Test-only seam (issue #504), same WADDLE_* family as the reset
+            // above: WADDLE_TEST_FREEDOOM_DIR is a directory holding
+            // freedoom1.wad and freedoom2.wad (the UI-test runner's own
+            // copies), installed as imported files with their base games *in
+            // place of* the bundled seeder, so a UI test plays Freedoom without
+            // the app bundle carrying it. After the reset, so its wipe of
+            // Documents/WADs cannot undo it; before adoption, like the seeder,
+            // so the bases exist to pair with. Never set in production, and
+            // compiled out of Release.
+            #if DEBUG
+            if let testFreedoom = ProcessInfo.processInfo.environment["WADDLE_TEST_FREEDOOM_DIR"] {
+                do {
+                    try library.installFreedoomForTest(from: URL(fileURLWithPath: testFreedoom))
+                } catch {
+                    fatalError("WADDLE_TEST_FREEDOOM_DIR=\(testFreedoom): \(error)")
+                }
+            } else {
+                try library.seedBundledContentIfNeeded()
+            }
+            #else
             try library.seedBundledContentIfNeeded()
+            #endif
             // After the seeder, so bundled bases exist to pair with.
             try library.adoptOrphanMapSets()
 

@@ -24,6 +24,7 @@ final class MenuStateAcrossSessionsTests: XCTestCase {
     /// made `playFreedoom1` vanish for the two cases that tap it.
     private func launchOnACleanShelf(_ environment: [String: String] = [:]) -> XCUIApplication {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
         app.holdAutoquit()

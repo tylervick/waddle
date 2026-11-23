@@ -6,6 +6,7 @@ final class GamePageTests: XCTestCase {
     @MainActor
     func testDuplicateFromABaseGameAddsATile() {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launch()
 
@@ -22,6 +23,7 @@ final class GamePageTests: XCTestCase {
     @MainActor
     func testRenameFromThePageUpdatesTheTile() {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launch()
 
@@ -44,6 +46,7 @@ final class GamePageTests: XCTestCase {
     @MainActor
     func testDeleteFromThePageRemovesTheTile() {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launch()
 
@@ -73,6 +76,7 @@ final class GamePageTests: XCTestCase {
     @MainActor
     func testTheHeroIsSideBySideOnALandscapePhone() {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launch()
         XCUIDevice.shared.orientation = .landscapeLeft
@@ -103,6 +107,7 @@ final class GamePageTests: XCTestCase {
     @MainActor
     func testTheMenuRowsAtAnAccessibilitySizeBehaveLikeTheSystemPicker() {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launch()
         openGamePage(app, tile: "playFreedoom1")
@@ -151,6 +156,7 @@ final class GamePageTests: XCTestCase {
     func testAOneTokenTitleReadsItsPlainNameAtAnAccessibilityTextSize() {
         let name = "sunlust_final_v13"
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launch()
         openGamePage(app, tile: "playFreedoom1")

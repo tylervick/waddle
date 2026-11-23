@@ -8,6 +8,7 @@ final class TouchControlsTests: XCTestCase {
     @MainActor
     func testOverlayInstallsAndInputsReachEngine() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "14"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
@@ -69,6 +70,7 @@ final class TouchControlsTests: XCTestCase {
     @MainActor
     func testModernSchemeDragTurnReachesEngine() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "14"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
@@ -117,6 +119,7 @@ final class TouchControlsTests: XCTestCase {
     @MainActor
     func testFireReleaseClearsTriggerResidue() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "14"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
@@ -169,6 +172,7 @@ final class TouchControlsTests: XCTestCase {
     @MainActor
     func testTouchEventCountResetsForFreshSession() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "14"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
@@ -251,6 +255,7 @@ final class TouchControlsTests: XCTestCase {
     @MainActor
     func testNearMissBesideWeaponPrevDoesNotStartStick() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "25"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
@@ -312,6 +317,7 @@ final class TouchControlsTests: XCTestCase {
     @MainActor
     func testUseTapDrivesOnlyTheSouthButton() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "12"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
@@ -347,6 +353,7 @@ final class TouchControlsTests: XCTestCase {
     @MainActor
     func testStickDragDrivesOnlyAxes() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "12"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
@@ -383,6 +390,7 @@ final class TouchControlsTests: XCTestCase {
     @MainActor
     func testAutomapDragPansAndPinchZooms() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "16"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
@@ -430,6 +438,7 @@ final class TouchControlsTests: XCTestCase {
     @MainActor
     func testWeaponGridPicksAnOwnedWeapon() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "20"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
@@ -480,6 +489,7 @@ final class TouchControlsTests: XCTestCase {
     @MainActor
     func testWeaponRingSlideToPick() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "20"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
@@ -527,6 +537,7 @@ final class TouchControlsTests: XCTestCase {
     @MainActor
     func testWeaponGridSelectorStillPicks() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "20"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
@@ -573,6 +584,7 @@ final class TouchControlsTests: XCTestCase {
     @MainActor
     func testWalkingIntoAUsableLineAutoUses() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "16"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
@@ -605,6 +617,7 @@ final class TouchControlsTests: XCTestCase {
     @MainActor
     func testStandingStillNeverAutoUses() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "8"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
@@ -632,6 +645,7 @@ final class TouchControlsTests: XCTestCase {
     @MainActor
     func testPhysicalControllerTurnsAutoUseOff() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "8"
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
         app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
@@ -683,6 +697,7 @@ final class TouchControlsTests: XCTestCase {
         // when this one left it in landscape. Put it back whatever happens.
         addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "20"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
@@ -748,6 +763,7 @@ final class TouchControlsTests: XCTestCase {
         // TouchLayoutEditorTests cases failed after it.
         addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "25"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
@@ -830,6 +846,7 @@ final class TouchControlsTests: XCTestCase {
     @MainActor
     func testCornerTapMissesCircularButton() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "14"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"

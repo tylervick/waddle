@@ -14,6 +14,7 @@ final class SoftKeyboardTests: XCTestCase {
     @MainActor
     func testFourFingerTapSummonsAndDismissesInGame() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "25"
         app.holdAutoquit()
         // The Simulator reports a phantom controller/keyboard, which would
@@ -81,6 +82,7 @@ final class SoftKeyboardTests: XCTestCase {
     @MainActor
     func testFourFingerTapIgnoredWhileMenuOpen() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "25"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
@@ -114,6 +116,7 @@ final class SoftKeyboardTests: XCTestCase {
     @MainActor
     func testFourFingerTapSummonsWithControlHintsShowing() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "25"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"

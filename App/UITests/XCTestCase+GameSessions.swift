@@ -8,9 +8,12 @@ import XCTest
 extension XCTestCase {
 
     /// Launches with a 10 s autoquit and waits for the launcher.
-    /// `environment` is added to the launch environment first.
+    /// `environment` is added to the launch environment first. Freedoom comes
+    /// from the runner through `provideFreedoom()` (issue #504), not the app
+    /// bundle: these games are built on Freedoom bases.
     func launchForGameSessions(environment: [String: String] = [:]) -> XCUIApplication {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "10"
         app.launchEnvironment.merge(environment) { _, new in new }
         app.launch()

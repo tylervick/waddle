@@ -32,6 +32,7 @@ final class CompressedNodesTests: XCTestCase {
         let noBlockmap = try Self.emptyingLump(named: "BLOCKMAP", in: wad)
 
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
         app.launchEnvironment["WADDLE_DEBUG_SESSION_START"] = "1"
         app.launchEnvironment["WADDLE_TEST_WARP"] = "1"

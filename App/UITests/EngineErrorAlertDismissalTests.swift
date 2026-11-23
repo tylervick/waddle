@@ -20,6 +20,7 @@ final class EngineErrorAlertDismissalTests: XCTestCase {
         let badID = SessionStartStateTests.storedZip(name: "waddle-test.wad",
                                                      data: Data("X".utf8) + wad.dropFirst())
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_TEST_ZIP_1"] = badID.base64EncodedString()
         app.launchEnvironment["WADDLE_TEST_ZIP_2"] = badID.base64EncodedString()
         app.launch()

@@ -171,6 +171,7 @@ extension PlayTabTests {
     func testAFoldKeepsTheSaveWarningUpAndItsAnswerStillApplies() throws {
         let copyName = "Freedoom Phase 1 copy"
         let first = XCUIApplication()
+        first.provideFreedoom()
         first.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         first.launch()
         openGamePage(first, tile: "playFreedoom1")
@@ -180,6 +181,7 @@ extension PlayTabTests {
         first.terminate()
 
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_TEST_SEED_SAVE_FOR"] = copyName
         app.launchEnvironment["WADDLE_TEST_HALF_OPEN"] = "1"
         app.launch()
@@ -221,6 +223,7 @@ extension PlayTabTests {
     @MainActor
     private func launchLauncher(halfOpen: String) -> XCUIApplication {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launchEnvironment["WADDLE_TEST_HALF_OPEN"] = halfOpen
         app.launch()
