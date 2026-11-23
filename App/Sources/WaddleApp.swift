@@ -141,10 +141,7 @@ struct WaddleApp: App {
                         Task { await runAdoption() }
                     }
                     .onOpenURL { url in
-                        let outcome = importer.importFiles(at: [url])
-                        UsageStore.shared.recordImport(outcome)
-                        ImportNotices.shared.post(outcome: outcome)
-                        NotificationCenter.default.post(name: .libraryDidChange, object: nil)
+                        Task { await importer.importFile(at: url, from: .openIn) }
                     }
                     .modelContainer(container)
             } else {
@@ -183,10 +180,7 @@ struct WaddleApp: App {
         defer { isAdopting = false }
         repeat {
             adoptionQueued = false
-            let outcome = await importer.adoptLooseFiles()
-            UsageStore.shared.recordImport(outcome)
-            ImportNotices.shared.post(outcome: outcome, quarantines: true)
-            NotificationCenter.default.post(name: .libraryDidChange, object: nil)
+            await importer.adoptLooseFiles()
         } while adoptionQueued
     }
 }

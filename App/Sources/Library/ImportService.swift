@@ -51,10 +51,126 @@ private enum WADCandidateResult {
     case ready(kind: String, family: String, sha1: String, hasMaps: Bool)
 }
 
+/// The kinds of file the library takes, and the one definition of which
+/// extensions name them (#499): the picker's content types
+/// (`WADImport.contentTypes`), the adoption scan (`looseFiles(in:)`) and the
+/// zip extractor (`ZipExtractor`) all read it from here, so they cannot drift
+/// apart.
+enum ImportFileType: Sendable, Equatable {
+    case wad
+    /// A DeHackEd patch, `.deh` or `.bex`. It has no header magic, so it is
+    /// only ever recognised by name.
+    case dehacked
+    case zip
+
+    /// Every accepted extension, lowercased, in the order the picker offers
+    /// them.
+    static let acceptedExtensions: [String] = ["wad", "deh", "bex", "zip"]
+
+    /// What `ZipExtractor` takes out of a zip: everything but another zip.
+    static let zipMemberExtensions: Set<String> =
+        Set(acceptedExtensions.filter { ImportFileType(extension: $0) != .zip })
+
+    /// The type an extension names, or nil for one the library does not take.
+    init?(extension ext: String) {
+        switch ext.lowercased() {
+        case "wad": self = .wad
+        case "deh", "bex": self = .dehacked
+        case "zip": self = .zip
+        default: return nil
+        }
+    }
+
+    /// The type a file's first bytes give away: `IWAD`/`PWAD` for a WAD,
+    /// `PK\\x03\\x04` (a local file header) for a zip. Nil when they give
+    /// away neither, including a file too short or unreadable.
+    init?(sniffing url: URL) {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let head = try? handle.read(upToCount: 4), head.count == 4 else { return nil }
+        switch [UInt8](head) {
+        case Array("IWAD".utf8), Array("PWAD".utf8): self = .wad
+        case [0x50, 0x4B, 0x03, 0x04]: self = .zip
+        default: return nil
+        }
+    }
+
+    /// The type of the file at `url`, imported under `name`: taken from
+    /// `name`'s extension, then from the URL's, and only then from the
+    /// content. A name or URL whose extension the library does not take
+    /// (a download's "download" or ".tmp") says nothing either way. Nil when
+    /// none of the three settles it.
+    static func resolve(url: URL, name: String) -> ImportFileType? {
+        ImportFileType(extension: (name as NSString).pathExtension)
+            ?? ImportFileType(extension: url.pathExtension)
+            ?? ImportFileType(sniffing: url)
+    }
+
+    /// `name`, with this type's extension added if it does not already carry
+    /// one that names this type.
+    func naming(_ name: String) -> String {
+        if ImportFileType(extension: (name as NSString).pathExtension) == self { return name }
+        switch self {
+        case .wad: return name + ".wad"
+        case .dehacked: return name + ".deh"
+        case .zip: return name + ".zip"
+        }
+    }
+}
+
+/// Where a file reached the library from. Decides what the import does
+/// besides importing: only adoption owns its files, so only adoption deletes
+/// or quarantines them afterwards, and only its notice says so.
+enum ImportRoute: Sendable, Equatable {
+    /// The system file picker: the toolbar's Add, the welcome card's
+    /// **Add Your Games**, and the add-hint tile.
+    case picker
+    /// "Open in Waddle" and the share sheet (`.onOpenURL`).
+    case openIn
+    /// Loose files in Documents/ and Documents/Inbox/, swept on launch and
+    /// on return to the foreground.
+    case adoption
+
+    var quarantinesRejects: Bool { self == .adoption }
+}
+
+/// One file for `ImportService.importFiles(_:from:)`. `suggestedFilename`
+/// is the name its source gave it (a server's name for a download), used in
+/// place of the URL's own, often temporary, name.
+struct ImportRequest: Sendable, Equatable {
+    var url: URL
+    var suggestedFilename: String?
+
+    init(url: URL, suggestedFilename: String? = nil) {
+        self.url = url
+        self.suggestedFilename = suggestedFilename
+    }
+}
+
+/// A first-come, first-served turnstile on the MainActor: `enter()` returns
+/// once every earlier caller has called `leave()`.
+@MainActor
+private final class ImportGate {
+    private var busy = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func enter() async {
+        guard busy else { busy = true; return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    func leave() {
+        if waiting.isEmpty { busy = false } else { waiting.removeFirst().resume() }
+    }
+}
+
 @MainActor
 final class ImportService {
     private let library: LibraryService
     private let store: WADStore
+    private let notices: ImportNotices
+    private let usage: UsageStore
+    private let gate = ImportGate()
 
     /// Injectable seam for tests only: production always relies on
     /// ZipExtractor's own 512 MB default. Internal (not private) so
@@ -71,104 +187,151 @@ final class ImportService {
         "Entry exceeds the \(maxZipEntryBytes / (1024 * 1024)) MB import limit."
     }
 
-    init(library: LibraryService, store: WADStore) {
+    /// `notices` and `usage` default to the app's shared ones; tests hand
+    /// in their own so an import there neither shows a banner nor counts.
+    init(library: LibraryService, store: WADStore,
+         notices: ImportNotices? = nil, usage: UsageStore? = nil) {
         self.library = library
         self.store = store
+        self.notices = notices ?? .shared
+        self.usage = usage ?? .shared
     }
 
-    /// Imports picker/Files-app URLs: .wad validated+classified, .deh/.bex
-    /// taken by extension, .zip recursed into. Security-scoped access is
-    /// handled here so callers can pass fileImporter URLs directly.
+    /// The one way into the library (#499). Every route — the picker, Open
+    /// In, loose-file adoption, and whatever source comes next — hands its
+    /// files here, and this does the whole sequence after an import:
+    /// import, count it (`UsageStore.recordImport`), say what happened
+    /// (`ImportNotices`), and tell the shelf and Files to refresh
+    /// (`.libraryDidChange`). No call site repeats any of that.
     ///
-    /// Stays synchronous: this is the user-initiated picker flow (the user
-    /// is already looking at a progress-less system picker sheet), unlike
-    /// adoptLooseFiles() below which runs unattended on launch and must not
-    /// block the first frame.
-    func importFiles(at urls: [URL]) -> ImportOutcome {
+    /// Parsing, hashing, unzipping and copying all run on detached tasks,
+    /// so awaiting this never blocks the main thread; only the SwiftData
+    /// lookups and writes hop back to the MainActor.
+    ///
+    /// Requests are taken one at a time, in order, and stop at the top of
+    /// the next request once the calling task is cancelled (`Task.detached`
+    /// does not inherit cancellation, so nothing else would stop them). A
+    /// request that has started is left to finish, so its store write and
+    /// its keep/quarantine/delete decision stay consistent; whatever is left
+    /// is picked up by a later call. The outcome so far is still announced.
+    @discardableResult
+    func importFiles(_ requests: [ImportRequest], from route: ImportRoute) async -> ImportOutcome {
         var outcome = ImportOutcome()
-        for url in urls {
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            importOne(url: url, into: &outcome)
+        for request in requests {
+            guard !Task.isCancelled else { break }
+            await importRequest(request, from: route, into: &outcome)
         }
+        usage.recordImport(outcome)
+        notices.post(outcome: outcome, quarantines: route.quarantinesRejects)
+        NotificationCenter.default.post(name: .libraryDidChange, object: nil)
         return outcome
+    }
+
+    /// One file, optionally with the name its source gave it (a download's
+    /// server-supplied filename, say) when the URL's own name is a
+    /// temporary one. See `importFiles(_:from:)`.
+    @discardableResult
+    func importFile(at url: URL, from route: ImportRoute,
+                    suggestedFilename: String? = nil) async -> ImportOutcome {
+        await importFiles([ImportRequest(url: url, suggestedFilename: suggestedFilename)], from: route)
+    }
+
+    /// Several files that carry their own names, as the picker returns them.
+    /// See `importFiles(_:from:)`.
+    @discardableResult
+    func importFiles(at urls: [URL], from route: ImportRoute) async -> ImportOutcome {
+        await importFiles(urls.map { ImportRequest(url: $0) }, from: route)
     }
 
     /// Adopts files users dropped into Documents via the Files app
     /// (UIFileSharingEnabled exposes it), plus files iOS copied into
     /// Documents/Inbox/ for a non-in-place "Open in Waddle" share/open.
-    /// Call on launch/foreground.
-    ///
-    /// Runs off the launch path: hashing and copying (the expensive parts —
-    /// a loose WAD can be hundreds of MB) happen on detached background
-    /// tasks, with only the SwiftData lookups/writes hopping back to the
-    /// MainActor. Candidates are still processed one at a time (not
-    /// fanned out concurrently): each candidate's store write would also
-    /// contend on the same store directory's collision-suffix scan.
+    /// Call on launch/foreground. Runs off the launch path: see
+    /// `importFiles(_:from:)`.
+    @discardableResult
     func adoptLooseFiles() async -> ImportOutcome {
-        var outcome = ImportOutcome()
         let docs = URL.documentsDirectory
         var candidates = looseFiles(in: docs)
         let inbox = docs.appendingPathComponent("Inbox", isDirectory: true)
         if FileManager.default.fileExists(atPath: inbox.path) {
             candidates += looseFiles(in: inbox)
         }
-        for url in candidates {
-            // Task.detached deliberately does NOT inherit the caller's
-            // cancellation, so once one of the detached hash/copy tasks
-            // below is running, nothing can interrupt it — without this
-            // check, cancelling the task awaiting adoptLooseFiles() has no
-            // effect at all and the whole scan runs to completion.
-            //
-            // Check between candidates rather than mid-candidate: a
-            // candidate that has already started is left to finish so its
-            // store write and its keep/quarantine/delete decision stay
-            // consistent (a half-adopted file deleted from Documents but
-            // never registered would be lost), and a fixed, well-defined
-            // stopping point is deterministically testable without racing
-            // in-flight work. Return what the scan accumulated so far;
-            // whatever is left on disk is picked up by the next launch or
-            // foreground scan.
-            guard !Task.isCancelled else { return outcome }
-            // A single candidate (e.g. a zip) can fan out into many inner
-            // importOneAsync calls, each recording its own imported/
-            // duplicate/rejected entry under its own inner filename — not
-            // the candidate's. Give each candidate a fresh LOCAL outcome so
-            // the keep/quarantine/delete decision below reads only what
-            // THIS candidate contributed. (An earlier version diffed a
-            // shared outcome's dictionary keys before/after instead; that
-            // broke when two candidates rejected an entry under the exact
-            // same basename — e.g. two zips each dropping an oversize
-            // "SAME.wad" — because the second candidate's rejection landed
-            // on an already-present key and the diff saw nothing "new".)
-            var local = ImportOutcome()
-            await importOneAsync(url: url, into: &local)
-            if local.rejected.isEmpty {
-                // Nothing about this candidate failed (a clean import, a
-                // pure duplicate, or both) — the content now lives in the
-                // store (or already did); the loose original is redundant.
-                try? FileManager.default.removeItem(at: url)
-            } else {
-                // This candidate contributed at least one rejection — a
-                // fully-corrupt file, an empty zip, or a zip that imported
-                // something valid alongside an oversize/corrupt entry.
-                // Don't destroy a file the user can't explain a failure
-                // for; move it somewhere visible/recoverable in the Files
-                // app instead, so the scan doesn't re-report it forever.
-                // (An oversize entry in particular is legitimate content
-                // that only missed the cut on size — deleting the zip
-                // would destroy its only surviving copy.)
-                moveToImportFailed(url)
-            }
-            outcome.merge(local)
+        return await importFiles(candidates.map { ImportRequest(url: $0) }, from: .adoption)
+    }
+
+    private func importRequest(_ request: ImportRequest, from route: ImportRoute,
+                               into outcome: inout ImportOutcome) async {
+        // One request at a time across every caller, not just within one
+        // call: the find-copy-register sequence below awaits in the middle,
+        // and two routes importing the same bytes at once (an Open In whose
+        // Inbox copy the foreground adoption scan also lists) would both
+        // miss the sha1 index and register the file twice.
+        await gate.enter()
+        defer { gate.leave() }
+
+        let url = request.url
+        // Open In hands over Documents/Inbox copies, which the adoption scan
+        // also lists. If adoption got there first it imported the file,
+        // announced it and removed the original, so there is nothing left
+        // to import or to report a failure about.
+        if route != .adoption, isAdoptionTerritory(url),
+           !FileManager.default.fileExists(atPath: url.path) {
+            return
         }
-        return outcome
+
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+
+        let name = request.suggestedFilename ?? url.lastPathComponent
+        guard route.quarantinesRejects else {
+            await importOneAsync(url: url, name: name, into: &outcome)
+            return
+        }
+        // A single candidate (e.g. a zip) can fan out into many inner
+        // importOneAsync calls, each recording its own imported/
+        // duplicate/rejected entry under its own inner filename — not
+        // the candidate's. Give each candidate a fresh LOCAL outcome so
+        // the keep/quarantine/delete decision below reads only what
+        // THIS candidate contributed. (An earlier version diffed a
+        // shared outcome's dictionary keys before/after instead; that
+        // broke when two candidates rejected an entry under the exact
+        // same basename — e.g. two zips each dropping an oversize
+        // "SAME.wad" — because the second candidate's rejection landed
+        // on an already-present key and the diff saw nothing "new".)
+        var local = ImportOutcome()
+        await importOneAsync(url: url, name: name, into: &local)
+        if local.rejected.isEmpty {
+            // Nothing about this candidate failed (a clean import, a
+            // pure duplicate, or both) — the content now lives in the
+            // store (or already did); the loose original is redundant.
+            try? FileManager.default.removeItem(at: url)
+        } else {
+            // This candidate contributed at least one rejection — a
+            // fully-corrupt file, an empty zip, or a zip that imported
+            // something valid alongside an oversize/corrupt entry.
+            // Don't destroy a file the user can't explain a failure
+            // for; move it somewhere visible/recoverable in the Files
+            // app instead, so the scan doesn't re-report it forever.
+            // (An oversize entry in particular is legitimate content
+            // that only missed the cut on size — deleting the zip
+            // would destroy its only surviving copy.)
+            moveToImportFailed(url)
+        }
+        outcome.merge(local)
+    }
+
+    /// Documents/ and Documents/Inbox/: the two directories adoptLooseFiles
+    /// scans.
+    private func isAdoptionTerritory(_ url: URL) -> Bool {
+        let docs = URL.documentsDirectory.standardizedFileURL
+        let parent = url.standardizedFileURL.deletingLastPathComponent()
+        return parent == docs || parent == docs.appendingPathComponent("Inbox", isDirectory: true)
     }
 
     private func looseFiles(in directory: URL) -> [URL] {
         ((try? FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: [.isRegularFileKey])) ?? [])
-            .filter { ["wad", "deh", "bex", "zip"].contains($0.pathExtension.lowercased()) }
+            .filter { ImportFileType(extension: $0.pathExtension) != nil }
     }
 
     /// Moves a loose file that failed import into Documents/Import Failed/,
@@ -189,14 +352,39 @@ final class ImportService {
         try? FileManager.default.moveItem(at: url, to: failedDir.appendingPathComponent(candidate))
     }
 
-    // MARK: Synchronous path (importFiles/picker flow)
+    /// Which of spec §3.5's three outcomes a freshly registered file is.
+    private func categorize(_ wad: WADFile, as name: String, into outcome: inout ImportOutcome) {
+        switch wad.role {
+        case .base:
+            outcome.games.append(name)
+        case .mapSet:
+            let game = (try? library.gamesUsing(fileID: wad.id))?.first
+            if let game, game.baseID == nil { outcome.unpaired.append(name) } else { outcome.games.append(name) }
+        case .addOn:
+            outcome.addOns.append(name)
+        }
+    }
 
-    private func importOne(url: URL, into outcome: inout ImportOutcome) {
-        let name = url.lastPathComponent
-        switch url.pathExtension.lowercased() {
-        case "zip":
+    // MARK: The import path
+
+    /// Imports one file under `name` — its own filename, or the one its
+    /// source suggested. Dispatches on the type `ImportFileType.resolve`
+    /// settles from the name, the URL, then the content.
+    private func importOneAsync(url: URL, name: String, into outcome: inout ImportOutcome) async {
+        let type = await Task.detached {
+            ImportFileType.resolve(url: url, name: name)
+        }.value
+        guard let type else {
+            outcome.rejected[name] = "Unsupported file type."
+            return
+        }
+        switch type {
+        case .zip:
             do {
-                let extraction = try ZipExtractor.extractGameFiles(from: url, maxEntryBytes: maxZipEntryBytes)
+                let cap = maxZipEntryBytes
+                let extraction = try await Task.detached {
+                    try ZipExtractor.extractGameFiles(from: url, maxEntryBytes: cap)
+                }.value
                 defer { try? FileManager.default.removeItem(at: extraction.dir) }
                 // Record every oversize entry unconditionally — not just
                 // when it's the only thing in the zip. A zip that also
@@ -214,137 +402,12 @@ final class ImportService {
                     return
                 }
                 for file in extraction.files {
-                    importOne(url: file.url, into: &outcome)
+                    await importOneAsync(url: file.url, name: file.name, into: &outcome)
                 }
             } catch {
                 outcome.rejected[name] = "Could not read zip archive."
             }
-        case "deh", "bex":
-            guard let data = try? Data(contentsOf: url) else {
-                outcome.rejected[name] = "File could not be read."
-                return
-            }
-            storeAndRegister(url: url, name: name, kind: WADKind.deh.rawValue,
-                             family: GameFamily.unknown.rawValue,
-                             sha1: WADStore.sha1(of: data), hasMaps: false, into: &outcome)
-        case "wad":
-            do {
-                // .mappedIfSafe, not a plain read: a megawad like Eviternity II
-                // is ~280MB, and a whole-file Data is one anonymous allocation
-                // that size, on a path that runs at launch and on every
-                // foreground (see adoptLooseFiles). Mapped, the kernel pages it
-                // in on demand and can evict under pressure — which on iOS is
-                // the difference between a slow import and a jetsam kill.
-                // Everything below indexes Data exactly as before.
-                guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
-                    outcome.rejected[name] = "File could not be read."
-                    return
-                }
-                let parsed = try WADParser.parse(data)
-                let hasMaps = WADParser.mapFormat(of: parsed.lumpNames) != .none
-                storeAndRegister(url: url, name: name, kind: parsed.kind.rawValue,
-                                 family: WADParser.gameFamily(of: parsed.lumpNames).rawValue,
-                                 sha1: WADStore.sha1(of: data), hasMaps: hasMaps, into: &outcome)
-            } catch WADParseError.badMagic {
-                outcome.rejected[name] = "Not a WAD file (bad header magic)."
-            } catch WADParseError.tooSmall {
-                outcome.rejected[name] = "File is truncated (smaller than a WAD header)."
-            } catch {
-                outcome.rejected[name] = "WAD directory is corrupt."
-            }
-        default:
-            outcome.rejected[name] = "Unsupported file type."
-        }
-    }
-
-    /// Which of spec §3.5's three outcomes a freshly registered file is.
-    private func categorize(_ wad: WADFile, as name: String, into outcome: inout ImportOutcome) {
-        switch wad.role {
-        case .base:
-            outcome.games.append(name)
-        case .mapSet:
-            let game = (try? library.gamesUsing(fileID: wad.id))?.first
-            if let game, game.baseID == nil { outcome.unpaired.append(name) } else { outcome.games.append(name) }
-        case .addOn:
-            outcome.addOns.append(name)
-        }
-    }
-
-    private func storeAndRegister(url: URL, name: String, kind: String, family: String,
-                                  sha1: String, hasMaps: Bool, into outcome: inout ImportOutcome) {
-        // Check the library's sha1 index before touching the store: it's a
-        // single lookup, versus WADStore.store's on-disk rescan (reads and
-        // hashes every stored file) to do the same dedupe check.
-        if let existing = try? library.findWAD(sha1: sha1) {
-            if existing.isBundled ||
-               FileManager.default.fileExists(atPath: library.fileURL(for: existing).path) {
-                outcome.duplicates.append((name as NSString).deletingPathExtension)
-                return
-            }
-            // The DB row is legit but its backing file vanished from disk
-            // (deleted out-of-band) — restore it under a fresh store
-            // filename and repoint the row, rather than reporting a
-            // duplicate that doesn't actually exist anywhere.
-            do {
-                let stored = try store.store(fileAt: url, preferredName: name, precomputedSHA1: sha1)
-                try library.repairFilename(of: existing, to: stored.filename, hasMaps: hasMaps)
-                let displayName = (stored.filename as NSString).deletingPathExtension
-                outcome.imported.append(displayName)
-                // A restored map set never got a tile if it arrived with no
-                // game of its own — adopt it now, same as a fresh import.
-                if existing.role == .mapSet, (try? library.gamesUsing(fileID: existing.id))?.isEmpty == true {
-                    try? library.adoptMapSet(existing)
-                }
-                categorize(existing, as: displayName, into: &outcome)
-            } catch {
-                outcome.rejected[name] = "Could not copy file into the library."
-            }
-            return
-        }
-        do {
-            let stored = try store.store(fileAt: url, preferredName: name, precomputedSHA1: sha1)
-            let wad = try library.registerImported(filename: stored.filename, sha1: stored.sha1,
-                                                    kind: kind, family: family, hasMaps: hasMaps)
-            let displayName = (stored.filename as NSString).deletingPathExtension
-            outcome.imported.append(displayName)
-            categorize(wad, as: displayName, into: &outcome)
-        } catch {
-            outcome.rejected[name] = "Could not copy file into the library."
-        }
-    }
-
-    // MARK: Async path (adoptLooseFiles/launch flow)
-
-    private func importOneAsync(url: URL, into outcome: inout ImportOutcome) async {
-        let name = url.lastPathComponent
-        switch url.pathExtension.lowercased() {
-        case "zip":
-            // Extraction itself stays on Main (not in scope here — none of
-            // the provisioned/real-world fixtures that gate this task are
-            // zips, and the brief scopes the off-main move to hashing and
-            // copying); only the per-entry hash+store work below is async.
-            do {
-                let extraction = try ZipExtractor.extractGameFiles(from: url, maxEntryBytes: maxZipEntryBytes)
-                defer { try? FileManager.default.removeItem(at: extraction.dir) }
-                // See the sync path above: record every oversize entry
-                // unconditionally so a partially-valid zip doesn't lose all
-                // trace of what it dropped.
-                for oversizeName in extraction.skippedOversize {
-                    outcome.rejected[oversizeName] = oversizeRejectionReason
-                }
-                if extraction.files.isEmpty {
-                    if extraction.skippedOversize.isEmpty {
-                        outcome.rejected[name] = "No WAD or DEH files inside the zip."
-                    }
-                    return
-                }
-                for file in extraction.files {
-                    await importOneAsync(url: file.url, into: &outcome)
-                }
-            } catch {
-                outcome.rejected[name] = "Could not read zip archive."
-            }
-        case "deh", "bex":
+        case .dehacked:
             // No parsing needed for these — just a readability check +
             // hash, so there's no reason to load the bytes into memory at
             // all; hash straight off disk via the streamed hasher.
@@ -358,7 +421,11 @@ final class ImportService {
             await storeAndRegisterAsync(url: url, name: name, kind: WADKind.deh.rawValue,
                                         family: GameFamily.unknown.rawValue, sha1: sha1,
                                         hasMaps: false, into: &outcome)
-        case "wad":
+        case .wad:
+            // A WAD recognised by its header under a name that does not say
+            // so (a download's "download") is stored as a .wad: the store,
+            // the Files screen and the engine all go by the extension.
+            let name = ImportFileType.wad.naming(name)
             // WADParser.parse addresses the whole file (it slices into the
             // lump directory by offset), but it only ever touches two small
             // ranges: the 12-byte header, then numLumps * 16 bytes at
@@ -398,17 +465,15 @@ final class ImportService {
                 await storeAndRegisterAsync(url: url, name: name, kind: kind, family: family,
                                             sha1: sha1, hasMaps: hasMaps, into: &outcome)
             }
-        default:
-            outcome.rejected[name] = "Unsupported file type."
         }
     }
 
     private func storeAndRegisterAsync(url: URL, name: String, kind: String, family: String,
                                        sha1: String, hasMaps: Bool,
                                        into outcome: inout ImportOutcome) async {
-        // Same hash-first dedupe as the sync path: a single indexed DB
-        // lookup on Main, before ever touching the (potentially huge) file
-        // again for a copy.
+        // Check the library's sha1 index before touching the store: a single
+        // indexed DB lookup on Main, before ever touching the (potentially
+        // huge) file again for a copy.
         if let existing = try? library.findWAD(sha1: sha1) {
             if existing.isBundled ||
                FileManager.default.fileExists(atPath: library.fileURL(for: existing).path) {
