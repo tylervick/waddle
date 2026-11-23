@@ -881,4 +881,99 @@ final class ImportServiceTests: XCTestCase {
         XCTAssertEqual(outcome, ImportOutcome())
         XCTAssertNil(notices.current)
     }
+
+    // MARK: the gate: one request at a time across every caller (#506 review)
+
+    /// Two routes importing the same bytes at once (an Open In whose Inbox
+    /// copy the adoption scan also lists is the real case) must register the
+    /// file once and report the other as a duplicate. Without the gate both
+    /// miss the sha1 index across the awaits in the middle of the import and
+    /// register it twice.
+    func testConcurrentImportsOfTheSameBytesRegisterItOnce() async throws {
+        // Big enough that hashing and copying it on a detached task takes
+        // long enough for the other callers to reach the sha1 lookup.
+        let data = makeWADWithBodies(magic: "PWAD",
+                                     lumps: [("MAP01", []), ("BULK", Array(repeating: 0x5A, count: 8 << 20))])
+        let importer = self.importer!
+        var tasks: [Task<ImportOutcome, Never>] = []
+        for i in 0..<6 {
+            if i.isMultiple(of: 2) {
+                let url = try write("picked-\(i).wad", data)
+                tasks.append(Task { await importer.importFiles(at: [url], from: .picker) })
+            } else {
+                let url = try writeExtensionless(data)
+                tasks.append(Task {
+                    await importer.importFile(at: url, from: .openIn, suggestedFilename: "opened-\(i).wad")
+                })
+            }
+        }
+        var outcomes: [ImportOutcome] = []
+        for task in tasks { outcomes.append(await task.value) }
+
+        XCTAssertEqual(try library.allWADs().count, 1, "the same bytes are registered once")
+        XCTAssertEqual(outcomes.map(\.imported.count).reduce(0, +), 1)
+        XCTAssertEqual(outcomes.map(\.duplicates.count).reduce(0, +), 5,
+                       "every import after the first reports a duplicate")
+    }
+
+    /// Callers cancelled while others hold or wait for the gate must not
+    /// wedge it: every caller that was not cancelled still imports its file,
+    /// a cancelled one imports either its file or nothing, and an import
+    /// started afterwards still runs.
+    func testCancelledCallersDoNotWedgeTheGate() async throws {
+        let importer = self.importer!
+        var tasks: [Task<ImportOutcome, Never>] = []
+        for i in 0..<8 {
+            let url = try write("many-\(i).wad", makeWAD(magic: "PWAD", lumps: ["MAP0\(i)", "LUMP\(i)"]))
+            tasks.append(Task { await importer.importFiles(at: [url], from: .picker) })
+        }
+        // Let them start and queue on the gate, then cancel every other one.
+        for _ in 0..<3 { await Task.yield() }
+        for (i, task) in tasks.enumerated() where i % 2 == 1 { task.cancel() }
+
+        var importedCount = 0
+        for (i, task) in tasks.enumerated() {
+            let outcome = await task.value
+            if i % 2 == 0 {
+                XCTAssertEqual(outcome.imported, ["many-\(i)"], "caller \(i) was not cancelled")
+            } else {
+                XCTAssertTrue(outcome.imported == [] || outcome.imported == ["many-\(i)"],
+                              "caller \(i): \(outcome.imported)")
+            }
+            importedCount += outcome.imported.count
+        }
+        XCTAssertEqual(try library.allWADs().count, importedCount)
+
+        let later = try write("later.wad", makeWAD(magic: "PWAD", lumps: ["LATER"]))
+        let outcome = await importer.importFiles(at: [later], from: .picker)
+        XCTAssertEqual(outcome.imported, ["later"], "the gate still admits a new caller")
+    }
+
+    /// A patch whose suggested name has no extension keeps the URL's, as a
+    /// WAD gets `.wad` added.
+    func testDEHWithAnExtensionlessSuggestedNameKeepsTheURLsExtension() async throws {
+        let url = try write("tweaks.bex", Data("Patch File for DeHackEd v3.0".utf8))
+        let outcome = await importer.importFile(at: url, from: .openIn, suggestedFilename: "tweaks")
+        XCTAssertEqual(outcome.imported, ["tweaks"])
+        XCTAssertEqual(try library.allWADs().first?.filename, "tweaks.bex")
+    }
+
+    /// A zip-based document that is not a game (a .docx through the zip
+    /// document type) keeps its pre-sniffing rejection; a file that calls
+    /// itself a .zip keeps the empty-zip one.
+    func testANonGameZipDocumentIsUnsupportedButAnEmptyNamedZipSaysSo() async throws {
+        let docx = tmp.appendingPathComponent("report.docx")
+        let archive = try Archive(url: docx, accessMode: .create)
+        let xml = Data("<w:document/>".utf8)
+        try archive.addEntry(with: "word/document.xml", type: .file,
+                             uncompressedSize: Int64(xml.count),
+                             provider: { pos, size in xml.subdata(in: Int(pos)..<Int(pos) + size) })
+
+        let asDocument = await importer.importFiles(at: [docx], from: .openIn)
+        XCTAssertEqual(asDocument.rejected, ["report.docx": "Unsupported file type."])
+
+        let named = try write("report.zip", try Data(contentsOf: docx))
+        let asZip = await importer.importFiles(at: [named], from: .openIn)
+        XCTAssertEqual(asZip.rejected, ["report.zip": "No WAD or DEH files inside the zip."])
+    }
 }

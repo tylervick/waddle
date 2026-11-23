@@ -397,7 +397,17 @@ final class ImportService {
                 }
                 if extraction.files.isEmpty {
                     if extraction.skippedOversize.isEmpty {
-                        outcome.rejected[name] = "No WAD or DEH files inside the zip."
+                        // Only a file that calls itself a zip is reported as
+                        // an empty one. Something recognised as a zip by its
+                        // header alone and holding no game files (a .docx
+                        // handed over through the zip document type, say) is
+                        // not a game download at all, so it keeps the
+                        // rejection it had before content sniffing.
+                        let namedZip = ImportFileType(extension: (name as NSString).pathExtension) == .zip
+                            || ImportFileType(extension: url.pathExtension) == .zip
+                        outcome.rejected[name] = namedZip
+                            ? "No WAD or DEH files inside the zip."
+                            : "Unsupported file type."
                     }
                     return
                 }
@@ -408,6 +418,11 @@ final class ImportService {
                 outcome.rejected[name] = "Could not read zip archive."
             }
         case .dehacked:
+            // A patch is only ever recognised by name, so if the suggested
+            // name does not say .deh/.bex the URL did: keep its extension,
+            // which the store, the Files screen and the engine go by.
+            let name = ImportFileType(extension: (name as NSString).pathExtension) == .dehacked
+                ? name : name + "." + url.pathExtension.lowercased()
             // No parsing needed for these — just a readability check +
             // hash, so there's no reason to load the bytes into memory at
             // all; hash straight off disk via the streamed hasher.
