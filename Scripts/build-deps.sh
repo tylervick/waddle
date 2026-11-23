@@ -11,7 +11,7 @@ set -euo pipefail
 # version (the engine fingerprint and both CI cache keys hash this file). See
 # "Renovate pull requests for the native pins" in Engine/WOOF_UPSTREAM.md.
 # renovate: datasource=github-releases depName=libsdl-org/SDL versioning=regex:^release-(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$
-SDL_TAG="release-3.4.18"
+SDL_TAG="release-3.4.20"
 # renovate: datasource=github-releases depName=kcat/openal-soft versioning=semver
 OPENAL_TAG="1.25.2"
 # renovate: datasource=github-tags depName=pedrolcl/sonivox versioning=semver
