@@ -326,6 +326,29 @@ run_digest $WITH_REPORTS || fail "case 6c: a failed download failed the run"
 grep -q 'App Analytics:\*\* skipped: a report segment download answered HTTP 403' "$TMP/posted/001.md" || fail "case 6c: no reason given"
 pass "a failed segment download is a stated skip"
 
+# 6d. The request exists but Apple has generated nothing yet (its first
+#     reports take 1-2 days): a stated line, not a failure.
+reset_world; base_fixtures; analytics_fixtures
+fx an-reports-eng '{"data":[]}'; fx an-reports-usage '{"data":[]}'
+# shellcheck disable=SC2086
+run_digest $WITH_REPORTS || fail "case 6d: a request with no reports failed the run"
+grep -q 'App Analytics:\*\* skipped: the report request has no Standard engagement or usage reports yet' "$TMP/posted/001.md" \
+  || fail "case 6d: no reason given: $(grep Analytics "$TMP/posted/001.md")"
+only_get "case 6d"
+pass "a request with no reports yet is a stated line"
+
+# 6e. Reports exist but have no weekly instance yet: each says so, and the
+#     section is not a failure or a skip.
+reset_world; base_fixtures; analytics_fixtures
+fx an-inst-RENG '{"data":[]}'; fx an-inst-RSES '{"data":[]}'
+# shellcheck disable=SC2086
+run_digest $WITH_REPORTS || fail "case 6e: reports with no instances failed the run"
+[ "$(grep -c ': no weekly instance yet$' "$TMP/posted/001.md")" = 2 ] \
+  || fail "case 6e: expected two 'no weekly instance yet' lines: $(grep -A3 Analytics "$TMP/posted/001.md")"
+grep -q 'analyticsReportInstances' "$TMP/curl.log" && fail "case 6e: segments were requested for a missing instance"
+only_get "case 6e"
+pass "reports with no weekly instance yet are stated, report by report"
+
 # 7. Sales with the vendor number: unit counts by kind for the latest week,
 #    and NOTHING about money or the account -- no proceeds, prices or
 #    currencies, no vendor number. The newest Sunday has no report yet
