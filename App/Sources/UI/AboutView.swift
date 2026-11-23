@@ -59,15 +59,16 @@ struct AboutView: View {
             }
             // Both rows hand off to something the user sends themselves, after
             // seeing what it carries; the app makes no connection (issue #484,
-            // PRIVACY.md).
+            // PRIVACY.md). The caption sits below the row it describes, as
+            // Diagnostics' does; between the rows it read as Report a bug's.
             Section {
                 Button("Report a bug") { shown.confirmBugReport = true }
                     .accessibilityIdentifier("reportBugButton")
+                Button("Send feedback") { sendFeedback() }
+                    .accessibilityIdentifier("sendFeedbackButton")
                 Text("Attaches the same diagnostics file as Export Diagnostics. You can remove it before sending.")
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Color.appSecondaryText)
-                Button("Send feedback") { sendFeedback() }
-                    .accessibilityIdentifier("sendFeedbackButton")
             } header: {
                 WaddleSectionHeader("Feedback")
             }
@@ -122,7 +123,10 @@ struct AboutView: View {
         }
         .sheet(item: Binding(get: { host.presents ? shown.feedbackMail.map(FeedbackSheet.init) : nil },
                              set: { if host.presents { shown.feedbackMail = $0?.composition } })) { sheet in
-            MailComposeSheet(composition: sheet.composition) { shown.feedbackMail = nil }
+            MailComposeSheet(composition: sheet.composition) {
+                // Only the tree on screen writes (PanelHost).
+                if host.presents { shown.feedbackMail = nil }
+            }
                 .ignoresSafeArea()
         }
         .alert("Mail isn't set up", isPresented: host.presented(

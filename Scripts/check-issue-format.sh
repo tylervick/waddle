@@ -2,8 +2,9 @@
 # Verifies that every open `needs:owner` GitHub issue says what it needs: a
 # non-empty `## Needs the owner` section.
 #
-# An issue is open to any agent unless it carries `needs:owner`, and that label
-# is only useful if the issue names the step that needs the owner (a device, a
+# An issue filed by the owner or their agent is open to any agent unless it
+# carries `needs:owner`, and that label is only useful if the issue names the
+# step that needs the owner (a device, a
 # decision, a credential, an approval) and what would unblock it. A blocked
 # issue with no stated reason cannot be re-checked against the code, and that
 # is how blocked reasons went stale unnoticed (three of ten, reviewed
@@ -18,6 +19,11 @@
 # issues are machine-maintained and rightly have none (Renovate's dashboard and
 # the TestFlight feedback digest). The retired labels `agent:eligible` and
 # `agent:blocked` are ignored here, so an issue still carrying one passes.
+#
+# `needs:triage` (issues filed from outside, e.g. by the in-app bug form) is
+# deliberately not checked: those are written by the public, owe no format,
+# and must never turn this workflow red. They are not agent work until the
+# owner removes the label, so a format rule for them would buy nothing.
 #
 # This check depends on repo-wide mutable state -- the set of currently open
 # issues -- not on the contents of any one diff, so it runs in its own workflow

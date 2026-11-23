@@ -1,6 +1,9 @@
 name: Bug report
 description: Something in Waddle went wrong. Opened from the app's About screen, or by hand.
-labels: ["bug"]
+# needs:triage: anyone on the internet can file through this form, so its
+# text is untrusted and is not agent work until the owner has read it and
+# removed the label (CLAUDE.md, "How work flows").
+labels: ["bug", "needs:triage"]
 body:
   - type: markdown
     attributes:

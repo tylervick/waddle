@@ -64,9 +64,11 @@ enum BugReport {
     }
 
     static func confirmationMessage(facts: DeviceFacts) -> String {
-        "Opens GitHub in your browser. You'll need a GitHub account, and your report will be public. "
-            + "The form starts filled in with: \(facts.summary). "
-            + "You can edit or delete these before submitting."
+        // Literally true at each step, as PRIVACY.md is: the values reach
+        // github.com when the page loads, before any Submit.
+        "Opening GitHub in your browser sends it these values, which fill in the form: \(facts.summary). "
+            + "Nothing is posted until you submit the form, and you can edit or delete them first. "
+            + "Submitting needs a GitHub account, and your report will be public."
     }
 }
 

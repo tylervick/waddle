@@ -10,6 +10,10 @@ final class FeedbackRoutesTests: XCTestCase {
 
     // MARK: Report a bug
 
+    /// The test that keeps library data off the public form. `BugReport.url`
+    /// takes no library input, so a library line could only arrive as an
+    /// added query item, and this asserts the item names exactly. Proven by
+    /// appending `library` items to the builder: this test fails.
     func testBugReportURLCarriesExactlyTheTemplateAndTheThreeFacts() throws {
         let url = BugReport.url(facts: facts)
         let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
@@ -37,7 +41,11 @@ final class FeedbackRoutesTests: XCTestCase {
         XCTAssertTrue(query.contains("%26%20more"), "an & inside a value is encoded: \(query)")
     }
 
-    func testBugReportURLCarriesNoLibraryLine() {
+    /// A second, weaker guard: no library-looking text in any value. It
+    /// cannot fail on its own today, since nothing library-shaped is passed
+    /// in; the exact-names test above carries the weight. This one catches a
+    /// library line smuggled into one of the three values instead.
+    func testBugReportURLValuesCarryNoLibraryText() {
         // A GitHub issue is public; a WAD's file name can be private.
         // The query only: the repository path itself contains "wad".
         let query = (BugReport.url(facts: facts).query ?? "").removingPercentEncoding ?? ""
@@ -53,6 +61,10 @@ final class FeedbackRoutesTests: XCTestCase {
         XCTAssertTrue(message.contains("Version 27.1 (Build 24B83) & more"))
         XCTAssertTrue(message.contains("iPhone16,1"))
         XCTAssertTrue(message.contains("public"))
+        // Says when the values leave (on Open GitHub, before Submit), as
+        // PRIVACY.md does.
+        XCTAssertTrue(message.contains("sends it these values"), message)
+        XCTAssertTrue(message.contains("Nothing is posted until you submit"), message)
     }
 
     // MARK: Send feedback
