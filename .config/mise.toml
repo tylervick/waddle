@@ -16,4 +16,4 @@
 [tools]
 # Runs Scripts/build-mark.py, and the Pillow checks in test-build-mark.sh and
 # test-glyph-source.sh, which CI's helper job now runs (issue #454).
-uv = "0.13.7"
+uv = "0.13.9"
