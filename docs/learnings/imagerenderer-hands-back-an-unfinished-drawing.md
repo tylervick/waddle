@@ -13,12 +13,14 @@ render server), so `ImportNoticeBannerTests` always pays for it, in its first
 drawing. On this Mac it is too quick to be logged. On CI's runners it took
 from half a second to 25 s.
 
-While it builds, a drawing does not wait for it. It waits 2 s, logs
-`image provider … timed out while waiting for phase 6 (1)`, and returns what
-it has, without the background; or it blocks until the build ends (5.5 s in
-one log, with no timeout line) and returns a drawing just as incomplete. The
-tests then compare those. "Clearing the text changed nothing" and "the corner
-differs at 27,0: 0 on one line, 54 …" are both that.
+The `CGImage` that `renderer.cgImage` returns is not drawn yet: it is drawn
+when its pixels are read (`CGContext.draw` here). A read made while the
+pipeline builds waits 2 s, logs
+`image provider … timed out while waiting for phase 6 (1)`, and gives back
+pixels without the background; or it blocks until the build ends (5.5 s in
+one log, with no timeout line) with pixels just as incomplete. The tests then
+compare those. "Clearing the text changed nothing" and "the corner differs at
+27,0: 0 on one line, 54 …" are both that.
 
 Every pull request leg from 2026-11-21 to 22 that ran the suite, 149 jobs
 (the pipeline build time is the one the renderer logs, or under 0.5 s where
@@ -43,22 +45,36 @@ often (`a-scroll-view-measured-to-lay-out-its-own-content-can-spin.md`,
 `parting-the-launcher-at-the-fold.md`), and branches with neither saw it
 too. The runners draw in software on three cores.
 
+## Provoking it
+
+A throwaway test class that sorts just before the suite and leaves 12 busy
+threads running into it starves the build on CI (4.5 to 6.9 s) every time.
+That is how to test a change here: without the redraw it failed 2 runs in 2
+with the issue's own message, "the corner differs at 27,0: 0 on one line, 54
+on 422 pt of text" (#479, #475's first run). Locally, on a freshly created
+Duo with the suite first in its process, the build is too quick to be logged
+and nothing fails.
+
 ## Why the fix is a redraw and not a longer wait
 
-The 2 s is the renderer's own and cannot be lengthened, and a drawing that
+The 2 s is the renderer's own and cannot be lengthened, and a read that
 blocked longer was no more complete. The only sign of an unfinished drawing
 the renderer gives the caller is the time it took: a whole drawing of the
-banner takes about 0.1 s on CI's slowest leg, an unfinished one 2 s or
-more. So a drawing that took 1.5 s or longer is thrown away and drawn again,
-for up to 90 s; a drawing that never finishes inside that throws rather than
-being compared. Each redraw prints `ImportNoticeBannerTests: …` to the test
-log, which is how to tell a run that met a cold pipeline from one that did
-not.
+banner, pixels read, takes about 0.1 s on CI's slowest leg, an unfinished
+one 2 s or more. So a drawing that took 1.5 s or longer is thrown away and
+drawn again, for up to 90 s; a drawing that never finishes inside that
+throws rather than being compared. Each redraw is an `NSLog` line starting
+`ImportNoticeBannerTests:` in the test log (`print` from the test host does
+not reach CI's log). With the provocation, and on one ordinary run that met a
+6.9 s build, three drawings were thrown away and the suite passed.
+
+**Time the pixel read, not `renderer.cgImage`.** The first version timed only
+`cgImage`, which returns at once; under the provocation every unfinished
+drawing went through and the suite failed with no redraw logged.
 
 It does not excuse a wrong shape: with the banner put back to a capsule the
 suite still fails, 20 failures across the corner and glyph tests, with no
 drawing thrown away.
 
 A new picture test that uses `ImageRenderer` should draw through the same
-helper, or warm the renderer the same way, rather than trusting its first
-drawing.
+helper rather than trusting its first drawing.
