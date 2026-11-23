@@ -101,11 +101,11 @@ final class DiagnosticsExporterTests: XCTestCase {
                        "building the file is not sharing it; the share sheet counts that")
     }
 
-    func testTheBackgroundMarkerIsNeverExported() throws {
-        UsageStore(directory: tmp).recordSessionBackgrounded(bucket: .imported, playTime: 60)
+    func testTheInactiveMarkerIsNeverExported() throws {
+        UsageStore(directory: tmp).recordSessionInactive(bucket: .imported, playTime: 60)
         let zip = try DiagnosticsExporter.export(diagnosticsDirectory: tmp,
                                                  libraryLines: [])
-        XCTAssertFalse(try zipEntryNames(zip).contains(UsageStore.backgroundedMarkerName))
+        XCTAssertFalse(try zipEntryNames(zip).contains(UsageStore.inactiveMarkerName))
     }
 
     func testCorruptUsageFileDoesNotFailTheExport() throws {

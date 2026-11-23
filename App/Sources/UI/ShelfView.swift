@@ -848,7 +848,8 @@ struct ShelfView: View {
             bucket: UsageGameBucket.of(game, in: library),
             scheme: TouchControlScheme.effective(override: game.schemeOverrideRaw),
             controllerConnected: !GCController.controllers().isEmpty,
-            orientation: Self.currentUsageOrientation())
+            orientation: Self.currentUsageOrientation(),
+            startsActive: UIApplication.shared.applicationState == .active)
         defer { usage.end(exitCode: usageExitCode) }
         do {
             let plan = try GameLauncher.prepare(game, library: library, mode: mode)

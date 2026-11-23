@@ -77,7 +77,7 @@ final class UsageSummaryTests: XCTestCase {
         XCTAssertEqual(summary.sessionsStarted, 1,
                        "counted before the engine runs, so a crash still leaves the start")
         XCTAssertEqual(summary.sessionsClean + summary.sessionsFailed
-                       + summary.sessionsEndedInBackground, 0)
+                       + summary.sessionsEndedWhileInactive, 0)
     }
 
     func testControlSchemeAndControllerAreCountedAtSessionStart() {
@@ -143,7 +143,7 @@ final class UsageSummaryTests: XCTestCase {
                                           hasFiles: true), .imported)
     }
 
-    // MARK: Foreground time, background checkpoints, and kills
+    // MARK: Active time, checkpoints on resign, and kills
 
     @MainActor
     func testBackgroundTimeIsNotPlayTime() {
@@ -154,9 +154,9 @@ final class UsageSummaryTests: XCTestCase {
                                    controllerConnected: false, orientation: .landscape,
                                    center: center, now: { clock })
         clock += 120
-        center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        center.post(name: UIApplication.willResignActiveNotification, object: nil)
         clock += 8 * 3600   // left overnight
-        center.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        center.post(name: UIApplication.didBecomeActiveNotification, object: nil)
         clock += 60
         session.end(exitCode: 0)
 
@@ -164,11 +164,11 @@ final class UsageSummaryTests: XCTestCase {
         XCTAssertEqual(summary.playMinutesTotal, 3, "two minutes before, one after; none overnight")
         XCTAssertEqual(summary.sessionsByGame.imported.minutes, 3)
         XCTAssertEqual(summary.sessionsClean, 1)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: s.backgroundedMarkerURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: s.inactiveMarkerURL.path))
     }
 
     @MainActor
-    func testBackgroundingCheckpointsTheMinutesToDisk() {
+    func testResigningActiveCheckpointsTheMinutesToDisk() {
         let s = store()
         let center = NotificationCenter()
         var clock = Date(timeIntervalSince1970: 1_000_000)
@@ -176,7 +176,7 @@ final class UsageSummaryTests: XCTestCase {
                          controllerConnected: false, orientation: .landscape,
                          center: center, now: { clock })
         clock += 300
-        center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        center.post(name: UIApplication.willResignActiveNotification, object: nil)
         withExtendedLifetime(session) {}
 
         // Read back through a fresh store, as the next process would.
@@ -194,42 +194,102 @@ final class UsageSummaryTests: XCTestCase {
                          controllerConnected: false, orientation: .landscape,
                          center: center, now: { clock })
         clock += 90
-        center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        center.post(name: UIApplication.willResignActiveNotification, object: nil)
         withExtendedLifetime(session) {}
         // The process ends here: no foreground, no end(). Next launch:
         UsageStore(directory: tmp).recordLaunch(version: "1.6 (1)")
 
         let summary = s.summary()
         XCTAssertEqual(summary.sessionsStarted, 1)
-        XCTAssertEqual(summary.sessionsEndedInBackground, 1)
+        XCTAssertEqual(summary.sessionsEndedWhileInactive, 1)
         XCTAssertEqual(summary.sessionsClean + summary.sessionsFailed, 0)
         XCTAssertEqual(summary.playMinutesTotal, 1.5, "the minutes survived the kill")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: s.backgroundedMarkerURL.path),
+        XCTAssertFalse(FileManager.default.fileExists(atPath: s.inactiveMarkerURL.path),
                        "settled once, not again at every later launch")
         UsageStore(directory: tmp).recordLaunch(version: "1.6 (1)")
-        XCTAssertEqual(s.summary().sessionsEndedInBackground, 1)
+        XCTAssertEqual(s.summary().sessionsEndedWhileInactive, 1)
     }
 
     @MainActor
-    func testACrashInTheForegroundStaysAStartWithNoEnd() {
+    func testACrashWhileActiveStaysAStartWithNoEnd() {
         let s = store()
         let center = NotificationCenter()
         var clock = Date(timeIntervalSince1970: 1_000_000)
         let session = UsageSession(store: s, bucket: .imported, scheme: .classic,
                          controllerConnected: false, orientation: .landscape,
                          center: center, now: { clock })
-        center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        center.post(name: UIApplication.willResignActiveNotification, object: nil)
         clock += 10
-        center.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        center.post(name: UIApplication.didBecomeActiveNotification, object: nil)
         withExtendedLifetime(session) {}
         // Crashes in the foreground. Next launch:
         UsageStore(directory: tmp).recordLaunch(version: "1.6 (1)")
 
         let summary = s.summary()
         XCTAssertEqual(summary.sessionsStarted, 1)
-        XCTAssertEqual(summary.sessionsEndedInBackground, 0,
-                       "the return to the foreground cleared the background marker")
+        XCTAssertEqual(summary.sessionsEndedWhileInactive, 0,
+                       "becoming active again cleared the marker")
         XCTAssertEqual(summary.sessionsClean + summary.sessionsFailed, 0)
+    }
+
+    /// The commonest kill: mid-game, swipe up to the app switcher, flick the
+    /// card away. The app resigns active and is never told it entered the
+    /// background, yet the engine paused at the resign.
+    @MainActor
+    func testAKillFromTheAppSwitcherKeepsTheMinutesAndIsNotACrash() {
+        let s = store()
+        let center = NotificationCenter()
+        var clock = Date(timeIntervalSince1970: 1_000_000)
+        let session = UsageSession(store: s, bucket: .imported, scheme: .classic,
+                                   controllerConnected: false, orientation: .landscape,
+                                   center: center, now: { clock })
+        clock += 240
+        center.post(name: UIApplication.willResignActiveNotification, object: nil)
+        withExtendedLifetime(session) {}
+        // Flicked away in the switcher: no background, no end(). Next launch:
+        UsageStore(directory: tmp).recordLaunch(version: "1.6 (1)")
+
+        let summary = s.summary()
+        XCTAssertEqual(summary.playMinutesTotal, 4, "the stretch before the switcher survived")
+        XCTAssertEqual(summary.sessionsEndedWhileInactive, 1)
+        XCTAssertEqual(summary.sessionsClean + summary.sessionsFailed, 0)
+    }
+
+    /// The switcher, Control Center, Notification Center, a call banner or
+    /// Siri: the app is inactive, the engine is paused, and it is not play.
+    @MainActor
+    func testInactiveTimeIsNotPlayTime() {
+        let s = store()
+        let center = NotificationCenter()
+        var clock = Date(timeIntervalSince1970: 1_000_000)
+        let session = UsageSession(store: s, bucket: .imported, scheme: .classic,
+                                   controllerConnected: false, orientation: .landscape,
+                                   center: center, now: { clock })
+        clock += 60
+        center.post(name: UIApplication.willResignActiveNotification, object: nil)
+        clock += 600   // Control Center left open
+        center.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        clock += 60
+        session.end(exitCode: 0)
+
+        XCTAssertEqual(s.summary().playMinutesTotal, 2)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: s.inactiveMarkerURL.path))
+    }
+
+    @MainActor
+    func testASessionStartedWhileInactiveCountsOnlyOnceActive() {
+        let s = store()
+        let center = NotificationCenter()
+        var clock = Date(timeIntervalSince1970: 1_000_000)
+        let session = UsageSession(store: s, bucket: .imported, scheme: .classic,
+                                   controllerConnected: false, orientation: .landscape,
+                                   startsActive: false, center: center, now: { clock })
+        clock += 300
+        center.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        clock += 120
+        session.end(exitCode: 0)
+
+        XCTAssertEqual(s.summary().playMinutesTotal, 2)
     }
 
     @MainActor
@@ -240,9 +300,9 @@ final class UsageSummaryTests: XCTestCase {
                                    controllerConnected: false, orientation: .landscape,
                                    center: center)
         session.end(exitCode: 0)
-        center.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: s.backgroundedMarkerURL.path),
-                       "a later backgrounding outside any session must not mark one")
+        center.post(name: UIApplication.willResignActiveNotification, object: nil)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: s.inactiveMarkerURL.path),
+                       "a later resign outside any session must not mark one")
     }
 
     // MARK: Persistence
@@ -297,7 +357,7 @@ final class UsageSummaryTests: XCTestCase {
         let s = store()
         s.recordLaunch(version: "1.5 (295)")
         start(s, scheme: .modern, controller: true)
-        s.recordSessionBackgrounded(bucket: .imported, playTime: 600)
+        s.recordSessionInactive(bucket: .imported, playTime: 600)
         s.recordSessionEnd(bucket: .imported, exitCode: -1, playTime: 600)
         var outcome = ImportOutcome()
         outcome.imported = ["a.wad"]
@@ -330,13 +390,13 @@ final class UsageSummaryTests: XCTestCase {
     func testRowsShowEveryCount() {
         var summary = UsageSummary()
         summary.launches = 12
-        summary.sessionsEndedInBackground = 2
+        summary.sessionsEndedWhileInactive = 2
         summary.sessionsByControlScheme.gameController = 3
         summary.sessionsByGame.imported.sessions = 4
         summary.sessionsByGame.imported.minutes = 12.5
         let text = summary.rows.map { "\($0.label): \($0.value)" }
         XCTAssertTrue(text.contains("Launches: 12"))
-        XCTAssertTrue(text.contains("Sessions ended in the background: 2"))
+        XCTAssertTrue(text.contains("Sessions ended while inactive: 2"))
         XCTAssertTrue(text.contains("With a game controller: 3 sessions"))
         XCTAssertTrue(text.contains("Imported games: 4 sessions, 12.5 min"))
         XCTAssertTrue(text.contains("Freedoom Phase 1: 0 sessions, 0.0 min"))
@@ -349,7 +409,7 @@ final class UsageSummaryTests: XCTestCase {
 enum UsageKeys {
     static let topLevel: Set<String> = [
         "first_seen_day", "last_seen_day", "app_versions", "launches",
-        "sessions_started", "sessions_clean", "sessions_failed", "sessions_ended_in_background",
+        "sessions_started", "sessions_clean", "sessions_failed", "sessions_ended_while_inactive",
         "play_minutes_total", "sessions_by_control_scheme", "sessions_by_orientation",
         "sessions_by_game", "wads_imported", "games_created", "diagnostics_exports",
     ]

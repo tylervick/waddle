@@ -117,12 +117,13 @@ struct UsageSummary: Codable, Equatable {
     var sessionsClean = 0
     /// Any non-zero exit, including a launch that could not build its argv.
     var sessionsFailed = 0
-    /// Sessions that were in the background when the process ended (iOS
-    /// reclaimed it, or the user swiped it away), told apart from a crash:
-    /// started minus the three outcomes is what is left for crashes.
-    var sessionsEndedInBackground = 0
-    /// Foreground time only: a session left in the background overnight
-    /// adds nothing while it sits there.
+    /// Sessions the process ended in while the app was not active: flicked
+    /// away in the app switcher, or reclaimed by iOS in the background. Told
+    /// apart from a crash: started minus the three outcomes is what is left
+    /// for crashes.
+    var sessionsEndedWhileInactive = 0
+    /// Active time only (`UsageSession`): a session left in the background
+    /// overnight, or behind Control Center, adds nothing while it waits.
     var playMinutesTotal: Double = 0
     var sessionsByControlScheme = ControlSchemeCounts()
     var sessionsByOrientation = OrientationCounts()
@@ -144,7 +145,7 @@ struct UsageSummary: Codable, Equatable {
         case sessionsStarted = "sessions_started"
         case sessionsClean = "sessions_clean"
         case sessionsFailed = "sessions_failed"
-        case sessionsEndedInBackground = "sessions_ended_in_background"
+        case sessionsEndedWhileInactive = "sessions_ended_while_inactive"
         case playMinutesTotal = "play_minutes_total"
         case sessionsByControlScheme = "sessions_by_control_scheme"
         case sessionsByOrientation = "sessions_by_orientation"
@@ -167,8 +168,8 @@ struct UsageSummary: Codable, Equatable {
         sessionsStarted = (try? c.decodeIfPresent(Int.self, forKey: .sessionsStarted)) ?? 0
         sessionsClean = (try? c.decodeIfPresent(Int.self, forKey: .sessionsClean)) ?? 0
         sessionsFailed = (try? c.decodeIfPresent(Int.self, forKey: .sessionsFailed)) ?? 0
-        sessionsEndedInBackground = (try? c.decodeIfPresent(
-            Int.self, forKey: .sessionsEndedInBackground)) ?? 0
+        sessionsEndedWhileInactive = (try? c.decodeIfPresent(
+            Int.self, forKey: .sessionsEndedWhileInactive)) ?? 0
         playMinutesTotal = (try? c.decodeIfPresent(Double.self, forKey: .playMinutesTotal)) ?? 0
         sessionsByControlScheme = (try? c.decodeIfPresent(
             ControlSchemeCounts.self, forKey: .sessionsByControlScheme)) ?? ControlSchemeCounts()
@@ -204,7 +205,7 @@ struct UsageSummary: Codable, Equatable {
             ("Sessions started", "\(sessionsStarted)"),
             ("Sessions ended cleanly", "\(sessionsClean)"),
             ("Sessions ended in an error", "\(sessionsFailed)"),
-            ("Sessions ended in the background", "\(sessionsEndedInBackground)"),
+            ("Sessions ended while inactive", "\(sessionsEndedWhileInactive)"),
             ("Play time", Self.minutesText(playMinutesTotal)),
             ("Classic controls", Self.sessionsText(sessionsByControlScheme.classic)),
             ("Modern controls", Self.sessionsText(sessionsByControlScheme.modern)),
@@ -276,14 +277,14 @@ extension UsageGameBucket {
 /// read the store.
 ///
 /// Every write happens on the main thread: at launch, around a session and
-/// its background transitions, on an import or a new game, or when a share
+/// its active and inactive transitions, on an import or a new game, or when a share
 /// completes.
 final class UsageStore: @unchecked Sendable {
     static let fileName = "usage.json"
-    /// Present while a session is in the background. Seen at the next launch,
-    /// it means the process ended there, not in a crash. Never exported: the
+    /// Present while a session's app is not active. Seen at the next launch,
+    /// it means the process ended then, not in a crash. Never exported: the
     /// exporter copies an allowlist, and this is not on it.
-    static let backgroundedMarkerName = "usage-session-in-background"
+    static let inactiveMarkerName = "usage-session-inactive"
 
     static let shared = UsageStore(directory: DiagnosticsPaths.directory)
 
@@ -299,7 +300,7 @@ final class UsageStore: @unchecked Sendable {
     }
 
     var fileURL: URL { directory.appendingPathComponent(Self.fileName) }
-    var backgroundedMarkerURL: URL { directory.appendingPathComponent(Self.backgroundedMarkerName) }
+    var inactiveMarkerURL: URL { directory.appendingPathComponent(Self.inactiveMarkerName) }
 
     /// The stored counts. A missing or unreadable file is all zeros: a bad
     /// file must never fail the export it rides in.
@@ -325,19 +326,19 @@ final class UsageStore: @unchecked Sendable {
         return summary
     }
 
-    /// Also settles the previous process: a session it left in the
-    /// background is counted as ended there.
+    /// Also settles the previous process: a session it left while not
+    /// active is counted as ended while inactive.
     func recordLaunch(version: String, at date: Date = .now, timeZone: TimeZone = .current) {
-        let endedInBackground = FileManager.default.fileExists(atPath: backgroundedMarkerURL.path)
+        let endedWhileInactive = FileManager.default.fileExists(atPath: inactiveMarkerURL.path)
         update { summary in
             Self.markSeen(&summary, at: date, timeZone: timeZone)
             if !summary.appVersions.contains(version) {
                 summary.appVersions.append(version)
             }
             summary.launches += 1
-            if endedInBackground { summary.sessionsEndedInBackground += 1 }
+            if endedWhileInactive { summary.sessionsEndedWhileInactive += 1 }
         }
-        setBackgrounded(false)
+        setInactive(false)
     }
 
     func recordSessionStart(bucket: UsageGameBucket, scheme: TouchControlScheme,
@@ -359,16 +360,16 @@ final class UsageStore: @unchecked Sendable {
         }
     }
 
-    /// The session went to the background: its foreground time so far is
-    /// saved now, so a kill there keeps it, and the marker is set.
-    func recordSessionBackgrounded(bucket: UsageGameBucket, playTime: TimeInterval) {
+    /// The app resigned active mid-session: the active time so far is saved
+    /// now, so a kill from here keeps it, and the marker is set.
+    func recordSessionInactive(bucket: UsageGameBucket, playTime: TimeInterval) {
         addPlayTime(playTime, to: bucket)
-        setBackgrounded(true)
+        setInactive(true)
     }
 
-    /// Back in the foreground: the process did not end in the background.
-    func recordSessionForegrounded() {
-        setBackgrounded(false)
+    /// Active again: the process did not end while inactive.
+    func recordSessionActive() {
+        setInactive(false)
     }
 
     func recordSessionEnd(bucket: UsageGameBucket, exitCode: Int32, playTime: TimeInterval,
@@ -383,7 +384,7 @@ final class UsageStore: @unchecked Sendable {
             }
             Self.add(minutes, to: bucket, in: &summary)
         }
-        setBackgrounded(false)
+        setInactive(false)
     }
 
     /// Counts what an import added: files, and the games they became.
@@ -407,7 +408,7 @@ final class UsageStore: @unchecked Sendable {
     /// Zeroes every count: the About screen's Reset Usage Counts.
     func reset() {
         update { $0 = UsageSummary() }
-        setBackgrounded(false)
+        setInactive(false)
     }
 
     private func addPlayTime(_ playTime: TimeInterval, to bucket: UsageGameBucket) {
@@ -423,9 +424,9 @@ final class UsageStore: @unchecked Sendable {
             UsageSummary.rounded(summary.sessionsByGame[bucket].minutes + minutes)
     }
 
-    private func setBackgrounded(_ backgrounded: Bool) {
-        let url = backgroundedMarkerURL
-        if backgrounded {
+    private func setInactive(_ inactive: Bool) {
+        let url = inactiveMarkerURL
+        if inactive {
             try? DiagnosticsPaths.ensureExcludedDirectory(directory)
             try? Data().write(to: url, options: .atomic)
         } else if FileManager.default.fileExists(atPath: url.path) {
