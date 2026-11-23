@@ -273,4 +273,61 @@ final class LibraryServiceTests: XCTestCase {
 
         XCTAssertEqual(service.fileStatus(for: kept), .imported)
     }
+
+    // MARK: Legacy placeholder hashes (issue #503 review)
+
+    func testSeederRehashesALegacyPlaceholderWhileTheFileShips() throws {
+        try service.seedBundledContentIfNeeded()
+        let phase1 = try XCTUnwrap(try service.allWADs().first { $0.filename == "freedoom1.wad" })
+        let real = phase1.sha1
+        phase1.sha1 = "bundled:freedoom1.wad"   // seeded before a1dc675a
+        try service.saveChanges()
+
+        try service.seedBundledContentIfNeeded()
+
+        XCTAssertEqual(phase1.sha1, real)
+        XCTAssertTrue(phase1.isBundled)
+    }
+
+    /// `shippedFreedoomSHA1` is what builds before a1dc675a shipped, and so
+    /// what a placeholder row's bytes were. It holds today because the app
+    /// still bundles that release. If a Freedoom bump fails this, the table
+    /// is still right — keep its 0.13.0 hashes and change this test instead.
+    func testShippedFreedoomSHA1IsTheBundledRelease() throws {
+        try service.seedBundledContentIfNeeded()
+        for wad in try service.allWADs() where wad.isBundled {
+            XCTAssertEqual(LibraryService.shippedFreedoomSHA1[wad.filename], wad.sha1, wad.filename)
+        }
+    }
+
+    func testReleasingALegacyPlaceholderRowGivesItTheShippedHash() throws {
+        try service.seedBundledContentIfNeeded()
+        for wad in try service.allWADs() { wad.sha1 = "bundled:\(wad.filename)" }
+        try service.saveChanges()
+
+        try shipWithoutFreedoom()
+        try service.seedBundledContentIfNeeded()
+
+        for wad in try service.allWADs() {
+            XCTAssertEqual(wad.sha1, LibraryService.shippedFreedoomSHA1[wad.filename], wad.filename)
+            XCTAssertEqual(service.fileStatus(for: wad), .missing)
+        }
+    }
+
+    /// The wiring for `Pairing`'s presence rule: a released Freedoom, played
+    /// and imported-looking, must not take a new map set from a present IWAD.
+    func testPairBasePrefersAPresentIWADOverAReleasedFreedoom() throws {
+        try service.seedBundledContentIfNeeded()
+        let phase1 = try XCTUnwrap(try service.allWADs().first { $0.filename == "freedoom1.wad" })
+        try service.markPlayed(try XCTUnwrap(try service.game(id: phase1.id)))
+        let url = tmp.appendingPathComponent("doom.wad")
+        try Data(repeating: 0xAB, count: 16).write(to: url)
+        let doom = try service.registerImported(filename: "doom.wad", sha1: "sha-doom",
+                                                kind: WADKind.iwad.rawValue,
+                                                family: GameFamily.doom1.rawValue)
+        try shipWithoutFreedoom()
+        try service.seedBundledContentIfNeeded()
+
+        XCTAssertEqual(try service.pairBase(forFamily: .doom1)?.id, doom.id)
+    }
 }

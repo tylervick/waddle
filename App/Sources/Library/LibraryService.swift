@@ -106,7 +106,15 @@ final class LibraryService {
             if let existing = try wadByFilename(entry.file, bundled: true) {
                 wad = existing
                 wad.hasMaps = true   // IWADs carry maps; upgraded installs must match fresh ones.
-                if !isShipped { try releaseFromBundle(wad) }
+                if !isShipped {
+                    try releaseFromBundle(wad)
+                } else if wad.sha1.hasPrefix(Self.legacyBundledSHA1Prefix) {
+                    // Seeded before rows carried real hashes (see
+                    // `legacyBundledSHA1Prefix`). Hashed once, here, the same
+                    // one-time cost a fresh install pays at its first launch;
+                    // every later launch skips it.
+                    wad.sha1 = try WADStore.sha1(ofFileAt: bundleURL)
+                }
             } else if isShipped {
                 wad = WADFile(filename: entry.file, displayName: entry.title,
                               kindRaw: WADKind.iwad.rawValue,
@@ -138,8 +146,20 @@ final class LibraryService {
     /// nothing uses, and the repair repoints it. From here on the row keeps
     /// its name reserved (`claimedStoreFilenames`), so a later import of a
     /// different file by the same name is stored under a name of its own.
+    ///
+    /// A row seeded by a build from before a1dc675a (2026-08-12; TestFlight
+    /// build 210 and earlier) and never launched under a later build that
+    /// still shipped the files carries a placeholder instead of a hash, which
+    /// no import could ever match. Every build that shipped the files shipped
+    /// Freedoom 0.13.0 (`Scripts/fetch-freedoom.sh`'s pin has not moved since
+    /// it was added on 2026-07-15), so the placeholder stands for known
+    /// bytes, and the row takes their hash (`shippedFreedoomSHA1`).
     private func releaseFromBundle(_ wad: WADFile) throws {
         wad.isBundled = false
+        if wad.sha1.hasPrefix(Self.legacyBundledSHA1Prefix),
+           let shipped = Self.shippedFreedoomSHA1[wad.filename] {
+            wad.sha1 = shipped
+        }
         let claimed = try claimedStoreFilenames(excluding: wad)
         let base = (wad.filename as NSString).deletingPathExtension
         let ext = (wad.filename as NSString).pathExtension
@@ -166,6 +186,20 @@ final class LibraryService {
     func claimedStoreFilenames(excluding wad: WADFile? = nil) throws -> Set<String> {
         Set(try allWADs().filter { !$0.isBundled && $0.id != wad?.id }.map(\.filename))
     }
+
+    /// The pseudo-hash builds before a1dc675a (2026-08-12) stamped on bundled
+    /// rows: `bundled:<filename>`. The seeder never re-hashed an existing
+    /// row, so installs first seeded by those builds still carry it.
+    static let legacyBundledSHA1Prefix = "bundled:"
+
+    /// SHA-1 of the Freedoom 0.13.0 IWADs, the only Freedoom release any
+    /// build has bundled. Historical, not "whatever ships now": it says what
+    /// a legacy placeholder row's bytes were, so it must not follow a later
+    /// Freedoom bump. Used only to release such a row (`releaseFromBundle`).
+    static let shippedFreedoomSHA1: [String: String] = [
+        "freedoom1.wad": "97bb88094a51457a8dcad98c58be22a2d0fa9a37",
+        "freedoom2.wad": "975f781e6d801c0a23e3caa33f70493efe68a880",
+    ]
 
     /// `UserDefaults` keys for the one-time launch-order migration steps (see
     /// `WaddleApp`, which also clears both under `WADDLE_RESET_STORE`).
@@ -390,7 +424,8 @@ final class LibraryService {
     /// The IWAD a new map set of `family` pairs with — see `Pairing.chooseBase`.
     func pairBase(forFamily family: GameFamily) throws -> WADFile? {
         let candidates = try baseGames().map { iwad in
-            Pairing.Candidate(file: iwad, lastPlayed: try game(id: iwad.id)?.lastPlayed)
+            Pairing.Candidate(file: iwad, lastPlayed: try game(id: iwad.id)?.lastPlayed,
+                              fileIsPresent: fileStatus(for: iwad) != .missing)
         }
         return Pairing.chooseBase(forFamily: family, among: candidates)
     }

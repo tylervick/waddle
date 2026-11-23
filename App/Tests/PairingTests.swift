@@ -34,6 +34,37 @@ final class PairingTests: XCTestCase {
         XCTAssertEqual(chosen?.id, a.id)
     }
 
+    /// A Freedoom the app no longer bundles is an imported row with no file
+    /// (issue #503). However recently it was played, it cannot launch, so a
+    /// present base wins.
+    func testAPresentBaseBeatsAMissingOneHoweverRecentlyPlayed() {
+        let released = iwad("freedoom1.wad", family: .doom1)
+        let doom = iwad("doom.wad", family: .doom1)
+        let chosen = Pairing.chooseBase(forFamily: .doom1, among: [
+            .init(file: released, lastPlayed: Date(), fileIsPresent: false),
+            .init(file: doom, lastPlayed: nil),
+        ])
+        XCTAssertEqual(chosen?.id, doom.id)
+    }
+
+    func testAPresentBundledBaseBeatsAMissingImportedOne() {
+        let freedoom = iwad("freedoom2.wad", family: .doom2, bundled: true)
+        let gone = iwad("doom2.wad", family: .doom2)
+        let chosen = Pairing.chooseBase(forFamily: .doom2, among: [
+            .init(file: freedoom, lastPlayed: nil),
+            .init(file: gone, lastPlayed: Date(), fileIsPresent: false),
+        ])
+        XCTAssertEqual(chosen?.id, freedoom.id, "presence comes before the imported-over-bundled rule")
+    }
+
+    func testAMissingBaseStillPairsWhenItIsTheFamilysOnlyOne() {
+        let released = iwad("freedoom1.wad", family: .doom1)
+        let chosen = Pairing.chooseBase(forFamily: .doom1, among: [
+            .init(file: released, lastPlayed: nil, fileIsPresent: false),
+        ])
+        XCTAssertEqual(chosen?.id, released.id, "the row survives to be restored")
+    }
+
     func testFamilyMustMatch() {
         let doom1 = iwad("doom.wad", family: .doom1)
         XCTAssertNil(Pairing.chooseBase(forFamily: .doom2, among: [.init(file: doom1, lastPlayed: Date())]))

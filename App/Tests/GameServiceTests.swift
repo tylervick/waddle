@@ -461,6 +461,9 @@ final class GameServiceTests: XCTestCase {
                                                hasMaps: true)
         let pairedToFreedoom = try XCTUnwrap(try service.gamesUsing(fileID: map.id).first).baseID
         // Now the real thing arrives. The existing game stays where it is (spec §4.1)…
+        // It needs bytes on disk: a base whose file is missing never beats a
+        // present one (issue #503).
+        try Data(repeating: 0xAB, count: 16).write(to: tmp.appendingPathComponent("doom2.wad"))
         let doom2 = try service.registerImported(filename: "doom2.wad", sha1: "d",
                                                  kind: WADKind.iwad.rawValue, family: GameFamily.doom2.rawValue, hasMaps: true)
         XCTAssertEqual(try service.gamesUsing(fileID: map.id).first?.baseID, pairedToFreedoom, "no silent re-pairing")

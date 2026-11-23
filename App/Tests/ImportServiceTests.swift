@@ -982,10 +982,18 @@ final class ImportServiceTests: XCTestCase {
     /// Seeds the real bundled rows, gives Phase 1 a save, keeps a copy of its
     /// bytes, then relaunches as a build that ships no Freedoom. Returns the
     /// Phase 1 row's id and the copy.
-    private func releaseBundledFreedoom(copyTo copy: URL) throws -> UUID {
+    ///
+    /// `legacyPlaceholder` gives every bundled row the pseudo-hash builds
+    /// before a1dc675a stamped on it, as an install that skips straight from
+    /// such a build to one without the files would have.
+    private func releaseBundledFreedoom(copyTo copy: URL, legacyPlaceholder: Bool = false) throws -> UUID {
         try library.seedBundledContentIfNeeded()
         let phase1 = try XCTUnwrap(library.allWADs().first { $0.isBundled && $0.filename == "freedoom1.wad" })
         try FileManager.default.copyItem(at: library.fileURL(for: phase1), to: copy)
+        if legacyPlaceholder {
+            for wad in try library.allWADs() { wad.sha1 = "bundled:\(wad.filename)" }
+            try library.saveChanges()
+        }
         let saves = LibraryService.savesDirectory(forGameID: phase1.id)
         try FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: saves) }
@@ -1121,5 +1129,14 @@ final class ImportServiceTests: XCTestCase {
                            "\(row.filename) must hold its own row's bytes")
         }
         XCTAssertEqual(library.saveSlots(forKey: id).map(\.id), ["woofsav0.dsg"])
+    }
+
+    func testImportingFreedoomRestoresARowReleasedWithALegacyPlaceholder() async throws {
+        let copy = tmp.appendingPathComponent("freedoom1.wad")
+        let id = try releaseBundledFreedoom(copyTo: copy, legacyPlaceholder: true)
+
+        let outcome = await importer.importFiles(at: [copy], from: .picker)
+
+        try assertRestored(id, outcome)
     }
 }
