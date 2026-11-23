@@ -38,4 +38,45 @@ final class ShipUITests: XCTestCase {
         }
         XCTAssertTrue(gplRow.exists, "GPL-3.0 license row never appeared")
     }
+
+    /// Issue #484: the Feedback section's two rows. "Send feedback" is not
+    /// tapped (it depends on the simulator's mail state; FeedbackRoutesTests
+    /// covers both of its outcomes), and "Report a bug" goes no further than
+    /// its confirmation.
+    func testAboutScreenShowsFeedbackRows() {
+        let app = XCUIApplication()
+        app.launch()
+
+        let menu = app.buttons["touchSchemeMenu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 10))
+        menu.tap()
+
+        let about = app.buttons["aboutButton"]
+        XCTAssertTrue(about.waitForExistence(timeout: 5))
+        about.tap()
+
+        let aboutList = app.collectionViews["aboutView"]
+        XCTAssertTrue(aboutList.waitForExistence(timeout: 5))
+
+        // Rows are lazy and may start below the fold in landscape.
+        for id in ["reportBugButton", "sendFeedbackButton"] {
+            let row = app.buttons[id]
+            var swipes = 0
+            while !row.exists && swipes < 4 {
+                aboutList.swipeUp()
+                swipes += 1
+            }
+            XCTAssertTrue(row.exists, "\(id) never appeared on the About screen")
+        }
+
+        // "Report a bug" asks first, naming what the form will carry; Cancel
+        // leaves without opening anything.
+        app.buttons["reportBugButton"].tap()
+        let confirm = app.alerts["Report a bug on GitHub?"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5),
+                      "Report a bug must confirm before opening the browser")
+        XCTAssertTrue(confirm.buttons["Open GitHub"].exists)
+        confirm.buttons["Cancel"].tap()
+        XCTAssertTrue(aboutList.waitForExistence(timeout: 5))
+    }
 }

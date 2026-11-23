@@ -1,3 +1,4 @@
+import MessageUI
 import SwiftUI
 
 struct AboutView: View {
@@ -15,6 +16,13 @@ struct AboutView: View {
     @State private var ownPresentation = SettingsPresentation()
     private var shown: SettingsPresentation { presentation ?? ownPresentation }
     @Environment(\.panelHost) private var host
+    @Environment(\.openURL) private var openURL
+
+    /// The mail sheet's composition; not Identifiable on its own.
+    private struct FeedbackSheet: Identifiable {
+        let composition: FeedbackMail.Composition
+        var id: String { composition.attachments.map(\.url.path).joined() }
+    }
 
     var body: some View {
         List {
@@ -48,6 +56,20 @@ struct AboutView: View {
                     .foregroundStyle(Color.appSecondaryText)
             } header: {
                 WaddleSectionHeader("Open source")
+            }
+            // Both rows hand off to something the user sends themselves, after
+            // seeing what it carries; the app makes no connection (issue #484,
+            // PRIVACY.md).
+            Section {
+                Button("Report a bug") { shown.confirmBugReport = true }
+                    .accessibilityIdentifier("reportBugButton")
+                Text("Attaches the same diagnostics file as Export Diagnostics. You can remove it before sending.")
+                    .font(Theme.Typography.caption)
+                    .foregroundStyle(Color.appSecondaryText)
+                Button("Send feedback") { sendFeedback() }
+                    .accessibilityIdentifier("sendFeedbackButton")
+            } header: {
+                WaddleSectionHeader("Feedback")
             }
             Section {
                 Button("Export Diagnostics") { exportDiagnostics() }
@@ -88,6 +110,30 @@ struct AboutView: View {
         } message: {
             Text(shown.exportError ?? "")
         }
+        // The query reaches github.com as the page loads, so the user reads
+        // the literal values before tapping, not after.
+        .alert("Report a bug on GitHub?", isPresented: host.presented(
+            { shown.confirmBugReport }, dismiss: { shown.confirmBugReport = false }
+        )) {
+            Button("Open GitHub") { openURL(BugReport.url(facts: DeviceFacts.current)) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(BugReport.confirmationMessage(facts: DeviceFacts.current))
+        }
+        .sheet(item: Binding(get: { host.presents ? shown.feedbackMail.map(FeedbackSheet.init) : nil },
+                             set: { if host.presents { shown.feedbackMail = $0?.composition } })) { sheet in
+            MailComposeSheet(composition: sheet.composition) { shown.feedbackMail = nil }
+                .ignoresSafeArea()
+        }
+        .alert("Mail isn't set up", isPresented: host.presented(
+            { shown.mailUnavailable }, dismiss: { shown.mailUnavailable = false }
+        )) {
+            Button("Copy Address") { UIPasteboard.general.string = FeedbackMail.recipient }
+            Button("Export Diagnostics") { exportDiagnostics() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Send your feedback to \(FeedbackMail.recipient) from any mail app. To include diagnostics, export the file and attach it yourself.")
+        }
     }
 
     private var licenseFiles: [(String, String)] {
@@ -104,6 +150,33 @@ struct AboutView: View {
          ("libFLAC — BSD", "LIBFLAC-BSD"),
          ("libopus — BSD", "LIBOPUS-BSD"),
          ("ZIPFoundation — MIT", "ZIPFOUNDATION-MIT")]
+    }
+
+    /// The mail sheet with the diagnostics file attached, or the alert when
+    /// this device has no mail account. The file is built only when there is
+    /// a sheet to attach it to.
+    private func sendFeedback() {
+        let canSendMail = MFMailComposeViewController.canSendMail()
+        let facts = DeviceFacts.current
+        let lines = DiagnosticsExporter.libraryLines(from: library)
+        Task.detached(priority: .userInitiated) {
+            DiagnosticsExporter.reclaimStaleExports()
+            do {
+                let outcome = try FeedbackMail.prepare(canSendMail: canSendMail, facts: facts) {
+                    try DiagnosticsExporter.export(
+                        diagnosticsDirectory: DiagnosticsPaths.directory,
+                        libraryLines: lines)
+                }
+                await MainActor.run {
+                    switch outcome {
+                    case .compose(let composition): shown.feedbackMail = composition
+                    case .unavailable: shown.mailUnavailable = true
+                    }
+                }
+            } catch {
+                await MainActor.run { shown.exportError = error.localizedDescription }
+            }
+        }
     }
 
     private func exportDiagnostics() {
@@ -165,4 +238,43 @@ struct ShareSheet: UIViewControllerRepresentable {
     }
     func updateUIViewController(_ controller: UIActivityViewController,
                                 context: Context) {}
+}
+
+/// The system mail sheet. The user sees the recipient, their own From
+/// address and the attachment, and sends or cancels it; either way the sheet
+/// goes and the app keeps nothing of what was written.
+struct MailComposeSheet: UIViewControllerRepresentable {
+    let composition: FeedbackMail.Composition
+    let onFinish: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onFinish: onFinish) }
+
+    func makeUIViewController(context: Context) -> MFMailComposeViewController {
+        let controller = MFMailComposeViewController()
+        controller.mailComposeDelegate = context.coordinator
+        controller.setToRecipients(composition.recipients)
+        controller.setSubject(composition.subject)
+        controller.setMessageBody(composition.body, isHTML: false)
+        for attachment in composition.attachments {
+            if let data = try? Data(contentsOf: attachment.url) {
+                controller.addAttachmentData(data, mimeType: attachment.mimeType,
+                                             fileName: attachment.fileName)
+            }
+        }
+        return controller
+    }
+
+    func updateUIViewController(_ controller: MFMailComposeViewController,
+                                context: Context) {}
+
+    final class Coordinator: NSObject, MFMailComposeViewControllerDelegate {
+        let onFinish: () -> Void
+        init(onFinish: @escaping () -> Void) { self.onFinish = onFinish }
+
+        func mailComposeController(_ controller: MFMailComposeViewController,
+                                   didFinishWith result: MFMailComposeResult,
+                                   error: Error?) {
+            onFinish()
+        }
+    }
 }

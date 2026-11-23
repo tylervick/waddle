@@ -41,6 +41,11 @@ final class SettingsPresentation {
     /// About's share sheet and its failure alert.
     var exportedZip: URL?
     var exportError: String?
+    /// About's Feedback rows (issue #484): the "Report a bug" confirmation,
+    /// the mail sheet, and the alert shown when no mail account is set up.
+    var confirmBugReport = false
+    var feedbackMail: FeedbackMail.Composition?
+    var mailUnavailable = false
 }
 
 /// The same for one game's page.
