@@ -28,14 +28,29 @@
 #   DIGEST_BYTES   max characters in one comment, everything included
 #                  (default: 60000)
 #   GH_TOKEN       for `gh api` (issues: write)
+#   DIGEST_TRUSTED_AUTHORS  space-separated logins whose comments are read
+#                  for markers (default: github-actions[bot], which the
+#                  workflow's GITHUB_TOKEN posts as, and the owner of
+#                  DIGEST_REPO, for a run from a person's checkout). The
+#                  set, not one login: the bot and the owner must each see
+#                  the other's markers, or each re-posts what the other did.
+#                  A post that lands under a login outside it fails the run.
 #   FETCH_SCRIPT   override the fetcher (tests use this)
 #   plus whatever the fetcher needs: ASC_KEY_ID / ASC_ISSUER_ID / ASC_KEY_PATH,
 #   or ASC_JWT to override the token minter.
 #
+# The digest issue is public, so the seen-state is read only from comments by
+# a trusted login, and everything a tester wrote is escaped before it is
+# quoted: otherwise a stranger's comment, or a tester's text, could carry a
+# `<!-- tf-feedback-id: X -->` marker that hides submission X for good
+# (docs/learnings/digest-markers-can-be-forged-by-quoted-text.md).
+#
 # Exit 0 with "No new feedback." when there is nothing to post. Non-zero,
-# with an `error:` line, when the issue cannot be read (a failed listing must
+# with an `error:` line, when the trusted set is empty or not GitHub logins,
+# when the issue cannot be read (a failed listing must
 # NOT read as "no comments yet" -- that would replay the whole backlog), when
-# the fetcher fails, or when the post fails.
+# the fetcher fails, when the post fails, or when the post lands under a
+# login outside the trusted set.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -58,7 +73,25 @@ BODY="$WORK/body.md"
 # 1. Seen-state from the issue. Status tested directly (masked-exit-status
 #    rule): a failed listing is an error, never an empty list. An EMPTY
 #    successful listing is a fully measured zero -- the cold start.
-if bodies="$(gh api "repos/$REPO/issues/$ISSUE/comments?per_page=100" --paginate --jq '.[].body')"; then
+#    Only comments by a trusted login count: #299 is public and unlocked, and
+#    a stranger's comment carrying a marker would otherwise hide that
+#    submission for good, with nothing in the digest or the log to show it.
+TRUSTED="${DIGEST_TRUSTED_AUTHORS:-github-actions[bot] ${REPO%%/*}}"
+#    Each login is spliced into the jq filter below, so each must be a plain
+#    GitHub login; the filter is built only from logins that passed. Globbing
+#    off for the split: `[bot]` is a bracket pattern, and a file named
+#    github-actionsb in the working directory would replace the login.
+FILTER=""
+set -f
+for login in $TRUSTED; do
+    printf '%s' "$login" | grep -Eq '^[A-Za-z0-9-]+(\[bot\])?$' \
+        || { echo "error: DIGEST_TRUSTED_AUTHORS must hold GitHub logins, got '$login'" >&2; exit 2; }
+    FILTER="${FILTER:+$FILTER or }.user.login == \"$login\""
+done
+set +f
+[ -n "$FILTER" ] || { echo "error: DIGEST_TRUSTED_AUTHORS is empty; no comment could be trusted" >&2; exit 2; }
+if bodies="$(gh api "repos/$REPO/issues/$ISSUE/comments?per_page=100" --paginate \
+        --jq ".[] | select($FILTER) | .body")"; then
     printf '%s\n' "$bodies" | grep -o '<!-- tf-feedback-id: [^ ]* -->' \
         | sed 's/<!-- tf-feedback-id: \(.*\) -->/\1/' > "$STATE" || :
 else
@@ -103,6 +136,14 @@ def ids(path):
         return {line.strip() for line in f if line.strip()}
 new_ids = ids(os.environ["STATE_AFTER"]) - ids(os.environ["SEEN_BEFORE"])
 
+def safe(text):
+    # A tester's text must not become structure: no HTML comment (a forged
+    # tf-feedback-id marker would mark another submission seen), no tags, no
+    # @mention that notifies a stranger from the repository's bot. Entities
+    # and a zero-width space keep it readable.
+    return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace("@", "@\u200b"))
+
 heading = re.compile(r"^## (Screenshot feedback|Crash feedback) (\S+)$")
 sections = []  # (id, lines)
 with open(os.environ["RENDER"]) as f:
@@ -112,6 +153,9 @@ with open(os.environ["RENDER"]) as f:
         if m and m.group(2) in new_ids:
             sections.append((m.group(2), [line]))
         elif sections:
+            # Every line after the heading carries the fetcher's copy of what
+            # Apple returned, the tester's comment included: escape it all.
+            line = safe(line)
             # Continuation of a multi-line field (a tester's comment): keep it
             # inside the list item so it cannot read as structure of its own.
             if line and not line.startswith("- "):
@@ -181,9 +225,16 @@ fi
 
 # 4. Post. This is the output and the state write in one; a failure here
 #    leaves the issue exactly as it was, and the next run starts over.
-if ! gh api -X POST "repos/$REPO/issues/$ISSUE/comments" -F body=@"$BODY" > /dev/null; then
+if ! poster="$(gh api -X POST "repos/$REPO/issues/$ISSUE/comments" -F body=@"$BODY" --jq .user.login)"; then
     echo "error: could not post the digest comment to $REPO#$ISSUE; nothing was marked seen" >&2
     exit 1
 fi
+# The markers just posted count only if the next run trusts this login. One
+# outside the set would re-post the same submissions every day, so say so.
+case " $TRUSTED " in
+    *" $poster "*) ;;
+    *) echo "error: the digest was posted as '$poster', which is not in DIGEST_TRUSTED_AUTHORS ('$TRUSTED'); the next run will not see its markers -- add '$poster' to it" >&2
+       exit 1 ;;
+esac
 echo "Posted $kept submission(s) to $REPO#$ISSUE ($deferred deferred to the next run):"
 cat "$BODY"

@@ -27,7 +27,10 @@ a login outside the set fails the run, since its markers would be invisible.
 Each login is validated before it reaches the jq filter, and the list is
 split with globbing off -- `[bot]` is a bracket pattern. Cases 3b to 3d.
 
-`Scripts/testflight-feedback-digest.sh` has both weaknesses as of
-2026-11-23: it reads markers from every author's comments on the public #299,
-and it quotes tester comments unescaped. It was left for its own issue rather
-than changed in the pull request that found it (#498).
+`Scripts/testflight-feedback-digest.sh` had both weaknesses until issue
+#509: it read markers from every author's comments on the public #299, and
+quoted tester comments unescaped. It now takes the same shape -- the same
+`DIGEST_TRUSTED_AUTHORS` default and checks, and every line after a
+submission's heading escaped -- pinned by cases 13 to 18 of
+`Scripts/test-testflight-feedback-digest.sh`. A new digest that keeps its
+state in markers needs both from the start.

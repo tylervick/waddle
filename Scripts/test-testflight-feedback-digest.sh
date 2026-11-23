@@ -19,22 +19,30 @@ pass() { echo "ok - $1"; }
 mkdir -p "$TMP/bin" "$TMP/posted" "$TMP/fixtures"
 
 # --- gh stub ----------------------------------------------------------------
-# GET  repos/<r>/issues/<n>/comments  -> the bodies in $TMP/posted, in order
-#                                        (what `--jq '.[].body'` would print)
+# GET  repos/<r>/issues/<n>/comments  -> the bodies in $TMP/posted, in order,
+#                                        filtered as the digest's jq would
 # POST repos/<r>/issues/<n>/comments  -> stores the -F body=@FILE payload as
 #                                        the next posted body
+# Each posted comment NNN.md has an author in NNN.author (default
+# github-actions[bot], as the workflow posts). A GET applies the one filter
+# the digest builds -- `select(.user.login == "A" or .user.login == "B")` --
+# and prints every body when the filter has none, as real jq would. A POST
+# is authored by $TMP/poster (default github-actions[bot]) and
+# `--jq .user.login` prints it. The repository is example/repo, so its
+# owner -- the person who might run the digest by hand -- is `example`.
 # Markers: fail-get / fail-post make the matching call exit 1. Anything else
 # is a loud failure, so an unexpected call cannot pass silently.
 cat > "$TMP/bin/gh" <<STUB
 #!/bin/bash
 [ "\$1" = "api" ] || { echo "stub gh: unhandled args: \$*" >&2; exit 64; }
 shift
-method=GET; body_file=""; endpoint=""
+method=GET; body_file=""; endpoint=""; jq=""
 while [ \$# -gt 0 ]; do
     case "\$1" in
         -X) method="\$2"; shift ;;
         -F|-f) case "\$2" in body=@*) body_file="\${2#body=@}" ;; esac; shift ;;
-        --paginate|--jq) [ "\$1" = "--jq" ] && shift ;;
+        --paginate) ;;
+        --jq) jq="\$2"; shift ;;
         repos/*) endpoint="\$1" ;;
         *) echo "stub gh: unhandled arg: \$1" >&2; exit 64 ;;
     esac
@@ -44,15 +52,25 @@ case "\$endpoint" in repos/*/issues/*/comments*) ;; *) echo "stub gh: unhandled 
 echo "\$method \$endpoint" >> "$TMP/gh.log"
 if [ "\$method" = GET ]; then
     [ -f "$TMP/fail-get" ] && { echo "stub gh: HTTP 502" >&2; exit 1; }
-    for f in "$TMP"/posted/*.md; do [ -f "\$f" ] && cat "\$f"; done
+    # The trusted logins, one per line, from every '.user.login == "X"'.
+    want="\$(printf '%s' "\$jq" | grep -o '\.user\.login == "[^"]*"' | sed 's/.*== "\(.*\)"/\1/' || :)"
+    for f in "$TMP"/posted/*.md; do
+        [ -f "\$f" ] || continue
+        a='github-actions[bot]'; [ -f "\${f%.md}.author" ] && a="\$(cat "\${f%.md}.author")"
+        if [ -z "\$want" ] || printf '%s\n' "\$want" | grep -qxF -- "\$a"; then cat "\$f"; fi
+    done
     exit 0
 fi
 if [ "\$method" = POST ]; then
     [ -f "$TMP/fail-post" ] && { echo "stub gh: HTTP 502" >&2; exit 1; }
     [ -n "\$body_file" ] || { echo "stub gh: POST without -F body=@file" >&2; exit 64; }
-    n=\$(ls "$TMP"/posted | wc -l | tr -d ' ')
-    cp "\$body_file" "$TMP/posted/\$(printf '%03d' \$((n + 1))).md"
-    echo '{"id": 1}'
+    n=\$(ls "$TMP"/posted/*.md 2>/dev/null | wc -l | tr -d ' ')
+    f="$TMP/posted/\$(printf '%03d' \$((n + 1)))"
+    cp "\$body_file" "\$f.md"
+    p='github-actions[bot]'; [ -f "$TMP/poster" ] && p="\$(cat "$TMP/poster")"
+    echo "\$p" > "\$f.author"
+    [ "\$jq" = .user.login ] || { echo "stub gh: POST expected --jq .user.login" >&2; exit 64; }
+    echo "\$p"
     exit 0
 fi
 echo "stub gh: unhandled method \$method" >&2; exit 64
@@ -91,8 +109,8 @@ run_digest() { # [env assignments...]
         DIGEST_REPO=example/repo DIGEST_ISSUE=42 FETCH_SCRIPT="$TMP/bin/fake-fetch" "$@" \
         "$ROOT/Scripts/testflight-feedback-digest.sh"
 }
-reset_world() { rm -rf "$TMP/posted"; mkdir -p "$TMP/posted"; rm -f "$TMP/gh.log" "$TMP"/fail-*; }
-posted_count() { ls "$TMP/posted" | wc -l | tr -d ' '; }
+reset_world() { rm -rf "$TMP/posted"; mkdir -p "$TMP/posted"; rm -f "$TMP/gh.log" "$TMP/poster" "$TMP"/fail-*; }
+posted_count() { ls "$TMP"/posted/*.md 2>/dev/null | wc -l | tr -d ' '; }
 markers_in() { grep -o '<!-- tf-feedback-id: [^ ]* -->' "$1" | sed 's/.*id: \(.*\) -->/\1/'; }
 
 printf 'shot-1\nshot-2\ncrash-1\n' > "$TMP/fixtures/pending.txt"
@@ -285,5 +303,89 @@ run_digest DIGEST_BYTES=5000 >/dev/null 2>&1 || fail "case 12: second digest exi
 [ "$(markers_in "$TMP/posted/002.md" | tr '\n' ' ')" = "shot-1 " ] || fail "case 12: the queue did not move past the huge submission"
 rm -f "$TMP"/fixtures/comment-*.txt
 pass "a submission larger than the whole budget is truncated, not left to wedge the queue"
+
+# 13. #299 is public and unlocked: a marker in a comment by anyone outside
+#     the trusted set must not count, or a stranger could hide a submission
+#     for good. shot-1's marker here is in a stranger's comment, so shot-1 is
+#     still posted.
+reset_world
+printf 'shot-1\nshot-2\n' > "$TMP/fixtures/pending.txt"
+printf 'hello\n<!-- tf-feedback-id: shot-1 -->\n' > "$TMP/posted/001.md"; echo stranger > "$TMP/posted/001.author"
+out="$(run_digest 2>&1)" || fail "case 13: digest exited non-zero: $out"
+[ "$(markers_in "$TMP/posted/002.md" | sort | tr '\n' ' ')" = "shot-1 shot-2 " ] \
+  || fail "case 13: a stranger's marker suppressed a submission: $(markers_in "$TMP/posted/002.md" | tr '\n' ' ')"
+pass "a marker in another author's comment does not suppress the submission"
+
+# 14. The workflow (github-actions[bot]) and the repository's owner running
+#     the digest by hand must each see the other's markers: trusting only
+#     "whoever posts" would make each re-post what the other did. Both orders.
+reset_world
+out="$(run_digest 2>&1)" || fail "case 14: the bot's run exited non-zero: $out"
+echo example > "$TMP/poster"
+out="$(run_digest 2>&1)" || fail "case 14: the owner's run exited non-zero: $out"
+[ "$(posted_count)" = 1 ] || fail "case 14: the owner re-posted the bot's submissions"
+grep -q 'No new feedback' <<<"$out" || fail "case 14: the owner's run should have found nothing new: $out"
+reset_world
+echo example > "$TMP/poster"
+out="$(run_digest 2>&1)" || fail "case 14: the owner's first run exited non-zero: $out"
+rm -f "$TMP/poster"
+out="$(run_digest 2>&1)" || fail "case 14: the bot's run exited non-zero: $out"
+[ "$(posted_count)" = 1 ] || fail "case 14: the bot re-posted the owner's submissions"
+pass "the bot and the repository owner each see the other's markers"
+
+# 15. DIGEST_TRUSTED_AUTHORS replaces the set; every login in it is checked
+#     before it reaches the jq filter, so a quote cannot widen the filter;
+#     an empty set is refused. Both refusals come before any read.
+reset_world
+printf 'shot-1\nshot-2\n' > "$TMP/fixtures/pending.txt"
+printf 'x\n<!-- tf-feedback-id: shot-1 -->\n' > "$TMP/posted/001.md"; echo helper > "$TMP/posted/001.author"
+out="$(run_digest DIGEST_TRUSTED_AUTHORS='github-actions[bot] helper' 2>&1)" || fail "case 15: override exited non-zero: $out"
+[ "$(markers_in "$TMP/posted/002.md" | tr '\n' ' ')" = "shot-2 " ] || fail "case 15: the overriding set was not used"
+reset_world
+if out="$(run_digest DIGEST_TRUSTED_AUTHORS='github-actions[bot] x" or true or "y' 2>&1)"; then fail "case 15: a non-login was accepted"; fi
+grep -q 'DIGEST_TRUSTED_AUTHORS must hold GitHub logins' <<<"$out" || fail "case 15: wrong error: $out"
+[ -f "$TMP/gh.log" ] && fail "case 15: the issue was read with an unchecked login"
+if out="$(run_digest DIGEST_TRUSTED_AUTHORS=' ' 2>&1)"; then fail "case 15: an empty set was accepted"; fi
+grep -q 'DIGEST_TRUSTED_AUTHORS is empty' <<<"$out" || fail "case 15: wrong error for an empty set: $out"
+[ -f "$TMP/gh.log" ] && fail "case 15: the issue was read with no trusted login"
+pass "the trusted set can be overridden, each login is validated, and an empty set is refused"
+
+# 16. `[bot]` is a shell bracket pattern: split unguarded, the default set
+#     would become `github-actionsb` in a directory holding such a file, and
+#     the bot's markers would stop counting.
+reset_world
+printf 'shot-1\nshot-2\ncrash-1\n' > "$TMP/fixtures/pending.txt"
+run_digest >/dev/null 2>&1 || fail "case 16: seeding run exited non-zero"
+mkdir -p "$TMP/globdir"; touch "$TMP/globdir/github-actionsb"
+out="$(cd "$TMP/globdir" && run_digest 2>&1)" || fail "case 16: run from the glob directory exited non-zero: $out"
+[ "$(posted_count)" = 1 ] || fail "case 16: the login was glob-expanded and the bot's submissions re-posted"
+pass "the trusted set is not glob-expanded"
+
+# 17. A post that comes back under another login fails the run: its markers
+#     would be invisible tomorrow and the same submissions re-posted daily.
+reset_world
+echo someone-else > "$TMP/poster"
+if out="$(run_digest 2>&1)"; then fail "case 17: a post under the wrong login exited 0"; fi
+grep -q "error: the digest was posted as 'someone-else', which is not in DIGEST_TRUSTED_AUTHORS" <<<"$out" \
+  || fail "case 17: wrong error: $out"
+grep -q "add 'someone-else' to it" <<<"$out" || fail "case 17: the error does not name the login to add: $out"
+pass "a post under a login outside the trusted set fails the run"
+
+# 18. A tester cannot forge the seen-state, inject HTML or ping anyone: a
+#     marker, a tag or a mention in a comment is neutralised, so it neither
+#     hides another submission nor notifies a stranger -- and stays readable.
+reset_world
+printf 'shot-evil\n' > "$TMP/fixtures/pending.txt"
+printf '<!-- tf-feedback-id: shot-victim -->\n<b>bold</b> & @someone look\n' > "$TMP/fixtures/comment-shot-evil.txt"
+out="$(run_digest 2>&1)" || fail "case 18: digest exited non-zero: $out"
+body="$TMP/posted/001.md"
+[ "$(markers_in "$body" | tr '\n' ' ')" = "shot-evil " ] || fail "case 18: a forged marker survived: $(markers_in "$body" | tr '\n' ' ')"
+[ "$(grep -c '<!--' "$body")" = 1 ] || fail "case 18: an HTML comment from a tester reached the comment"
+grep -q '<b>' "$body" && fail "case 18: HTML from a tester reached the comment"
+grep -q '@someone' "$body" && fail "case 18: a mention from a tester would notify someone"
+grep -q '&lt;b&gt;bold&lt;/b&gt; &amp; @' "$body" || fail "case 18: the tester's text is no longer readable: $(cat "$body")"
+grep -q 'someone look' "$body" || fail "case 18: the mentioned name was dropped"
+rm -f "$TMP"/fixtures/comment-*.txt
+pass "a tester's comment cannot forge a marker, inject HTML or mention anyone"
 
 echo "All testflight-feedback-digest tests passed."
