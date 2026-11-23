@@ -14,6 +14,15 @@ breaks `@` in everything it quotes from Apple, so quoted text cannot close
 into a comment or a tag, or notify anyone. Case 10 of
 `Scripts/test-apple-insights-digest.sh` is the check.
 
-`Scripts/testflight-feedback-digest.sh` still quotes tester comments
-unescaped. Its authors are invited TestFlight testers rather than the
-public, which is why it was left alone when this was found (2026-11-23).
+The same forgery needs no quoting at all on a public, unlocked issue: anyone
+can comment there, and a comment carrying a marker counts unless the digest
+reads markers only from its own comments. `Scripts/apple-insights-digest.sh`
+reads only comments by `DIGEST_AUTHOR` (`github-actions[bot]` under the
+workflow's `GITHUB_TOKEN`, which cannot ask `/user` who it is), and fails the
+run if a post comes back under another login, since its markers would then
+be invisible and the same reviews re-posted every week. Cases 3b and 3d.
+
+`Scripts/testflight-feedback-digest.sh` has both weaknesses as of
+2026-11-23: it reads markers from every author's comments on the public #299,
+and it quotes tester comments unescaped. It was left for its own issue rather
+than changed in the pull request that found it (#498).
