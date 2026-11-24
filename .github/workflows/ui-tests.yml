@@ -45,10 +45,24 @@ on:
       - App/UITests/**
       - App/Assets.xcassets/**
       - App/project.yml
+  # The iPad leg (issue #519), nightly as well as on every push to main.
+  # Three UI tests had hard-coded an iPhone's geometry and failed on every
+  # iPad run, and nothing noticed: no job ran WaddleUITests on an iPad. The
+  # owner chose this cadence over every pull request (2026-11-24): a macOS
+  # runner per main push, plus a night's run to catch what changes under an
+  # unchanged tree (runner image, simulator runtime). The schedule runs only
+  # the iPad leg; the "Pick this leg's simulator" step says why.
+  schedule:
+    - cron: "17 7 * * *"
   workflow_dispatch:
     inputs:
+      leg:
+        description: Which leg to run (the iPad leg ignores `device`)
+        type: choice
+        options: [iPhone, iPad]
+        default: iPhone
       device:
-        description: Simulator device name
+        description: Simulator device name, for the iPhone leg
         required: false
         default: "iPhone 18 Pro"
       only_testing:
@@ -63,9 +77,10 @@ permissions:
   contents: read
 
 # A newer push to the same pull request supersedes the run in flight; main's
-# own runs are never cancelled.
+# own runs are never cancelled. The nightly run has a group of its own, so it
+# never stands in a queue where a main push's pending run would replace it.
 concurrency:
-  group: ui-tests-${{ github.ref }}
+  group: ui-tests-${{ github.event_name == 'schedule' && 'nightly' || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -84,9 +99,21 @@ env:
 
 jobs:
   ui-tests:
-    name: UI tests
+    # The phone leg keeps the job's old name, so its check reads as before.
+    name: ${{ matrix.leg == 'iPhone' && 'UI tests' || format('UI tests ({0})', matrix.leg) }}
     runs-on: xcode-27
     timeout-minutes: 90
+    strategy:
+      # Each leg's verdict is its own: a red iPhone run must not cancel the
+      # iPad's, or a device-specific failure would hide behind it.
+      fail-fast: false
+      matrix:
+        # Which legs this event runs. A pull request runs the phone's shell
+        # smoke only; a push to main runs the full suite on both devices;
+        # the nightly runs the iPad alone, because main's pushes already
+        # cover the phone and the night is for the device nobody runs by
+        # hand; a dispatch runs the leg it names.
+        leg: ${{ fromJSON(github.event_name == 'push' && '["iPhone","iPad"]' || github.event_name == 'schedule' && '["iPad"]' || github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.leg) || '["iPhone"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -94,16 +121,47 @@ jobs:
         with:
           xcode-version: ${{ env.XCODE_VERSION }}
 
+      # The leg's device, from the pins everything else reads. The iPad's
+      # name comes from Scripts/ensure-ipad-simulator.sh, the single owner of
+      # its device type, so this file carries no copy of it to drift. An
+      # unknown leg fails rather than falling back to the phone: a leg that
+      # quietly tested the wrong device would be green. inputs.device goes
+      # through env for the same shell-injection reason as ONLY_TESTING
+      # below.
+      - name: Pick this leg's simulator
+        env:
+          LEG: ${{ matrix.leg }}
+          INPUT_DEVICE: ${{ inputs.device }}
+        run: |
+          case "$LEG" in
+            iPhone) device="${INPUT_DEVICE:-$SIMULATOR_DEVICE}"; suffix="" ;;
+            iPad) device="$(Scripts/ensure-ipad-simulator.sh --name)"; suffix="-ipad" ;;
+            *) echo "::error::no simulator is pinned for the leg \"$LEG\""; exit 1 ;;
+          esac
+          [ -n "$device" ] || { echo "::error::the leg \"$LEG\" has no device"; exit 1; }
+          {
+            echo "SIM_DEVICE=$device"
+            echo "ARTIFACT_SUFFIX=$suffix"
+          } >> "$GITHUB_ENV"
+
       # Same rationale as ci.yml's identical step: confirm the destination
       # actually exists before spending the run on it, using the same
       # device/OS values DESTINATION uses below. See
-      # docs/learnings/simulator-enumeration-race.md. inputs.device goes
-      # through env for the same shell-injection reason as ONLY_TESTING
-      # below.
+      # docs/learnings/simulator-enumeration-race.md.
+      #
+      # The iPad is created on demand rather than pre-provisioned, as in
+      # ci.yml's iPad leg; the phone is checked first there for the reason
+      # given beside it (a cold runner's empty enumeration would make the
+      # ensure script create a duplicate).
       - name: Verify simulator is available
         env:
-          SIM_DEVICE: ${{ inputs.device || env.SIMULATOR_DEVICE }}
-        run: Scripts/check-simulator-available.sh "$SIM_DEVICE" "$SIMULATOR_OS"
+          LEG: ${{ matrix.leg }}
+        run: |
+          if [ "$LEG" = iPad ]; then
+            Scripts/check-simulator-available.sh "$SIMULATOR_DEVICE" "$SIMULATOR_OS"
+            Scripts/ensure-ipad-simulator.sh "$SIMULATOR_OS" > /dev/null
+          fi
+          Scripts/check-simulator-available.sh "$SIM_DEVICE" "$SIMULATOR_OS"
 
       # Issues #386 and #396: a fresh runner's simulator renders every
       # lock-screen wallpaper once, and the runner is too busy to launch an app
@@ -117,8 +175,6 @@ jobs:
       # gallery.md say why that is the price.
       - name: Boot the simulator and wait for it to settle
         id: simulator
-        env:
-          SIM_DEVICE: ${{ inputs.device || env.SIMULATOR_DEVICE }}
         run: Scripts/prepare-ui-test-simulator.sh "$SIM_DEVICE" "$SIMULATOR_OS"
 
       # Inputs go through env rather than direct ${{ }} interpolation into
@@ -126,13 +182,12 @@ jobs:
       # break out of the command.
       - name: Run UI tests
         env:
-          DESTINATION: platform=iOS Simulator,name=${{ inputs.device || env.SIMULATOR_DEVICE }},OS=${{ env.SIMULATOR_OS }}
           ONLY_TESTING: ${{ inputs.only_testing }}
         run: |
           ARGS=(
             -project App/Waddle.xcodeproj
             -scheme Waddle
-            -destination "$DESTINATION"
+            -destination "platform=iOS Simulator,name=$SIM_DEVICE,OS=$SIMULATOR_OS"
             -resultBundlePath UITestResults.xcresult
           )
           # RealWADTests needs Scythe / Sunlust / Eviternity II from
@@ -172,11 +227,13 @@ jobs:
           SIM_UDID: ${{ steps.simulator.outputs.udid }}
         run: Scripts/ui-test-launch-report.sh "$SIM_UDID" UITestResults.xcresult simulator-log
 
+      # The phone's artifacts keep their old names; the iPad's carry a suffix
+      # so the two legs of one run do not collide.
       - name: Upload simulator log
         if: always() && steps.simulator.outputs.udid != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: simulator-log
+          name: simulator-log${{ env.ARTIFACT_SUFFIX }}
           path: simulator-log
           retention-days: 7
 
@@ -186,6 +243,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: ui-test-results
+          name: ui-test-results${{ env.ARTIFACT_SUFFIX }}
           path: UITestResults.xcresult
           retention-days: 7
