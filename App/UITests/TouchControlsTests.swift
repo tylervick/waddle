@@ -298,7 +298,7 @@ final class TouchControlsTests: XCTestCase {
         XCTAssertFalse(stickEngaged.exists,
             "a near-miss beside weaponPrevButton at \(miss) (button \(frame)) started a movement-stick track")
         XCTAssertEqual(waitForMenu(hud, timeout: 2) { $0 != "off" }, "off",
-            "the near miss at \(miss) opened a menu, so it hit the button (\(frame)) rather than missing it")
+            "the near miss at \(miss) opened a menu: it hit the button (\(frame)), or the cushion let it through as a title-screen tap")
 
         // Control: clean overlay in the turn region must still start a turn
         // track, so the assertion above cannot pass by the marker simply
