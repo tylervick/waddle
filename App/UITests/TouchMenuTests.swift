@@ -45,8 +45,7 @@ final class TouchMenuTests: XCTestCase {
         // A pointer tap outside the stick column opens the item under it.
         app.buttons["menuButton"].tap()
         var main = waitForHUD(hud, timeout: 10) { $0["cm"] == "main" }
-        var targets = points(main["tgt"])
-        XCTAssertGreaterThanOrEqual(targets.count, 5, "main-menu item centres: \(lastSeenStrip)")
+        var targets = try mainMenuTargets(main, "main-menu item centres")
 
         // Empty space above New Game: a press there is eaten, nothing opens.
         tap(app, CGPoint(x: targets[0].x, y: targets[0].y - 60))
@@ -63,8 +62,7 @@ final class TouchMenuTests: XCTestCase {
         closeMenus(app, hud)
         app.buttons["menuButton"].tap()
         main = waitForHUD(hud, timeout: 10) { $0["cm"] == "main" }
-        targets = points(main["tgt"])
-        XCTAssertGreaterThanOrEqual(targets.count, 5, "\(lastSeenStrip)")
+        targets = try mainMenuTargets(main, "main-menu item centres, before the stick-column tap")
         let stickColumnX = app.frame.width * 0.2
         tap(app, CGPoint(x: stickColumnX, y: targets[1].y))
         let options = waitForHUD(hud, timeout: 5) { $0["cm"] == "options" }
@@ -88,8 +86,7 @@ final class TouchMenuTests: XCTestCase {
         closeMenus(app, hud)
         app.buttons["menuButton"].tap()
         main = waitForHUD(hud, timeout: 10) { $0["cm"] == "main" }
-        targets = points(main["tgt"])
-        XCTAssertGreaterThanOrEqual(targets.count, 5, "\(lastSeenStrip)")
+        targets = try mainMenuTargets(main, "main-menu item centres, before Quit")
         tap(app, targets[targets.count - 1]) // Quit is last
         let prompt = waitForHUD(hud, timeout: 5) { $0["msg"] == "1" }
         XCTAssertEqual(prompt["msg"], "1", "Quit should show its prompt: \(lastSeenStrip)")
@@ -111,8 +108,7 @@ final class TouchMenuTests: XCTestCase {
 
         app.buttons["menuButton"].tap()
         main = waitForHUD(hud, timeout: 10) { $0["cm"] == "main" }
-        targets = points(main["tgt"])
-        XCTAssertGreaterThanOrEqual(targets.count, 5, "\(lastSeenStrip)")
+        targets = try mainMenuTargets(main, "main-menu item centres, before Quit again")
         tap(app, targets[targets.count - 1])
         XCTAssertTrue(app.buttons["promptYesButton"].waitForExistence(timeout: 5), "Yes should appear again")
         app.buttons["promptYesButton"].tap()
@@ -252,6 +248,19 @@ final class TouchMenuTests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.25)
         }
         return condition()
+    }
+
+    /// The main menu's item centres, or a recorded failure that ends the
+    /// test. The callers index into the list, so a menu that did not open
+    /// (an empty `tgt=`) must stop the test here: with XCTest's default
+    /// continue-after-failure an assertion would let `targets[0]` run and
+    /// crash the whole runner (run 45321359124).
+    private func mainMenuTargets(_ state: [String: String], _ what: String,
+                                 file: StaticString = #filePath, line: UInt = #line) throws -> [CGPoint] {
+        let targets = points(state["tgt"])
+        return try XCTUnwrap(targets.count >= 5 ? targets : nil,
+                             "\(what): wanted at least 5, got \(targets.count): \(lastSeenStrip)",
+                             file: file, line: line)
     }
 
     private func points(_ s: String?) -> [CGPoint] {
