@@ -50,8 +50,14 @@ struct WADStore {
     /// this is ever invoked for a genuine duplicate. Rescanning and
     /// rehashing every file already on disk here — as this used to do — was
     /// pure redundant I/O on the common path.
+    ///
+    /// `reserved` names count as taken even with no file on disk: a library
+    /// row whose file is missing still owns its filename, and a new file
+    /// stored under it would be read, restored over and deleted as that
+    /// row's (issue #503). The store knows nothing about rows, so the caller
+    /// passes them in (`LibraryService.claimedStoreFilenames`).
     func store(fileAt source: URL, preferredName: String,
-              precomputedSHA1: String?) throws -> StoredWAD {
+              precomputedSHA1: String?, reserved: Set<String> = []) throws -> StoredWAD {
         guard FileManager.default.fileExists(atPath: source.path) else { throw WADStoreError.unreadable }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let sha1 = try precomputedSHA1 ?? Self.sha1(ofFileAt: source)
@@ -61,7 +67,8 @@ struct WADStore {
         // Resolve name collisions (same name, different content).
         var candidate = preferredName
         var counter = 2
-        while FileManager.default.fileExists(atPath: url(forFilename: candidate).path) {
+        while FileManager.default.fileExists(atPath: url(forFilename: candidate).path)
+                || reserved.contains(candidate) {
             let base = (preferredName as NSString).deletingPathExtension
             let ext = (preferredName as NSString).pathExtension
             candidate = ext.isEmpty ? "\(base) (\(counter))" : "\(base) (\(counter)).\(ext)"

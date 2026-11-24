@@ -171,4 +171,163 @@ final class LibraryServiceTests: XCTestCase {
         XCTAssertTrue(service.saveSlots(forKey: freedoom1.id).isEmpty,
                       "seeded a save for an item that was never played")
     }
+
+    // MARK: A build that no longer bundles Freedoom (issue #503)
+
+    /// Points the service's bundle location at an empty directory under `tmp`,
+    /// which is how a build without `GameData/freedoom*.wad` looks to it.
+    private func shipWithoutFreedoom() throws {
+        let empty = tmp.appendingPathComponent("EmptyGameData-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        service.bundledContentDirectory = empty
+    }
+
+    private func writeSave(forGameID id: UUID) throws -> URL {
+        let dir = LibraryService.savesDirectory(forGameID: id)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        try Data("save".utf8).write(to: dir.appendingPathComponent("woofsav0.dsg"))
+        return dir
+    }
+
+    func testSeederOnAFreshStoreWithoutBundledFilesRegistersNothing() throws {
+        try shipWithoutFreedoom()
+
+        XCTAssertNoThrow(try service.seedBundledContentIfNeeded(),
+                         "WaddleApp.init turns a throw here into fatalError on first launch")
+
+        XCTAssertTrue(try service.allWADs().isEmpty)
+        XCTAssertTrue(try service.games().isEmpty)
+    }
+
+    func testSeederReleasesABundledRowWhoseFileIsGoneKeepingItsGameAndSaves() throws {
+        try service.seedBundledContentIfNeeded()
+        let before = try service.allWADs()
+        let phase1 = try XCTUnwrap(before.first { $0.filename == "freedoom1.wad" })
+        let id = phase1.id, sha1 = phase1.sha1
+        let game = try XCTUnwrap(try service.game(id: id))
+        try service.hide(game)
+        let saves = try writeSave(forGameID: id)
+
+        try shipWithoutFreedoom()
+        try service.seedBundledContentIfNeeded()
+
+        XCTAssertEqual(Set(try service.allWADs().map(\.id)), Set(before.map(\.id)),
+                       "no row may be dropped or re-created under a fresh id")
+        let released = try XCTUnwrap(try service.wad(id: id))
+        XCTAssertEqual(service.fileStatus(for: released), .missing)
+        XCTAssertFalse(released.isBundled)
+        XCTAssertEqual(released.displayName, "Freedoom Phase 1")
+        XCTAssertEqual(released.sha1, sha1, "the hash is what a re-import is matched on")
+        XCTAssertEqual(released.kindRaw, WADKind.iwad.rawValue)
+        let kept = try XCTUnwrap(try service.game(id: id), "its base game must survive")
+        XCTAssertTrue(kept.isBaseGame)
+        XCTAssertTrue(kept.isHidden, "the player's Remove from Shelf must survive")
+        XCTAssertEqual(try service.games().count, 2)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: saves.path))
+        XCTAssertEqual(service.saveSlots(forKey: id).map(\.id), ["woofsav0.dsg"])
+    }
+
+    func testSeederWithoutBundledFilesIsIdempotent() throws {
+        try service.seedBundledContentIfNeeded()
+        try shipWithoutFreedoom()
+
+        func snapshot() throws -> [String] {
+            try service.allWADs().map {
+                "\($0.id) \($0.filename) \($0.isBundled) \($0.displayName) \(service.fileStatus(for: $0))"
+            }.sorted()
+            + service.games().map { "\($0.id) \($0.name) \($0.isHidden)" }.sorted()
+        }
+        try service.seedBundledContentIfNeeded()
+        let once = try snapshot()
+        try service.seedBundledContentIfNeeded()
+
+        XCTAssertEqual(try snapshot(), once)
+    }
+
+    /// Content matching the bundled hash can never have been imported (it
+    /// deduped against the bundled row), so a store file under the bundled
+    /// name is somebody else's. The released row must not claim it.
+    func testReleasedRowDoesNotClaimADifferentStoredFileWithItsName() throws {
+        try service.seedBundledContentIfNeeded()
+        let phase1 = try XCTUnwrap(try service.allWADs().first { $0.filename == "freedoom1.wad" })
+        try Data(repeating: 0xCD, count: 64).write(to: tmp.appendingPathComponent("freedoom1.wad"))
+
+        try shipWithoutFreedoom()
+        try service.seedBundledContentIfNeeded()
+
+        let released = try XCTUnwrap(try service.wad(id: phase1.id))
+        XCTAssertNotEqual(released.filename, "freedoom1.wad")
+        XCTAssertEqual(service.fileStatus(for: released), .missing)
+    }
+
+    /// Rows from before store names were reserved can name one store file
+    /// twice. Deleting either must leave the file for the other.
+    func testDeletingARowLeavesAFileAnotherRowStillNames() throws {
+        let kept = try registerWithBacking("shared.wad", kind: .pwad)
+        let deleted = try service.registerImported(filename: "shared.wad", sha1: "sha-other",
+                                                   kind: WADKind.pwad.rawValue,
+                                                   family: GameFamily.unknown.rawValue)
+
+        try service.deleteWAD(deleted)
+
+        XCTAssertEqual(service.fileStatus(for: kept), .imported)
+    }
+
+    // MARK: Legacy placeholder hashes (issue #503 review)
+
+    func testSeederRehashesALegacyPlaceholderWhileTheFileShips() throws {
+        try service.seedBundledContentIfNeeded()
+        let phase1 = try XCTUnwrap(try service.allWADs().first { $0.filename == "freedoom1.wad" })
+        let real = phase1.sha1
+        phase1.sha1 = "bundled:freedoom1.wad"   // seeded before a1dc675a
+        try service.saveChanges()
+
+        try service.seedBundledContentIfNeeded()
+
+        XCTAssertEqual(phase1.sha1, real)
+        XCTAssertTrue(phase1.isBundled)
+    }
+
+    /// `shippedFreedoomSHA1` is what builds before a1dc675a shipped, and so
+    /// what a placeholder row's bytes were. It holds today because the app
+    /// still bundles that release. If a Freedoom bump fails this, the table
+    /// is still right — keep its 0.13.0 hashes and change this test instead.
+    func testShippedFreedoomSHA1IsTheBundledRelease() throws {
+        try service.seedBundledContentIfNeeded()
+        for wad in try service.allWADs() where wad.isBundled {
+            XCTAssertEqual(LibraryService.shippedFreedoomSHA1[wad.filename], wad.sha1, wad.filename)
+        }
+    }
+
+    func testReleasingALegacyPlaceholderRowGivesItTheShippedHash() throws {
+        try service.seedBundledContentIfNeeded()
+        for wad in try service.allWADs() { wad.sha1 = "bundled:\(wad.filename)" }
+        try service.saveChanges()
+
+        try shipWithoutFreedoom()
+        try service.seedBundledContentIfNeeded()
+
+        for wad in try service.allWADs() {
+            XCTAssertEqual(wad.sha1, LibraryService.shippedFreedoomSHA1[wad.filename], wad.filename)
+            XCTAssertEqual(service.fileStatus(for: wad), .missing)
+        }
+    }
+
+    /// The wiring for `Pairing`'s presence rule: a released Freedoom, played
+    /// and imported-looking, must not take a new map set from a present IWAD.
+    func testPairBasePrefersAPresentIWADOverAReleasedFreedoom() throws {
+        try service.seedBundledContentIfNeeded()
+        let phase1 = try XCTUnwrap(try service.allWADs().first { $0.filename == "freedoom1.wad" })
+        try service.markPlayed(try XCTUnwrap(try service.game(id: phase1.id)))
+        let url = tmp.appendingPathComponent("doom.wad")
+        try Data(repeating: 0xAB, count: 16).write(to: url)
+        let doom = try service.registerImported(filename: "doom.wad", sha1: "sha-doom",
+                                                kind: WADKind.iwad.rawValue,
+                                                family: GameFamily.doom1.rawValue)
+        try shipWithoutFreedoom()
+        try service.seedBundledContentIfNeeded()
+
+        XCTAssertEqual(try service.pairBase(forFamily: .doom1)?.id, doom.id)
+    }
 }

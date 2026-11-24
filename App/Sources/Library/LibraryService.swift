@@ -47,6 +47,17 @@ final class LibraryService {
     /// as `ImportService.maxZipEntryBytes`.
     var recognizedTitle: (String) -> String? = IWADCatalog.title(forSHA1:)
 
+    /// The directory the bundled base games ship in: the app bundle's
+    /// `GameData/`.
+    ///
+    /// Injectable seam for tests only: production always reads the signed app
+    /// bundle. Pointing it at an empty directory is how a test simulates a
+    /// build that no longer ships Freedoom (issue #503) without changing the
+    /// bundle the test host runs from. Same pattern as `recognizedTitle` and
+    /// `ImportService.maxZipEntryBytes`.
+    var bundledContentDirectory: URL = Bundle.main.resourceURL!
+        .appendingPathComponent("GameData", isDirectory: true)
+
     init(context: ModelContext, store: WADStore) {
         self.context = context
         self.store = store
@@ -60,6 +71,17 @@ final class LibraryService {
     /// against it), but the hash is computed only the one time the row is
     /// created — steady-state launches skip straight past the existence checks
     /// and never re-hash the ~30MB bundle files.
+    ///
+    /// A bundled file is registered only if the bundle actually carries it,
+    /// so a build that ships without Freedoom launches a fresh install to an
+    /// empty shelf instead of throwing out of `WaddleApp.init` (issue #503).
+    /// An existing install whose bundled row has lost its file is released
+    /// from the bundle instead (`releaseFromBundle`): the row, its id, its base
+    /// game and that game's saves all stay, and it reads as missing until the
+    /// player imports the same bytes again. This runs every launch, not once,
+    /// because App Store players skip versions
+    /// (`docs/learnings/schema-drop-cannot-wait-for-skipped-versions.md`);
+    /// a released row is no longer bundled, so the next launch passes it by.
     ///
     /// The base game is created only when no `Game` with the IWAD's id exists,
     /// hidden or not (spec §4.5). A hidden game still exists, so the player's
@@ -78,16 +100,29 @@ final class LibraryService {
             ("freedoom2.wad", "Freedoom Phase 2", .doom2),
         ]
         for entry in bundled {
+            let bundleURL = bundledURL(forFilename: entry.file)
+            let isShipped = FileManager.default.fileExists(atPath: bundleURL.path)
             let wad: WADFile
             if let existing = try wadByFilename(entry.file, bundled: true) {
                 wad = existing
                 wad.hasMaps = true   // IWADs carry maps; upgraded installs must match fresh ones.
-            } else {
+                if !isShipped {
+                    try releaseFromBundle(wad)
+                } else if wad.sha1.hasPrefix(Self.legacyBundledSHA1Prefix) {
+                    // Seeded before rows carried real hashes (see
+                    // `legacyBundledSHA1Prefix`). Hashed once, here, the same
+                    // one-time cost a fresh install pays at its first launch;
+                    // every later launch skips it.
+                    wad.sha1 = try WADStore.sha1(ofFileAt: bundleURL)
+                }
+            } else if isShipped {
                 wad = WADFile(filename: entry.file, displayName: entry.title,
                               kindRaw: WADKind.iwad.rawValue,
-                              sha1: try WADStore.sha1(ofFileAt: Self.bundledURL(forFilename: entry.file)),
+                              sha1: try WADStore.sha1(ofFileAt: bundleURL),
                               gameFamilyRaw: entry.family.rawValue, isBundled: true, hasMaps: true)
                 context.insert(wad)
+            } else {
+                continue
             }
             if try game(id: wad.id) == nil {
                 context.insert(Game.baseGame(for: wad))
@@ -95,6 +130,76 @@ final class LibraryService {
         }
         try context.save()
     }
+
+    /// Turns a bundled row whose file the bundle no longer carries into an
+    /// imported row with no stored file, in place (issue #503). Everything
+    /// keyed on the row survives — its id (and so its base game and
+    /// `Saves/<id>/`), display name, `sha1`, and the game's hidden state — and
+    /// `fileStatus` reports it `.missing`, so importing byte-identical content
+    /// takes `ImportService`'s repair path and restores it under the same id.
+    ///
+    /// Its filename is kept unless another row already claims that store
+    /// name, or the store holds a *different* file by it. In both cases the
+    /// row would take over someone else's file: content matching the row's
+    /// hash cannot have been imported (it deduped against the bundled row),
+    /// so any file there is someone else's. The row then takes a name
+    /// nothing uses, and the repair repoints it. From here on the row keeps
+    /// its name reserved (`claimedStoreFilenames`), so a later import of a
+    /// different file by the same name is stored under a name of its own.
+    ///
+    /// A row seeded by a build from before a1dc675a (2026-08-12; TestFlight
+    /// build 210 and earlier) and never launched under a later build that
+    /// still shipped the files carries a placeholder instead of a hash, which
+    /// no import could ever match. Every build that shipped the files shipped
+    /// Freedoom 0.13.0 (`Scripts/fetch-freedoom.sh`'s pin has not moved since
+    /// it was added on 2026-07-15), so the placeholder stands for known
+    /// bytes, and the row takes their hash (`shippedFreedoomSHA1`).
+    private func releaseFromBundle(_ wad: WADFile) throws {
+        wad.isBundled = false
+        if wad.sha1.hasPrefix(Self.legacyBundledSHA1Prefix),
+           let shipped = Self.shippedFreedoomSHA1[wad.filename] {
+            wad.sha1 = shipped
+        }
+        let claimed = try claimedStoreFilenames(excluding: wad)
+        let base = (wad.filename as NSString).deletingPathExtension
+        let ext = (wad.filename as NSString).pathExtension
+        var candidate = wad.filename
+        var counter = 2
+        func isTaken(_ name: String) -> Bool {
+            if claimed.contains(name) { return true }
+            let url = store.url(forFilename: name)
+            return FileManager.default.fileExists(atPath: url.path)
+                && (try? WADStore.sha1(ofFileAt: url)) != wad.sha1
+        }
+        while isTaken(candidate) {
+            candidate = ext.isEmpty ? "\(base) (\(counter))" : "\(base) (\(counter)).\(ext)"
+            counter += 1
+        }
+        wad.filename = candidate
+    }
+
+    /// Store filenames that library rows own, whether or not the file is on
+    /// disk right now — what `WADStore.store` must not hand to a new file
+    /// (its `reserved`). `excluding` leaves out the row a repair is about to
+    /// repoint, so it may take its own old name back. Bundled rows name
+    /// files in the app bundle, not the store, so they claim nothing.
+    func claimedStoreFilenames(excluding wad: WADFile? = nil) throws -> Set<String> {
+        Set(try allWADs().filter { !$0.isBundled && $0.id != wad?.id }.map(\.filename))
+    }
+
+    /// The pseudo-hash builds before a1dc675a (2026-08-12) stamped on bundled
+    /// rows: `bundled:<filename>`. The seeder never re-hashed an existing
+    /// row, so installs first seeded by those builds still carry it.
+    static let legacyBundledSHA1Prefix = "bundled:"
+
+    /// SHA-1 of the Freedoom 0.13.0 IWADs, the only Freedoom release any
+    /// build has bundled. Historical, not "whatever ships now": it says what
+    /// a legacy placeholder row's bytes were, so it must not follow a later
+    /// Freedoom bump. Used only to release such a row (`releaseFromBundle`).
+    static let shippedFreedoomSHA1: [String: String] = [
+        "freedoom1.wad": "97bb88094a51457a8dcad98c58be22a2d0fa9a37",
+        "freedoom2.wad": "975f781e6d801c0a23e3caa33f70493efe68a880",
+    ]
 
     /// `UserDefaults` keys for the one-time launch-order migration steps (see
     /// `WaddleApp`, which also clears both under `WADDLE_RESET_STORE`).
@@ -244,9 +349,8 @@ final class LibraryService {
     }
 
     func fileStatus(for wad: WADFile) -> LibraryFileStatus {
-        if wad.isBundled { return .bundled }
-        return FileManager.default.fileExists(atPath: fileURL(for: wad).path)
-            ? .imported : .missing
+        guard FileManager.default.fileExists(atPath: fileURL(for: wad).path) else { return .missing }
+        return wad.isBundled ? .bundled : .imported
     }
 
     /// On-disk size of the file backing `wad`; nil when the file is missing.
@@ -292,6 +396,10 @@ final class LibraryService {
     /// `hasMaps` or have been migrated while the file was missing.
     func repairFilename(of wad: WADFile, to filename: String, hasMaps: Bool) throws {
         wad.filename = filename
+        // The restored bytes now live in the store, so the row is imported
+        // even if it was bundled (issue #503); left bundled, `fileURL` would
+        // keep pointing into the app bundle.
+        wad.isBundled = false
         wad.hasMaps = hasMaps
         try context.save()
     }
@@ -316,7 +424,8 @@ final class LibraryService {
     /// The IWAD a new map set of `family` pairs with — see `Pairing.chooseBase`.
     func pairBase(forFamily family: GameFamily) throws -> WADFile? {
         let candidates = try baseGames().map { iwad in
-            Pairing.Candidate(file: iwad, lastPlayed: try game(id: iwad.id)?.lastPlayed)
+            Pairing.Candidate(file: iwad, lastPlayed: try game(id: iwad.id)?.lastPlayed,
+                              fileIsPresent: fileStatus(for: iwad) != .missing)
         }
         return Pairing.chooseBase(forFamily: family, among: candidates)
     }
@@ -457,7 +566,10 @@ final class LibraryService {
             try? FileManager.default.removeItem(at: Self.savesDirectory(forGameID: own.id))
             context.delete(own)
         }
-        if !wad.isBundled {
+        // Another row naming the same store file (data from before store
+        // names were reserved, issue #503) keeps it: deleting this row must
+        // never take that row's file.
+        if !wad.isBundled, !(try claimedStoreFilenames(excluding: wad).contains(wad.filename)) {
             try? store.delete(filename: wad.filename)
         }
         context.delete(wad)
@@ -501,15 +613,13 @@ final class LibraryService {
 
     func fileURL(for wad: WADFile) -> URL {
         if wad.isBundled {
-            return Self.bundledURL(forFilename: wad.filename)
+            return bundledURL(forFilename: wad.filename)
         }
         return store.url(forFilename: wad.filename)
     }
 
-    private static func bundledURL(forFilename filename: String) -> URL {
-        Bundle.main.resourceURL!
-            .appendingPathComponent("GameData", isDirectory: true)
-            .appendingPathComponent(filename)
+    private func bundledURL(forFilename filename: String) -> URL {
+        bundledContentDirectory.appendingPathComponent(filename)
     }
 
     #if DEBUG

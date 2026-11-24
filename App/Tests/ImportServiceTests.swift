@@ -976,4 +976,167 @@ final class ImportServiceTests: XCTestCase {
         let asZip = await importer.importFiles(at: [named], from: .openIn)
         XCTAssertEqual(asZip.rejected, ["report.zip": "No WAD or DEH files inside the zip."])
     }
+
+    // MARK: Restoring Freedoom a build no longer bundles (issue #503)
+
+    /// Seeds the real bundled rows, gives Phase 1 a save, keeps a copy of its
+    /// bytes, then relaunches as a build that ships no Freedoom. Returns the
+    /// Phase 1 row's id and the copy.
+    ///
+    /// `legacyPlaceholder` gives every bundled row the pseudo-hash builds
+    /// before a1dc675a stamped on it, as an install that skips straight from
+    /// such a build to one without the files would have.
+    private func releaseBundledFreedoom(copyTo copy: URL, legacyPlaceholder: Bool = false) throws -> UUID {
+        try library.seedBundledContentIfNeeded()
+        let phase1 = try XCTUnwrap(library.allWADs().first { $0.isBundled && $0.filename == "freedoom1.wad" })
+        try FileManager.default.copyItem(at: library.fileURL(for: phase1), to: copy)
+        if legacyPlaceholder {
+            for wad in try library.allWADs() { wad.sha1 = "bundled:\(wad.filename)" }
+            try library.saveChanges()
+        }
+        let saves = LibraryService.savesDirectory(forGameID: phase1.id)
+        try FileManager.default.createDirectory(at: saves, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: saves) }
+        try Data("save".utf8).write(to: saves.appendingPathComponent("woofsav0.dsg"))
+
+        let empty = tmp.appendingPathComponent("EmptyGameData", isDirectory: true)
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        library.bundledContentDirectory = empty
+        try library.seedBundledContentIfNeeded()
+        XCTAssertEqual(library.fileStatus(for: phase1), .missing, "precondition")
+        return phase1.id
+    }
+
+    private func assertRestored(_ id: UUID, _ outcome: ImportOutcome,
+                                file: StaticString = #filePath, line: UInt = #line) throws {
+        XCTAssertTrue(outcome.duplicates.isEmpty, "a missing file is not a duplicate", file: file, line: line)
+        XCTAssertEqual(outcome.imported.count, 1, file: file, line: line)
+        XCTAssertEqual(try library.allWADs().count, 2, "restored in place, not added", file: file, line: line)
+        let restored = try XCTUnwrap(try library.wad(id: id), file: file, line: line)
+        XCTAssertEqual(library.fileStatus(for: restored), .imported, file: file, line: line)
+        XCTAssertEqual(restored.displayName, "Freedoom Phase 1", file: file, line: line)
+        XCTAssertNotNil(try library.game(id: id), "its base game keeps its id", file: file, line: line)
+        XCTAssertEqual(library.saveSlots(forKey: id).map(\.id), ["woofsav0.dsg"],
+                       "the game's existing saves are listed again", file: file, line: line)
+    }
+
+    func testImportingFreedoomAgainRestoresTheReleasedRowUnderItsOriginalID() async throws {
+        let copy = tmp.appendingPathComponent("freedoom1.wad")
+        let id = try releaseBundledFreedoom(copyTo: copy)
+
+        let outcome = await importer.importFiles(at: [copy], from: .picker)
+
+        try assertRestored(id, outcome)
+        XCTAssertEqual(outcome.games, outcome.imported, "an IWAD is reported as a game")
+    }
+
+    func testAdoptingFreedoomAgainRestoresTheReleasedRowUnderItsOriginalID() async throws {
+        // adoptLooseFiles scans the real Documents directory, so the copy has
+        // to be dropped there.
+        let copy = URL.documentsDirectory.appendingPathComponent("freedoom1-\(UUID().uuidString).wad")
+        defer { try? FileManager.default.removeItem(at: copy) }
+        let id = try releaseBundledFreedoom(copyTo: copy)
+
+        let outcome = await importer.adoptLooseFiles()
+
+        try assertRestored(id, outcome)
+    }
+
+    /// Another `freedoom1.wad` with different bytes (a different Freedoom
+    /// release, say), imported after Phase 1 was released, must not be
+    /// attached to the released row: it gets a row and a stored file of its
+    /// own, and the original bytes still restore the released row.
+    private func importOtherFreedoom1() async throws -> (outcome: ImportOutcome, row: WADFile) {
+        let data = makeWAD(magic: "IWAD", lumps: ["E1M1", "THINGS"])
+        let dir = tmp.appendingPathComponent("Other", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("freedoom1.wad")
+        try data.write(to: url)
+        let outcome = await importer.importFiles(at: [url], from: .picker)
+        let row = try XCTUnwrap(try library.findWAD(sha1: WADStore.sha1(of: data)))
+        return (outcome, row)
+    }
+
+    func testADifferentFileNamedLikeAReleasedRowGetsItsOwnRowAndFile() async throws {
+        let original = tmp.appendingPathComponent("original.wad")
+        let id = try releaseBundledFreedoom(copyTo: original)
+
+        let (other, otherRow) = try await importOtherFreedoom1()
+
+        XCTAssertEqual(other.imported.count, 1)
+        XCTAssertNotEqual(otherRow.id, id)
+        let released = try XCTUnwrap(try library.wad(id: id))
+        XCTAssertNotEqual(otherRow.filename, released.filename, "each row needs its own stored file")
+        XCTAssertEqual(library.fileStatus(for: released), .missing,
+                       "the released row must not pick up a different file's bytes")
+        XCTAssertEqual(library.fileStatus(for: otherRow), .imported)
+
+        let restore = await importer.importFiles(at: [original], from: .picker)
+
+        XCTAssertTrue(restore.duplicates.isEmpty, "only bytes matching the row's hash restore it")
+        XCTAssertEqual(restore.imported.count, 1)
+        let restored = try XCTUnwrap(try library.wad(id: id))
+        XCTAssertEqual(library.fileStatus(for: restored), .imported)
+        XCTAssertEqual(try WADStore.sha1(ofFileAt: library.fileURL(for: restored)), restored.sha1)
+        XCTAssertEqual(try WADStore.sha1(ofFileAt: library.fileURL(for: otherRow)), otherRow.sha1)
+        XCTAssertEqual(library.saveSlots(forKey: id).map(\.id), ["woofsav0.dsg"])
+    }
+
+    func testDeletingAReleasedRowLeavesAnotherRowsFileOfTheSameName() async throws {
+        let id = try releaseBundledFreedoom(copyTo: tmp.appendingPathComponent("original.wad"))
+        let (_, otherRow) = try await importOtherFreedoom1()
+
+        try library.deleteWAD(try XCTUnwrap(try library.wad(id: id)))
+
+        XCTAssertEqual(library.fileStatus(for: otherRow), .imported)
+    }
+
+    /// #506's import gate and #503's reserved store names compose: imports
+    /// of different files with the same name, started at once from two
+    /// routes, each end up with a row and a stored file of their own, and
+    /// the released Freedoom row is restored only by its own bytes.
+    func testConcurrentImportsOfDifferentFilesWithOneNameEachGetTheirOwnFile() async throws {
+        let original = tmp.appendingPathComponent("Original", isDirectory: true)
+        try FileManager.default.createDirectory(at: original, withIntermediateDirectories: true)
+        let originalURL = original.appendingPathComponent("freedoom1.wad")
+        let id = try releaseBundledFreedoom(copyTo: originalURL)
+
+        var others: [(url: URL, sha1: String)] = []
+        for (index, lumps) in [["E1M1", "THINGS"], ["E1M2", "THINGS"]].enumerated() {
+            let data = makeWAD(magic: "IWAD", lumps: lumps)
+            let dir = tmp.appendingPathComponent("Other\(index)", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let url = dir.appendingPathComponent("freedoom1.wad")
+            try data.write(to: url)
+            others.append((url, WADStore.sha1(of: data)))
+        }
+
+        let importer = self.importer!
+        let tasks = [
+            Task { _ = await importer.importFiles(at: [others[0].url], from: .picker) },
+            Task { _ = await importer.importFiles(at: [originalURL], from: .openIn) },
+            Task { _ = await importer.importFiles(at: [others[1].url], from: .picker) },
+        ]
+        for task in tasks { await task.value }
+
+        let restored = try XCTUnwrap(try library.wad(id: id))
+        let rows = try [restored] + others.map { try XCTUnwrap(try library.findWAD(sha1: $0.sha1)) }
+        XCTAssertEqual(Set(rows.map(\.id)).count, 3, "every file has a row of its own")
+        XCTAssertEqual(Set(rows.map(\.filename)).count, 3, "every row has a stored file of its own")
+        for row in rows {
+            XCTAssertEqual(library.fileStatus(for: row), .imported, row.filename)
+            XCTAssertEqual(try WADStore.sha1(ofFileAt: library.fileURL(for: row)), row.sha1,
+                           "\(row.filename) must hold its own row's bytes")
+        }
+        XCTAssertEqual(library.saveSlots(forKey: id).map(\.id), ["woofsav0.dsg"])
+    }
+
+    func testImportingFreedoomRestoresARowReleasedWithALegacyPlaceholder() async throws {
+        let copy = tmp.appendingPathComponent("freedoom1.wad")
+        let id = try releaseBundledFreedoom(copyTo: copy, legacyPlaceholder: true)
+
+        let outcome = await importer.importFiles(at: [copy], from: .picker)
+
+        try assertRestored(id, outcome)
+    }
 }
