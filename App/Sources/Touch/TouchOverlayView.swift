@@ -55,6 +55,7 @@ final class TouchOverlayView: UIView {
     private var summonTouches = Set<UITouch>()
     private var summonArmed = true
     private let stickEngagedMarker = UIView()
+    private let turnEngagedMarker = UIView()
 
     // Half-open play layout (issue #373). `halfOpenSplit` is what the layout
     // and the touch routing read; `refreshHalfOpenSplit()` derives it from
@@ -314,6 +315,16 @@ final class TouchOverlayView: UIView {
         stickEngagedMarker.isUserInteractionEnabled = false
         stickEngagedMarker.isHidden = true
         addSubview(stickEngagedMarker)
+
+        // The same latch for a drag-to-turn track (modern scheme). A press
+        // that misses a right-hand button can only go wrong by starting one
+        // of these, so a near-miss test reads this marker (issue #519).
+        turnEngagedMarker.frame = CGRect(x: 22, y: 2, width: 2, height: 2)
+        turnEngagedMarker.accessibilityIdentifier = "turnEngaged"
+        turnEngagedMarker.isAccessibilityElement = true
+        turnEngagedMarker.isUserInteractionEnabled = false
+        turnEngagedMarker.isHidden = true
+        addSubview(turnEngagedMarker)
 
         #if DEBUG
         halfOpenMarker.frame = CGRect(x: 10, y: 2, width: 2, height: 2)
@@ -991,6 +1002,7 @@ final class TouchOverlayView: UIView {
                 lastTurnX = point.x
                 turnModel = TouchStickModel(center: point, radius: layout.stickRadius)
                 drawTurnStick(at: point)
+                turnEngagedMarker.isHidden = false
             case .ignore:
                 // A near-miss on a button, or a region already owned by
                 // another finger. Doing nothing is what a miss should do.

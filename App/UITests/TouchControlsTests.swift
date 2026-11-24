@@ -224,42 +224,44 @@ final class TouchControlsTests: XCTestCase {
     }
 
     /// Regression test: a fingertip that misses `weaponPrevButton` by a few
-    /// points must not silently start a movement-stick track -- a mis-tap on
-    /// "previous weapon" becoming a movement input.
+    /// points must start no track at all -- a mis-tap on "previous weapon"
+    /// must not become a movement or turn input.
     ///
-    /// The hazard this was originally written for is now gone by
-    /// construction, and that is worth stating rather than leaving the old
-    /// rationale to rot. `weaponPrevButton` used to sit at
-    /// `x: safeArea.left + 40`, squarely inside the movement stick's own
-    /// capture column (`touchesBegan`'s `point.x < bounds.width * 0.4`), so
-    /// a near-miss landed on bare overlay *inside the stick's own region*
-    /// and only `nearButton`'s cushion kept it from steering.
-    /// `TouchOverlayLayout` has since moved both weapon buttons into the
-    /// right-hand cluster, well outside that column, so the near-miss half
-    /// below now holds geometrically as well as by the cushion.
+    /// The live hazard is the `modern` scheme. `TouchOverlayLayout` keeps
+    /// both weapon buttons in the right-hand cluster, past the stick column
+    /// (`TouchTrackRouter.stickColumnLimit`), and under `modern` that whole
+    /// region is a drag-to-turn surface: only the near-miss cushion
+    /// (`TouchTrackRouter.buttonNearMissMargin`) stops a press just off the
+    /// button from swinging the view. Under `classic` the same region starts
+    /// nothing whatever the cushion, so this test pins `modern`, or it could
+    /// not fail when the cushion goes (issue #519: the earlier version ran
+    /// `classic` and passed with the margin at 0).
     ///
-    /// It is kept because the property is still the one that matters and
-    /// still regresses if the arrangement moves back; the control half below
-    /// is what carries the discriminating power today. The surviving live
-    /// hazard is the `modern` scheme, where the whole right region is a
-    /// drag-to-turn surface and a near-miss beside FIRE can start a turn
-    /// track -- that case is not covered here.
+    /// The miss is a fixed distance outside the button's own frame, read
+    /// from the device, not a fixed offset from its centre: on an iPad the
+    /// button is 74.5 pt across, and the old centre + 34 pt landed on the
+    /// button itself. On the title screen a press on the button opens the
+    /// main menu, so the test also requires that no menu opened, which is
+    /// what keeps the control half below measured from the same state on
+    /// every device.
     ///
-    /// Asserted on the app-owned `stickEngaged` marker rather than on any
-    /// visible effect: a tap's stick track begins and ends in
-    /// milliseconds, so a marker mirroring `stickTouch` live would read
-    /// "off" either way. It latches instead, and the second half of this
-    /// test taps clean overlay in the same column and requires it to
-    /// appear -- otherwise a marker that never latched at all would make
-    /// the near-miss assertion pass for entirely the wrong reason.
+    /// Asserted on the app-owned `turnEngaged` and `stickEngaged` markers
+    /// rather than on any visible effect: a tap's track begins and ends in
+    /// milliseconds, so a marker mirroring it live would read "off" either
+    /// way. They latch instead, and the control half taps clean overlay in
+    /// the turn region and requires `turnEngaged` to appear -- otherwise a
+    /// marker that never latched at all would make the near-miss assertion
+    /// pass for entirely the wrong reason.
     @MainActor
-    func testNearMissBesideWeaponPrevDoesNotStartStick() throws {
+    func testNearMissBesideWeaponPrevStartsNoTrack() throws {
         let app = XCUIApplication()
         app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "25"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_INPUT_COUNTS"] = "1"
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
+        app.launchEnvironment["WADDLE_TOUCH_SCHEME"] = "modern"
+        app.launchArguments += ["-debugHUD", "YES"]
         app.launch()
 
         let play = app.buttons["playFreedoom1"]
@@ -268,32 +270,69 @@ final class TouchControlsTests: XCTestCase {
 
         let prev = app.buttons["weaponPrevButton"]
         XCTAssertTrue(prev.waitForExistence(timeout: 20), "overlay never installed")
+        let hud = app.staticTexts["sessionDebugHUD"]
+        XCTAssertTrue(hud.waitForExistence(timeout: 10), "debug HUD never appeared")
+        XCTAssertEqual(waitForMenu(hud, timeout: 10) { $0 == "off" }, "off",
+                       "a menu was up before the near miss: \(labelIfPresent(hud) ?? "no HUD")")
 
         let stickEngaged = app.otherElements["stickEngaged"]
+        let turnEngaged = app.otherElements["turnEngaged"]
         XCTAssertFalse(stickEngaged.exists, "stick engaged before any overlay touch")
+        XCTAssertFalse(turnEngaged.exists, "turn engaged before any overlay touch")
 
-        // Straight below the button's center: 34pt clears the 48pt button's
-        // own frame by ~10pt, and holds the same x -- still well inside the
-        // stick's capture column, which is the whole point of the miss.
-        prev.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .withOffset(CGVector(dx: 0, dy: 34))
+        // Straight above the button, `missBy` points past its top edge:
+        // outside the button on every device, inside the 20 pt cushion, and
+        // clear of weaponNext beside it and FIRE below it.
+        let missBy: CGFloat = 10
+        let frame = prev.frame
+        XCTAssertLessThan(missBy, 20, "the miss must land inside the near-miss cushion")
+        let miss = CGPoint(x: frame.midX, y: frame.minY - missBy)
+        XCTAssertGreaterThan(miss.x, app.frame.width * 0.4,
+                             "the miss should be in the turn region, right of the stick column: \(frame)")
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: miss.x, dy: miss.y))
             .press(forDuration: 0.3)
 
-        XCTAssertFalse(stickEngaged.waitForExistence(timeout: 3),
-            "a near-miss beside weaponPrevButton started a movement-stick track")
+        XCTAssertFalse(turnEngaged.waitForExistence(timeout: 3),
+            "a near-miss beside weaponPrevButton at \(miss) (button \(frame)) started a drag-to-turn track")
+        XCTAssertFalse(stickEngaged.exists,
+            "a near-miss beside weaponPrevButton at \(miss) (button \(frame)) started a movement-stick track")
+        XCTAssertEqual(waitForMenu(hud, timeout: 2) { $0 != "off" }, "off",
+            "the near miss at \(miss) opened a menu, so it hit the button (\(frame)) rather than missing it")
 
-        // Control: clean overlay in that same column must still engage the
-        // stick, so the assertion above cannot pass by the marker simply
-        // never latching, or by the fix having swallowed the stick whole.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.7))
+        // Control: clean overlay in the turn region must still start a turn
+        // track, so the assertion above cannot pass by the marker simply
+        // never latching, or by the cushion having swallowed the region.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5))
             .press(forDuration: 0.3)
-        XCTAssertTrue(stickEngaged.waitForExistence(timeout: 3),
-            "stick never engaged on clean overlay -- the exclusion is too wide")
+        XCTAssertTrue(turnEngaged.waitForExistence(timeout: 3),
+            "turn never engaged on clean overlay -- the exclusion is too wide")
 
         releaseAutoquit()
         let exitLabel = app.staticTexts["engineExitLabel"]
         XCTAssertTrue(exitLabel.waitForExistence(timeout: 90))
         XCTAssertEqual(exitLabel.label, "Engine exited: 0")
+    }
+
+    /// The debug HUD's `cm=` value -- "off" while no menu is up -- once
+    /// `condition` holds or `timeout` passes, whichever is first.
+    @MainActor
+    private func waitForMenu(_ hud: XCUIElement, timeout: TimeInterval,
+                             until condition: (String?) -> Bool) -> String? {
+        func read() -> String? {
+            guard let label = labelIfPresent(hud) else { return nil }
+            let words: [String] = label.components(separatedBy: "\n")
+                .flatMap { $0.components(separatedBy: " · ") }
+                .flatMap { $0.components(separatedBy: " ") }
+            return words.first { $0.hasPrefix("cm=") }.map { String($0.dropFirst(3)) }
+        }
+        let deadline = Date().addingTimeInterval(timeout)
+        var value = read()
+        while !condition(value) && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.25)
+            value = read()
+        }
+        return value
     }
 
     /// All-orientations support (Plan 4 Task 7b): a session started in

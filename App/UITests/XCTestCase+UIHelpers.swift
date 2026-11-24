@@ -176,10 +176,20 @@ extension XCTestCase {
     /// row: XCUITest picks a hit point inside whatever sliver is visible, and
     /// a tap on ten points of row at the very bottom edge does not open its
     /// menu. So the element must also lie wholly inside the window.
-    func scrollTo(_ element: XCUIElement, in app: XCUIApplication, maxSwipes: Int = 6,
-                  file: StaticString = #filePath, line: UInt = #line) {
+    ///
+    /// `container` is what gets swiped; nil swipes the app, which starts
+    /// from the window's centre. That is only right where one scroll view
+    /// fills the window. On an iPad the game page is a side panel at the
+    /// window's right, the centre is on the shelf, and swiping the app
+    /// scrolled the shelf while the row stayed below the panel's fold
+    /// (issue #519). Pass the scroll view that holds `element`.
+    func scrollTo(_ element: XCUIElement, in app: XCUIApplication, swiping container: XCUIElement? = nil,
+                  maxSwipes: Int = 6, file: StaticString = #filePath, line: UInt = #line) {
         var swipes = 0
-        while !isFullyOnScreen(element, in: app) && swipes < maxSwipes { app.swipeUp(); swipes += 1 }
+        while !isFullyOnScreen(element, in: app) && swipes < maxSwipes {
+            (container ?? app).swipeUp()
+            swipes += 1
+        }
         XCTAssertTrue(element.waitForExistence(timeout: 2), "\(element) never scrolled into view", file: file, line: line)
     }
 

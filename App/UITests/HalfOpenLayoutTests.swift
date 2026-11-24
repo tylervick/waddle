@@ -43,8 +43,15 @@ final class HalfOpenLayoutTests: XCTestCase {
         XCTAssertEqual(split.picture.width / split.picture.height, 4.0 / 3.0, accuracy: 0.01,
                        "a portrait phone's session is 4:3 and must stay 4:3 above the fold: \(split.picture)")
         XCTAssertEqual(split.picture.midX, window.midX, accuracy: 1, "\(split.picture)")
-        XCTAssertGreaterThan(split.picture.width, window.width * 0.9,
-                             "the picture should fill the upper half's width on a phone: \(split.picture)")
+        // As large as the upper half allows. A phone's half is narrower
+        // than 4:3, so the picture fills its width; an iPad's is wider, so
+        // the picture fills its height instead (issue #519). Whichever side
+        // runs out first is the one it must fill.
+        let upperHalf = CGRect(x: window.minX, y: window.minY,
+                               width: window.width, height: split.creaseTop - window.minY)
+        let fill = max(split.picture.width / upperHalf.width, split.picture.height / upperHalf.height)
+        XCTAssertGreaterThan(fill, 0.9,
+                             "the picture should fill the upper half's limiting side: \(split.picture) in \(upperHalf)")
 
         // The controls: every one below the band.
         for id in controls {
