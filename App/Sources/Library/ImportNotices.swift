@@ -63,7 +63,17 @@ final class ImportNotices {
         }
         if !outcome.rejected.isEmpty {
             let suffix = quarantines ? " (moved to Import Failed)" : ""
-            parts.append("\(outcome.rejected.count) failed\(suffix)")
+            // The first rejection the player can act on (a zip over an
+            // import limit, a pk3) says why, as a failed link download does.
+            // Only the first: one line per refused file would let a folder
+            // of them cover the screen. Every other rejection is counted.
+            if let first = outcome.explained.first {
+                parts.append(quarantines ? first + " Moved to Import Failed." : first)
+                let rest = outcome.rejected.count - 1
+                if rest > 0 { parts.append("\(rest) more failed\(suffix)") }
+            } else {
+                parts.append("\(outcome.rejected.count) failed\(suffix)")
+            }
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }

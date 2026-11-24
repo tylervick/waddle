@@ -38,6 +38,55 @@ final class ImportNoticesTests: XCTestCase {
         XCTAssertEqual(ImportNotices.summary(of: outcome), "2 failed")
     }
 
+    // MARK: rejections that say why (#516)
+
+    /// A zip refused by an import limit says why, as a failed link download
+    /// does, and any other rejection is counted after it.
+    func testAnExplainedRejectionSaysWhyAndIsNotCountedAgain() {
+        var outcome = ImportOutcome()
+        outcome.imported = ["Sunlust"]
+        outcome.rejected = ["junk.wad": "Not a WAD file (bad header magic)."]
+        outcome.reject("big.zip", reason: "This zip unpacks to more than 1 GB, the import limit.", explained: true)
+        XCTAssertEqual(ImportNotices.summary(of: outcome),
+            "Imported Sunlust · "
+            + "Import failed for big.zip: This zip unpacks to more than 1 GB, the import limit. · 1 more failed")
+    }
+
+    func testAnExplainedRejectionDuringAdoptionSaysWhereTheFileWent() {
+        var outcome = ImportOutcome()
+        outcome.reject("big.zip", reason: "This zip unpacks to more than 1 GB, the import limit.", explained: true)
+        XCTAssertEqual(ImportNotices.summary(of: outcome, quarantines: true),
+            "Import failed for big.zip: This zip unpacks to more than 1 GB, the import limit. "
+            + "Moved to Import Failed.")
+    }
+
+    func testMergeKeepsExplainedRejections() {
+        var aggregate = ImportOutcome()
+        aggregate.reject("a.zip", reason: "x", explained: true)
+        var candidate = ImportOutcome()
+        candidate.reject("b.zip", reason: "y", explained: true)
+        aggregate.merge(candidate)
+        XCTAssertEqual(aggregate.explained, ["Import failed for a.zip: x", "Import failed for b.zip: y"])
+        XCTAssertEqual(ImportNotices.summary(of: aggregate), "Import failed for a.zip: x · 1 more failed")
+    }
+
+    /// One line per refused file would let a folder of refused zips cover
+    /// the screen (the #521 review dropped 20 into Documents): the banner
+    /// says why for the first and counts the rest, however many there are.
+    func testOnlyTheFirstExplainedRejectionIsShown() {
+        var outcome = ImportOutcome()
+        for index in 0..<20 {
+            outcome.reject("big\(index).zip", reason: "This zip unpacks to more than 1 GB, the import limit.",
+                           explained: true)
+        }
+        outcome.rejected["junk.wad"] = "Not a WAD file (bad header magic)."
+        XCTAssertEqual(ImportNotices.summary(of: outcome, quarantines: true),
+            "Import failed for big0.zip: This zip unpacks to more than 1 GB, the import limit. "
+            + "Moved to Import Failed. · 20 more failed (moved to Import Failed)")
+        XCTAssertEqual(ImportNotices.summary(of: outcome),
+            "Import failed for big0.zip: This zip unpacks to more than 1 GB, the import limit. · 20 more failed")
+    }
+
     // MARK: merge
 
     func testMergeAppendsImportedAndDuplicates() {

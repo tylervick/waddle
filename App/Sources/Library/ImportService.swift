@@ -12,6 +12,18 @@ struct ImportOutcome: Equatable {
     /// Names registered as a map set with no base of its family yet. Subset
     /// of `imported`.
     var unpaired: [String] = []
+    /// Lines for rejections the player can act on, each naming its file and
+    /// saying why: "Import failed for big.zip: This zip unpacks to more than
+    /// 1 GB, the import limit." Every one also has its entry in `rejected`.
+    /// `ImportNotices.summary` shows the first and counts the rest.
+    var explained: [String] = []
+
+    /// Records `name` as rejected for `reason`, and with `explained` also
+    /// gives the banner a line that says so.
+    mutating func reject(_ name: String, reason: String, explained: Bool = false) {
+        rejected[name] = reason
+        if explained { self.explained.append("Import failed for \(name): \(reason)") }
+    }
 
     /// Folds a per-candidate outcome into this aggregate. `imported` and
     /// `duplicates` simply append — every entry there already names a
@@ -28,6 +40,7 @@ struct ImportOutcome: Equatable {
         games += other.games
         addOns += other.addOns
         unpaired += other.unpaired
+        explained += other.explained
         for (name, reason) in other.rejected {
             var candidate = name
             var counter = 2
@@ -196,6 +209,14 @@ final class ImportService {
     /// ImportServiceTests can shrink it to exercise the oversize-rejection
     /// path without shipping a real 512 MB fixture.
     var maxZipEntryBytes: Int64 = ZipExtractor.maxEntryBytes
+
+    /// Injectable seams for tests only, as `maxZipEntryBytes` is: the caps
+    /// that refuse a whole zip (#516). Production always uses
+    /// ZipExtractor's own defaults of 1 GiB, 64 game files and 10,000
+    /// entries; tests shrink them so no fixture comes near those sizes.
+    var maxZipTotalBytes: Int64 = ZipExtractor.maxTotalBytes
+    var maxZipGameEntries: Int = ZipExtractor.maxGameEntries
+    var maxZipEntries: Int = ZipExtractor.maxEntries
 
     /// Reason recorded for every zip entry ZipExtractor skips for being
     /// over the size cap. Shared by both extraction paths and matched by
@@ -397,16 +418,26 @@ final class ImportService {
             ImportFileType.resolve(url: url, name: name)
         }.value
         guard let type else {
-            outcome.rejected[name] = ImportFileType.isRefused(url: url, name: name)
-                ? ImportFileType.refusedReason : "Unsupported file type."
+            if ImportFileType.isRefused(url: url, name: name) {
+                outcome.reject(name, reason: ImportFileType.refusedReason, explained: true)
+            } else {
+                outcome.rejected[name] = "Unsupported file type."
+            }
             return
         }
         switch type {
         case .zip:
+            // A file that says it is a zip is taken as one; one recognised
+            // only by its content might be a pk3 under an extensionless
+            // name, and is refused if it is laid out like one.
+            let namedZip = ImportFileType(extension: (name as NSString).pathExtension) == .zip
+                || ImportFileType(extension: url.pathExtension) == .zip
             do {
-                let cap = maxZipEntryBytes
+                let limits = ZipExtractor.Limits(entryBytes: maxZipEntryBytes, totalBytes: maxZipTotalBytes,
+                                                 gameEntries: maxZipGameEntries, entries: maxZipEntries)
                 let extraction = try await Task.detached {
-                    try ZipExtractor.extractGameFiles(from: url, maxEntryBytes: cap)
+                    try ZipExtractor.extractGameFiles(from: url, limits: limits,
+                                                      refusingPK3Layout: !namedZip)
                 }.value
                 defer { try? FileManager.default.removeItem(at: extraction.dir) }
                 // Record every oversize entry unconditionally — not just
@@ -426,8 +457,6 @@ final class ImportService {
                         // handed over through the zip document type, say) is
                         // not a game download at all, so it keeps the
                         // rejection it had before content sniffing.
-                        let namedZip = ImportFileType(extension: (name as NSString).pathExtension) == .zip
-                            || ImportFileType(extension: url.pathExtension) == .zip
                         outcome.rejected[name] = namedZip
                             ? "No WAD or DEH files inside the zip."
                             : "Unsupported file type."
@@ -437,6 +466,10 @@ final class ImportService {
                 for file in extraction.files {
                     await importOneAsync(url: file.url, name: file.name, into: &outcome)
                 }
+            } catch let refusal as ZipExtractor.Refusal {
+                // A whole archive refused by a cap or as a pk3: the player
+                // can act on why, so the banner says it.
+                outcome.reject(name, reason: refusal.reason, explained: true)
             } catch {
                 outcome.rejected[name] = "Could not read zip archive."
             }
