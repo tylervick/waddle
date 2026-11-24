@@ -337,6 +337,31 @@ final class LinkImportTests: XCTestCase {
         XCTAssertEqual(try library.allWADs().first?.filename, "map.wad")
     }
 
+    /// The sanitiser and the store's claimed names (#507) agree: a server
+    /// name that sanitises to a filename another row still owns, with that
+    /// row's file missing, is stored under a name of its own, and the other
+    /// row is left without a file rather than given these bytes.
+    func testASanitisedNameThatMatchesAClaimedNameGetsItsOwnFile() async throws {
+        let claimant = try library.registerImported(filename: "map.wad", sha1: String(repeating: "a", count: 40),
+                                                    kind: WADKind.pwad.rawValue, family: "doom2", hasMaps: true)
+        XCTAssertEqual(library.fileStatus(for: claimant), .missing, "the claimant's file must be missing")
+        let link = "https://files.example/download?id=10"
+        StubURLProtocol.set(.respond(status: 200, headers: [
+            "Content-Type": "application/octet-stream",
+            "Content-Disposition": "attachment; filename*=UTF-8''ma%07p.wad",
+        ], body: makeWAD(magic: "PWAD", lumps: ["MAP01"])), for: link)
+
+        let outcome = await linkImport().run(URL(string: link)!)
+
+        XCTAssertEqual(outcome?.imported, ["map (2)"])
+        let row = try XCTUnwrap(try library.allWADs().first { $0.id != claimant.id })
+        XCTAssertEqual(row.filename, "map (2).wad")
+        XCTAssertEqual(library.fileStatus(for: row), .imported)
+        XCTAssertEqual(claimant.filename, "map.wad")
+        XCTAssertEqual(library.fileStatus(for: claimant), .missing,
+                       "the claimant must not pick up a different file's bytes")
+    }
+
     /// A name too long for the file system is shortened, extension kept,
     /// rather than failing the download.
     func testAnOverlongNameIsShortenedKeepingItsExtension() async throws {
