@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import XCTest
+import ZIPFoundation
 @testable import Waddle
 
 /// Answers every request from a table the test fills in, so no test here
@@ -21,16 +22,19 @@ final class StubURLProtocol: URLProtocol {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var replies: [String: Reply] = [:]
     nonisolated(unsafe) private static var requested: [String] = []
+    nonisolated(unsafe) private static var headers: [[String: String]] = []
 
     static func set(_ reply: Reply, for url: String) {
         lock.withLock { replies[url] = reply }
     }
 
     static func reset() {
-        lock.withLock { replies = [:]; requested = [] }
+        lock.withLock { replies = [:]; requested = []; headers = [] }
     }
 
     static var requestedURLs: [String] { lock.withLock { requested } }
+    /// Each request's headers, as the session handed it to the protocol.
+    static var requestHeaders: [[String: String]] { lock.withLock { headers } }
 
     static func configuration() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
@@ -45,6 +49,7 @@ final class StubURLProtocol: URLProtocol {
         let key = request.url?.absoluteString ?? ""
         let reply: Reply? = Self.lock.withLock {
             Self.requested.append(key)
+            Self.headers.append(request.allHTTPHeaderFields ?? [:])
             return Self.replies[key]
         }
         guard let reply, let url = request.url else {
@@ -282,6 +287,117 @@ final class LinkImportTests: XCTestCase {
         XCTAssertEqual(notices.current, "Import failed: \(LinkDownloadError.insecure.reason)")
         XCTAssertEqual(StubURLProtocol.requestedURLs, [link])
         try assertNothingLeftBehind()
+    }
+
+    // MARK: Review findings on #515
+
+    /// A zip under a `.pk3` name is a mod, not a zip of WADs: refused with
+    /// its own reason, not unpacked for its inner WAD.
+    func testAPK3NamedByTheServerIsRefusedNotUnpacked() async throws {
+        let link = "https://files.example/download?id=7"
+        StubURLProtocol.set(.respond(status: 200, headers: [
+            "Content-Type": "application/octet-stream",
+            "Content-Disposition": #"attachment; filename="mod.pk3""#,
+        ], body: try zipHoldingAWAD()), for: link)
+
+        let outcome = await linkImport().run(URL(string: link)!)
+
+        XCTAssertNil(outcome)
+        XCTAssertEqual(notices.current, "Import failed: \(LinkDownloadError.refusedType("pk3").reason)")
+        try assertNothingLeftBehind()
+    }
+
+    /// The link's own name counts too, whatever the server calls the file.
+    func testAPK3NamedByTheLinkIsRefusedNotUnpacked() async throws {
+        let link = "https://files.example/mods/mod.pk3"
+        StubURLProtocol.set(.respond(status: 200, headers: [
+            "Content-Type": "application/octet-stream",
+            "Content-Disposition": #"attachment; filename="mod.zip""#,
+        ], body: try zipHoldingAWAD()), for: link)
+
+        let outcome = await linkImport().run(URL(string: link)!)
+
+        XCTAssertNil(outcome)
+        XCTAssertEqual(notices.current, "Import failed: \(LinkDownloadError.refusedType("pk3").reason)")
+        try assertNothingLeftBehind()
+    }
+
+    /// Control characters in the server's name never reach the store or the
+    /// banner.
+    func testControlCharactersInTheServersNameAreDropped() async throws {
+        let link = "https://files.example/download?id=8"
+        StubURLProtocol.set(.respond(status: 200, headers: [
+            "Content-Type": "application/octet-stream",
+            "Content-Disposition": "attachment; filename*=UTF-8''ma%0Ap%07%E2%80%AE.wad",
+        ], body: makeWAD(magic: "PWAD", lumps: ["MAP01"])), for: link)
+
+        let outcome = await linkImport().run(URL(string: link)!)
+
+        XCTAssertEqual(outcome?.imported, ["map"])
+        XCTAssertEqual(try library.allWADs().first?.filename, "map.wad")
+    }
+
+    /// A name too long for the file system is shortened, extension kept,
+    /// rather than failing the download.
+    func testAnOverlongNameIsShortenedKeepingItsExtension() async throws {
+        let link = "https://files.example/download?id=9"
+        let long = String(repeating: "verylongname", count: 25) + ".wad"   // 304 bytes
+        StubURLProtocol.set(.respond(status: 200, headers: [
+            "Content-Type": "application/octet-stream",
+            "Content-Disposition": "attachment; filename=\"\(long)\"",
+        ], body: makeWAD(magic: "PWAD", lumps: ["MAP01"])), for: link)
+
+        let outcome = await linkImport().run(URL(string: link)!)
+
+        XCTAssertEqual(outcome?.imported.count, 1, "rejected: \(outcome?.rejected ?? [:]), notice: \(notices.current ?? "")")
+        let stored = try XCTUnwrap(library.allWADs().first?.filename)
+        XCTAssertTrue(stored.hasSuffix(".wad"), stored)
+        XCTAssertTrue(stored.hasPrefix("verylongname"), stored)
+        XCTAssertLessThanOrEqual(stored.utf8.count, ImportFilename.maxBytes)
+    }
+
+    /// What the request says about the player: a fixed User-Agent and no
+    /// language preference, rather than the system's, and no cookies.
+    func testTheRequestCarriesOnlyFixedHeaders() async throws {
+        let link = "https://files.example/headers.wad"
+        StubURLProtocol.set(.respond(status: 200, headers: ["Content-Type": "application/octet-stream"],
+                                     body: makeWAD(magic: "PWAD", lumps: ["MAP01"])), for: link)
+
+        _ = await linkImport().run(URL(string: link)!)
+
+        let sent = try XCTUnwrap(StubURLProtocol.requestHeaders.first)
+        XCTAssertEqual(sent["User-Agent"], "Waddle")
+        XCTAssertEqual(sent["Accept-Language"], "*")
+        XCTAssertNil(sent["Cookie"])
+        let configuration = LinkDownloader.hardened(.ephemeral)
+        XCTAssertEqual(configuration.httpCookieAcceptPolicy, .never)
+        XCTAssertFalse(configuration.httpShouldSetCookies)
+        XCTAssertNil(configuration.urlCache)
+    }
+
+    /// A 200 that is neither a page nor a game file (an API's JSON error)
+    /// gets a reason, as a web page does, not a bare "1 failed".
+    func testAJSONBodyIsRejectedWithAReason() async throws {
+        let link = "https://api.example/files/42"
+        StubURLProtocol.set(.respond(status: 200, headers: ["Content-Type": "application/json"],
+                                     body: Data(#"{"error":"rate limited"}"#.utf8)), for: link)
+
+        let outcome = await linkImport().run(URL(string: link)!)
+
+        XCTAssertNil(outcome)
+        XCTAssertEqual(notices.current, "Import failed: \(LinkDownloadError.notAGameFile.reason)")
+        try assertNothingLeftBehind()
+    }
+
+    private func zipHoldingAWAD() throws -> Data {
+        let zipURL = tmp.appendingPathComponent(UUID().uuidString + ".zip")
+        let archive = try Archive(url: zipURL, accessMode: .create)
+        let wadData = makeWAD(magic: "PWAD", lumps: ["MAP01"])
+        try archive.addEntry(with: "maps/MAP01.wad", type: .file, uncompressedSize: Int64(wadData.count),
+                             provider: { pos, size in wadData.subdata(in: Int(pos)..<Int(pos) + size) })
+        let data = try Data(contentsOf: zipURL)
+        try FileManager.default.removeItem(at: zipURL)
+        return data
     }
 
     func testValidation() {

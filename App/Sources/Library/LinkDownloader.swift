@@ -19,6 +19,12 @@ enum LinkDownloadError: Error, Equatable, Sendable {
     case tooLarge(limit: Int64)
     /// The body is a web page: a mirror's landing page, not its file.
     case webPage
+    /// The file is named as a type Waddle refuses (a `.pk3`), by the
+    /// server's filename or the link's.
+    case refusedType(String)
+    /// The body is neither a web page nor anything Waddle takes: an API's
+    /// JSON error, say, or a text file.
+    case notAGameFile
     /// Any other transport failure, with the system's own description.
     case failed(String)
 
@@ -40,6 +46,10 @@ enum LinkDownloadError: Error, Equatable, Sendable {
             return "The file is larger than the \(limit / (1024 * 1024)) MB import limit."
         case .webPage:
             return "That link opens a web page, not a file. Find the download link on the page and use that instead."
+        case .refusedType(let ext):
+            return "That link leads to a .\(ext) file, which Waddle does not take. Waddle takes .wad, .deh, .bex and .zip files."
+        case .notAGameFile:
+            return "That link did not lead to a game file. Waddle takes .wad, .deh, .bex and .zip files; check that the link is to the file itself."
         case .failed(let description):
             return "The download failed: \(description)"
         }
@@ -59,7 +69,9 @@ struct DownloadedFile: Sendable {
 /// `ImportService.importFiles(_:from:)` (#500). It is the app's only network
 /// code: it runs only when the player asks, sends nothing but the request for
 /// that link, and keeps no cookies, cache or credentials (an ephemeral
-/// session).
+/// session). The request carries only the headers `requestHeaders` fixes and
+/// the ones HTTP itself needs (Host, Accept, Accept-Encoding); PRIVACY.md
+/// lists exactly what is sent, so change both together.
 ///
 /// A download that fails for any reason, or is cancelled, leaves nothing
 /// behind: the partial file and its directory are removed before the error
@@ -77,6 +89,28 @@ struct LinkDownloader: Sendable {
     /// Tests hand in a configuration whose `protocolClasses` stub the
     /// network; production uses a plain ephemeral one.
     var makeConfiguration: @Sendable () -> URLSessionConfiguration = { .ephemeral }
+
+    /// Replaces what the system would send: its User-Agent names the app's
+    /// build, CFNetwork and Darwin versions (so the iOS version), and its
+    /// Accept-Language lists the player's languages. Neither is needed to
+    /// download a file.
+    static let requestHeaders: [String: String] = [
+        "User-Agent": "Waddle",
+        "Accept-Language": "*",
+    ]
+
+    /// `configuration` with nothing kept and nothing extra sent: no cookies
+    /// stored or sent, no cache, no credentials, and `requestHeaders`.
+    static func hardened(_ configuration: URLSessionConfiguration) -> URLSessionConfiguration {
+        configuration.httpCookieAcceptPolicy = .never
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieStorage = nil
+        configuration.urlCache = nil
+        configuration.urlCredentialStorage = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        configuration.httpAdditionalHeaders = requestHeaders
+        return configuration
+    }
 
     /// The `https` URL `text` names, or why it names none. Surrounding
     /// whitespace is ignored, since a pasted link often carries some.
@@ -106,9 +140,14 @@ struct LinkDownloader: Sendable {
         let delegate = DownloadDelegate(directory: dir, maxBytes: maxBytes, progress: progress)
         let queue = OperationQueue()
         queue.maxConcurrentOperationCount = 1
-        let session = URLSession(configuration: makeConfiguration(), delegate: delegate, delegateQueue: queue)
+        let session = URLSession(configuration: Self.hardened(makeConfiguration()),
+                                 delegate: delegate, delegateQueue: queue)
         defer { session.finishTasksAndInvalidate() }
-        let task = session.dataTask(with: url)
+        // Set on the request as well as the session: a request's own value
+        // wins over whatever the system would add.
+        var request = URLRequest(url: url)
+        for (field, value) in Self.requestHeaders { request.setValue(value, forHTTPHeaderField: field) }
+        let task = session.dataTask(with: request)
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -232,8 +271,9 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate, @uncheck
         } else if let error {
             result = .failure(Self.map(error))
         } else if let fileURL {
-            result = .success(DownloadedFile(url: fileURL, suggestedFilename: suggestedFilename,
-                                             directory: directory))
+            result = Self.check(fileURL, named: suggestedFilename, linkURL: task.currentRequest?.url)
+                .map { DownloadedFile(url: fileURL, suggestedFilename: suggestedFilename, directory: directory) }
+                .mapError { $0 as Error }
         } else {
             result = .failure(LinkDownloadError.failed("The server sent no file."))
         }
@@ -241,6 +281,18 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate, @uncheck
             try? FileManager.default.removeItem(at: directory)
         }
         continuation.resume(with: result)
+    }
+
+    /// Whether a whole download is something the importer takes, so a body
+    /// it would refuse fails here with a reason the notice can show, rather
+    /// than as a bare "1 failed". The same rule the importer applies
+    /// (`ImportFileType.resolve`), so the two cannot disagree.
+    static func check(_ file: URL, named name: String, linkURL: URL?) -> Result<Void, LinkDownloadError> {
+        for candidate in [(name as NSString).pathExtension, linkURL?.pathExtension ?? ""] {
+            let ext = candidate.lowercased()
+            if ImportFileType.refusedExtensions.contains(ext) { return .failure(.refusedType(ext)) }
+        }
+        return ImportFileType.resolve(url: file, name: name) == nil ? .failure(.notAGameFile) : .success(())
     }
 
     private func refuse(_ error: LinkDownloadError,
@@ -254,13 +306,9 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate, @uncheck
     }
 
     /// The server's name for the file (`Content-Disposition`, else the
-    /// link's last path component), reduced to one safe path component.
+    /// link's last path component), made safe by `ImportFilename`.
     static func filename(for response: URLResponse) -> String {
-        let raw = response.suggestedFilename ?? ""
-        let name = (raw as NSString).lastPathComponent
-            .replacingOccurrences(of: ":", with: "_")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty || name.hasPrefix(".") ? "download" : name
+        ImportFilename.sanitized(response.suggestedFilename ?? "")
     }
 
     private static func map(_ error: Error) -> Error {

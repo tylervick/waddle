@@ -3,10 +3,15 @@
 Waddle does not collect any data of any kind.
 
 - The app connects to the network only to download a link you give it
-  (Add → From a Link…), when you ask. Only that link's server sees the
-  request, and it sees what any download shows it: your IP address and
-  the app's name and version. The app sends nothing else about you (no
-  cookies, account or identifiers) and keeps no history of the links.
+  (Add → From a Link…), when you ask. Only that link's server (and any
+  server it redirects to) sees the request. It sees your IP address, as
+  any server you connect to does, and the request's headers, which are
+  fixed and say nothing about you or your device: `User-Agent: Waddle`
+  (no version numbers), `Accept-Language: *` (no language preference),
+  `Accept: */*`, `Accept-Encoding: gzip, deflate, br`,
+  `Cache-Control: no-cache`, and the server's own name. No cookies,
+  account or identifiers are sent or stored, nothing is cached, and the
+  app keeps no history of the links.
   Otherwise the app makes no network connections on its own. Beyond that
   download, the only data this app ever sends anywhere is what you choose
   to send from the About screen. The
