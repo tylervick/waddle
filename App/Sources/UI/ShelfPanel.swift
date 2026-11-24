@@ -64,6 +64,7 @@ final class ShelfPanelModel {
             // still in flight would write over it.
             cancelStrayColumnClose()
             cancelColumnReturn()
+            takenDownAt = nil
             forgetPresentation(of: content, replacedBy: newValue)
             content = newValue
             if isSplit {
@@ -167,6 +168,17 @@ final class ShelfPanelModel {
             self.presentationHoldTask = nil
             self.presentationsHeld = false
         }
+    }
+
+    /// Whether a screen of the panel has an alert or dialog up, in any tree
+    /// that draws it. The root asks this before it takes down the dialog a
+    /// departing tree left behind (`LauncherFold.dismissDialogs`): a
+    /// dialog of the shelf's own (a tile's actions, its delete
+    /// confirmation, the engine's error) is on a tree that survives the
+    /// fold and must be left alone, and UIKit shows one dialog at a time,
+    /// so when the panel has one up, the dialog on screen is the panel's.
+    var panelHasDialogUp: Bool {
+        settingsPresentation.hasDialogUp || gamePagePresentations.values.contains(where: \.hasDialogUp)
     }
 
     /// What the column's tree tells its screens.
@@ -296,6 +308,11 @@ final class ShelfPanelModel {
     /// open, so every `true` there is one of the two cases above.
     func systemSetPresented(_ presented: Bool) {
         guard presented, content == nil || isSplit else {
+            if !presented, isPresented, content != nil, !isSplit {
+                panelTakenDown()
+            } else if presented {
+                takenDownAt = nil
+            }
             isPresented = presented && content != nil
             return
         }
@@ -311,6 +328,9 @@ final class ShelfPanelModel {
     /// the transition from compact (an unfold), as opposed to a window that
     /// was regular from the start.
     func windowWidthChanged(isRegular: Bool, becameRegular: Bool) {
+        // The first report is the window being measured, not changing.
+        if widthMeasured, isRegular != windowIsRegularWidth { widthClassChanged() }
+        widthMeasured = true
         windowIsRegularWidth = isRegular
         guard isRegular else {
             // In a compact window an accepted `true` would be an empty
@@ -328,6 +348,63 @@ final class ShelfPanelModel {
             closeStrayColumn()
         }
     }
+
+    // MARK: A window that changes width class (issue #520)
+
+    /// The inspector's own `false` while a panel is open on a whole
+    /// launcher: SwiftUI taking the panel down, never the player, who
+    /// closes it through Done (`panel = nil`).
+    ///
+    /// It is a change of tree, as a fold is, and needs the same two things.
+    /// What the panel had presented goes down with the old tree and writes
+    /// as it goes; seen on an iPad window narrowed to compact width
+    /// (2026-11-24), the save warning's dismissal arrived 74 ms after this
+    /// write and cleared the edit it guarded, the change was not made, and
+    /// nothing said so. So presentations are held, as across a fold, and the
+    /// dismissal is refused. And the panel has to be put up again in the new
+    /// form, which SwiftUI does not do on an iPad: it wrote `false` and then
+    /// nothing, and the panel was gone. When a change of width class goes
+    /// with this write, in either order, the panel comes back
+    /// (`returnColumn`): as the inspector's sheet on a compact window, as
+    /// the column on a regular one.
+    ///
+    /// An iPhone Duo folded shut writes `false` and then `true` itself
+    /// (`swiftui-inspector-writes-its-own-binding.md`); there the return
+    /// agrees with what SwiftUI writes, and the hold should keep a question
+    /// that was up. That has not been tried on the Duo.
+    private func panelTakenDown() {
+        holdPresentationsAcrossSwap()
+        if let changed = widthClassChangedAt,
+           changed.duration(to: ContinuousClock.now) < Self.widthChangePairing {
+            bringPanelBack()
+        } else {
+            takenDownAt = ContinuousClock.now
+        }
+    }
+
+    private func widthClassChanged() {
+        widthClassChangedAt = ContinuousClock.now
+        if let down = takenDownAt, down.duration(to: ContinuousClock.now) < Self.widthChangePairing,
+           content != nil, !isSplit, !isPresented {
+            bringPanelBack()
+        }
+    }
+
+    private func bringPanelBack() {
+        takenDownAt = nil
+        holdPresentationsAcrossSwap()
+        returnColumn()
+    }
+
+    /// How far apart the inspector's `false` and the root's change of width
+    /// class can be and still be one change of window. They come from one
+    /// trait change: 0.27 s apart on the iPad (2026-11-24). A `false` with no
+    /// change of width class near it leaves the panel down, as before.
+    private static let widthChangePairing: Duration = .seconds(1)
+
+    @ObservationIgnored private var takenDownAt: ContinuousClock.Instant?
+    @ObservationIgnored private var widthMeasured = false
+    @ObservationIgnored private var widthClassChangedAt: ContinuousClock.Instant?
 
     /// How long after the window becomes regular width a `true` with nothing
     /// to show is treated as the unfold's stray column.

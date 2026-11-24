@@ -17,6 +17,20 @@ enum GamePage {
         saveCount > 0
     }
 
+    /// Whether a new value in the base picker is a change for the page to
+    /// decide on (apply it, or ask first). Not when it is the game's base
+    /// already, and not when it is the choice a warning is already asking
+    /// about: the page puts the picker on that choice itself when a tree
+    /// that kept its page from before a fold comes on screen, and deciding
+    /// again there used that page's own save count, which can be stale. A
+    /// count of 0 applied the change under a warning still asking whether to
+    /// (review of pull request 524).
+    static func decidesOnBaseSelection(_ selected: UUID?, currentBase: UUID?, pending: GameEdit?) -> Bool {
+        guard selected != currentBase else { return false }
+        if case .base(let asked)? = pending, asked == selected { return false }
+        return true
+    }
+
     /// Spec §4.2. Deliberately no "copy 2" counter — the player renames.
     static func duplicateName(for name: String) -> String {
         "\(name) copy"

@@ -52,10 +52,20 @@ struct ContentView: View {
         // bar.) The keyboard is left out of it while parted: the halves are
         // the device's and do not give way to it.
         .ignoresSafeArea(.keyboard, edges: halves == nil ? [] : .bottom)
+        #if DEBUG
+        .overlay(alignment: .topTrailing) { swapMarker }
+        #endif
         .onAppear {
             LauncherFold.follow { split in
+                let changesPose = (split != nil) != panelModel.isSplit
                 halves = split
                 panelModel.foldChanged(isSplit: split != nil)
+                // A panel dialog up in the tree that is going is taken down
+                // here, once the swap is holding presentations so that the
+                // write its dismissal makes is refused, and the next tree
+                // puts it up again (issue #520). Only the panel's: the
+                // shelf's own dialogs stay where they are.
+                if changesPose, panelModel.panelHasDialogUp { LauncherFold.dismissDialogs() }
             }
         }
         .onChange(of: horizontalSizeClass, initial: true) { old, sizeClass in
@@ -184,6 +194,22 @@ struct ContentView: View {
                 .frame(width: 2, height: 2)
                 .accessibilityElement()
                 .accessibilityIdentifier(identifier)
+        }
+    }
+
+    /// Present while the panel's trees are being swapped and their
+    /// presentations are held (`ShelfPanelModel.presentationsHeld`), so a UI
+    /// test can wait for the swap to settle before it asks whether a dialog
+    /// is up. Asked any earlier, it can find the departing tree's dialog on
+    /// its way out, whose hit point is gone, and XCUITest records a failure
+    /// instead of answering "not hittable" (issue #520). The same 2 pt
+    /// corner marker as the halves.
+    @ViewBuilder private var swapMarker: some View {
+        if panelModel.presentationsHeld {
+            Color.clear
+                .frame(width: 2, height: 2)
+                .accessibilityElement()
+                .accessibilityIdentifier("panelSwapSettling")
         }
     }
     #endif

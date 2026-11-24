@@ -61,6 +61,36 @@ enum LauncherFold {
         reader = view
     }
 
+    /// Takes down the alert or confirmation dialog the launcher's window has
+    /// up, if any, when the pose changes (issue #520). Called once the swap
+    /// of the panel's trees has begun to hold presentations
+    /// (`ShelfPanelModel.presentationsHeld`), so the write that comes with
+    /// the dismissal is refused and the next tree puts the dialog up again.
+    ///
+    /// The tree going away was trusted to dismiss its own dialog as its
+    /// binding read false. On an iPad it sometimes did not: opened flat, the
+    /// lower half's save warning stayed up as an orphaned popover over the
+    /// shelf, its arrow pointing at nothing, and the column's warning did
+    /// not come up while it was there. Holding presentations a main-queue
+    /// turn before taking the tree away still left the orphan in 1 run of 2.
+    ///
+    /// Only alerts and dialogs: a sheet is the panel's own form on a compact
+    /// window, and SwiftUI moves it. And only when the panel has one up
+    /// (`ShelfPanelModel.panelHasDialogUp`): called on every change of pose,
+    /// this took down the shelf's tile actions and the engine's error
+    /// alert, whose trees survive the fold, and dropped them (review of
+    /// pull request 524).
+    static func dismissDialogs() {
+        var presenter = launcherRootView()?.window?.rootViewController
+        while let presented = presenter?.presentedViewController {
+            if presented is UIAlertController {
+                if !presented.isBeingDismissed { presenter?.dismiss(animated: true) }
+                return
+            }
+            presenter = presented
+        }
+    }
+
     /// The view SwiftUI draws the launcher in: the root of the app's first
     /// window. The engine's window does not exist until a session starts.
     private static func launcherRootView() -> UIView? {

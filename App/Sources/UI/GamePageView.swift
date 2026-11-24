@@ -206,6 +206,14 @@ struct GamePageView: View {
         // still waiting when this one is up.
         .onChange(of: host.presents) { _, presents in
             if presents, !shown.showAddFile { addPickedFile() }
+            // A page that was already drawn when its tree became the one on
+            // screen: the inspector keeps its column's page while the panel
+            // is in the lower half, so `onAppear` does not run again when the
+            // device is opened flat. Its saves, files and picker are read
+            // again here; without it the picker under a waiting warning read
+            // the old base (seen on an iPad, issue #520), and the saves were
+            // whatever they were when the page was first drawn.
+            if presents { reload() }
         }
         .confirmationDialog(saveWarningTitle, isPresented: pendingEditBinding,
                             titleVisibility: .visible, presenting: shown.pendingEdit) { edit in
@@ -514,7 +522,8 @@ struct GamePageView: View {
                     }
                 }
                 .onChange(of: baseSelection) { _, newValue in
-                    guard newValue != game.baseID else { return }
+                    guard GamePage.decidesOnBaseSelection(newValue, currentBase: game.baseID,
+                                                         pending: shown.pendingEdit) else { return }
                     attempt(.base(newValue))
                 }
             }

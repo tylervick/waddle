@@ -49,6 +49,13 @@ final class SettingsPresentation {
     var mailUnavailable = false
     /// Usage Summary's Reset Usage Counts confirmation.
     var confirmUsageReset = false
+
+    /// Whether one of Settings' alerts or confirmation dialogs is up: what
+    /// UIKit shows as a `UIAlertController`. Not the sheets.
+    var hasDialogUp: Bool {
+        !filesDeleteBlocked.isEmpty || exportError != nil || confirmBugReport
+            || mailUnavailable || confirmUsageReset
+    }
 }
 
 /// The same for one game's page.
@@ -70,6 +77,11 @@ final class GamePagePresentation {
     var isAwaitingAnAnswer: Bool {
         showRename || showAddFile || pendingAdd != nil || pendingEdit != nil || deleteCandidate != nil
     }
+
+    /// Whether the page's rename alert, save warning or delete
+    /// confirmation is up: what UIKit shows as a `UIAlertController`. Not
+    /// the Add… picker, which is a sheet.
+    var hasDialogUp: Bool { showRename || pendingEdit != nil || deleteCandidate != nil }
 }
 
 /// What a tree that draws the panel tells the screens inside it: which tree

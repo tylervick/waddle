@@ -447,4 +447,98 @@ final class ShelfPanelTests: XCTestCase {
         XCTAssertEqual(ShelfPanel.settings, ShelfPanel.settings)
         XCTAssertNil(ShelfPanel.settings.gameID)
     }
+
+    // MARK: A window that changes width class (issue #520)
+
+    /// An iPad's window narrowed to compact width with a page open and its
+    /// save warning up. The inspector writes `false` as its column goes,
+    /// the warning's dismissal follows from the column's tree, and only then
+    /// does the root see the new width (the order measured on the iPad).
+    /// The warning must survive the dismissal, and the panel must come back
+    /// as the compact sheet.
+    @MainActor
+    func testNarrowingTheWindowKeepsThePanelAndItsQuestion() async throws {
+        let model = ShelfPanelModel()
+        model.windowWidthChanged(isRegular: true, becameRegular: false)
+        let game = Game(name: "Sunlust", baseID: nil)
+        model.panel = .game(game)
+        let page = model.gamePagePresentation(for: game)
+        page.pendingEdit = .base(UUID())
+        let warning = model.columnHost.presented({ page.pendingEdit != nil }, dismiss: { page.pendingEdit = nil })
+
+        model.systemSetPresented(false)
+        warning.wrappedValue = false   // the warning going down with the column
+        model.windowWidthChanged(isRegular: false, becameRegular: false)
+
+        XCTAssertNotNil(page.pendingEdit, "the warning's dismissal cancelled the edit it guarded")
+        XCTAssertEqual(model.panel, .game(game), "the panel reads as closed while it comes back")
+        try await Task.sleep(for: ShelfPanelModel.presentationHold + .milliseconds(300))
+        XCTAssertTrue(model.isPresented, "the panel did not come back on the compact window")
+        XCTAssertEqual(model.panel, .game(game))
+        XCTAssertTrue(warning.wrappedValue, "the warning was not put up again")
+    }
+
+    /// The other order: the width change reaches the root first.
+    @MainActor
+    func testAWidthChangeJustBeforeTheColumnGoesBringsThePanelBackToo() async throws {
+        let model = ShelfPanelModel()
+        model.windowWidthChanged(isRegular: true, becameRegular: false)
+        model.panel = .settings
+        model.windowWidthChanged(isRegular: false, becameRegular: false)
+        model.systemSetPresented(false)
+        XCTAssertTrue(model.presentationsHeld)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertTrue(model.isPresented, "the panel did not come back")
+        XCTAssertEqual(model.panel, .settings)
+    }
+
+    /// And widened again: the sheet goes, and the column comes back.
+    @MainActor
+    func testWideningTheWindowAgainBringsTheColumnBack() async throws {
+        let model = ShelfPanelModel()
+        model.windowWidthChanged(isRegular: false, becameRegular: false)
+        model.windowWidthChanged(isRegular: true, becameRegular: true)
+        model.panel = .settings
+        model.systemSetPresented(false)
+        model.windowWidthChanged(isRegular: false, becameRegular: false)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertTrue(model.isPresented)
+
+        model.systemSetPresented(false)
+        model.windowWidthChanged(isRegular: true, becameRegular: true)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertTrue(model.isPresented, "the column did not come back")
+        XCTAssertEqual(model.panel, .settings)
+    }
+
+    /// A `false` with no change of width near it is not a change of window,
+    /// and leaves the panel down, as before; what it had up is still held
+    /// across the moment the tree goes.
+    @MainActor
+    func testAFalseWithNoWidthChangeLeavesThePanelDown() async throws {
+        let model = ShelfPanelModel()
+        model.windowWidthChanged(isRegular: true, becameRegular: false)
+        model.panel = .settings
+        model.systemSetPresented(false)
+        XCTAssertTrue(model.presentationsHeld)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertFalse(model.isPresented)
+        XCTAssertNil(model.panel)
+        XCTAssertEqual(model.content, .settings, "what it showed is kept, as for any write from the system")
+    }
+
+    /// Closing the panel with Done is the player's close, never a change of
+    /// window: a width change after it brings nothing back.
+    @MainActor
+    func testAPanelClosedWithDoneStaysClosedAcrossAWidthChange() async throws {
+        let model = ShelfPanelModel()
+        model.windowWidthChanged(isRegular: true, becameRegular: false)
+        model.panel = .settings
+        model.panel = nil
+        model.systemSetPresented(false)
+        model.windowWidthChanged(isRegular: false, becameRegular: false)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertFalse(model.isPresented)
+        XCTAssertNil(model.panel)
+    }
 }

@@ -19,6 +19,27 @@ final class GamePageTests: XCTestCase {
         XCTAssertFalse(GamePage.warnsBeforeApplying(.files([UUID()]), saveCount: 0))
     }
 
+    /// Review of pull request 524: a page kept from before a fold puts its
+    /// picker on the choice a carried-over warning asks about. That must not
+    /// be decided again: the kept page's save count can be stale, and with a
+    /// count of 0 the change was applied under the warning. The decision on
+    /// the carried-over choice is the warning's, whatever the count.
+    func testTheChoiceAWarningIsAskingAboutIsNotDecidedAgain() {
+        let old = UUID(), chosen = UUID()
+        XCTAssertFalse(GamePage.decidesOnBaseSelection(chosen, currentBase: old, pending: .base(chosen)))
+        // The stale count that would have applied it without asking.
+        XCTAssertFalse(GamePage.warnsBeforeApplying(.base(chosen), saveCount: 0))
+    }
+
+    func testAnyOtherNewBaseIsDecidedOn() {
+        let old = UUID(), chosen = UUID(), other = UUID()
+        XCTAssertTrue(GamePage.decidesOnBaseSelection(chosen, currentBase: old, pending: nil))
+        XCTAssertTrue(GamePage.decidesOnBaseSelection(other, currentBase: old, pending: .base(chosen)))
+        XCTAssertTrue(GamePage.decidesOnBaseSelection(chosen, currentBase: old, pending: .files([])))
+        XCTAssertFalse(GamePage.decidesOnBaseSelection(old, currentBase: old, pending: nil),
+                       "the base the game already has is no change")
+    }
+
     // MARK: naming
 
     func testDuplicateNameAppendsCopy() {
