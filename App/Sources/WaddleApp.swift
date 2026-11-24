@@ -163,7 +163,17 @@ struct WaddleApp: App {
             // here and `.modelContainer` rides the root view instead of the
             // scene — same environment, one window either way.
             if let container, let library, let importer {
-                ContentView(library: library, importer: importer)
+                Group {
+                    #if DEBUG
+                    if let proto = ProtoScene.current {
+                        ProtoRoot(scene: proto, library: library)
+                    } else {
+                        ContentView(library: library, importer: importer)
+                    }
+                    #else
+                    ContentView(library: library, importer: importer)
+                    #endif
+                }
                     .task { await runAdoption() }
                     .onChange(of: scenePhase) { oldPhase, newPhase in
                         BreadcrumbLog.shared.record(
