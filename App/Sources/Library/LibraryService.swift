@@ -655,12 +655,15 @@ final class LibraryService {
             let present = { (wad: WADFile) in
                 !wad.isBundled && FileManager.default.fileExists(atPath: self.fileURL(for: wad).path)
             }
+            // Names other rows own stay theirs (`claimedStoreFilenames`, issue
+            // #503); this content's own rows may take theirs back.
+            let reserved = Set(try allWADs().filter { !$0.isBundled && $0.sha1 != sha1 }.map(\.filename))
             let wad: WADFile
             if let keep = rows.first(where: present) ?? rows.first {
                 wad = keep
                 if !present(keep) {
                     let stored = try store.store(fileAt: source, preferredName: entry.file,
-                                                 precomputedSHA1: sha1)
+                                                 precomputedSHA1: sha1, reserved: reserved)
                     keep.filename = stored.filename
                     keep.isBundled = false
                     keep.hasMaps = true
@@ -671,7 +674,7 @@ final class LibraryService {
                 }
             } else {
                 let stored = try store.store(fileAt: source, preferredName: entry.file,
-                                             precomputedSHA1: sha1)
+                                             precomputedSHA1: sha1, reserved: reserved)
                 wad = WADFile(filename: stored.filename, displayName: entry.title,
                               kindRaw: WADKind.iwad.rawValue, sha1: sha1,
                               gameFamilyRaw: entry.family.rawValue, isBundled: false, hasMaps: true)

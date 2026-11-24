@@ -353,6 +353,8 @@ final class LibraryServiceTests: XCTestCase {
     /// still bundles that release. If a Freedoom bump fails this, the table
     /// is still right — keep its 0.13.0 hashes and change this test instead.
     func testShippedFreedoomSHA1IsTheBundledRelease() throws {
+        // The real files, not `FreedoomFixture`'s stand-ins: this pins their hashes.
+        service.bundledContentDirectory = FreedoomFixture.shippedRelease
         try service.seedBundledContentIfNeeded()
         for wad in try service.allWADs() where wad.isBundled {
             XCTAssertEqual(LibraryService.shippedFreedoomSHA1[wad.filename], wad.sha1, wad.filename)

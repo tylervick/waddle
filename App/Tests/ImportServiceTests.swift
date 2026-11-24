@@ -1134,6 +1134,9 @@ final class ImportServiceTests: XCTestCase {
     }
 
     func testImportingFreedoomRestoresARowReleasedWithALegacyPlaceholder() async throws {
+        // The real files, not `FreedoomFixture`'s stand-ins: a placeholder row
+        // is released with `shippedFreedoomSHA1`, which only their bytes match.
+        library.bundledContentDirectory = FreedoomFixture.shippedRelease
         let copy = tmp.appendingPathComponent("freedoom1.wad")
         let id = try releaseBundledFreedoom(copyTo: copy, legacyPlaceholder: true)
 
