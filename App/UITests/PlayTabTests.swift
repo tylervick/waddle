@@ -167,4 +167,40 @@ final class PlayTabTests: XCTestCase {
         shot.lifetime = .keepAlways
         add(shot)
     }
+
+    /// At the largest accessibility text size, deleting the only source
+    /// leaves Restore on screen, not below an empty state that fills the
+    /// sheet (an iPad form sheet and a closed Duo hid it, #522 review).
+    @MainActor
+    func testRestoreIsOnScreenAtTheLargestTextSize() {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
+        app.launchArguments += ["-UIPreferredContentSizeCategoryName",
+                                "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+        let add = app.buttons["importButton"]
+        XCTAssertTrue(add.waitForExistence(timeout: 10), "Add missing from the shelf")
+        add.tap()
+        let fromSources = app.buttons["importFromSources"]
+        XCTAssertTrue(fromSources.waitForExistence(timeout: 5), "Add's menu has no From Sources…")
+        fromSources.tap()
+        let freedoom = app.buttons["source-Freedoom"]
+        XCTAssertTrue(freedoom.waitForExistence(timeout: 5), "Sources has no Freedoom source")
+
+        app.buttons["editSources"].tap()
+        let remove = app.images["remove"].firstMatch
+        XCTAssertTrue(remove.waitForExistence(timeout: 5), "Edit shows no delete control on the source")
+        remove.tap()
+        let confirm = app.buttons["Delete"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "the row offers no Delete")
+        confirm.tap()
+        XCTAssertTrue(freedoom.waitForNonExistence(timeout: 5), "the Freedoom source was not deleted")
+
+        let restore = app.buttons["restoreSource-Freedoom"]
+        XCTAssertTrue(restore.waitForExistence(timeout: 5), "a deleted Freedoom source offers no Restore")
+        XCTAssertTrue(restore.isHittable, "Restore is out of sight at the largest text size")
+        attach(app, "5-sources-empty-ax")
+        restore.tap()
+        XCTAssertTrue(freedoom.waitForExistence(timeout: 5), "Restore did not bring the Freedoom source back")
+    }
 }

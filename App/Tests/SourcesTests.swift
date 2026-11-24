@@ -113,6 +113,7 @@ final class SourcesTests: XCTestCase {
                        "3f9b264f3e3ce503b4fb7f6bdcb1f419d93c7b546f4df3e874dd878db9688f59")
         XCTAssertEqual(Source.freedoom.kind, .file)
         XCTAssertEqual(Source.freedoom.name, "Freedoom")
+        XCTAssertEqual(Source.freedoom.byteCount, 24_143_781, "the release zip's size, shown before the tap")
         XCTAssertTrue(Source.freedoom.isShipped)
     }
 
@@ -159,6 +160,31 @@ final class SourcesTests: XCTestCase {
                                      body: flipped), for: other)
         let unpinned = await linkImport().run(URL(string: other)!)
         XCTAssertEqual(unpinned?.imported, ["unpinned"])
+    }
+
+    /// The pin through the entry point the sheet uses (`start(Source)`), not
+    /// only `run(_:expectedSHA256:)`: a tap on a pinned source whose bytes
+    /// do not match is refused. Passing the source's pin on is the line
+    /// under test; drop it and the mismatched file imports.
+    func testTappingAPinnedSourceRefusesBytesThatDoNotMatch() async throws {
+        let link = "https://files.example/tapped.wad"
+        let pinned = makeWAD(magic: "PWAD", lumps: ["MAP01", "THINGS"])
+        var other = pinned
+        other[other.count - 1] ^= 0x01
+        StubURLProtocol.set(.respond(status: 200, headers: ["Content-Type": "application/octet-stream"],
+                                     body: other), for: link)
+        let source = Source(name: "Pinned", url: URL(string: link)!, kind: .file,
+                            sha256: Self.sha256(pinned))
+        let model = linkImport()
+        let finished = expectation(description: "the tapped download ended")
+
+        XCTAssertTrue(model.start(source) { finished.fulfill() })
+        await fulfillment(of: [finished], timeout: 10)
+
+        XCTAssertEqual(notices.current, "Import failed: \(LinkDownloadError.checksumMismatch.reason)")
+        XCTAssertTrue(try library.allWADs().isEmpty, "a tap imported bytes the pin refuses")
+        XCTAssertEqual(storedFiles(), [])
+        XCTAssertEqual(downloadedFiles(), [])
     }
 
     /// Offline and a server error each leave the library unchanged and say

@@ -24,13 +24,19 @@ struct Source: Codable, Equatable, Identifiable, Sendable {
     /// player's own source, whose bytes nobody knows in advance. Only a
     /// source the app ships carries one.
     var sha256: String?
+    /// The download's size in bytes, shown before the tap, or nil when it is
+    /// not known in advance. Only a pinned source knows it: its bytes are
+    /// fixed, so the size is too.
+    var byteCount: Int64?
 
-    init(id: UUID = UUID(), name: String, url: URL, kind: Kind, sha256: String? = nil) {
+    init(id: UUID = UUID(), name: String, url: URL, kind: Kind, sha256: String? = nil,
+         byteCount: Int64? = nil) {
         self.id = id
         self.name = name
         self.url = url
         self.kind = kind
         self.sha256 = sha256
+        self.byteCount = byteCount
     }
 
     /// Whether the app ships this source, rather than the player adding it.
@@ -52,7 +58,8 @@ struct Source: Codable, Equatable, Identifiable, Sendable {
         name: "Freedoom",
         url: URL(string: "https://github.com/freedoom/freedoom/releases/download/v0.13.0/freedoom-0.13.0.zip")!,
         kind: .file,
-        sha256: "3f9b264f3e3ce503b4fb7f6bdcb1f419d93c7b546f4df3e874dd878db9688f59")
+        sha256: "3f9b264f3e3ce503b4fb7f6bdcb1f419d93c7b546f4df3e874dd878db9688f59",
+        byteCount: 24_143_781)
 
     /// Every source the app ships, in the order the list shows them.
     static let shipped: [Source] = [freedoom]

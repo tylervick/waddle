@@ -31,6 +31,10 @@ struct SourcesSheet: View {
         NavigationStack {
             List {
                 if sources.isEmpty {
+                    // Restore first: at the largest text sizes the empty
+                    // state alone fills an iPad form sheet or a closed Duo,
+                    // and a Restore below it was out of sight.
+                    restoreSection
                     ContentUnavailableView {
                         Label("No Sources", systemImage: "tray")
                     } description: {
@@ -51,21 +55,11 @@ struct SourcesSheet: View {
                         }
                         .deleteDisabled(model.isBusy)
                     } footer: {
-                        Text("Tap a source to download it into your library. Freedoom is checked against the file its project published before it is added.")
+                        Text(footer)
                     }
                 }
-                if !store.deletedShipped.isEmpty {
-                    Section {
-                        ForEach(store.deletedShipped) { source in
-                            Button {
-                                store.restore(source)
-                            } label: {
-                                Label("Restore \(source.name)", systemImage: "arrow.uturn.backward")
-                            }
-                            .disabled(model.isBusy)
-                            .accessibilityIdentifier("restoreSource-\(source.name)")
-                        }
-                    }
+                if !sources.isEmpty {
+                    restoreSection
                 }
                 if model.isBusy {
                     Section {
@@ -111,6 +105,40 @@ struct SourcesSheet: View {
         .onDisappear { model.cancel() }
     }
 
+    /// Shipped sources the player deleted, each with its Restore.
+    @ViewBuilder
+    private var restoreSection: some View {
+        if !store.deletedShipped.isEmpty {
+            Section {
+                ForEach(store.deletedShipped) { source in
+                    Button {
+                        store.restore(source)
+                    } label: {
+                        Label("Restore \(source.name)", systemImage: "arrow.uturn.backward")
+                    }
+                    .disabled(model.isBusy)
+                    .accessibilityIdentifier("restoreSource-\(source.name)")
+                }
+            }
+        }
+    }
+
+    /// The pin is promised only while a shipped source is listed: a
+    /// player's own source, whatever its name, is not checked.
+    private var footer: String {
+        let tap = "Tap a source to download it into your library."
+        guard sources.contains(where: \.isShipped) else { return tap }
+        return tap + " Sources that come with Waddle are checked against the file their project published before they are added."
+    }
+
+    /// The row's second line: where it downloads from, and how much, when
+    /// that is known before the tap.
+    private static func detail(_ source: Source) -> String {
+        let host = source.url.host() ?? source.url.absoluteString
+        guard let bytes = source.byteCount else { return host }
+        return "\(host) · \(megabytes(bytes))"
+    }
+
     private func row(_ source: Source) -> some View {
         Button {
             download(source)
@@ -119,7 +147,7 @@ struct SourcesSheet: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(source.name)
                         .foregroundStyle(.primary)
-                    Text(verbatim: source.url.host() ?? source.url.absoluteString)
+                    Text(verbatim: Self.detail(source))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     if downloading == source.id {

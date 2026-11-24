@@ -351,18 +351,75 @@ built-in or suggested list of sources (#502), or an example download such
 as Freedoom's. Re-open this section, and `unrestrictedWebAccess` above,
 before any of those ships.
 
-**Sources (#502) ships one example download, Freedoom, and the owner
-judges this reading before the first submission that carries it.** Add →
-From Sources… lists links the player saved, plus one the app ships:
-Freedoom 0.13.0 from the Freedoom project's own GitHub release, pinned by
-the zip's published SHA-256. That is the app offering software, so 4.7
-attaches in principle; the software it offers is the Freedoom data the
-app already bundles and is rated with (the §8 answers above describe
-exactly those two games), so 4.7.5's flag-and-gate duty has nothing above
-the app's rating to act on. Every other source is a link the player typed,
-read as From a Link… is. Sources shows no web content: the page kind of
-source waits for #501, and `unrestrictedWebAccess` stays **No** until
-then. Adding any other shipped source re-opens this paragraph.
+**DRAFT, for the owner to decide before the first submission that carries
+Sources (#502). Nothing below is a settled position, and none of it is in
+the review notes.**
+
+What ships: Add → From Sources… lists links the player saved, plus one the
+app ships, Freedoom 0.13.0 from the Freedoom project's own GitHub release.
+It is pinned by the zip's published SHA-256, its size (24.1 MB) shows
+before the tap, and it downloads only when tapped. Every other source is a
+link the player typed, read as From a Link… is. Sources shows no web
+content: page sources wait for #501, and `unrestrictedWebAccess` stays
+**No** until then. Any other shipped source re-opens this draft.
+
+*The frame this draft proposes: not 4.7.* Guideline 4.7 lets apps "offer
+certain software that is not embedded in the binary", and says "retro game
+console and PC emulator apps can offer to download games". Arguing under
+4.7 would mean calling a WAD software, which contradicts the position the
+review notes already take under 2.5.2 ("Apps should be self-contained in
+their bundles … nor may they download, install, or execute code which
+introduces or changes features or functionality of the app"): "WAD files
+are game data, not executable code". The Freedoom source fetches the same
+two game-data files the binary already bundles and the age rating already
+covers (the §8 answers above describe exactly those games), from their
+publisher, on the player's request. On this reading the rules that apply
+are:
+
+- **2.5.2**: data, not code. This is the notes' existing position.
+- **4.2.3(ii)**: "If your app needs to download additional resources in
+  order to function on initial launch, disclose the size of the download
+  and prompt users before doing so." It does not bind while Freedoom is
+  bundled, because the app works without the download. It binds once #505
+  removes the bundle. The size shown in the row, and the tap being the
+  prompt, are what #505 would point to.
+- **5.2.2**: "ensure that you are specifically permitted to do so under the
+  service's terms of use". GitHub's terms (quoted in #522) do not restrict
+  "lawful access to or use of the contents of public repositories by third
+  parties". Whether that counts as "specifically permitted" is the owner's
+  judgement.
+
+*If the owner reads it as 4.7 instead, every sub-clause attaches, not one.*
+4.7 says "You must also ensure that the software adheres to the additional
+rules that follow in 4.7.1 through 4.7.5":
+
+- **4.7.1** "follow all privacy guidelines …": met. Nothing about the
+  player is sent (PRIVACY.md).
+  "include a method for filtering objectionable material, a mechanism to
+  report content and timely responses to concerns, and the ability to block
+  abusive users": **not met**. The app has none of these.
+  "follow Guideline 3.1 in order to offer digital goods or services": met.
+  Nothing is sold.
+- **4.7.2** "may not extend or expose native platform APIs or technologies
+  to the software without prior permission": met. WADs are data the engine
+  reads.
+- **4.7.3** "may not share data or privacy permissions to any individual
+  software … without explicit user consent": met. Nothing is shared.
+- **4.7.4** "You must provide an index of software and metadata available
+  in your app. It must include universal links that lead to all of the
+  software offered in your app.": **not met**. There is no index and there
+  are no universal links.
+- **4.7.5** "a way for users to identify software that exceeds the app's
+  age rating, and use an age restriction mechanism based on verified or
+  declared age": met in substance. The one title offered is already within
+  the rating, but there is no mechanism.
+
+So under 4.7 the app would need 4.7.1's filter, report and block, and
+4.7.4's index with universal links, or it would have to drop the shipped
+source. That is why this draft argues the frame above instead. The earlier
+sentence in this section, which said a built-in source "would cross the
+line" into 4.7, was written before this analysis. Which of the two stands
+is the owner's call.
 
 ## 9. Export compliance
 

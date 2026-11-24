@@ -55,7 +55,7 @@ enum LinkDownloadError: Error, Equatable, Sendable {
         case .notAGameFile:
             return "That link did not lead to a game file. Waddle takes .wad, .deh, .bex and .zip files; check that the link is to the file itself."
         case .checksumMismatch:
-            return "The file at that link is not the one Waddle expects, so it was not added. Try again later."
+            return "The file at that link is not the exact file Waddle expects, so it was not added. The file may have changed since this version of Waddle was made; trying again will not help until Waddle is updated."
         case .failed(let description):
             return "The download failed: \(description)"
         }
