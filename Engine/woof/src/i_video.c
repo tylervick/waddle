@@ -1013,7 +1013,8 @@ static void I_InitDiskFlash(void)
     old_data = Z_Calloc(disk.sw * disk.sh, sizeof(*old_data), PU_STATIC, 0);
 
     V_UseBuffer(diskflash, disk.sh);
-    V_DrawPatch(-video.deltaw, 0, V_CachePatchName("STDISK", PU_CACHE));
+    crop_t crop = {.width = 16, .height = 16};
+    V_DrawPatchCropped(-video.deltaw, 0, V_CachePatchName("STDISK", PU_CACHE), crop);
     V_RestoreBuffer();
 }
 
