@@ -21,6 +21,7 @@ final class ImportServiceTests: XCTestCase {
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         let store = WADStore(directory: tmp.appendingPathComponent("WADs", isDirectory: true))
         library = LibraryService(context: ModelContext(container), store: store)
+        library.bundledContentDirectory = try FreedoomFixture.directory()
         notices = ImportNotices()
         usage = UsageStore(directory: tmp.appendingPathComponent("Diagnostics", isDirectory: true))
         importer = ImportService(library: library, store: store, notices: notices, usage: usage)
@@ -46,6 +47,7 @@ final class ImportServiceTests: XCTestCase {
         let store = WADStore(directory: tmp.appendingPathComponent(UUID().uuidString,
                                                                    isDirectory: true))
         let library = LibraryService(context: ModelContext(container), store: store)
+        library.bundledContentDirectory = try FreedoomFixture.directory()
         return (library, ImportService(library: library, store: store, notices: ImportNotices(),
                                        usage: UsageStore(directory: tmp.appendingPathComponent(
                                            UUID().uuidString, isDirectory: true))))
@@ -1132,6 +1134,9 @@ final class ImportServiceTests: XCTestCase {
     }
 
     func testImportingFreedoomRestoresARowReleasedWithALegacyPlaceholder() async throws {
+        // The real files, not `FreedoomFixture`'s stand-ins: a placeholder row
+        // is released with `shippedFreedoomSHA1`, which only their bytes match.
+        library.bundledContentDirectory = FreedoomFixture.shippedRelease
         let copy = tmp.appendingPathComponent("freedoom1.wad")
         let id = try releaseBundledFreedoom(copyTo: copy, legacyPlaceholder: true)
 

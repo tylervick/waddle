@@ -99,6 +99,7 @@ final class LegacySaveLoadTests: XCTestCase {
     private func launch(withSuspendSave bytes: Data, autoquitSeconds: Int) throws -> XCUIApplication {
         let compressed = try (bytes as NSData).compressed(using: .zlib) as Data
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launchEnvironment["WADDLE_TEST_SUSPEND_SAVE"] = compressed.base64EncodedString()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = String(autoquitSeconds)

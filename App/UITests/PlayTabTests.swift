@@ -13,6 +13,7 @@ final class PlayTabTests: XCTestCase {
     @MainActor
     func testTilesStayInsideTheirGridCells() {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launch()
         let one = app.buttons["playFreedoom1"]
@@ -40,6 +41,7 @@ final class PlayTabTests: XCTestCase {
     @MainActor
     func testBaseGameDetailControlsOverridePersists() {
         let app = XCUIApplication()
+        app.provideFreedoom()
         // Reset so the base game starts with no override (the "Default" state).
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launch()

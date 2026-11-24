@@ -20,6 +20,7 @@ final class DebugHUDInputTelemetryTests: XCTestCase {
     @MainActor
     func testHUDReportsTheVirtualPadButtonEventsAndMenuCursor() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"

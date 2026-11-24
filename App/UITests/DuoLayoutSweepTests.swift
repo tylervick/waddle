@@ -135,6 +135,7 @@ final class DuoLayoutSweepTests: XCTestCase {
     @MainActor
     private func launch(env: [String: String] = [:], arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
+        app.provideFreedoom()
         for (key, value) in env { app.launchEnvironment[key] = value }
         app.launchArguments += arguments
         app.launch()

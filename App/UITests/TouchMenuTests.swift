@@ -16,6 +16,7 @@ final class TouchMenuTests: XCTestCase {
     @MainActor
     func testTapsOpenMenusAndPromptsNeedTheButtons() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
         app.launchEnvironment["WADDLE_FORCE_TOUCH_OVERLAY"] = "1"
         app.launchArguments += ["-debugHUD", "YES"]
@@ -135,6 +136,7 @@ final class TouchMenuTests: XCTestCase {
         // docs/learnings/simulator-test-hazards.md: never leave a rotation.
         addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "20"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_TEST_WARP"] = "1" // a level: nothing saves from the title

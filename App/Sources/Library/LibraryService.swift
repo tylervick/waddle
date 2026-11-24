@@ -65,6 +65,13 @@ final class LibraryService {
 
     // MARK: Seeding
 
+    /// The two Freedoom IWADs: on-disk name, shelf title, family. Shared by
+    /// the seeder and the DEBUG-only `installFreedoomForTest(from:)`.
+    static let freedoomIWADs: [(file: String, title: String, family: GameFamily)] = [
+        ("freedoom1.wad", "Freedoom Phase 1", .doom1),
+        ("freedoom2.wad", "Freedoom Phase 2", .doom2),
+    ]
+
     /// Registers the bundled Freedoom IWADs (read-only, live in the bundle's
     /// GameData/) and their base games. Safe to call every launch: each row
     /// stores its real content SHA-1 (so imports of byte-identical files dedupe
@@ -95,11 +102,7 @@ final class LibraryService {
     /// and the other is a no-op. The order that does matter is this seeder
     /// before `adoptOrphanMapSets` — bundled bases must exist to pair with.
     func seedBundledContentIfNeeded() throws {
-        let bundled: [(file: String, title: String, family: GameFamily)] = [
-            ("freedoom1.wad", "Freedoom Phase 1", .doom1),
-            ("freedoom2.wad", "Freedoom Phase 2", .doom2),
-        ]
-        for entry in bundled {
+        for entry in Self.freedoomIWADs {
             let bundleURL = bundledURL(forFilename: entry.file)
             let isShipped = FileManager.default.fileExists(atPath: bundleURL.path)
             let wad: WADFile
@@ -623,6 +626,69 @@ final class LibraryService {
     }
 
     #if DEBUG
+    /// Test-only: installs Freedoom Phase 1 and Phase 2 as **imported** IWADs,
+    /// each with its base game, copying the bytes from `directory` (which
+    /// holds `freedoom1.wad` and `freedoom2.wad`) into the WAD store exactly
+    /// as an import would. Driven by `WADDLE_TEST_FREEDOOM_DIR` (see
+    /// `WaddleApp`), which runs it in place of `seedBundledContentIfNeeded()`,
+    /// so a UI test that plays Freedoom never reads the app bundle's copy
+    /// (issue #504; #505 stops bundling Freedoom).
+    ///
+    /// The title is Freedoom's own, not the file name an ordinary import
+    /// would give it, so the tiles keep the `playFreedoom1`/`playFreedoom2`
+    /// identifiers every UI test taps.
+    ///
+    /// Safe to run every launch, with or without `WADDLE_RESET_STORE`. Rows
+    /// already holding the content are reused, and collapsed to one. An
+    /// earlier launch *without* the seam runs the bundled seeder, which
+    /// registers a bundled row beside the imported one (the seeder matches by
+    /// filename and bundled flag, not by content), and two rows mean two
+    /// `playFreedoom1` tiles. So the row kept is an imported one whose file is
+    /// present if there is one, else any; it is made imported, pointed at a
+    /// fresh copy if its file has gone, and every other row with the same
+    /// content is deleted with its base game. A missing source file throws.
+    func installFreedoomForTest(from directory: URL) throws {
+        for entry in Self.freedoomIWADs {
+            let source = directory.appendingPathComponent(entry.file)
+            let sha1 = try WADStore.sha1(ofFileAt: source)
+            let rows = try context.fetch(FetchDescriptor<WADFile>(predicate: #Predicate { $0.sha1 == sha1 }))
+            let present = { (wad: WADFile) in
+                !wad.isBundled && FileManager.default.fileExists(atPath: self.fileURL(for: wad).path)
+            }
+            // Names other rows own stay theirs (`claimedStoreFilenames`, issue
+            // #503); this content's own rows may take theirs back.
+            let reserved = Set(try allWADs().filter { !$0.isBundled && $0.sha1 != sha1 }.map(\.filename))
+            let wad: WADFile
+            if let keep = rows.first(where: present) ?? rows.first {
+                wad = keep
+                if !present(keep) {
+                    let stored = try store.store(fileAt: source, preferredName: entry.file,
+                                                 precomputedSHA1: sha1, reserved: reserved)
+                    keep.filename = stored.filename
+                    keep.isBundled = false
+                    keep.hasMaps = true
+                }
+                for extra in rows where extra.id != keep.id {
+                    if let game = try game(id: extra.id) { context.delete(game) }
+                    context.delete(extra)
+                }
+            } else {
+                let stored = try store.store(fileAt: source, preferredName: entry.file,
+                                             precomputedSHA1: sha1, reserved: reserved)
+                wad = WADFile(filename: stored.filename, displayName: entry.title,
+                              kindRaw: WADKind.iwad.rawValue, sha1: sha1,
+                              gameFamilyRaw: entry.family.rawValue, isBundled: false, hasMaps: true)
+                context.insert(wad)
+            }
+            if try game(id: wad.id) == nil {
+                context.insert(Game.baseGame(for: wad))
+            }
+        }
+        try context.save()
+    }
+    #endif
+
+    #if DEBUG
     /// Test-only: gives the most-recently-played item a save file so the
     /// shelf's Continue hero renders, for App Store screenshot capture.
     /// Driven by `WADDLE_SEED_CONTINUE_SAVE` (see `WaddleApp`).
@@ -664,8 +730,10 @@ final class LibraryService {
     /// on it and tapping the hero launches `-loadgame 254` against exactly
     /// this file. `LegacySaveLoadTests` hands it a save written by Waddle 1.3,
     /// which is how a player's upgrade is reproduced without a 1.3 build.
+    /// Freedoom Phase 1 is bundled, or imported by `installFreedoomForTest`.
     func seedSuspendSaveForTest(_ bytes: Data) throws {
-        guard let wad = try wadByFilename("freedoom1.wad", bundled: true),
+        guard let wad = try wadByFilename("freedoom1.wad", bundled: true)
+                ?? wadByFilename("freedoom1.wad", bundled: false),
               let game = try game(id: wad.id) else { return }
         let dir = Self.savesDirectory(forGameID: game.id)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

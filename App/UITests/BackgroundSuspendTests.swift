@@ -17,6 +17,7 @@ final class BackgroundSuspendTests: XCTestCase {
     @MainActor
     func testBackgroundingALiveLevelOpensTheMenuAndWritesASave() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         // A clean store: a save left by an earlier run would make the
         // Continue hero appear whether or not this session wrote one.
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
@@ -110,6 +111,7 @@ final class BackgroundSuspendTests: XCTestCase {
     @MainActor
     func testBackgroundingOutsideALevelWritesNothing() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "12"
         app.holdAutoquit()

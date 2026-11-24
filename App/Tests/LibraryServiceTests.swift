@@ -25,6 +25,7 @@ final class LibraryServiceTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         service = LibraryService(context: context, store: WADStore(directory: tmp))
+        service.bundledContentDirectory = try FreedoomFixture.directory()
     }
 
     override func tearDown() async throws {
@@ -40,6 +41,64 @@ final class LibraryServiceTests: XCTestCase {
                            "\(wad.filename) must carry its real content hash so " +
                            "imports of identical content dedupe against it")
         }
+    }
+
+    // MARK: WADDLE_TEST_FREEDOOM_DIR (issue #504)
+
+    func testTestFreedoomSeamInstallsBothAsImportedBaseGames() throws {
+        try service.installFreedoomForTest(from: try FreedoomFixture.directory())
+        let wads = try service.allWADs()
+        XCTAssertEqual(wads.map(\.displayName).sorted(), ["Freedoom Phase 1", "Freedoom Phase 2"])
+        for wad in wads {
+            XCTAssertFalse(wad.isBundled)
+            XCTAssertEqual(service.fileStatus(for: wad), .imported, "\(wad.filename) was not copied into the store")
+            XCTAssertEqual(wad.role, .base)
+        }
+        XCTAssertEqual(try service.games().map(\.name).sorted(), ["Freedoom Phase 1", "Freedoom Phase 2"],
+                       "the tiles must carry Freedoom's titles, which give them their playFreedoom identifiers")
+        XCTAssertTrue(try service.games().allSatisfy(\.isBaseGame))
+    }
+
+    func testTestFreedoomSeamIsIdempotent() throws {
+        let dir = try FreedoomFixture.directory()
+        try service.installFreedoomForTest(from: dir)
+        let ids = Set(try service.allWADs().map(\.id))
+        try service.installFreedoomForTest(from: dir)
+        XCTAssertEqual(Set(try service.allWADs().map(\.id)), ids)
+        XCTAssertEqual(try service.games().count, 2)
+    }
+
+    /// A launch without the seam and without a reset runs the bundled seeder,
+    /// which adds a bundled row beside the imported one; the next seam launch
+    /// must leave one row, and one tile, per game.
+    func testTestFreedoomSeamCollapsesARowTheBundledSeederAdded() throws {
+        let dir = try FreedoomFixture.directory()
+        try service.installFreedoomForTest(from: dir)
+        let imported = Set(try service.allWADs().map(\.id))
+        try service.seedBundledContentIfNeeded()
+        XCTAssertEqual(try service.allWADs().count, 4, "precondition: the seeder duplicated both")
+
+        try service.installFreedoomForTest(from: dir)
+
+        XCTAssertEqual(Set(try service.allWADs().map(\.id)), imported)
+        XCTAssertTrue(try service.allWADs().allSatisfy { !$0.isBundled })
+        XCTAssertEqual(try service.games().map(\.name).sorted(), ["Freedoom Phase 1", "Freedoom Phase 2"])
+    }
+
+    /// A store left by a launch without the seam: bundled rows only. They
+    /// become imported under the same ids, so their saves stay put.
+    func testTestFreedoomSeamTurnsBundledRowsImportedUnderTheSameIDs() throws {
+        let dir = try FreedoomFixture.directory()
+        try service.seedBundledContentIfNeeded()
+        let ids = Set(try service.allWADs().map(\.id))
+
+        try service.installFreedoomForTest(from: dir)
+
+        XCTAssertEqual(Set(try service.allWADs().map(\.id)), ids)
+        for wad in try service.allWADs() {
+            XCTAssertEqual(service.fileStatus(for: wad), .imported)
+        }
+        XCTAssertEqual(Set(try service.games().map(\.id)), ids)
     }
 
     func testRegisterAndFindBySHA1() throws {
@@ -294,7 +353,18 @@ final class LibraryServiceTests: XCTestCase {
     /// still bundles that release. If a Freedoom bump fails this, the table
     /// is still right — keep its 0.13.0 hashes and change this test instead.
     func testShippedFreedoomSHA1IsTheBundledRelease() throws {
+        // The real files, not `FreedoomFixture`'s stand-ins: this pins their hashes.
+        service.bundledContentDirectory = FreedoomFixture.shippedRelease
+        // Without the files there is nothing to compare, and the loop below
+        // would pass having checked nothing. Fail instead: a build without the
+        // bundled files (#505) has to give this test the real bytes some other way.
+        for file in ["freedoom1.wad", "freedoom2.wad"] {
+            let url = FreedoomFixture.shippedRelease.appendingPathComponent(file)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: url.path),
+                          "\(file) is not in the host app's GameData/, so this test checks nothing")
+        }
         try service.seedBundledContentIfNeeded()
+        XCTAssertEqual(try service.allWADs().filter(\.isBundled).count, 2)
         for wad in try service.allWADs() where wad.isBundled {
             XCTAssertEqual(LibraryService.shippedFreedoomSHA1[wad.filename], wad.sha1, wad.filename)
         }

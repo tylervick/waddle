@@ -312,6 +312,32 @@ extension XCUIApplication {
         return (aims, measured.joined(separator: "; "))
     }
 
+    /// Makes this launch install Freedoom Phase 1 and Phase 2 as imported
+    /// files, with their base games, from this runner's own copies
+    /// (`WADDLE_TEST_FREEDOOM_DIR`, issue #504). The app then skips its
+    /// bundled seeder, so the shelf's Freedoom tiles (`playFreedoom1`,
+    /// `playFreedoom2`) come from here and not from the app's GameData/,
+    /// which #505 removes. Set it beside `WADDLE_RESET_STORE`, before
+    /// `launch()`, on every launch of a test that needs Freedoom: a launch
+    /// without it seeds from the bundle again.
+    ///
+    /// The path is the .xctest bundle inside the runner's container. On the
+    /// simulator the app process reads it directly; nothing here runs on a
+    /// device.
+    func provideFreedoom() {
+        launchEnvironment["WADDLE_TEST_FREEDOOM_DIR"] = Self.freedoomDirectory
+    }
+
+    private static let freedoomDirectory: String = {
+        let bundle = Bundle(for: FreedoomBundleAnchor.self)
+        guard let url = bundle.url(forResource: "freedoom1", withExtension: "wad"),
+              bundle.url(forResource: "freedoom2", withExtension: "wad") != nil else {
+            preconditionFailure("WaddleUITests carries no freedoom1.wad/freedoom2.wad; " +
+                                "run `mise run bootstrap` (fetch-freedoom) and `mise run generate`")
+        }
+        return url.deletingLastPathComponent().path
+    }()
+
     /// Makes this launch's autoquit wait for `XCTestCase.releaseAutoquit()`.
     /// For every test that does something inside a live session; set it
     /// beside `WADDLE_AUTOQUIT_SECONDS`, before `launch()`.
@@ -319,3 +345,6 @@ extension XCUIApplication {
         launchEnvironment["WADDLE_AUTOQUIT_HOLD"] = "1"
     }
 }
+
+/// Names this test bundle for `Bundle(for:)` in `provideFreedoom()`.
+private final class FreedoomBundleAnchor {}

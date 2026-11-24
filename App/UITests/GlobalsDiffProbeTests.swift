@@ -41,6 +41,7 @@ final class GlobalsDiffProbeTests: XCTestCase {
             "a diff needs at least two sessions; got \(sequence)")
 
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
         app.launchEnvironment["WADDLE_DEBUG_GLOBALS_DIFF"] = "1"
         app.launch()

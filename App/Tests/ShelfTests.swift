@@ -19,6 +19,7 @@ final class ShelfTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         service = LibraryService(context: ModelContext(container), store: WADStore(directory: tmp))
+        service.bundledContentDirectory = try FreedoomFixture.directory()
     }
 
     override func tearDown() async throws {

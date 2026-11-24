@@ -7,6 +7,7 @@ final class HiddenGamesScreenTests: XCTestCase {
     @MainActor
     func testRestoreReturnsTheTileToTheShelf() {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launch()
 
@@ -59,6 +60,7 @@ final class HiddenGamesScreenTests: XCTestCase {
     @MainActor
     func testTheNameSitsAboveRestoreAtAnAccessibilityTextSize() {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launchArguments += ["-UIPreferredContentSizeCategoryName",
                                 "UICTContentSizeCategoryAccessibilityXXXL"]

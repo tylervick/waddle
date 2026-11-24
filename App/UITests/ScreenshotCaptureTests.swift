@@ -26,6 +26,12 @@ import XCTest
 /// Play-tab shot a populated "Recently Played" section. The half-open shot,
 /// which only the inner-display leg takes, runs before both; its own comment
 /// says why.
+///
+/// It does NOT call `provideFreedoom()` (issue #504's seam), unlike the other
+/// suites that play Freedoom: the shots go to the App Store, so they must show
+/// the shipping build's own Freedoom, which is bundled ("Bundled" in Files).
+/// The seam would photograph it as an imported file. #505, which stops
+/// bundling it, decides what the capture shows instead.
 final class ScreenshotCaptureTests: XCTestCase {
 
     /// The modded game in the marketing shots. SCYTHE is a Doom-2-format map

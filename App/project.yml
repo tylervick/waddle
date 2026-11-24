@@ -261,7 +261,20 @@ targets:
   WaddleUITests:
     type: bundle.ui-testing
     platform: iOS
-    sources: [UITests]
+    sources:
+      - path: UITests
+      # The runner's own copies of the Freedoom IWADs (issue #504). A UI test
+      # that plays Freedoom calls `provideFreedoom()`, which hands this
+      # bundle's directory to the app as WADDLE_TEST_FREEDOOM_DIR; the app
+      # imports them from there instead of reading its own GameData/, so the
+      # UI suite keeps working once the app stops bundling Freedoom (#505).
+      # Loose file references: they land at the .xctest bundle's root.
+      - path: Resources/GameData/freedoom1.wad
+        type: file
+        buildPhase: resources
+      - path: Resources/GameData/freedoom2.wad
+        type: file
+        buildPhase: resources
     settings:
       base:
         # xcodegen's bundle.ui-testing template doesn't imply this; without

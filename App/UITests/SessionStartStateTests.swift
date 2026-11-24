@@ -23,6 +23,7 @@ final class SessionStartStateTests: XCTestCase {
     @MainActor
     func testEverySessionStartsFromTheSameState() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
         app.launchEnvironment["WADDLE_DEBUG_SESSION_START"] = "1"
         app.launch()
@@ -96,6 +97,7 @@ final class SessionStartStateTests: XCTestCase {
     func testTitleMusicStartsAfterAQuitAtTheTitle() throws {
         autoquitSeconds = 8.0
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
         app.launchEnvironment["WADDLE_DEBUG_SESSION_START"] = "1"
         app.launch()
@@ -153,6 +155,7 @@ final class SessionStartStateTests: XCTestCase {
     func testTextureInitFailureDoesNotBreakTheNextSession() throws {
         autoquitSeconds = 8.0
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
         app.launchEnvironment["WADDLE_DEBUG_FAIL_TEXTURES"] = "1:100,3:-1"
         app.launchEnvironment["MallocScribble"] = "1"
@@ -201,6 +204,7 @@ final class SessionStartStateTests: XCTestCase {
         ]
 
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
         app.launchEnvironment["WADDLE_DEBUG_SESSION_START"] = "1"
         app.launchEnvironment["WADDLE_TEST_NOGUI"] = "1"
@@ -344,6 +348,7 @@ final class SessionStartStateTests: XCTestCase {
     @MainActor
     func testArchivedLevelsAndCompatibilityRestoreDoNotLeak() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
         app.launchEnvironment["WADDLE_DEBUG_SESSION_START"] = "1"
         app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
@@ -407,6 +412,7 @@ final class SessionStartStateTests: XCTestCase {
     func testModdedSessionDoesNotLeakIntoTheNext() throws {
         autoquitSeconds = 8.0
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
         app.launchEnvironment["WADDLE_DEBUG_SESSION_START"] = "1"
         app.launchEnvironment["WADDLE_TEST_DEH_TEXT"] = Self.modPatch
@@ -447,6 +453,7 @@ final class SessionStartStateTests: XCTestCase {
     @MainActor
     func testAutomapBoundsAreEachMapsOwn() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
         app.holdAutoquit()
         app.launchEnvironment["WADDLE_DEBUG_SESSION_START"] = "1"
@@ -508,6 +515,7 @@ final class SessionStartStateTests: XCTestCase {
     /// flags at 0.
     func testCheatsDoNotSurviveIntoTheNextSession() throws {
         let app = XCUIApplication()
+        app.provideFreedoom()
         app.launchEnvironment["WADDLE_AUTOQUIT_SECONDS"] = "\(Int(autoquitSeconds))"
         app.launchEnvironment["WADDLE_DEBUG_SESSION_START"] = "1"
         app.launchEnvironment["WADDLE_TEST_WARP"] = "1"
