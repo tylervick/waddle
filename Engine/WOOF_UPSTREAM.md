@@ -200,7 +200,10 @@ Current patches:
   `V_DrawPatch`, uncropped, so a PWAD with a larger `STDISK` wrote past the
   heap buffer at every video init. It now draws with
   `V_DrawPatchCropped(..., (crop_t){.width = 16, .height = 16})`, upstream's
-  two lines verbatim and not under `WOOF_IOS`. `OversizedDiskIconTests`
+  two lines verbatim and not under `WOOF_IOS`. One visible change comes
+  with it, as upstream: `V_DrawPatchCropped` ignores the patch's offsets,
+  and Freedoom's `STDISK` is 16x15 with topoffset -1, so the stock disk icon
+  now draws one unscaled row higher than before. `OversizedDiskIconTests`
   loads a 64x64 `STDISK` over Freedoom. **Drop this entry when a Woof pin
   contains `ae2e5b3e`**: the merge then takes upstream's identical lines.
 

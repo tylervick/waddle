@@ -11,9 +11,17 @@ import XCTest
 /// The fixture is built here rather than committed: a PWAD holding only an
 /// opaque `STDISK` patch of `iconWidth` x `iconHeight`, loaded over Freedoom
 /// Phase 1 through the `WADDLE_TEST_ZIP_<n>` seam. The first launch plays one
-/// session to the title screen; the second warps into E1M1 twice, so the
-/// second session also frees and reallocates the buffer the first one drew
-/// into. Each session must last its whole autoquit window and exit 0.
+/// session to the title screen; the second warps into E1M1 twice. Each session
+/// must last its whole autoquit window and exit 0.
+///
+/// Without the fix, where the overflow shows depends on heap layout, so the
+/// failure point moves between runs: the title-screen session has always
+/// survived it, the first warped session sometimes crashes or ends in
+/// `I_Error` ("freed a pointer without ZONEID") and sometimes exits 0, and
+/// then the second warped session, which frees and reallocates the trampled
+/// buffer and walks the zone again in level setup, is what fails. That is why
+/// there are two warped sessions. Failing without the fix is likely, not
+/// guaranteed (docs/learnings/an-engine-heap-overflow-surfaces-at-a-later-free.md).
 final class OversizedDiskIconTests: XCTestCase {
 
     private let autoquitSeconds = 8.0
