@@ -411,11 +411,13 @@ rules that follow in 4.7.1 through 4.7.5":
   are no universal links.
 - **4.7.5** "a way for users to identify software that exceeds the app's
   age rating, and use an age restriction mechanism based on verified or
-  declared age": met in substance. The one title offered is already within
-  the rating, but there is no mechanism.
+  declared age": **not met**. The one title offered is within the app's
+  rating, but the clause asks for an age restriction mechanism, and the app
+  has none.
 
-So under 4.7 the app would need 4.7.1's filter, report and block, and
-4.7.4's index with universal links, or it would have to drop the shipped
+So under 4.7 the app would need 4.7.1's filter, report and block, 4.7.4's
+index with universal links, and 4.7.5's age identification and
+restriction mechanism, or it would have to drop the shipped
 source. That is why this draft argues the frame above instead. The earlier
 sentence in this section, which said a built-in source "would cross the
 line" into 4.7, was written before this analysis. Which of the two stands
