@@ -27,13 +27,26 @@ and the central directory header at offset 24, both little-endian `UInt32`.
 `ZipFixtures.lyingZip(in:realSize:declaredSize:)` does, and its test checks
 the patch took before relying on it.
 
-## The real-bytes total stop cannot be tested on its own
+## One real-bytes stop is enough, and a second one is dead code
 
-With the declared total checked before extraction and each entry stopped at
-its declared size, the bytes written can never pass the total cap. The
-running-total stop is defence in depth; no archive makes it the only check
-that fires. Likewise, a test of the total cap made from honest entries
-(three 512 KB entries against 1 MB) passes with the declared-total check
-removed, because the per-entry real-bytes stop still refuses it. The test
-that pins the declared check uses a header that declares *more* than the
-entry holds.
+The declared sizes are summed against the total cap before anything is
+written, and each entry is stopped at its own declared size while it is
+written. Both read the same `uncompressedSize` (the central directory's, or a
+data descriptor's when there is one) for the same entries, so the bytes
+written can never pass the total cap. An earlier version of #521 also kept a
+running total of the real bytes and stopped at the cap. The review's mutation
+showed it never fired, on 22 hostile archives: it was dead code, and it is
+gone.
+
+It did hide something while it was there. With the declared-total check
+removed, the honest three-entry test (three 512 KB entries against a 1 MB
+cap) was still refused, by that running total and not by the per-entry stop,
+which honest entries never trip. So that test could not show the declared
+check existed. With the running total gone, removing the declared check lets
+that archive through, and the test fails as it should. A guard that duplicates
+another is not harmless: it can make the tests of the one that matters pass
+without it.
+
+If a later change makes the two loops read different sizes (the local
+header's in one of them, say), that proof no longer holds. Re-check it then
+rather than restoring the running total by reflex.

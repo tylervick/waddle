@@ -42,8 +42,7 @@ enum ZipExtractor {
     /// Why a whole archive was refused. Nothing it held is extracted or
     /// left behind.
     enum Refusal: Error, Equatable {
-        /// Its game files add up to more than the total cap, by their
-        /// declared sizes or by the bytes they actually unpacked to.
+        /// Its game files' declared sizes add up to more than the total cap.
         case tooLarge(limit: Int64)
         /// It holds more game files than the cap.
         case tooManyGameFiles(limit: Int)
@@ -143,7 +142,6 @@ enum ZipExtractor {
         var files: [ExtractedFile] = []
         var usedNames: Set<String> = []
         var skippedOversize: [String] = []
-        var writtenTotal: UInt64 = 0
 
         do {
             for entry in archive where entry.type == .file {
@@ -160,8 +158,7 @@ enum ZipExtractor {
                 usedNames.insert(uniqueName)
 
                 let dest = dir.appendingPathComponent(uniqueName)
-                try extract(entry, from: archive, to: dest,
-                            writtenTotal: &writtenTotal, totalLimit: limits.totalBytes)
+                try extract(entry, from: archive, to: dest)
                 files.append(ExtractedFile(name: uniqueName, url: dest))
             }
             return (dir, files, skippedOversize)
@@ -175,8 +172,13 @@ enum ZipExtractor {
     /// Writes `entry` to `dest`, counting the bytes it really unpacks to:
     /// a header can lie, and ZIPFoundation inflates a deflated entry until
     /// its compressed bytes run out, whatever size the header declared.
-    private static func extract(_ entry: Entry, from archive: Archive, to dest: URL,
-                                writtenTotal: inout UInt64, totalLimit: Int64) throws {
+    ///
+    /// Stopping each entry at its declared size is also what holds the real
+    /// bytes to the total cap: the declared sizes were already checked
+    /// against it, by the same `uncompressedSize` read in the same order, so
+    /// what is written can never pass it. A second, running-total stop here
+    /// could never fire, and was removed (#521 review).
+    private static func extract(_ entry: Entry, from archive: Archive, to dest: URL) throws {
         guard FileManager.default.createFile(atPath: dest.path, contents: nil) else {
             throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: dest.path])
         }
@@ -184,18 +186,12 @@ enum ZipExtractor {
         defer { try? handle.close() }
         let declared = entry.uncompressedSize
         var written: UInt64 = 0
-        var total = writtenTotal
         _ = try archive.extract(entry) { chunk in
             let count = UInt64(chunk.count)
             guard written + count <= declared else { throw Refusal.sizeMismatch }
-            guard total + count <= UInt64(totalLimit) else {
-                throw Refusal.tooLarge(limit: totalLimit)
-            }
             try handle.write(contentsOf: chunk)
             written += count
-            total += count
         }
-        writtenTotal = total
     }
 
     private static func isGameFile(_ path: String) -> Bool {

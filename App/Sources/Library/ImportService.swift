@@ -12,10 +12,10 @@ struct ImportOutcome: Equatable {
     /// Names registered as a map set with no base of its family yet. Subset
     /// of `imported`.
     var unpaired: [String] = []
-    /// The banner's lines for rejections the player can act on, each
-    /// naming its file and saying why: "Import failed for big.zip: This zip
-    /// unpacks to more than 1 GB, the import limit." Every one also has its
-    /// entry in `rejected`; `ImportNotices.summary` counts only the rest.
+    /// Lines for rejections the player can act on, each naming its file and
+    /// saying why: "Import failed for big.zip: This zip unpacks to more than
+    /// 1 GB, the import limit." Every one also has its entry in `rejected`.
+    /// `ImportNotices.summary` shows the first and counts the rest.
     var explained: [String] = []
 
     /// Records `name` as rejected for `reason`, and with `explained` also

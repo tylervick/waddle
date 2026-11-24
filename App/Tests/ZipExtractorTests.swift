@@ -131,9 +131,7 @@ final class ZipExtractorTests: XCTestCase {
 
     /// The total cap is checked against the declared sizes before anything
     /// is written: an archive that declares more than the cap is refused
-    /// even when its entries would really unpack to less. (The three-entry
-    /// case above is also caught by the real-bytes stop, so it alone could
-    /// not show this check exists.)
+    /// even when its entries would really unpack to less.
     func testTotalBytesCapIsCheckedAgainstTheDeclaredSizesFirst() throws {
         let zip = try ZipFixtures.lyingZip(in: tmp, realSize: 16, declaredSize: 2048)
         try assertRefused(.tooLarge(limit: 1024)) {
