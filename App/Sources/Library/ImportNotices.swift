@@ -63,7 +63,14 @@ final class ImportNotices {
         }
         if !outcome.rejected.isEmpty {
             let suffix = quarantines ? " (moved to Import Failed)" : ""
-            parts.append("\(outcome.rejected.count) failed\(suffix)")
+            // A rejection the player can act on (a zip over an import
+            // limit, a pk3) says why, as a failed link download does; the
+            // rest are counted, as before.
+            let unexplained = outcome.rejected.count - outcome.explained.count
+            if unexplained > 0 {
+                parts.append("\(unexplained) failed\(suffix)")
+            }
+            parts += outcome.explained.map { quarantines ? $0 + " Moved to Import Failed." : $0 }
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }

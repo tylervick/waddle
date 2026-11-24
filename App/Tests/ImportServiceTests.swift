@@ -979,6 +979,156 @@ final class ImportServiceTests: XCTestCase {
         XCTAssertEqual(asZip.rejected, ["report.zip": "No WAD or DEH files inside the zip."])
     }
 
+    // MARK: Whole-zip caps and pk3 layouts (#516)
+
+    /// A zip of `count` deflated entries of `size` zero bytes each, plus
+    /// `extra` stored entries, written to `url`.
+    private func makeZip(at url: URL, count: Int, size: Int, extra: [String: Data] = [:]) throws {
+        let archive = try Archive(url: url, accessMode: .create)
+        let data = Data(repeating: 0, count: size)
+        for index in 0..<count {
+            try archive.addEntry(with: "e\(index).wad", type: .file, uncompressedSize: Int64(size),
+                                 compressionMethod: .deflate,
+                                 provider: { pos, len in data.subdata(in: Int(pos)..<Int(pos) + len) })
+        }
+        for (path, bytes) in extra.sorted(by: { $0.key < $1.key }) {
+            try archive.addEntry(with: path, type: .file, uncompressedSize: Int64(bytes.count),
+                                 provider: { pos, len in bytes.subdata(in: Int(pos)..<Int(pos) + len) })
+        }
+    }
+
+    /// Every route refuses a zip over the total cap with a reason that names
+    /// the limit, says so in the banner, and leaves nothing in tmp, the
+    /// store or the library. Only adoption takes the file, into Import
+    /// Failed; the others leave it where it was.
+    func testEveryRouteRefusesAZipOverTheTotalCapAndSaysWhy() async throws {
+        let reason = "This zip unpacks to more than 1024 bytes, the import limit."
+        let routes: [ImportRoute] = [.picker, .openIn, .link, .adoption]
+        for route in routes {
+            let config = ModelConfiguration(isStoredInMemoryOnly: true)
+            let container = try ModelContainer(for: WADFile.self, Game.self, configurations: config)
+            let store = WADStore(directory: tmp.appendingPathComponent(UUID().uuidString, isDirectory: true))
+            let library = LibraryService(context: ModelContext(container), store: store)
+            let notices = ImportNotices()
+            let importer = ImportService(library: library, store: store, notices: notices,
+                                         usage: UsageStore(directory: tmp.appendingPathComponent(
+                                             UUID().uuidString, isDirectory: true)))
+            importer.maxZipTotalBytes = 1024
+            let tmpBefore = try ZipFixtures.importDirectories()
+
+            let outcome: ImportOutcome
+            let name: String
+            let zipURL: URL
+            let quarantined: URL?
+            if route == .adoption {
+                name = "big-\(UUID().uuidString).zip"
+                zipURL = URL.documentsDirectory.appendingPathComponent(name)
+                quarantined = URL.documentsDirectory.appendingPathComponent("Import Failed")
+                    .appendingPathComponent(name)
+            } else {
+                name = "big.zip"
+                quarantined = nil
+                let dir = tmp.appendingPathComponent(UUID().uuidString, isDirectory: true)
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                zipURL = dir.appendingPathComponent(name)
+            }
+            defer {
+                try? FileManager.default.removeItem(at: zipURL)
+                if let quarantined { try? FileManager.default.removeItem(at: quarantined) }
+            }
+            try makeZip(at: zipURL, count: 3, size: 512)
+
+            if route == .adoption {
+                outcome = await importer.adoptLooseFiles()
+            } else {
+                outcome = await importer.importFile(at: zipURL, from: route)
+            }
+
+            XCTAssertEqual(outcome.rejected, [name: reason], "\(route)")
+            XCTAssertTrue(outcome.imported.isEmpty, "\(route)")
+            let line = "Import failed for \(name): \(reason)"
+            XCTAssertEqual(notices.current, route == .adoption ? line + " Moved to Import Failed." : line,
+                           "\(route)")
+            XCTAssertNotEqual(notices.current?.contains("Could not read zip archive"), true, "\(route)")
+            XCTAssertTrue(try library.allWADs().isEmpty, "\(route) leaves the library empty")
+            XCTAssertEqual((try? FileManager.default.contentsOfDirectory(atPath: store.directory.path))?
+                .count ?? 0, 0, "\(route) leaves the store empty")
+            XCTAssertEqual(try ZipFixtures.importDirectories(), tmpBefore, "\(route) leaves nothing in tmp")
+            if let quarantined {
+                XCTAssertFalse(FileManager.default.fileExists(atPath: zipURL.path), "adoption takes the zip")
+                XCTAssertTrue(FileManager.default.fileExists(atPath: quarantined.path),
+                              "adoption keeps a capped zip in Import Failed")
+            } else {
+                XCTAssertTrue(FileManager.default.fileExists(atPath: zipURL.path),
+                              "\(route) leaves the file it was handed where it was")
+            }
+        }
+    }
+
+    func testTheGameFileAndEntryCapsReachTheImport() async throws {
+        let tooManyGameFiles = tmp.appendingPathComponent("many.zip")
+        try makeZip(at: tooManyGameFiles, count: 3, size: 4)
+        importer.maxZipGameEntries = 2
+        let first = await importer.importFile(at: tooManyGameFiles, from: .picker)
+        XCTAssertEqual(first.rejected, ["many.zip": "This zip holds more than 2 WAD and DEH files, the import limit."])
+
+        importer.maxZipGameEntries = ZipExtractor.maxGameEntries
+        let tooManyEntries = tmp.appendingPathComponent("busy.zip")
+        try makeZip(at: tooManyEntries, count: 1, size: 4, extra: ["a.txt": Data("a".utf8)])
+        importer.maxZipEntries = 1
+        let second = await importer.importFile(at: tooManyEntries, from: .picker)
+        XCTAssertEqual(second.rejected, ["busy.zip": "This zip holds more than 1 files, the import limit."])
+        XCTAssertTrue(try library.allWADs().isEmpty)
+    }
+
+    func testAZipWhoseEntryIsLargerThanItsHeaderSaysImportsNothing() async throws {
+        let zip = try ZipFixtures.lyingZip(in: tmp, realSize: 64 * 1024, declaredSize: 16)
+        let tmpBefore = try ZipFixtures.importDirectories()
+
+        let outcome = await importer.importFile(at: zip, from: .picker)
+
+        XCTAssertEqual(outcome.rejected, ["lie.zip": ZipExtractor.Refusal.sizeMismatch.reason])
+        XCTAssertTrue(try library.allWADs().isEmpty)
+        XCTAssertEqual(try ZipFixtures.importDirectories(), tmpBefore)
+    }
+
+    /// A pk3 under a name that says nothing (a link's `download?id=7`) is
+    /// recognised as a zip by its first bytes; unpacking its WADs would
+    /// import a map set without the rest of the mod, so it is refused as a
+    /// named `.pk3` is.
+    func testAnExtensionlessPK3IsRefused() async throws {
+        let zipURL = tmp.appendingPathComponent("mod.zip")
+        try makeZip(at: zipURL, count: 0, size: 0, extra: [
+            "maps/MAP01.wad": makeWAD(magic: "PWAD", lumps: ["MAP01"]),
+            "DECORATE.txt": Data("actor X {}".utf8),
+        ])
+        for route in [ImportRoute.openIn, .link] {
+            let url = try writeExtensionless(try Data(contentsOf: zipURL))
+            let outcome = await importer.importFile(at: url, from: route)
+            XCTAssertEqual(outcome.rejected, ["download": ImportFileType.refusedReason], "\(route)")
+            XCTAssertTrue(outcome.imported.isEmpty, "\(route)")
+            XCTAssertEqual(notices.current, "Import failed for download: \(ImportFileType.refusedReason)",
+                           "\(route)")
+        }
+        XCTAssertTrue(try library.allWADs().isEmpty)
+    }
+
+    /// The idgames layout, a `.wad` and its `.txt` at the root, is no pk3:
+    /// with no name to say it is a zip, it still imports.
+    func testAnExtensionlessIdgamesZipStillImports() async throws {
+        let zipURL = tmp.appendingPathComponent("idgames.zip")
+        try makeZip(at: zipURL, count: 0, size: 0, extra: [
+            "sunlust.wad": makeWAD(magic: "PWAD", lumps: ["MAP01"]),
+            "sunlust.txt": Data("notes".utf8),
+        ])
+        let url = try writeExtensionless(try Data(contentsOf: zipURL))
+
+        let outcome = await importer.importFile(at: url, from: .link)
+
+        XCTAssertEqual(outcome.imported, ["sunlust"])
+        XCTAssertTrue(outcome.rejected.isEmpty)
+    }
+
     // MARK: Restoring Freedoom a build no longer bundles (issue #503)
 
     /// Seeds the real bundled rows, gives Phase 1 a save, keeps a copy of its
