@@ -60,6 +60,9 @@ struct WaddleApp: App {
                 // a UITest that drags a button cannot leave it moved for the
                 // rest of the suite.
                 UserDefaults.standard.removeObject(forKey: TouchOverlayLayoutOverrides.userDefaultsKey)
+                // And the player's sources (#502), so a deleted Freedoom
+                // source comes back for the next test.
+                UserDefaults.standard.removeObject(forKey: SourceStore.userDefaultsKey)
             }
             #endif
 

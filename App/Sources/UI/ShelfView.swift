@@ -31,6 +31,7 @@ struct ShelfView: View {
     }
     @State private var showImporter = false
     @State private var showLinkImport = false
+    @State private var showSources = false
     /// The item whose tap opened the Continue / New Game / Details sheet.
     @State private var actionItem: Game?
 
@@ -245,6 +246,9 @@ struct ShelfView: View {
         .sheet(isPresented: $showLinkImport) {
             LinkImportSheet(importer: importer)
         }
+        .sheet(isPresented: $showSources) {
+            SourcesSheet(importer: importer)
+        }
         .confirmationDialog(actionItem?.name ?? "", isPresented: actionDialogBinding,
                             titleVisibility: .visible, presenting: actionItem) { item in
             Button("Continue") { play(item, mode: .continueNewest) }
@@ -302,7 +306,7 @@ struct ShelfView: View {
         ToolbarItem(placement: .navigationBarTrailing) {
             // The one import door (spec §3.4): From Files… opens the same
             // importer the welcome card and the ghost tile do; From a Link…
-            // is the only way in that downloads (#500).
+            // and From Sources… are the ways in that download (#500, #502).
             Menu {
                 Button {
                     showImporter = true
@@ -316,6 +320,12 @@ struct ShelfView: View {
                     Label("From a Link…", systemImage: "link")
                 }
                 .accessibilityIdentifier("importFromLink")
+                Button {
+                    showSources = true
+                } label: {
+                    Label("From Sources…", systemImage: "tray.full")
+                }
+                .accessibilityIdentifier("importFromSources")
             } label: {
                 Label("Add", systemImage: "plus")
             }

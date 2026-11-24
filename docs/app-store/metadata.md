@@ -351,13 +351,28 @@ built-in or suggested list of sources (#502), or an example download such
 as Freedoom's. Re-open this section, and `unrestrictedWebAccess` above,
 before any of those ships.
 
+**Sources (#502) ships one example download, Freedoom, and the owner
+judges this reading before the first submission that carries it.** Add →
+From Sources… lists links the player saved, plus one the app ships:
+Freedoom 0.13.0 from the Freedoom project's own GitHub release, pinned by
+the zip's published SHA-256. That is the app offering software, so 4.7
+attaches in principle; the software it offers is the Freedoom data the
+app already bundles and is rated with (the §8 answers above describe
+exactly those two games), so 4.7.5's flag-and-gate duty has nothing above
+the app's rating to act on. Every other source is a link the player typed,
+read as From a Link… is. Sources shows no web content: the page kind of
+source waits for #501, and `unrestrictedWebAccess` stays **No** until
+then. Adding any other shipped source re-opens this paragraph.
+
 ## 9. Export compliance
 
 The app implements no encryption. Its only network connection is an
-HTTPS download, through `URLSession`, of a link the player pastes (#500);
+HTTPS download, through `URLSession`, of a link the player pastes (#500)
+or a source the player taps (#502);
 that is the operating system's encryption, which is exempt. The only
 cryptography linked is Apple's OS frameworks (and a SHA-1 file hash for
-deduplication, which is exempt hashing, not encryption).
+deduplication and a SHA-256 check of a pinned download, both exempt
+hashing, not encryption).
 `ITSAppUsesNonExemptEncryption = NO` stays correct.
 
 - "Does your app use encryption?" → **Yes** (conservative: OS-provided
@@ -412,9 +427,11 @@ would otherwise have to resolve by guessing:
 The diagnostics export deliberately gets no paragraph here: `AboutView`
 already discloses it in-app ("Nothing leaves your device unless you share
 this file"), which is stronger than a note. The app's one use of the
-network, a download of a link the player pastes (#500), is disclosed in the
+network, a download of a link the player pastes (#500) or a source they
+tap (#502, including the shipped Freedoom source), is disclosed in the
 notes' licensing paragraph, because a reviewer who finds Add → From a Link…
-should not have to guess whether the app fetches anything else.
+or From Sources… should not have to guess whether the app fetches anything
+else.
 
 ## 12. Screenshots
 

@@ -338,9 +338,10 @@ existing version. The dry run only says what it would create; with
       The on-device diagnostics export does not change this. Nothing is
       transmitted, and `AboutView` discloses the behaviour in-app.
 
-      Import from a link (#500) does not change it either. The app's only
-      network request downloads a link the player pasted, from a server
-      the player chose; nothing about the player is sent to the developer
+      Import from a link (#500) does not change it either, nor do Sources
+      (#502). The app's only network request downloads a link the player
+      pasted or a source the player tapped, from a server the player chose
+      or Freedoom's own GitHub release; nothing about the player is sent to the developer
       or any partner of the developer's, which is what Apple's "collect"
       means. The owner confirms that reading when first publishing the
       questionnaire after #500 ships.

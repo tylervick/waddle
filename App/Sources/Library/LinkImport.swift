@@ -56,19 +56,34 @@ final class LinkImport {
         }
     }
 
+    /// Starts downloading `source` (#502): a file source's link, checked
+    /// against the source's pin when it has one. Returns whether it started;
+    /// a page source never does (it needs #501's web view).
+    @discardableResult
+    func start(_ source: Source, onFinish: @escaping @MainActor () -> Void = {}) -> Bool {
+        guard !isBusy, source.kind == .file else { return false }
+        invalidLink = nil
+        task = Task {
+            await run(source.url, expectedSHA256: source.sha256)
+            onFinish()
+        }
+        return true
+    }
+
     func cancel() {
         task?.cancel()
     }
 
-    /// Downloads and imports `url`. The import's outcome, or nil when the
-    /// download failed (the notice then says why) or was cancelled.
+    /// Downloads and imports `url`, refusing bytes whose SHA-256 is not
+    /// `expectedSHA256` when one is given. The import's outcome, or nil when
+    /// the download failed (the notice then says why) or was cancelled.
     @discardableResult
-    func run(_ url: URL) async -> ImportOutcome? {
+    func run(_ url: URL, expectedSHA256: String? = nil) async -> ImportOutcome? {
         phase = .downloading(received: 0, expected: nil)
         defer { phase = .idle }
         let file: DownloadedFile
         do {
-            file = try await downloader.download(url) { received, expected in
+            file = try await downloader.download(url, expectedSHA256: expectedSHA256) { received, expected in
                 Task { @MainActor [weak self] in
                     guard let self, case .downloading = self.phase else { return }
                     self.phase = .downloading(received: received, expected: expected)

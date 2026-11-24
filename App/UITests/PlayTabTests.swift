@@ -103,4 +103,68 @@ final class PlayTabTests: XCTestCase {
         app.navigationBars["Add From a Link"].buttons["Cancel"].tap()
         XCTAssertTrue(field.waitForNonExistence(timeout: 5), "Cancel did not close the link sheet")
     }
+
+    /// Add → From Sources… (#502) opens Sources with the Freedoom source on
+    /// a fresh install. Deleting it by taps (Edit, then the row's delete
+    /// button) leaves the empty state and a Restore that brings it back; Add
+    /// Source refuses a plain `http` link in place. No step downloads
+    /// anything. Each screen is attached, for the pull request's
+    /// screenshots.
+    @MainActor
+    func testSourcesOffersFreedomAndRestoresItAfterDelete() {
+        let app = XCUIApplication()
+        app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
+        app.launch()
+        let add = app.buttons["importButton"]
+        XCTAssertTrue(add.waitForExistence(timeout: 10), "Add missing from the shelf")
+        add.tap()
+        let fromSources = app.buttons["importFromSources"]
+        XCTAssertTrue(fromSources.waitForExistence(timeout: 5), "Add's menu has no From Sources…")
+        attach(app, "1-add-menu")
+        fromSources.tap()
+
+        let freedoom = app.buttons["source-Freedoom"]
+        XCTAssertTrue(freedoom.waitForExistence(timeout: 5), "Sources has no Freedoom source")
+        XCTAssertTrue(freedoom.label.contains("github.com"), "the source does not say where it downloads from; label = '\(freedoom.label)'")
+        attach(app, "2-sources")
+
+        app.buttons["editSources"].tap()
+        // The row's delete control is an image labelled "remove"; the row
+        // itself, which also reads "Remove, …", is disabled while editing.
+        let remove = app.images["remove"].firstMatch
+        XCTAssertTrue(remove.waitForExistence(timeout: 5), "Edit shows no delete control on the source")
+        remove.tap()
+        let confirm = app.buttons["Delete"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "the row offers no Delete")
+        confirm.tap()
+        XCTAssertTrue(freedoom.waitForNonExistence(timeout: 5), "the Freedoom source was not deleted")
+        let restore = app.buttons["restoreSource-Freedoom"]
+        XCTAssertTrue(restore.waitForExistence(timeout: 5), "a deleted Freedoom source offers no Restore")
+        XCTAssertTrue(app.otherElements["sourcesEmpty"].exists || app.staticTexts["No Sources"].exists,
+                      "no empty state with every source deleted")
+        attach(app, "3-sources-empty")
+        restore.tap()
+        XCTAssertTrue(freedoom.waitForExistence(timeout: 5), "Restore did not bring the Freedoom source back")
+
+        app.buttons["addSource"].tap()
+        let link = app.textFields["sourceLinkField"]
+        XCTAssertTrue(link.waitForExistence(timeout: 5), "Add Source did not open")
+        link.tap()
+        dismissSlideToTypeIntroduction(in: app)
+        link.typeText("http://example.com/map.wad")
+        app.buttons["saveSource"].tap()
+        let error = app.staticTexts["sourceLinkError"]
+        XCTAssertTrue(error.waitForExistence(timeout: 5), "a plain http link was saved as a source")
+        XCTAssertTrue(error.label.contains("https://"), "the refusal does not say what to do; label = '\(error.label)'")
+        attach(app, "4-add-source")
+    }
+
+    @MainActor
+    private func attach(_ app: XCUIApplication, _ name: String) {
+        Thread.sleep(forTimeInterval: 0.8)
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = name
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
 }
