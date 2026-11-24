@@ -798,6 +798,21 @@ only ever runs once):
   Woof pin carries 3.1.2 or later (the file will then be identical and the
   re-vendor merge resolves it on its own).
 
+- `third-party/yyjson/yyjson.c`, `third-party/yyjson/yyjson.h` -- yyjson
+  0.13.0 dropped over the 0.12.0 upstream Woof still vendors (issue #528,
+  owner's decision on #526). Woof's copy was byte-identical to the 0.12.0
+  release, so this is the upstream 0.13.0 release unmodified, and its
+  `LICENSE` is unchanged between the two tags. 0.13.0 fixes an uninitialized
+  read when parsing numbers (OSS-Fuzz #498706935) and integer truncation on
+  extremely large numbers. Woof parses JSON lumps from WADs with it
+  (`src/m_json.c`, `yyjson_read_opts`: SBARDEF and the other JSON lumps), so
+  an imported WAD feeds it untrusted input. 0.13.0's API changes (`set_int()`
+  takes `int64_t`, `const` on read-only parameters) needed no edits to Woof's
+  callers. `Scripts/check-deps-current.sh` reads `YYJSON_VERSION_STRING`
+  from the header and reports it current. Drop this patch when a Woof pin
+  carries 0.13.0 or later (the files will then be identical and the
+  re-vendor merge resolves it on its own).
+
 - `src/p_setup.c`, `src/woof_ios.c` (issue #79) -- `P_SetupLevel` records the
   node and blockmap format of the level it just set up (`last_bsp_format`,
   `last_bmap_format`, reset per session by `P_ResetSessionLevelFormats()`),
