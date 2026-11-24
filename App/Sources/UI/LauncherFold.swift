@@ -75,7 +75,11 @@ enum LauncherFold {
     /// turn before taking the tree away still left the orphan in 1 run of 2.
     ///
     /// Only alerts and dialogs: a sheet is the panel's own form on a compact
-    /// window, and SwiftUI moves it.
+    /// window, and SwiftUI moves it. And only when the panel has one up
+    /// (`ShelfPanelModel.panelHasDialogUp`): called on every change of pose,
+    /// this took down the shelf's tile actions and the engine's error
+    /// alert, whose trees survive the fold, and dropped them (review of
+    /// pull request 524).
     static func dismissDialogs() {
         var presenter = launcherRootView()?.window?.rootViewController
         while let presented = presenter?.presentedViewController {

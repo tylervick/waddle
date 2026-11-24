@@ -36,6 +36,34 @@ Prove the test discriminates by switching off the new tree's presentation,
 **on an iPad**. An orphan that answers the test's question looks exactly
 like the fix working.
 
+The first version of that dismissal took down *any* alert in the window on
+every change of pose. That included the shelf's tile actions, its Delete
+confirmation and the launcher's alert after a failed session, all of which
+sit on a tree the fold leaves in place, so a bend dropped them (review of
+pull request 524). It now acts only when the panel's shared state says a
+panel dialog is up (`ShelfPanelModel.panelHasDialogUp`). UIKit shows one
+alert at a time, so that alert is the panel's.
+`testAPoseChangeLeavesTheShelfsTileActionsUp` and
+`testAPoseChangeLeavesTheEngineErrorAlertUp` pin this. A fix that reaches
+into UIKit's presentation chain needs a test for the dialogs it must leave
+alone.
+
+## A page kept across a fold has stale state, and the picker writes
+
+The inspector keeps its column's page alive while the panel is in the lower
+half. Moving that page's base picker onto a carried-over warning's choice
+fired the picker's `onChange`, which decided again from the kept page's own
+save count. If that count was stale, it could apply the change without asking,
+with the warning still up (review of pull request 524). A choice that a
+waiting warning is already asking about is no longer decided again
+(`GamePage.decidesOnBaseSelection`), and the page reloads when its tree comes
+back on screen.
+
+The same review found the tests' last check, the picker's label after Change
+Anyway, proved nothing: the picker already shows a waiting warning's choice.
+`assertStoredBase` relaunches and reads the base from a fresh page. With
+`apply` skipped, it fails.
+
 ## A narrowed window takes the panel down and does not put it back
 
 With a game's page open beside the shelf, dragging the window's resize

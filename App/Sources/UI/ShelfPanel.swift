@@ -170,6 +170,17 @@ final class ShelfPanelModel {
         }
     }
 
+    /// Whether a screen of the panel has an alert or dialog up, in any tree
+    /// that draws it. The root asks this before it takes down the dialog a
+    /// departing tree left behind (`LauncherFold.dismissDialogs`): a
+    /// dialog of the shelf's own (a tile's actions, its delete
+    /// confirmation, the engine's error) is on a tree that survives the
+    /// fold and must be left alone, and UIKit shows one dialog at a time,
+    /// so when the panel has one up, the dialog on screen is the panel's.
+    var panelHasDialogUp: Bool {
+        settingsPresentation.hasDialogUp || gamePagePresentations.values.contains(where: \.hasDialogUp)
+    }
+
     /// What the column's tree tells its screens.
     var columnHost: PanelHost { PanelHost(model: self, tree: .whole) }
     /// What the lower half's tree tells its screens.

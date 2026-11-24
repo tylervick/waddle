@@ -60,11 +60,12 @@ struct ContentView: View {
                 let changesPose = (split != nil) != panelModel.isSplit
                 halves = split
                 panelModel.foldChanged(isSplit: split != nil)
-                // A dialog up in the tree that is going is taken down here,
-                // once the swap is holding presentations so that the write
-                // its dismissal makes is refused, and the next tree puts it
-                // up again (issue #520).
-                if changesPose { LauncherFold.dismissDialogs() }
+                // A panel dialog up in the tree that is going is taken down
+                // here, once the swap is holding presentations so that the
+                // write its dismissal makes is refused, and the next tree
+                // puts it up again (issue #520). Only the panel's: the
+                // shelf's own dialogs stay where they are.
+                if changesPose, panelModel.panelHasDialogUp { LauncherFold.dismissDialogs() }
             }
         }
         .onChange(of: horizontalSizeClass, initial: true) { old, sizeClass in

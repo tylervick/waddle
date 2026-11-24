@@ -55,8 +55,48 @@ extension PlayTabTests {
                       "narrowed, the save warning was dropped")
 
         changeAnyway.tap()
-        XCTAssertTrue(waitUntilTrue { picker.exists && picker.label.contains("Freedoom Phase 2") },
-                      "the answer to the warning did not change the base: \(picker.exists ? picker.label : "no picker")")
+        assertStoredBase(of: Self.savedCopyName, is: "Freedoom Phase 2", after: changeAnyway, in: app)
+    }
+
+    /// A large iPhone turned from landscape, where its window is regular
+    /// width and the panel is a column, to portrait, where it is compact:
+    /// the open panel stays, as the inspector's sheet, and turned back it is
+    /// the column again. This is not new. With `panelTakenDown` switched
+    /// off it passes too on an iPhone 18 Pro Max (2026-11-24), so SwiftUI
+    /// carries the panel across a rotation by itself, as it does on an
+    /// iPhone Duo folded shut, and only an iPad window narrowed by its
+    /// grabber loses it. It is here so the narrowing fix, which also hears
+    /// about this change of width class, is seen not to disturb it.
+    /// Skips where landscape is compact too (an iPhone 18 Pro: Details then
+    /// pushes the page) and on an iPad.
+    @MainActor
+    func testTurningAnOpenPanelToPortraitKeepsItAsASheet() throws {
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = XCUIApplication()
+        app.provideFreedoom()
+        app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
+        app.launch()
+        XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 30), "the shelf never appeared")
+        guard XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            .descendants(matching: .any).matching(identifier: "resize-grabber").firstMatch.exists == false else {
+            throw XCTSkip("an iPad: its window is regular in both orientations")
+        }
+        openGamePage(app, tile: "playFreedoom1")
+        let done = app.buttons["panelDoneButton"]
+        guard done.waitForExistence(timeout: 3) else {
+            throw XCTSkip("landscape is compact on this device: the page was pushed, there is no panel")
+        }
+
+        XCUIDevice.shared.orientation = .portrait
+        XCTAssertTrue(waitForPanelSwap(in: app), "the swap of panel trees never settled")
+        XCTAssertTrue(waitUntilTrue(timeout: 8) { done.exists && done.isHittable },
+                      "turned to portrait, the open panel was lost")
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(waitForPanelSwap(in: app), "the swap of panel trees never settled")
+        XCTAssertTrue(waitUntilTrue(timeout: 8) { done.exists && done.isHittable && app.buttons["importButton"].isHittable },
+                      "turned back to landscape, the panel is not the column beside the shelf")
     }
 
     // MARK: helpers

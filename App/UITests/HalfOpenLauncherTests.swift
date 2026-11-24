@@ -214,11 +214,101 @@ extension PlayTabTests {
         XCTAssertTrue(waitUntil(timeout: 12) { changeAnyway.exists && changeAnyway.isHittable },
                       "bent again, the save warning was dropped")
         changeAnyway.tap()
-        XCTAssertTrue(waitUntil { picker.exists && picker.label.contains("Freedoom Phase 2") },
-                      "the answer to the warning did not change the base: \(picker.exists ? picker.label : "no picker")")
+        assertStoredBase(of: Self.savedCopyName, is: "Freedoom Phase 2", after: changeAnyway, in: app)
+    }
+
+    /// The shelf's own dialogs are on a tree that a change of pose leaves in
+    /// place, and they stay up across it: here a tile's Continue / New Game
+    /// / Details. Taking down the dialog a departing panel tree left behind
+    /// once took these down too, and dropped them (review of pull request
+    /// 524). Started flat on the seam so the first change is a bend.
+    @MainActor
+    func testAPoseChangeLeavesTheShelfsTileActionsUp() throws {
+        let app = launchWithASavedCopy(environment: ["WADDLE_TEST_HALF_OPEN": "0"])
+        let tile = app.buttons["game-\(Self.savedCopyName)"]
+        XCTAssertTrue(tile.waitForExistence(timeout: 10), "the copy's tile is missing")
+        tile.tap()
+        let continueAction = app.buttons["continueAction"]
+        XCTAssertTrue(continueAction.waitForExistence(timeout: 5), "the tile's actions never came up")
+
+        notify_post("com.tylervick.waddle.test.half-open-toggle")
+        _ = try foldBand(in: app)
+        assertStaysUp(continueAction, "bent, the tile's actions were dropped", in: app)
+
+        notify_post("com.tylervick.waddle.test.half-open-toggle")
+        XCTAssertTrue(waitUntil { !app.otherElements["launcherLowerHalf"].exists },
+                      "the launcher stayed in two halves after opening flat")
+        assertStaysUp(continueAction, "opened flat, the tile's actions were dropped", in: app)
+    }
+
+    /// The same for the launcher's alert after a session that failed: the
+    /// one place the player is told why, and it is the shelf's.
+    @MainActor
+    func testAPoseChangeLeavesTheEngineErrorAlertUp() throws {
+        let wad = SessionStartStateTests.pwad(lumpData: Data("WADDLE".utf8))
+        let badID = SessionStartStateTests.storedZip(name: "waddle-test.wad",
+                                                     data: Data("X".utf8) + wad.dropFirst())
+        let app = XCUIApplication()
+        app.provideFreedoom()
+        app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
+        app.launchEnvironment["WADDLE_TEST_HALF_OPEN"] = "0"
+        app.launchEnvironment["WADDLE_TEST_ZIP_1"] = badID.base64EncodedString()
+        app.launch()
+        XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 60), "the shelf never appeared")
+        let tile = app.buttons["playFreedoom1"]
+        XCTAssertTrue(tile.waitForExistence(timeout: 30), "the tile is missing")
+        tile.tap()
+        let engineBox = app.alerts.matching(NSPredicate(format: "label BEGINSWITH 'Woof'")).firstMatch
+        XCTAssertTrue(engineBox.waitForExistence(timeout: 60), "the engine's error box never appeared")
+        engineBox.buttons["OK"].tap()
+        let launcherAlert = app.alerts["Couldn't run this game"]
+        XCTAssertTrue(launcherAlert.waitForExistence(timeout: 10), "the launcher's error alert never appeared")
+
+        notify_post("com.tylervick.waddle.test.half-open-toggle")
+        _ = try foldBand(in: app)
+        assertStaysUp(launcherAlert, "bent, the launcher's error alert was dropped", in: app)
+        launcherAlert.buttons["OK"].tap()
+        XCTAssertTrue(launcherAlert.waitForNonExistence(timeout: 10), "the error alert did not dismiss on OK")
     }
 
     // MARK: helpers
+
+    /// Once the swap has settled, `element` is up and stays up: a dialog
+    /// taken down by mistake is gone within its dismissal, about 0.3 s.
+    @MainActor
+    func assertStaysUp(_ element: XCUIElement, _ message: String, in app: XCUIApplication,
+                       file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(waitForPanelSwap(in: app), "the swap of panel trees never settled", file: file, line: line)
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            guard element.exists else { return XCTFail(message, file: file, line: line) }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        XCTAssertTrue(element.exists, message, file: file, line: line)
+    }
+
+    /// What the store says the game's base is, read from a fresh launch: a
+    /// waiting warning already puts its choice in the picker, so the
+    /// picker on the page that asked says nothing about whether the answer
+    /// was applied (review of pull request 524).
+    @MainActor
+    func assertStoredBase(of gameName: String, is base: String, after answer: XCUIElement,
+                          in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(answer.waitForNonExistence(timeout: 5), "the warning did not go when answered",
+                      file: file, line: line)
+        app.terminate()
+        let fresh = XCUIApplication()
+        fresh.provideFreedoom()
+        fresh.launch()
+        XCTAssertTrue(fresh.buttons["importButton"].waitForExistence(timeout: 30), "the shelf never appeared",
+                      file: file, line: line)
+        openGamePage(fresh, tile: "game-\(gameName)", file: file, line: line)
+        let picker = fresh.buttons["basePicker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 5), "no base picker on the page", file: file, line: line)
+        XCTAssertTrue(picker.label.contains(base),
+                      "the answer to the warning was not applied: the stored base reads \(picker.label)",
+                      file: file, line: line)
+    }
 
     static let savedCopyName = "Freedoom Phase 1 copy"
 
