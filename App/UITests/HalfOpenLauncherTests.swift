@@ -164,28 +164,27 @@ extension PlayTabTests {
     /// puts it up again; before the fix the edit it guarded was dropped
     /// without a word (review of pull request 461).
     ///
-    /// A game with a base to change and a save needs two launches: one to
-    /// duplicate Freedoom Phase 1, one to give the copy a save
-    /// (`WADDLE_TEST_SEED_SAVE_FOR`).
+    /// A game with a base to change and a save needs two launches
+    /// (`launchWithASavedCopy`).
+    ///
+    /// Each check waits for the swap to settle first (`waitForPanelSwap`).
+    /// Asked while the old tree's dialog is still on its way out, XCUITest
+    /// can find that dialog, and its `isHittable` records a failure ("the
+    /// activation point is invalid") instead of answering false. On an iPad
+    /// Pro 13-inch that failed the test on a busy simulator while the app,
+    /// by its own log, put the warning up again 0.9 s after the fold
+    /// (issue #520).
+    ///
+    /// On an iPad the warning found after opening flat used to be able to
+    /// be the lower half's, orphaned over the shelf, and the test passed
+    /// with the column's own warning switched off. The root now takes the
+    /// departing tree's dialog down itself (`LauncherFold.dismissDialogs`);
+    /// with the column's switched off this fails at the flat check, 3 runs
+    /// in 3.
     @MainActor
     func testAFoldKeepsTheSaveWarningUpAndItsAnswerStillApplies() throws {
-        let copyName = "Freedoom Phase 1 copy"
-        let first = XCUIApplication()
-        first.provideFreedoom()
-        first.launchEnvironment["WADDLE_RESET_STORE"] = "1"
-        first.launch()
-        openGamePage(first, tile: "playFreedoom1")
-        scrollTo(first.buttons["duplicateButton"], in: first)
-        first.buttons["duplicateButton"].tap()
-        XCTAssertTrue(first.buttons["game-\(copyName)"].waitForExistence(timeout: 5), "the copy never appeared")
-        first.terminate()
-
-        let app = XCUIApplication()
-        app.provideFreedoom()
-        app.launchEnvironment["WADDLE_TEST_SEED_SAVE_FOR"] = copyName
-        app.launchEnvironment["WADDLE_TEST_HALF_OPEN"] = "1"
-        app.launch()
-        XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 30), "the shelf never appeared")
+        let copyName = Self.savedCopyName
+        let app = launchWithASavedCopy(environment: ["WADDLE_TEST_HALF_OPEN": "1"])
         _ = try foldBand(in: app)
         let tile = app.buttons["game-\(copyName)"]
         XCTAssertTrue(tile.waitForExistence(timeout: 10), "the copy's tile is missing")
@@ -195,22 +194,23 @@ extension PlayTabTests {
 
         // Change its base: with a save, that asks first.
         let picker = app.buttons["basePicker"]
-        XCTAssertTrue(picker.waitForExistence(timeout: 5), "no base picker on the copy's page")
-        picker.tap()
-        app.buttons["Freedoom Phase 2"].firstMatch.tap()
-        let changeAnyway = app.buttons.matching(identifier: "changeAnywayAction").firstMatch
-        XCTAssertTrue(changeAnyway.waitForExistence(timeout: 8), "the save warning never came up")
+        let changeAnyway = raiseTheSaveWarning(in: app, picker: picker)
 
-        // Open flat: the warning is up again, over the panel.
+        // Open flat: the warning is up again, over the panel, with the
+        // picker under it still on the base it asks about.
         notify_post("com.tylervick.waddle.test.half-open-toggle")
         XCTAssertTrue(waitUntil { !app.otherElements["launcherLowerHalf"].exists },
                       "the launcher stayed in two halves after opening flat")
+        XCTAssertTrue(waitForPanelSwap(in: app), "the swap of panel trees never settled")
         XCTAssertTrue(waitUntil(timeout: 12) { changeAnyway.exists && changeAnyway.isHittable },
                       "opened flat, the save warning was dropped")
+        XCTAssertTrue(picker.label.contains("Freedoom Phase 2"),
+                      "opened flat, the picker under the warning is back on the old base: \(picker.label)")
 
         // Bend: up again, and this time it is answered.
         notify_post("com.tylervick.waddle.test.half-open-toggle")
         _ = try foldBand(in: app)
+        XCTAssertTrue(waitForPanelSwap(in: app), "the swap of panel trees never settled")
         XCTAssertTrue(waitUntil(timeout: 12) { changeAnyway.exists && changeAnyway.isHittable },
                       "bent again, the save warning was dropped")
         changeAnyway.tap()
@@ -219,6 +219,62 @@ extension PlayTabTests {
     }
 
     // MARK: helpers
+
+    static let savedCopyName = "Freedoom Phase 1 copy"
+
+    /// A game with a base to change and a save: one launch to duplicate
+    /// Freedoom Phase 1, one to give the copy a save
+    /// (`WADDLE_TEST_SEED_SAVE_FOR`). Returns the second, on the shelf.
+    @MainActor
+    func launchWithASavedCopy(environment: [String: String] = [:],
+                              beforeFirstPage: (XCUIApplication) -> Void = { _ in }) -> XCUIApplication {
+        let first = XCUIApplication()
+        first.provideFreedoom()
+        first.launchEnvironment["WADDLE_RESET_STORE"] = "1"
+        first.launch()
+        beforeFirstPage(first)
+        openGamePage(first, tile: "playFreedoom1")
+        scrollTo(first.buttons["duplicateButton"], in: first)
+        first.buttons["duplicateButton"].tap()
+        XCTAssertTrue(first.buttons["game-\(Self.savedCopyName)"].waitForExistence(timeout: 5),
+                      "the copy never appeared")
+        first.terminate()
+
+        let app = XCUIApplication()
+        app.provideFreedoom()
+        app.launchEnvironment["WADDLE_TEST_SEED_SAVE_FOR"] = Self.savedCopyName
+        for (key, value) in environment { app.launchEnvironment[key] = value }
+        app.launch()
+        XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 30), "the shelf never appeared")
+        return app
+    }
+
+    /// Picks Freedoom Phase 2 as the open page's base; the page has a save,
+    /// so that asks first. Returns the warning's Change Anyway.
+    @MainActor
+    func raiseTheSaveWarning(in app: XCUIApplication, picker: XCUIElement,
+                             file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+        XCTAssertTrue(picker.waitForExistence(timeout: 5), "no base picker on the copy's page", file: file, line: line)
+        picker.tap()
+        app.buttons["Freedoom Phase 2"].firstMatch.tap()
+        let changeAnyway = app.buttons.matching(identifier: "changeAnywayAction").firstMatch
+        XCTAssertTrue(changeAnyway.waitForExistence(timeout: 8), "the save warning never came up", file: file, line: line)
+        return changeAnyway
+    }
+
+    /// Waits until the panel's trees have finished swapping and the new one
+    /// may present: the root shows `panelSwapSettling` while they have not.
+    /// Call it once the change that started the swap is on screen.
+    @MainActor
+    func waitForPanelSwap(in app: XCUIApplication, timeout: TimeInterval = 8) -> Bool {
+        let settling = app.otherElements["panelSwapSettling"]
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !settling.exists { return true }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        return !settling.exists
+    }
 
     @MainActor
     private func launchLauncher(halfOpen: String) -> XCUIApplication {

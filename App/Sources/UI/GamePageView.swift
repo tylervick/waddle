@@ -206,6 +206,13 @@ struct GamePageView: View {
         // still waiting when this one is up.
         .onChange(of: host.presents) { _, presents in
             if presents, !shown.showAddFile { addPickedFile() }
+            // A base change still waiting on its warning, on a page that was
+            // already drawn when its tree became the one on screen: the
+            // inspector keeps its column's page while the panel is in the
+            // lower half, so `reload` does not run again when the device is
+            // opened flat. Without this the picker under the warning read
+            // the old base (seen on an iPad, issue #520).
+            if presents, case .base(let chosen)? = shown.pendingEdit { baseSelection = chosen }
         }
         .confirmationDialog(saveWarningTitle, isPresented: pendingEditBinding,
                             titleVisibility: .visible, presenting: shown.pendingEdit) { edit in
