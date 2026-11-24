@@ -995,13 +995,13 @@ What the one-line change carries with it, and what it does not:
     the patch with `git rm`; if not, re-base it on the new tag and update the
     header's "applies unchanged to" line. Either way push the change to the
     same pull request and update whatever under `docs/learnings/` names the
-    patch. The first such pull request is SDL `release-3.4.20`, which
-    contains the iOS 27 orientation fix that
-    `0001-ios27-interface-orientation.patch` backports: delete that patch
-    there. A patch that applies
-    in reverse is skipped without a word, so a release that contains the fix
-    verbatim leaves a dead file: check `Scripts/patches/SDL/` on every SDL
-    pull request, red or green.
+    patch. The first such pull request was SDL `release-3.4.20` (#489),
+    which carries the iOS 27 orientation fix as a cherry-pick and so deleted
+    `0001-ios27-interface-orientation.patch`; no SDL patch is carried since,
+    so the directory is gone until the next one is needed. A patch that
+    applies in reverse is skipped without a word, so a release that contains
+    the fix verbatim leaves a dead file: check `Scripts/patches/SDL/` on
+    every SDL pull request, red or green.
   - *SONiVOX*: `Scripts/check-eas-bank.sh` fails with `instrument bank
     changed` when the wavetable bank differs. Listen on a device before
     accepting; only then regenerate the hashes with `--print`.

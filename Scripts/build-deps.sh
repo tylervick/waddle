@@ -11,7 +11,7 @@ set -euo pipefail
 # version (the engine fingerprint and both CI cache keys hash this file). See
 # "Renovate pull requests for the native pins" in Engine/WOOF_UPSTREAM.md.
 # renovate: datasource=github-releases depName=libsdl-org/SDL versioning=regex:^release-(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$
-SDL_TAG="release-3.4.18"
+SDL_TAG="release-3.4.20"
 # renovate: datasource=github-releases depName=kcat/openal-soft versioning=semver
 OPENAL_TAG="1.25.2"
 # renovate: datasource=github-tags depName=pedrolcl/sonivox versioning=semver
@@ -82,7 +82,9 @@ fetch() { # dir url tag
 
 # Fixes taken from upstream commits that no release we can pin yet contains,
 # as files under Scripts/patches/<dep>/, each carrying its provenance above
-# the diff (issue #291: SDL's iOS 27 orientation fix). Applied with git apply
+# the diff. There are none at present: the first, SDL's iOS 27 orientation
+# fix (issue #291), was deleted when release-3.4.20 shipped it (#489), and an
+# absent directory is the ordinary state. Applied with git apply
 # on top of the pinned checkout, which stays at the pinned commit, so at_pin
 # above still recognises it. A patch that is already in (a re-run over the
 # same checkout) is detected in reverse and skipped. One that applies
