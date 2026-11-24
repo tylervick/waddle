@@ -355,7 +355,16 @@ final class LibraryServiceTests: XCTestCase {
     func testShippedFreedoomSHA1IsTheBundledRelease() throws {
         // The real files, not `FreedoomFixture`'s stand-ins: this pins their hashes.
         service.bundledContentDirectory = FreedoomFixture.shippedRelease
+        // Without the files there is nothing to compare, and the loop below
+        // would pass having checked nothing. Fail instead: a build without the
+        // bundled files (#505) has to give this test the real bytes some other way.
+        for file in ["freedoom1.wad", "freedoom2.wad"] {
+            let url = FreedoomFixture.shippedRelease.appendingPathComponent(file)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: url.path),
+                          "\(file) is not in the host app's GameData/, so this test checks nothing")
+        }
         try service.seedBundledContentIfNeeded()
+        XCTAssertEqual(try service.allWADs().filter(\.isBundled).count, 2)
         for wad in try service.allWADs() where wad.isBundled {
             XCTAssertEqual(LibraryService.shippedFreedoomSHA1[wad.filename], wad.sha1, wad.filename)
         }

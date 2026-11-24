@@ -65,6 +65,13 @@ final class LibraryService {
 
     // MARK: Seeding
 
+    /// The two Freedoom IWADs: on-disk name, shelf title, family. Shared by
+    /// the seeder and the DEBUG-only `installFreedoomForTest(from:)`.
+    static let freedoomIWADs: [(file: String, title: String, family: GameFamily)] = [
+        ("freedoom1.wad", "Freedoom Phase 1", .doom1),
+        ("freedoom2.wad", "Freedoom Phase 2", .doom2),
+    ]
+
     /// Registers the bundled Freedoom IWADs (read-only, live in the bundle's
     /// GameData/) and their base games. Safe to call every launch: each row
     /// stores its real content SHA-1 (so imports of byte-identical files dedupe
@@ -94,13 +101,6 @@ final class LibraryService {
     /// game with this id" guard, so whichever runs first makes the base game
     /// and the other is a no-op. The order that does matter is this seeder
     /// before `adoptOrphanMapSets` — bundled bases must exist to pair with.
-    /// The two Freedoom IWADs: on-disk name, shelf title, family. Shared by
-    /// the seeder and the DEBUG-only `installFreedoomForTest(from:)`.
-    static let freedoomIWADs: [(file: String, title: String, family: GameFamily)] = [
-        ("freedoom1.wad", "Freedoom Phase 1", .doom1),
-        ("freedoom2.wad", "Freedoom Phase 2", .doom2),
-    ]
-
     func seedBundledContentIfNeeded() throws {
         for entry in Self.freedoomIWADs {
             let bundleURL = bundledURL(forFilename: entry.file)
