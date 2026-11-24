@@ -54,8 +54,13 @@ final class TouchOverlayView: UIView {
     private let keyboardActiveMarker = UIView()
     private var summonTouches = Set<UITouch>()
     private var summonArmed = true
+    #if DEBUG
+    /// Latching test markers, read only by UI tests, which run a Debug
+    /// build. Kept out of Release so VoiceOver never meets an unlabelled
+    /// 2 pt element on the play screen (review of pull request 523).
     private let stickEngagedMarker = UIView()
     private let turnEngagedMarker = UIView()
+    #endif
 
     // Half-open play layout (issue #373). `halfOpenSplit` is what the layout
     // and the touch routing read; `refreshHalfOpenSplit()` derives it from
@@ -303,6 +308,7 @@ final class TouchOverlayView: UIView {
         keyboardActiveMarker.isHidden = true
         addSubview(keyboardActiveMarker)
 
+        #if DEBUG
         // Same corner-marker pattern, carrying one latching bit: "a
         // movement-stick track engaged at some point this session". It
         // latches instead of mirroring `stickTouch` live because a tap's
@@ -326,7 +332,6 @@ final class TouchOverlayView: UIView {
         turnEngagedMarker.isHidden = true
         addSubview(turnEngagedMarker)
 
-        #if DEBUG
         halfOpenMarker.frame = CGRect(x: 10, y: 2, width: 2, height: 2)
         halfOpenMarker.accessibilityIdentifier = "halfOpenSplit"
         halfOpenMarker.isAccessibilityElement = true
@@ -1002,7 +1007,9 @@ final class TouchOverlayView: UIView {
                 lastTurnX = point.x
                 turnModel = TouchStickModel(center: point, radius: layout.stickRadius)
                 drawTurnStick(at: point)
+                #if DEBUG
                 turnEngagedMarker.isHidden = false
+                #endif
             case .ignore:
                 // A near-miss on a button, or a region already owned by
                 // another finger. Doing nothing is what a miss should do.
@@ -1018,8 +1025,8 @@ final class TouchOverlayView: UIView {
         stickModel = TouchStickModel(center: point, radius: layout.stickRadius,
                                      deadZone: CGFloat(tuning.stickDeadZone))
         drawStick(at: point)
-        stickEngagedMarker.isHidden = false
         #if DEBUG
+        stickEngagedMarker.isHidden = false
         if testFoldsUnderSticks, testHalfOpen == false {
             // On the next turn of the run loop, which is how the hinge's own
             // callback arrives: between two touch events, never inside one.
