@@ -102,7 +102,11 @@ jobs:
     # The phone leg keeps the job's old name, so its check reads as before.
     name: ${{ matrix.leg == 'iPhone' && 'UI tests' || format('UI tests ({0})', matrix.leg) }}
     runs-on: xcode-27
-    timeout-minutes: 90
+    # The iPad's full suite took 84 minutes end to end on its first run
+    # (74 of them in "Run UI tests"; 93 tests, 2026-11-24), against the
+    # phone's 80, so 90 left it six minutes of headroom. Headroom, not a
+    # measurement.
+    timeout-minutes: ${{ matrix.leg == 'iPad' && 120 || 90 }}
     strategy:
       # Each leg's verdict is its own: a red iPhone run must not cancel the
       # iPad's, or a device-specific failure would hide behind it.
