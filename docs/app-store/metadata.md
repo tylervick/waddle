@@ -196,14 +196,14 @@ Reading the **Answer** column:
 
 | Questionnaire item | API field | Answer | Rationale |
 |---|---|---|---|
-| Parental Controls | `parentalControls` | **No** | The app ships no parental-control feature of its own, and there is nothing to gate: no purchases, no accounts, no network. OS-level Screen Time still applies, but that is not the app offering controls |
+| Parental Controls | `parentalControls` | **No** | The app ships no parental-control feature of its own, and there is nothing to gate: no purchases, no accounts, and no network use but a download of a link the player pastes. OS-level Screen Time still applies, but that is not the app offering controls |
 | Age Assurance | `ageAssurance` | **No** | No age gate, age estimation, or ID check anywhere in the app |
 
 ### Capabilities
 
 | Questionnaire item | API field | Answer | Rationale |
 |---|---|---|---|
-| Unrestricted Web Access | `unrestrictedWebAccess` | **No** | The app makes no network requests at all and embeds no browser or web view |
+| Unrestricted Web Access | `unrestrictedWebAccess` | **No** | The app embeds no browser or web view and shows no web content. Its only network request is a download of one https link the player pastes (Add → From a Link…, #500), whose bytes go straight to the importer and are refused if they are a web page. The owner reviews this answer before the first submission that ships #500, and again if the in-app web view (#501) ever ships, which would make it **Yes** |
 | User-Generated Content | `userGeneratedContent` | **No** | Imported WADs are local files the user chooses; they stay on device and are never uploaded, shared, or hosted, so no user's content can reach another user |
 | Social Media | `socialMedia` | **No** | No feeds, profiles, follows, or sharing |
 | Age-Restricted Social Media | `socialMediaAgeRestricted` | **No** | N/A — follows from Social Media = No |
@@ -330,21 +330,35 @@ descriptors top out at 13+, so adopting GenZD's answers wholesale would
 not change our result. Only `violenceRealistic` at Frequent would.
 
 **The one thing that would genuinely change this analysis** is adding an
-in-app WAD browser or downloader. Guideline 4.7 covers emulator apps that
+in-app WAD browser or catalog. Guideline 4.7 covers emulator apps that
 "offer to download games", and 4.7.5 then requires the app to flag
 software exceeding its age rating *and* to gate it behind a verified or
 declared-age mechanism — which would flip `ageAssurance` and
 `parentalControls` from No to a feature we'd have to build. Import via
 the system Files app is the user bringing their own file to the app, not
-the app offering software, so 4.7 does not attach today. Keep it that
-way, or re-open this section if an in-app content browser is ever
-proposed.
+the app offering software, so 4.7 does not attach.
+
+**Import from a link (#500) is read the same way, and the owner judges
+that reading before submission.** Add → From a Link… is an empty field:
+the player pastes or types an https link they found themselves, and the
+app downloads that one file and hands it to the same importer Files uses.
+The app names no site, lists no games, suggests no links, and shows no web
+content (a link that returns a page is refused, not displayed). So the
+player still brings their own file, only by link instead of through Files;
+the app offers no software, and 4.7 does not attach. What would cross the
+line is the app *offering* something: a browser or web view (#501), a
+built-in or suggested list of sources (#502), or an example download such
+as Freedoom's. Re-open this section, and `unrestrictedWebAccess` above,
+before any of those ships.
 
 ## 9. Export compliance
 
-The app makes **no network connections** and implements no encryption; the
-only cryptography linked is Apple's OS frameworks (and a SHA-1 file hash
-for deduplication, which is exempt hashing, not encryption).
+The app implements no encryption. Its only network connection is an
+HTTPS download, through `URLSession`, of a link the player pastes (#500);
+that is the operating system's encryption, which is exempt. The only
+cryptography linked is Apple's OS frameworks (and a SHA-1 file hash for
+deduplication, which is exempt hashing, not encryption).
+`ITSAppUsesNonExemptEncryption = NO` stays correct.
 
 - "Does your app use encryption?" → **Yes** (conservative: OS-provided
   HTTPS capability exists via frameworks) → "Does your app qualify for any
@@ -397,8 +411,10 @@ would otherwise have to resolve by guessing:
 
 The diagnostics export deliberately gets no paragraph here: `AboutView`
 already discloses it in-app ("Nothing leaves your device unless you share
-this file"), which is stronger than a note, and the app links no networking
-APIs at all.
+this file"), which is stronger than a note. The app's one use of the
+network, a download of a link the player pastes (#500), is disclosed in the
+notes' licensing paragraph, because a reviewer who finds Add → From a Link…
+should not have to guess whether the app fetches anything else.
 
 ## 12. Screenshots
 

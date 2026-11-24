@@ -71,6 +71,22 @@ enum ImportFileType: Sendable, Equatable {
     static let zipMemberExtensions: Set<String> =
         Set(acceptedExtensions.filter { ImportFileType(extension: $0) != .zip })
 
+    /// Extensions of files that look like a type the library takes but are
+    /// not one: a `.pk3` is a zip, but a GZDoom-style mod whose maps need
+    /// the rest of the archive, so unpacking just its WADs would import a
+    /// broken map set. A name that says one of these is never sniffed.
+    /// Whether to support pk3 at all is the owner's later decision.
+    static let refusedExtensions: Set<String> = ["pk3"]
+
+    /// The reason a file named with a refused extension is rejected.
+    static let refusedReason = "PK3 mods are not supported. Waddle takes .wad, .deh, .bex and .zip files."
+
+    /// Whether `name` or `url` names a refused type.
+    static func isRefused(url: URL, name: String) -> Bool {
+        refusedExtensions.contains((name as NSString).pathExtension.lowercased())
+            || refusedExtensions.contains(url.pathExtension.lowercased())
+    }
+
     /// The type an extension names, or nil for one the library does not take.
     init?(extension ext: String) {
         switch ext.lowercased() {
@@ -101,7 +117,8 @@ enum ImportFileType: Sendable, Equatable {
     /// (a download's "download" or ".tmp") says nothing either way. Nil when
     /// none of the three settles it.
     static func resolve(url: URL, name: String) -> ImportFileType? {
-        ImportFileType(extension: (name as NSString).pathExtension)
+        if isRefused(url: url, name: name) { return nil }
+        return ImportFileType(extension: (name as NSString).pathExtension)
             ?? ImportFileType(extension: url.pathExtension)
             ?? ImportFileType(sniffing: url)
     }
@@ -127,6 +144,8 @@ enum ImportRoute: Sendable, Equatable {
     case picker
     /// "Open in Waddle" and the share sheet (`.onOpenURL`).
     case openIn
+    /// A file downloaded from a link the player gave (`LinkImport`, #500).
+    case link
     /// Loose files in Documents/ and Documents/Inbox/, swept on launch and
     /// on return to the foreground.
     case adoption
@@ -371,11 +390,15 @@ final class ImportService {
     /// source suggested. Dispatches on the type `ImportFileType.resolve`
     /// settles from the name, the URL, then the content.
     private func importOneAsync(url: URL, name: String, into outcome: inout ImportOutcome) async {
+        // Every route's name, and every zip member's, is made safe here
+        // before it is stored, shown or used as a key.
+        let name = ImportFilename.sanitized(name)
         let type = await Task.detached {
             ImportFileType.resolve(url: url, name: name)
         }.value
         guard let type else {
-            outcome.rejected[name] = "Unsupported file type."
+            outcome.rejected[name] = ImportFileType.isRefused(url: url, name: name)
+                ? ImportFileType.refusedReason : "Unsupported file type."
             return
         }
         switch type {

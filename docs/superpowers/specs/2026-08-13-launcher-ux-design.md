@@ -127,8 +127,11 @@ deciding all three mechanisms it weighed):
   The bundled-delete guard (`LibraryError.wadIsBundled`) and its test stay
   untouched. Hidden items are listed in Manage → Hidden from Shelf with
   Restore.
-- **Download-on-first-launch — no.** The app is deliberately no-network
-  (README, PRIVACY.md, and the export-compliance answer all lean on it).
+- **Download-on-first-launch — no.** Nothing is fetched at launch or in
+  the background. The app was deliberately no-network when this was
+  written; the owner set that aside on 2026-11-23, and since #500 the app
+  downloads a link the player gives it, only when asked (PRIVACY.md and
+  the export-compliance answer say so).
 - **On-Demand Resources — no.** Byte-reclaim of the bundled 55 MB is not
   worth adding a "not downloaded" state to every flow and an App
   Store-hosted download dependency.

@@ -643,6 +643,9 @@ final class DuoLayoutSweepTests: XCTestCase {
         defer { app.terminate() }
         guard waitFor(app.buttons["importButton"], "the shelf's Add button", timeout: 30) else { return }
         app.buttons["importButton"].tap()
+        // Add is a menu since #500: From Files… is the picker.
+        guard waitFor(app.buttons["importFromFiles"], "Add's From Files…") else { return }
+        app.buttons["importFromFiles"].tap()
         shoot("40-document-picker", settle: 5)
     }
 

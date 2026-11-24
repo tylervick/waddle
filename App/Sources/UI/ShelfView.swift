@@ -30,6 +30,7 @@ struct ShelfView: View {
         Shelf.heroZone(zone, inTwoHalves: panelModel.isSplit)
     }
     @State private var showImporter = false
+    @State private var showLinkImport = false
     /// The item whose tap opened the Continue / New Game / Details sheet.
     @State private var actionItem: Game?
 
@@ -241,6 +242,9 @@ struct ShelfView: View {
         .wadFileImporter(isPresented: $showImporter, importer: importer) { _ in
             refresh()
         }
+        .sheet(isPresented: $showLinkImport) {
+            LinkImportSheet(importer: importer)
+        }
         .confirmationDialog(actionItem?.name ?? "", isPresented: actionDialogBinding,
                             titleVisibility: .visible, presenting: actionItem) { item in
             Button("Continue") { play(item, mode: .continueNewest) }
@@ -296,13 +300,25 @@ struct ShelfView: View {
             .accessibilityIdentifier("touchSchemeMenu")
         }
         ToolbarItem(placement: .navigationBarTrailing) {
-            Button {
-                showImporter = true
+            // The one import door (spec §3.4): From Files… opens the same
+            // importer the welcome card and the ghost tile do; From a Link…
+            // is the only way in that downloads (#500).
+            Menu {
+                Button {
+                    showImporter = true
+                } label: {
+                    Label("From Files…", systemImage: "folder")
+                }
+                .accessibilityIdentifier("importFromFiles")
+                Button {
+                    showLinkImport = true
+                } label: {
+                    Label("From a Link…", systemImage: "link")
+                }
+                .accessibilityIdentifier("importFromLink")
             } label: {
                 Label("Add", systemImage: "plus")
             }
-            // The one import door (spec §3.4): the welcome card and the ghost
-            // tile call the same importer.
             .accessibilityIdentifier("importButton")
         }
     }
