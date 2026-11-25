@@ -33,6 +33,12 @@ struct ShelfView: View {
     @State private var showLinkImport = false
     /// The item whose tap opened the Continue / New Game / Details sheet.
     @State private var actionItem: Game?
+    /// Where that item is drawn: its tile, or the hero when the hero is its
+    /// game. The dialog is anchored here (`actionDialogAnchor`).
+    @State private var actionAnchor: ShelfActionAnchor?
+    /// Which move of the anchor the pending relayout answers; a later move
+    /// supersedes it (`relayActionDialogOnceSettled`).
+    @State private var actionRelayGeneration = 0
 
     /// The game whose page is pushed (spec §3.2): one screen for every tile,
     /// reached by navigation rather than a sheet.
@@ -105,27 +111,48 @@ struct ShelfView: View {
         // width either: that follows the content too, and a column opening
         // beside the shelf left it wider than its column and cut (issue #469).
         OfferedWidthScrollView {
-            VStack(alignment: .leading,
-                   spacing: ShelfHeroLayout.sectionSpacing(compactHeight: compactHeight)) {
-                switch shownZone {
-                case .welcome: welcomeCard
-                case .resume(let game): hero(for: game)
-                case .empty: EmptyView()
-                }
-                LazyVGrid(columns: columns, spacing: gridSpacing) {
-                    // Not `items`: the hero's game would otherwise repeat as
-                    // the first tile directly beneath itself. `Shelf.gridItems`
-                    // owns that rule and is where it is tested.
-                    ForEach(Shelf.gridItems(from: items, heroZone: shownZone)) { item in
-                        tile(for: item)
+            ScrollViewReader { scroller in
+                VStack(alignment: .leading,
+                       spacing: ShelfHeroLayout.sectionSpacing(compactHeight: compactHeight)) {
+                    switch shownZone {
+                    case .welcome: welcomeCard
+                    case .resume(let game): hero(for: game).id(game.id)
+                    case .empty: EmptyView()
                     }
-                    if Shelf.showsAddHint(itemCount: items.count) {
-                        addHintTile
+                    LazyVGrid(columns: columns, spacing: gridSpacing) {
+                        // Not `items`: the hero's game would otherwise repeat as
+                        // the first tile directly beneath itself. `Shelf.gridItems`
+                        // owns that rule and is where it is tested.
+                        ForEach(Shelf.gridItems(from: items, heroZone: shownZone)) { item in
+                            tile(for: item).id(item.id)
+                        }
+                        if Shelf.showsAddHint(itemCount: items.count) {
+                            addHintTile
+                        }
                     }
                 }
+                .padding(contentPadding)
+                // A turn, a resized window or a change of pose can leave the
+                // game whose actions are up out of view: landscape's shorter
+                // window, or a tile low in a scrolled shelf whose columns
+                // changed. It is brought back the least distance, so the
+                // actions keep pointing at something on screen.
+                .onChange(of: heroContentWidth) { revealActionItem(scroller) }
+                .onChange(of: viewportHeight) { revealActionItem(scroller) }
+                .onChange(of: panelModel.isSplit) { revealActionItem(scroller) }
             }
-            .padding(contentPadding)
         }
+        // A tile's actions are presented from here, above the lazy grid, and
+        // only their anchor follows the tile. From iOS 26 a confirmation
+        // dialog on an iPhone is a popover anchored to the view carrying it:
+        // on the shelf's root, every tile's actions pointed at the screen's
+        // middle (issue #532); on the tile itself, they went with the tile
+        // when the grid rebuilt it for a turn of the phone, and when the
+        // hero took its game back on opening a Duo flat (review of pull
+        // request 536). Here the dialog lives as long as the shelf does and
+        // points at whatever draws the game now.
+        .coordinateSpace(.named(Self.actionAnchorSpace))
+        .overlay(alignment: .topLeading) { actionDialogAnchor }
         // Measured round the ScrollView, at what it is offered, so this is the
         // viewport: what is visible between the toolbar and the home
         // indicator, less the padding above.
@@ -245,15 +272,6 @@ struct ShelfView: View {
         .sheet(isPresented: $showLinkImport) {
             LinkImportSheet(importer: importer)
         }
-        .confirmationDialog(actionItem?.name ?? "", isPresented: actionDialogBinding,
-                            titleVisibility: .visible, presenting: actionItem) { item in
-            Button("Continue") { play(item, mode: .continueNewest) }
-                .accessibilityIdentifier("continueAction")
-            Button("New Game") { play(item, mode: .newGame) }
-                .accessibilityIdentifier("newGameAction")
-            Button("Details") { openDetails(item) }
-                .accessibilityIdentifier("detailsAction")
-        }
         .alert(errorAlert?.title ?? "", isPresented: Binding(
             get: { errorAlert != nil }, set: { if !$0 { dismissErrorAlert() } }
         ), presenting: errorAlert) { _ in
@@ -344,8 +362,77 @@ struct ShelfView: View {
         }
     }
 
-    private var actionDialogBinding: Binding<Bool> {
-        Binding(get: { actionItem != nil }, set: { if !$0 { actionItem = nil } })
+    /// Up once the item's anchor has been measured, so the popover never
+    /// opens pointing at the last game's.
+    private var actionDialogShown: Binding<Bool> {
+        Binding(get: { actionItem != nil && actionAnchor?.id == actionItem?.id },
+                set: { if !$0 { actionItem = nil } })
+    }
+
+    static let actionAnchorSpace = "shelfActionAnchor"
+
+    /// A clear view over whatever draws the game whose actions are up,
+    /// carrying the dialog. It is not in the grid, so nothing the grid does
+    /// to its tiles takes the dialog down; when the tile leaves the screen
+    /// it stays where the tile was last seen until the tile is back.
+    private var actionDialogAnchor: some View {
+        let rect = actionAnchor?.rect ?? .zero
+        return Color.clear
+            .frame(width: max(rect.width, 1), height: max(rect.height, 1))
+            .confirmationDialog(actionItem?.name ?? "", isPresented: actionDialogShown,
+                                titleVisibility: .visible, presenting: actionItem) { item in
+                Button("Continue") { play(item, mode: .continueNewest) }
+                    .accessibilityIdentifier("continueAction")
+                Button("New Game") { play(item, mode: .newGame) }
+                    .accessibilityIdentifier("newGameAction")
+                Button("Details") { openDetails(item) }
+                    .accessibilityIdentifier("detailsAction")
+            }
+            .position(x: rect.midX, y: rect.midY)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    /// Put behind the view that draws `game` (its tile, or the hero): while
+    /// `game`'s actions are up, it reports where that view is, which is all
+    /// the dialog's anchor follows.
+    @ViewBuilder
+    private func actionAnchorReporter(for game: Game) -> some View {
+        if actionItem?.id == game.id {
+            Color.clear.onGeometryChange(for: CGRect.self) { proxy in
+                proxy.frame(in: .named(Self.actionAnchorSpace))
+            } action: { rect in
+                let moved = actionAnchor?.id == game.id && actionAnchor?.rect != rect
+                actionAnchor = ShelfActionAnchor(id: game.id, rect: rect)
+                if moved { relayActionDialogOnceSettled() }
+            }
+        }
+    }
+
+    /// Lays the actions' popover out afresh once its anchor has stopped
+    /// moving. SwiftUI keeps the popover's source rect on the anchor as it
+    /// moves, but UIKit places a popover only when it is presented and when
+    /// its container lays out, which a change of window size causes and a
+    /// move within an unchanged window does not. So after a Duo's change of
+    /// pose, where the hero comes back over the tile's place, the popover
+    /// stayed where the tile had put it: pointing into the hero on an
+    /// iPhone 18 Pro, 30 pt below it on an iPhone Duo, which is the device
+    /// this pose belongs to (re-review of pull request 536). Re-presenting
+    /// the dialog was tried and left the popover at the hero's place after
+    /// bending again; laying out its container is what moved it, every time.
+    private func relayActionDialogOnceSettled() {
+        actionRelayGeneration += 1
+        let generation = actionRelayGeneration
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard generation == actionRelayGeneration, actionItem != nil else { return }
+            ShelfActionPopover.layOutAgain()
+        }
+    }
+
+    private func revealActionItem(_ scroller: ScrollViewProxy) {
+        guard let id = actionItem?.id else { return }
+        scroller.scrollTo(id)
     }
 
     /// The inset around the whole shelf. Named because the hero's own width is
@@ -554,6 +641,9 @@ struct ShelfView: View {
             }
         }
         .contextMenu { contextMenuItems(for: game) }
+        // Opening a Duo flat brings the hero back and takes its game's tile
+        // out of the grid; the game's actions move here with it.
+        .background { actionAnchorReporter(for: game) }
     }
 
     /// Where the hero puts its art for the window it is in. `ShelfHeroLayout`
@@ -757,6 +847,7 @@ struct ShelfView: View {
         // its own accessibility element would split the two apart.
         .accessibilityLabel(TileAccessibility.label(for: game))
         .contextMenu { contextMenuItems(for: game) }
+        .background { actionAnchorReporter(for: game) }
     }
 
     /// One menu for every presentation of an item. The hero needs it too
@@ -1031,5 +1122,37 @@ struct HeroSideBySideCaption: View {
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: font], context: nil)
         return ceil(box.height)
+    }
+}
+
+/// Where the game whose actions are up is drawn, in the shelf's
+/// `actionAnchorSpace`, and which game that is.
+struct ShelfActionAnchor: Equatable {
+    let id: UUID
+    let rect: CGRect
+}
+
+/// The one popover a shelf shows over its grid: a tile's actions. While it
+/// is up nothing else can be presented over the shelf, so the topmost
+/// presented controller with a popover is it.
+enum ShelfActionPopover {
+    /// Asks UIKit to place the popover again against its current source
+    /// rect, which SwiftUI keeps up to date (`relayActionDialogOnceSettled`).
+    /// Measured on an iPhone Duo: the source rect already held the hero's
+    /// frame after opening flat, and the tile's after bending again.
+    @MainActor static func layOutAgain() {
+        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+            for window in scene.windows {
+                var top = window.rootViewController
+                while let next = top?.presentedViewController { top = next }
+                guard let popover = top?.popoverPresentationController,
+                      let container = popover.containerView else { continue }
+                // Its own value, set again: this marks the popover as
+                // needing to be placed, which a layout alone may not.
+                popover.sourceRect = popover.sourceRect
+                container.setNeedsLayout()
+                container.layoutIfNeeded()
+            }
+        }
     }
 }
