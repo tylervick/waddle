@@ -254,7 +254,11 @@ extension PlayTabTests {
     /// steps aside and its game is a tile in the grid; opened flat, the hero
     /// comes back and the tile leaves the grid. The game's actions stay up
     /// through flat, bent and flat again, and point at whichever view stands
-    /// for the game: the tile while bent, the hero while flat. The copy in
+    /// for the game: the tile while bent, the hero while flat, its arrow on
+    /// that view's edge as when first presented. Before the popover was laid
+    /// out again after the move, its tip after opening flat was at y 295
+    /// inside the hero on an iPhone 18 Pro and at y 403.7, 30 pt below the
+    /// hero, on an iPhone Duo (re-review of pull request 536). The copy in
     /// `testAPoseChangeLeavesTheShelfsTileActionsUp` is never the hero, so it
     /// could not see a dialog that left with its tile (review of pull
     /// request 536).
@@ -285,13 +289,7 @@ extension PlayTabTests {
         XCTAssertTrue(waitUntil { !app.otherElements["launcherLowerHalf"].exists },
                       "the launcher stayed in two halves after opening flat")
         assertStaysUp(continueAction, "opened flat, the hero's game's actions were dropped", in: app)
-        // The arrow lands on the hero, but the popover is not laid out
-        // afresh beside it: moved from the tile's frame to the hero's while
-        // up, it points into the hero from over its lower part (measured on
-        // an iPhone 18 Pro: tip at (201, 295) in a hero spanning y 132 to 420,
-        // unchanged six seconds later), where a popover opened on the hero
-        // would sit below it. So here it may cover what it points at.
-        assertArrowPoints(at: hero, in: app, "flat, the hero", timeout: 8, mayCover: true)
+        assertArrowPoints(at: hero, in: app, "flat, the hero", timeout: 8)
 
         notify_post("com.tylervick.waddle.test.half-open-toggle")
         _ = try foldBand(in: app)

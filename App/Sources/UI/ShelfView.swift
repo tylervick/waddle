@@ -36,6 +36,9 @@ struct ShelfView: View {
     /// Where that item is drawn: its tile, or the hero when the hero is its
     /// game. The dialog is anchored here (`actionDialogAnchor`).
     @State private var actionAnchor: ShelfActionAnchor?
+    /// Which move of the anchor the pending relayout answers; a later move
+    /// supersedes it (`relayActionDialogOnceSettled`).
+    @State private var actionRelayGeneration = 0
 
     /// The game whose page is pushed (spec §3.2): one screen for every tile,
     /// reached by navigation rather than a sheet.
@@ -399,8 +402,31 @@ struct ShelfView: View {
             Color.clear.onGeometryChange(for: CGRect.self) { proxy in
                 proxy.frame(in: .named(Self.actionAnchorSpace))
             } action: { rect in
+                let moved = actionAnchor?.id == game.id && actionAnchor?.rect != rect
                 actionAnchor = ShelfActionAnchor(id: game.id, rect: rect)
+                if moved { relayActionDialogOnceSettled() }
             }
+        }
+    }
+
+    /// Lays the actions' popover out afresh once its anchor has stopped
+    /// moving. SwiftUI keeps the popover's source rect on the anchor as it
+    /// moves, but UIKit places a popover only when it is presented and when
+    /// its container lays out, which a change of window size causes and a
+    /// move within an unchanged window does not. So after a Duo's change of
+    /// pose, where the hero comes back over the tile's place, the popover
+    /// stayed where the tile had put it: pointing into the hero on an
+    /// iPhone 18 Pro, 30 pt below it on an iPhone Duo, which is the device
+    /// this pose belongs to (re-review of pull request 536). Re-presenting
+    /// the dialog was tried and left the popover at the hero's place after
+    /// bending again; laying out its container is what moved it, every time.
+    private func relayActionDialogOnceSettled() {
+        actionRelayGeneration += 1
+        let generation = actionRelayGeneration
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard generation == actionRelayGeneration, actionItem != nil else { return }
+            ShelfActionPopover.layOutAgain()
         }
     }
 
@@ -1104,4 +1130,29 @@ struct HeroSideBySideCaption: View {
 struct ShelfActionAnchor: Equatable {
     let id: UUID
     let rect: CGRect
+}
+
+/// The one popover a shelf shows over its grid: a tile's actions. While it
+/// is up nothing else can be presented over the shelf, so the topmost
+/// presented controller with a popover is it.
+enum ShelfActionPopover {
+    /// Asks UIKit to place the popover again against its current source
+    /// rect, which SwiftUI keeps up to date (`relayActionDialogOnceSettled`).
+    /// Measured on an iPhone Duo: the source rect already held the hero's
+    /// frame after opening flat, and the tile's after bending again.
+    @MainActor static func layOutAgain() {
+        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+            for window in scene.windows {
+                var top = window.rootViewController
+                while let next = top?.presentedViewController { top = next }
+                guard let popover = top?.popoverPresentationController,
+                      let container = popover.containerView else { continue }
+                // Its own value, set again: this marks the popover as
+                // needing to be placed, which a layout alone may not.
+                popover.sourceRect = popover.sourceRect
+                container.setNeedsLayout()
+                container.layoutIfNeeded()
+            }
+        }
+    }
 }

@@ -112,11 +112,9 @@ extension PlayTabTests {
     /// Asserts that the actions' popover is up and its arrow lands on
     /// `target`, allowing `timeout` for a popover still moving after a
     /// rotation or a change of pose to settle. Attaches a screenshot.
-    /// `mayCover` lets the popover lie over its target, for the hero: see
-    /// `testAPoseChangeKeepsTheHeroGamesActionsUpAndOnIt`.
     @MainActor
     func assertArrowPoints(at target: XCUIElement, in app: XCUIApplication, _ what: String,
-                           timeout: TimeInterval = 5, mayCover: Bool = false,
+                           timeout: TimeInterval = 5,
                            file: StaticString = #filePath, line: UInt = #line) {
         let popover = app.popovers.firstMatch
         XCTAssertTrue(popover.waitForExistence(timeout: 5),
@@ -125,7 +123,7 @@ extension PlayTabTests {
         var miss: String? = "never measured"
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            miss = arrowMiss(popover: popover, target: target, in: app, mayCover: mayCover)
+            miss = arrowMiss(popover: popover, target: target, in: app)
             if miss == nil { break }
             Thread.sleep(forTimeInterval: 0.25)
         } while Date() < deadline
@@ -151,8 +149,7 @@ extension PlayTabTests {
     /// one row give ranges that do not meet, which is what a check on the
     /// tip's edge alone could not tell apart.
     @MainActor
-    private func arrowMiss(popover: XCUIElement, target: XCUIElement, in app: XCUIApplication,
-                           mayCover: Bool) -> String? {
+    private func arrowMiss(popover: XCUIElement, target: XCUIElement, in app: XCUIApplication) -> String? {
         guard popover.exists, target.exists else {
             return "the popover (\(popover.exists)) or its tile (\(target.exists)) is gone"
         }
@@ -187,7 +184,7 @@ extension PlayTabTests {
             return "the arrow (edge \(tipEdge), along \(tipSpan)) does not land on the tile \(tile); popover \(outer), sheet \(inner)"
         }
         // At the sizes these tests run, the actions sit beside a tile.
-        if !mayCover, inner.insetBy(dx: 1, dy: 1).intersects(tile) {
+        if inner.insetBy(dx: 1, dy: 1).intersects(tile) {
             return "the actions cover their tile \(tile); sheet \(inner)"
         }
         return nil
