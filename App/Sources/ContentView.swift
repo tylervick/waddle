@@ -86,11 +86,14 @@ struct ContentView: View {
                     .padding(.horizontal, Theme.Spacing.base)
                     .padding(.bottom, 100)
             }
+            #if DEBUG
+            // The UI tests' signal that a session ended (plan 1), not
+            // player-facing UI: a Release build shows nothing here, since a
+            // failed session already reaches the player through
+            // `EngineErrorAlert` (issue #533).
             if let code = lastExitCode {
                 VStack(spacing: Theme.Spacing.sm) {
-                    #if DEBUG
                     sessionStartDebugStack
-                    #endif
                     Text("Engine exited: \(code)")
                         .font(Theme.Typography.mono)
                         .padding(.horizontal, Theme.Spacing.md)
@@ -100,7 +103,6 @@ struct ContentView: View {
                 }
                 .padding(.bottom, 60)
             }
-            #if DEBUG
             if ProcessInfo.processInfo.environment["WADDLE_DEBUG_INPUT_COUNTS"] != nil,
                lastExitCode != nil {
                 Text("touchEvents: \(WoofIOS_DebugTouchEventCount())")
