@@ -272,7 +272,7 @@ extension PlayTabTests {
         app.launchEnvironment["WADDLE_TEST_SUSPEND_SAVE"] = Self.placeholderSuspendSave
         app.launchEnvironment["WADDLE_TEST_HALF_OPEN"] = "0"
         app.launch()
-        XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 30), "the shelf never appeared")
+        XCTAssertTrue(waitForShelf(in: app), "the shelf never appeared")
         let hero = app.descendants(matching: .any).matching(identifier: "continueHero").firstMatch
         XCTAssertTrue(hero.waitForExistence(timeout: 10), "flat, there is no Continue hero")
 
