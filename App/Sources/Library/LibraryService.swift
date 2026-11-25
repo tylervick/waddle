@@ -738,6 +738,17 @@ final class LibraryService {
         try Data().write(to: dir.appendingPathComponent(EngineSaveSlot.autoSaveFilename))
     }
 
+    /// Test-only seam (issue #535): gives the game named `name` one save and
+    /// marks it played now, so it is the Continue hero. With a copy, that is
+    /// a hero whose long-press menu has Delete, which Freedoom Phase 1's
+    /// (`seedSuspendSaveForTest`) does not: a base game is hidden, not
+    /// deleted.
+    func seedHeroForTest(gameNamed name: String) throws {
+        guard let game = try games().first(where: { $0.name == name }) else { return }
+        try seedSaveForTest(gameNamed: name)
+        try markPlayed(game)
+    }
+
     /// Test-only seam (the popover anchor issue): adds `copies` copies of
     /// Freedoom Phase 1, named "Shelf <n>", then gives every game on the
     /// shelf one save, so a UI test has a shelf of several rows in which

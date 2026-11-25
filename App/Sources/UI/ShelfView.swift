@@ -33,8 +33,10 @@ struct ShelfView: View {
     @State private var showLinkImport = false
     /// The item whose tap opened the Continue / New Game / Details sheet.
     @State private var actionItem: Game?
-    /// Where that item is drawn: its tile, or the hero when the hero is its
-    /// game. The dialog is anchored here (`actionDialogAnchor`).
+    /// Where the game a shelf dialog is about (`anchoredGame`) is drawn: its
+    /// tile, or the hero when the hero is its game. Both of the shelf's
+    /// dialogs about one game, its actions and its Delete, are anchored here
+    /// (`actionDialogAnchor`).
     @State private var actionAnchor: ShelfActionAnchor?
     /// Which move of the anchor the pending relayout answers; a later move
     /// supersedes it (`relayActionDialogOnceSettled`).
@@ -44,7 +46,7 @@ struct ShelfView: View {
     /// reached by navigation rather than a sheet.
     @State private var pageGame: Game?
     /// The non-base game a destructive context-menu tap is confirming removal
-    /// of, via `deleteGamePrompt`.
+    /// of, via `deleteGamePrompt` on `actionDialogAnchor`.
     @State private var deleteCandidate: Game?
     @State private var showPlayerSettings = false
     @AppStorage(debugHUDUserDefaultsKey) private var debugHUD: Bool = false
@@ -133,7 +135,7 @@ struct ShelfView: View {
                 }
                 .padding(contentPadding)
                 // A turn, a resized window or a change of pose can leave the
-                // game whose actions are up out of view: landscape's shorter
+                // game whose actions or Delete is up out of view: landscape's shorter
                 // window, or a tile low in a scrolled shelf whose columns
                 // changed. It is brought back the least distance, so the
                 // actions keep pointing at something on screen.
@@ -193,7 +195,6 @@ struct ShelfView: View {
                 .environment(\.panelHost, panelModel.columnHost)
                 .onDisappear { if pageGame == nil { panelModel.pageClosed(game) } }
         }
-        .deleteGamePrompt(game: $deleteCandidate, library: library, onDeleted: refresh)
         // .overlay, not .safeAreaInset -- a conditionally-empty safeAreaInset
         // directly above a ScrollView/LazyVGrid crashed SwiftUI's layout engine
         // here (HVGrid.minorGeometry, SwiftUI internal, iOS 26.2 SDK).
@@ -362,6 +363,12 @@ struct ShelfView: View {
         }
     }
 
+    /// The game whose actions or whose Delete confirmation is up: the one
+    /// `actionDialogAnchor` follows. A tap opens the first and the long-press
+    /// menu the second, and the menu cannot open over the actions' popover,
+    /// so they are never both set.
+    private var anchoredGame: Game? { actionItem ?? deleteCandidate }
+
     /// Up once the item's anchor has been measured, so the popover never
     /// opens pointing at the last game's.
     private var actionDialogShown: Binding<Bool> {
@@ -369,12 +376,22 @@ struct ShelfView: View {
                 set: { if !$0 { actionItem = nil } })
     }
 
+    /// `deleteCandidate`, once its anchor has been measured: the same rule as
+    /// `actionDialogShown`, for the Delete confirmation.
+    private var deletePromptGame: Binding<Game?> {
+        Binding(get: { deleteCandidate.flatMap { actionAnchor?.id == $0.id ? $0 : nil } },
+                set: { deleteCandidate = $0 })
+    }
+
     static let actionAnchorSpace = "shelfActionAnchor"
 
-    /// A clear view over whatever draws the game whose actions are up,
-    /// carrying the dialog. It is not in the grid, so nothing the grid does
-    /// to its tiles takes the dialog down; when the tile leaves the screen
-    /// it stays where the tile was last seen until the tile is back.
+    /// A clear view over whatever draws the game whose actions or Delete
+    /// confirmation is up, carrying both dialogs. It is not in the grid, so
+    /// nothing the grid does to its tiles takes a dialog down; when the tile
+    /// leaves the screen it stays where the tile was last seen until the
+    /// tile is back. The Delete confirmation was on the shelf's root and
+    /// pointed at the top of the screen from every tile (issue #535); the
+    /// game page keeps its own, on the page.
     private var actionDialogAnchor: some View {
         let rect = actionAnchor?.rect ?? .zero
         return Color.clear
@@ -388,17 +405,18 @@ struct ShelfView: View {
                 Button("Details") { openDetails(item) }
                     .accessibilityIdentifier("detailsAction")
             }
+            .deleteGamePrompt(game: deletePromptGame, library: library, onDeleted: refresh)
             .position(x: rect.midX, y: rect.midY)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
 
     /// Put behind the view that draws `game` (its tile, or the hero): while
-    /// `game`'s actions are up, it reports where that view is, which is all
-    /// the dialog's anchor follows.
+    /// `game`'s actions or Delete confirmation are up, it reports where that
+    /// view is, which is all the dialogs' anchor follows.
     @ViewBuilder
     private func actionAnchorReporter(for game: Game) -> some View {
-        if actionItem?.id == game.id {
+        if anchoredGame?.id == game.id {
             Color.clear.onGeometryChange(for: CGRect.self) { proxy in
                 proxy.frame(in: .named(Self.actionAnchorSpace))
             } action: { rect in
@@ -425,13 +443,13 @@ struct ShelfView: View {
         let generation = actionRelayGeneration
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(300))
-            guard generation == actionRelayGeneration, actionItem != nil else { return }
+            guard generation == actionRelayGeneration, anchoredGame != nil else { return }
             ShelfActionPopover.layOutAgain()
         }
     }
 
     private func revealActionItem(_ scroller: ScrollViewProxy) {
-        guard let id = actionItem?.id else { return }
+        guard let id = anchoredGame?.id else { return }
         scroller.scrollTo(id)
     }
 
@@ -1125,16 +1143,16 @@ struct HeroSideBySideCaption: View {
     }
 }
 
-/// Where the game whose actions are up is drawn, in the shelf's
+/// Where the game whose actions or Delete is up is drawn, in the shelf's
 /// `actionAnchorSpace`, and which game that is.
 struct ShelfActionAnchor: Equatable {
     let id: UUID
     let rect: CGRect
 }
 
-/// The one popover a shelf shows over its grid: a tile's actions. While it
-/// is up nothing else can be presented over the shelf, so the topmost
-/// presented controller with a popover is it.
+/// The one popover a shelf shows over its grid: a tile's actions, or its
+/// Delete confirmation. While it is up nothing else can be presented over
+/// the shelf, so the topmost presented controller with a popover is it.
 enum ShelfActionPopover {
     /// Asks UIKit to place the popover again against its current source
     /// rect, which SwiftUI keeps up to date (`relayActionDialogOnceSettled`).
