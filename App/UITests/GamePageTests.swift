@@ -111,8 +111,12 @@ final class GamePageTests: XCTestCase {
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launch()
         openGamePage(app, tile: "playFreedoom1")
+        // The page's own scroll view, which on an iPad is a panel beside the
+        // shelf rather than the whole window (issue #519).
+        let page = app.collectionViews["gamePage"]
+        XCTAssertTrue(page.waitForExistence(timeout: 5), "the game page's scroll view is missing")
         let system = app.buttons["schemePicker"]
-        scrollTo(system, in: app)
+        scrollTo(system, in: app, swiping: page)
         let systemLabel = system.label
         let systemValue = system.value as? String
         XCTAssertTrue(systemLabel.contains("Touch layout") && systemLabel.contains("Default"),
@@ -123,15 +127,17 @@ final class GamePageTests: XCTestCase {
                                 "UICTContentSizeCategoryAccessibilityXXXL"]
         app.launch()
         openGamePage(app, tile: "playFreedoom1")
+        XCTAssertTrue(page.waitForExistence(timeout: 5), "the game page's scroll view is missing")
         let row = app.buttons["schemePicker"]
-        scrollTo(row, in: app)
+        scrollTo(row, in: app, swiping: page)
         XCTAssertEqual(row.label, systemLabel, "the hand-built row is labelled differently from the system picker")
         XCTAssertEqual(row.value as? String, systemValue, "the hand-built row's value differs from the system picker's")
 
         // The row spans its card, not just the words of the value: the
-        // system's row opens from anywhere on it.
-        XCTAssertGreaterThan(row.frame.width, app.frame.width * 0.6,
-                             "only part of the row is the control; frame \(row.frame)")
+        // system's row opens from anywhere on it. Measured against the page,
+        // which is the window on a phone and a 376 pt panel on an iPad.
+        XCTAssertGreaterThan(row.frame.width, page.frame.width * 0.6,
+                             "only part of the row is the control; frame \(row.frame), page \(page.frame)")
         // The far end of the title's line, where the row has no text at all.
         row.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.2)).tap()
         let modern = app.buttons["Modern"]

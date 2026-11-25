@@ -8,11 +8,12 @@ import XCTest
 /// right region is a drag-to-turn surface, so a fingertip that misses FIRE,
 /// USE or a weapon button by a few points lands on bare overlay inside the
 /// turn region, and only the near-miss cushion stops it swinging the view.
-/// The one pre-existing test of the guard
-/// (`TouchControlsTests.testNearMissBesideWeaponPrevDoesNotStartStick`) runs
-/// the `classic` scheme in `WaddleUITests`, which the pull-request path never
-/// runs, and cannot fail if the cushion regresses — `classic` starts no turn
-/// track at all.
+/// The live test of the guard
+/// (`TouchControlsTests.testNearMissBesideWeaponPrevStartsNoTrack`) runs in
+/// `WaddleUITests`, which the pull-request path never runs. It ran the
+/// `classic` scheme until issue #519 and could not fail if the cushion
+/// regressed, because `classic` starts no turn track at all; it now runs
+/// `modern` and reads a `turnEngaged` marker.
 ///
 /// Button frames come from `TouchOverlayLayout` rather than from hand-written
 /// rects, so these cases follow the shipped arrangement instead of a
