@@ -157,6 +157,11 @@ enum ImportRoute: Sendable, Equatable {
     case picker
     /// "Open in Waddle" and the share sheet (`.onOpenURL`).
     case openIn
+    /// Files dropped on the shelf: from Finder onto a Mac window, or from
+    /// Files in an iPad's Split View (`WADDrop`, #481). The player still has
+    /// the originals, so a rejected file is reported and left alone, as the
+    /// picker leaves it.
+    case drop
     /// A file downloaded from a link the player gave (`LinkImport`, #500).
     case link
     /// Loose files in Documents/ and Documents/Inbox/, swept on launch and
