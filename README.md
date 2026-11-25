@@ -298,11 +298,12 @@ Freedoom Phase 1+2 are bundled as base games.
   touch control schemes are available from the gear on the shelf, which
   opens a Settings sheet ("Touch Controls: Classic / Modern", persisted
   across launches):
-  - **Classic** (default): the stick's horizontal axis turns, vertical axis
+  - **Classic:** the stick's horizontal axis turns, vertical axis
     moves forward/back — no strafe, matching how classic WADs expect to be
     played. The right side of the screen has no drag gesture; it only hosts
     buttons.
-  - **Modern:** twin-stick strafe — the stick moves in all directions
+  - **Modern** (default on a new install; an install updated from an
+    earlier version that never chose stays on Classic): twin-stick strafe — the stick moves in all directions
     (forward/back + strafe), and dragging on the right side turns. The
     right side shows the same base/knob visuals as the movement stick while
     dragging.

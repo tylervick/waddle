@@ -5,20 +5,93 @@ final class TouchControlSchemeTests: XCTestCase {
 
     // MARK: Default + persistence key
 
-    func testDefaultSchemeIsClassic() {
-        XCTAssertEqual(TouchControlScheme.defaultScheme, .classic)
+    func testDefaultSchemeIsModern() {
+        XCTAssertEqual(TouchControlScheme.defaultScheme, .modern)
     }
 
     func testCurrentFallsBackToDefaultWhenUnset() {
         withEmptyDefaults { defaults in
-            XCTAssertEqual(TouchControlScheme.current(defaults: defaults), .classic)
+            XCTAssertEqual(TouchControlScheme.current(defaults: defaults), .modern)
         }
     }
 
     func testCurrentFallsBackToDefaultWhenUnrecognized() {
         withEmptyDefaults { defaults in
             defaults.set("not-a-real-scheme", forKey: TouchControlScheme.userDefaultsKey)
+            XCTAssertEqual(TouchControlScheme.current(defaults: defaults), .modern)
+        }
+    }
+
+    // MARK: Settling the stored scheme at launch (issue #534)
+
+    /// The scheme an install with nothing stored played on before the
+    /// default changed. Pinned on its own so that a later change to
+    /// `defaultScheme` cannot drag it along.
+    func testPreviousDefaultIsClassic() {
+        XCTAssertEqual(TouchControlScheme.previousDefault, .classic)
+    }
+
+    func testANewInstallStartsOnModern() {
+        withEmptyDefaults { defaults in
+            TouchControlScheme.settleStoredScheme(isExistingInstall: false, defaults: defaults)
+            XCTAssertEqual(TouchControlScheme.current(defaults: defaults), .modern)
+            XCTAssertEqual(defaults.string(forKey: TouchControlScheme.userDefaultsKey), "modern",
+                           "a new install's scheme must be stored, so its next launch is not mistaken for an old install")
+        }
+    }
+
+    /// The player who never opened Settings and has been on Classic by
+    /// default: they stay on Classic.
+    func testAnExistingInstallThatNeverChoseKeepsClassic() {
+        withEmptyDefaults { defaults in
+            TouchControlScheme.settleStoredScheme(isExistingInstall: true, defaults: defaults)
             XCTAssertEqual(TouchControlScheme.current(defaults: defaults), .classic)
+        }
+    }
+
+    /// An unrecognized stored value read as the default, Classic, before.
+    func testAnExistingInstallWithAnUnrecognizedValueKeepsClassic() {
+        withEmptyDefaults { defaults in
+            defaults.set("not-a-real-scheme", forKey: TouchControlScheme.userDefaultsKey)
+            TouchControlScheme.settleStoredScheme(isExistingInstall: true, defaults: defaults)
+            XCTAssertEqual(TouchControlScheme.current(defaults: defaults), .classic)
+        }
+    }
+
+    func testAnExistingInstallThatChoseKeepsItsChoice() {
+        for chosen in TouchControlScheme.allCases {
+            withEmptyDefaults { defaults in
+                defaults.set(chosen.rawValue, forKey: TouchControlScheme.userDefaultsKey)
+                TouchControlScheme.settleStoredScheme(isExistingInstall: true, defaults: defaults)
+                XCTAssertEqual(TouchControlScheme.current(defaults: defaults), chosen)
+            }
+        }
+    }
+
+    /// A new install's second launch has a library, so it reads as an
+    /// existing install; it must stay on Modern rather than be pinned to
+    /// Classic then.
+    func testANewInstallStaysOnModernAtItsNextLaunch() {
+        withEmptyDefaults { defaults in
+            TouchControlScheme.settleStoredScheme(isExistingInstall: false, defaults: defaults)
+            TouchControlScheme.settleStoredScheme(isExistingInstall: true, defaults: defaults)
+            XCTAssertEqual(TouchControlScheme.current(defaults: defaults), .modern)
+        }
+    }
+
+    /// The setting still switches both ways after settling, on either kind
+    /// of install, and a later launch's settle leaves the choice alone.
+    func testTheSettingStillSwitchesBothWaysAfterSettling() {
+        for existing in [false, true] {
+            withEmptyDefaults { defaults in
+                TouchControlScheme.settleStoredScheme(isExistingInstall: existing, defaults: defaults)
+                for chosen in [TouchControlScheme.classic, .modern, .classic] {
+                    defaults.set(chosen.rawValue, forKey: TouchControlScheme.userDefaultsKey)
+                    TouchControlScheme.settleStoredScheme(isExistingInstall: true, defaults: defaults)
+                    XCTAssertEqual(TouchControlScheme.current(defaults: defaults), chosen,
+                                   "existing install: \(existing)")
+                }
+            }
         }
     }
 

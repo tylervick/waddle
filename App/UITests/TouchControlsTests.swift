@@ -59,8 +59,8 @@ final class TouchControlsTests: XCTestCase {
         XCTAssertGreaterThan(count, 0, "no touch input reached the SDL shim")
     }
 
-    /// Classic is the default scheme (usesDragTurn == false), so the test
-    /// above never exercises the right-side drag-to-turn gesture at all --
+    /// The test above runs whatever scheme the simulator's install is on, so
+    /// it cannot be relied on to exercise the right-side drag-to-turn gesture at all --
     /// touchesBegan silently ignores it. This test pins the scheme to
     /// modern via the WADDLE_TOUCH_SCHEME test seam (see
     /// TouchControlScheme.current()) and performs *only* the turn drag --
@@ -114,8 +114,8 @@ final class TouchControlsTests: XCTestCase {
     /// the WoofIOS_SetTouchTrigger doc comment in woof_ios.c for the full
     /// citation trail). WADDLE_TEST_WARP puts the session in-game (no
     /// scripted menu navigation) so FIRE exercises its real gameplay path,
-    /// not the title screen's menu-select behavior. Classic scheme (the
-    /// default) is fine here -- FIRE is scheme-independent.
+    /// not the title screen's menu-select behavior. Either scheme is
+    /// fine here -- FIRE is scheme-independent.
     @MainActor
     func testFireReleaseClearsTriggerResidue() throws {
         let app = XCUIApplication()

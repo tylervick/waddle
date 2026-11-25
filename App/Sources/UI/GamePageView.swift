@@ -765,7 +765,7 @@ private struct MenuPickerRow<Value: Hashable, Options: View>: View {
             }
             .buttonStyle(.plain)
             // What the system's menu picker reads: "Touch layout, Default
-            // (Classic)" as the label and no value (read off the default-size
+            // (Modern)" as the label and no value (read off the default-size
             // row by `GamePageTests`, which holds this row to it).
             .accessibilityLabel("\(title), \(current)")
             .accessibilityIdentifier(identifier)

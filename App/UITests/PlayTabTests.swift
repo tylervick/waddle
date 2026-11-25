@@ -46,18 +46,21 @@ final class PlayTabTests: XCTestCase {
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launch()
 
-        // Open the game page and set the Controls override to MODERN. Modern is
-        // distinct from the global default (Classic), so a persisted Modern is
-        // unambiguous — the no-override label renders as "Default (Classic)",
-        // which must NOT be mistaken for a saved selection. `schemePicker` sits
+        // Open the game page and set the Controls override to CLASSIC. Classic
+        // is distinct from the global default (Modern, on the new install the
+        // reset makes), so a persisted Classic is unambiguous — the
+        // no-override label renders as "Default (Modern)", which must NOT be
+        // mistaken for a saved selection. `schemePicker` sits
         // in the page's settings section, below the header/base/files sections,
         // so it needs scrolling into view first (lazy Form — see
         // docs/learnings/lazy-form-hides-rows-from-uitests.md).
         openGamePage(app, tile: "playFreedoom1")
         let picker = app.buttons["schemePicker"]
         scrollTo(picker, in: app)
+        XCTAssertTrue(picker.label.contains("Default (Modern)"),
+                      "a new install's global default is not Modern; picker label = '\(picker.label)'")
         picker.tap()
-        app.buttons["Modern"].tap()
+        app.buttons["Classic"].tap()
 
         // Pop back to the shelf (the game page is pushed, not a sheet, so this
         // replaces the old drag-to-dismiss gesture) and confirm it's gone.
@@ -68,7 +71,7 @@ final class PlayTabTests: XCTestCase {
         openGamePage(app, tile: "playFreedoom1")
         let reopened = app.buttons["schemePicker"]
         scrollTo(reopened, in: app)
-        XCTAssertTrue(reopened.label.contains("Modern"),
+        XCTAssertTrue(reopened.label.contains("Classic") && !reopened.label.contains("Default"),
                       "scheme override did not persist across reopen; picker label = '\(reopened.label)'")
     }
 
