@@ -250,6 +250,65 @@ extension PlayTabTests {
         assertStaysUp(continueAction, "opened flat, the tile's actions were dropped", in: app)
     }
 
+    /// The same when the tile is the hero's game: bent, the Continue hero
+    /// steps aside and its game is a tile in the grid; opened flat, the hero
+    /// comes back and the tile leaves the grid. The game's actions stay up
+    /// through flat, bent and flat again, and point at whichever view stands
+    /// for the game: the tile while bent, the hero while flat. The copy in
+    /// `testAPoseChangeLeavesTheShelfsTileActionsUp` is never the hero, so it
+    /// could not see a dialog that left with its tile (review of pull
+    /// request 536).
+    @MainActor
+    func testAPoseChangeKeepsTheHeroGamesActionsUpAndOnIt() throws {
+        let app = XCUIApplication()
+        app.provideFreedoom()
+        app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
+        // A save for Freedoom Phase 1, marked played: the hero's game, and a
+        // tile that taps to its actions when the hero is not drawn.
+        app.launchEnvironment["WADDLE_TEST_SUSPEND_SAVE"] = Self.placeholderSuspendSave
+        app.launchEnvironment["WADDLE_TEST_HALF_OPEN"] = "0"
+        app.launch()
+        XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 30), "the shelf never appeared")
+        let hero = app.descendants(matching: .any).matching(identifier: "continueHero").firstMatch
+        XCTAssertTrue(hero.waitForExistence(timeout: 10), "flat, there is no Continue hero")
+
+        notify_post("com.tylervick.waddle.test.half-open-toggle")
+        _ = try foldBand(in: app)
+        let tile = app.buttons["playFreedoom1"]
+        XCTAssertTrue(tile.waitForExistence(timeout: 8), "bent, the hero's game is not a tile")
+        tile.tap()
+        let continueAction = app.buttons["continueAction"]
+        XCTAssertTrue(continueAction.waitForExistence(timeout: 5), "the tile's actions never came up")
+        assertArrowPoints(at: tile, in: app, "bent, the hero's game as a tile")
+
+        notify_post("com.tylervick.waddle.test.half-open-toggle")
+        XCTAssertTrue(waitUntil { !app.otherElements["launcherLowerHalf"].exists },
+                      "the launcher stayed in two halves after opening flat")
+        assertStaysUp(continueAction, "opened flat, the hero's game's actions were dropped", in: app)
+        // The arrow lands on the hero, but the popover is not laid out
+        // afresh beside it: moved from the tile's frame to the hero's while
+        // up, it points into the hero from over its lower part (measured on
+        // an iPhone 18 Pro: tip at (201, 295) in a hero spanning y 132 to 420,
+        // unchanged six seconds later), where a popover opened on the hero
+        // would sit below it. So here it may cover what it points at.
+        assertArrowPoints(at: hero, in: app, "flat, the hero", timeout: 8, mayCover: true)
+
+        notify_post("com.tylervick.waddle.test.half-open-toggle")
+        _ = try foldBand(in: app)
+        assertStaysUp(continueAction, "bent again, the hero's game's actions were dropped", in: app)
+        assertArrowPoints(at: app.buttons["playFreedoom1"], in: app, "bent again, the tile", timeout: 8)
+
+        notify_post("com.tylervick.waddle.test.half-open-toggle")
+        XCTAssertTrue(waitUntil { !app.otherElements["launcherLowerHalf"].exists },
+                      "the launcher stayed in two halves after opening flat again")
+        assertStaysUp(continueAction, "opened flat again, the hero's game's actions were dropped", in: app)
+    }
+
+    /// 64 bytes of "x", raw-deflate compressed and base64 encoded, as
+    /// `WADDLE_TEST_SUSPEND_SAVE` takes a save: a file the shelf counts,
+    /// which nothing here loads (the same bytes `DuoLayoutSweepTests` uses).
+    static let placeholderSuspendSave = "q6igDAAA"
+
     /// The same for the launcher's alert after a session that failed: the
     /// one place the player is told why, and it is the shelf's.
     @MainActor

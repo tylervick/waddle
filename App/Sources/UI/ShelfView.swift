@@ -33,6 +33,9 @@ struct ShelfView: View {
     @State private var showLinkImport = false
     /// The item whose tap opened the Continue / New Game / Details sheet.
     @State private var actionItem: Game?
+    /// Where that item is drawn: its tile, or the hero when the hero is its
+    /// game. The dialog is anchored here (`actionDialogAnchor`).
+    @State private var actionAnchor: ShelfActionAnchor?
 
     /// The game whose page is pushed (spec §3.2): one screen for every tile,
     /// reached by navigation rather than a sheet.
@@ -105,27 +108,48 @@ struct ShelfView: View {
         // width either: that follows the content too, and a column opening
         // beside the shelf left it wider than its column and cut (issue #469).
         OfferedWidthScrollView {
-            VStack(alignment: .leading,
-                   spacing: ShelfHeroLayout.sectionSpacing(compactHeight: compactHeight)) {
-                switch shownZone {
-                case .welcome: welcomeCard
-                case .resume(let game): hero(for: game)
-                case .empty: EmptyView()
-                }
-                LazyVGrid(columns: columns, spacing: gridSpacing) {
-                    // Not `items`: the hero's game would otherwise repeat as
-                    // the first tile directly beneath itself. `Shelf.gridItems`
-                    // owns that rule and is where it is tested.
-                    ForEach(Shelf.gridItems(from: items, heroZone: shownZone)) { item in
-                        tile(for: item)
+            ScrollViewReader { scroller in
+                VStack(alignment: .leading,
+                       spacing: ShelfHeroLayout.sectionSpacing(compactHeight: compactHeight)) {
+                    switch shownZone {
+                    case .welcome: welcomeCard
+                    case .resume(let game): hero(for: game).id(game.id)
+                    case .empty: EmptyView()
                     }
-                    if Shelf.showsAddHint(itemCount: items.count) {
-                        addHintTile
+                    LazyVGrid(columns: columns, spacing: gridSpacing) {
+                        // Not `items`: the hero's game would otherwise repeat as
+                        // the first tile directly beneath itself. `Shelf.gridItems`
+                        // owns that rule and is where it is tested.
+                        ForEach(Shelf.gridItems(from: items, heroZone: shownZone)) { item in
+                            tile(for: item).id(item.id)
+                        }
+                        if Shelf.showsAddHint(itemCount: items.count) {
+                            addHintTile
+                        }
                     }
                 }
+                .padding(contentPadding)
+                // A turn, a resized window or a change of pose can leave the
+                // game whose actions are up out of view: landscape's shorter
+                // window, or a tile low in a scrolled shelf whose columns
+                // changed. It is brought back the least distance, so the
+                // actions keep pointing at something on screen.
+                .onChange(of: heroContentWidth) { revealActionItem(scroller) }
+                .onChange(of: viewportHeight) { revealActionItem(scroller) }
+                .onChange(of: panelModel.isSplit) { revealActionItem(scroller) }
             }
-            .padding(contentPadding)
         }
+        // A tile's actions are presented from here, above the lazy grid, and
+        // only their anchor follows the tile. From iOS 26 a confirmation
+        // dialog on an iPhone is a popover anchored to the view carrying it:
+        // on the shelf's root, every tile's actions pointed at the screen's
+        // middle (issue #532); on the tile itself, they went with the tile
+        // when the grid rebuilt it for a turn of the phone, and when the
+        // hero took its game back on opening a Duo flat (review of pull
+        // request 536). Here the dialog lives as long as the shelf does and
+        // points at whatever draws the game now.
+        .coordinateSpace(.named(Self.actionAnchorSpace))
+        .overlay(alignment: .topLeading) { actionDialogAnchor }
         // Measured round the ScrollView, at what it is offered, so this is the
         // viewport: what is visible between the toolbar and the home
         // indicator, less the padding above.
@@ -335,12 +359,54 @@ struct ShelfView: View {
         }
     }
 
-    /// Whether `game`'s tile has its actions up. Each tile asks only about
-    /// itself, and only takes down its own: a dismissal that lands after
-    /// another tile's actions went up must not drop those.
-    private func actionDialogBinding(for game: Game) -> Binding<Bool> {
-        Binding(get: { actionItem?.id == game.id },
-                set: { if !$0, actionItem?.id == game.id { actionItem = nil } })
+    /// Up once the item's anchor has been measured, so the popover never
+    /// opens pointing at the last game's.
+    private var actionDialogShown: Binding<Bool> {
+        Binding(get: { actionItem != nil && actionAnchor?.id == actionItem?.id },
+                set: { if !$0 { actionItem = nil } })
+    }
+
+    static let actionAnchorSpace = "shelfActionAnchor"
+
+    /// A clear view over whatever draws the game whose actions are up,
+    /// carrying the dialog. It is not in the grid, so nothing the grid does
+    /// to its tiles takes the dialog down; when the tile leaves the screen
+    /// it stays where the tile was last seen until the tile is back.
+    private var actionDialogAnchor: some View {
+        let rect = actionAnchor?.rect ?? .zero
+        return Color.clear
+            .frame(width: max(rect.width, 1), height: max(rect.height, 1))
+            .confirmationDialog(actionItem?.name ?? "", isPresented: actionDialogShown,
+                                titleVisibility: .visible, presenting: actionItem) { item in
+                Button("Continue") { play(item, mode: .continueNewest) }
+                    .accessibilityIdentifier("continueAction")
+                Button("New Game") { play(item, mode: .newGame) }
+                    .accessibilityIdentifier("newGameAction")
+                Button("Details") { openDetails(item) }
+                    .accessibilityIdentifier("detailsAction")
+            }
+            .position(x: rect.midX, y: rect.midY)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    /// Put behind the view that draws `game` (its tile, or the hero): while
+    /// `game`'s actions are up, it reports where that view is, which is all
+    /// the dialog's anchor follows.
+    @ViewBuilder
+    private func actionAnchorReporter(for game: Game) -> some View {
+        if actionItem?.id == game.id {
+            Color.clear.onGeometryChange(for: CGRect.self) { proxy in
+                proxy.frame(in: .named(Self.actionAnchorSpace))
+            } action: { rect in
+                actionAnchor = ShelfActionAnchor(id: game.id, rect: rect)
+            }
+        }
+    }
+
+    private func revealActionItem(_ scroller: ScrollViewProxy) {
+        guard let id = actionItem?.id else { return }
+        scroller.scrollTo(id)
     }
 
     /// The inset around the whole shelf. Named because the hero's own width is
@@ -549,6 +615,9 @@ struct ShelfView: View {
             }
         }
         .contextMenu { contextMenuItems(for: game) }
+        // Opening a Duo flat brings the hero back and takes its game's tile
+        // out of the grid; the game's actions move here with it.
+        .background { actionAnchorReporter(for: game) }
     }
 
     /// Where the hero puts its art for the window it is in. `ShelfHeroLayout`
@@ -752,19 +821,7 @@ struct ShelfView: View {
         // its own accessibility element would split the two apart.
         .accessibilityLabel(TileAccessibility.label(for: game))
         .contextMenu { contextMenuItems(for: game) }
-        // On the tile, not the shelf: from iOS 26 a confirmation dialog on
-        // an iPhone is a popover anchored to the view it is attached to.
-        // Attached to the shelf, every tile's actions came up at the top of
-        // the screen with their arrow on its middle (issue #532).
-        .confirmationDialog(game.name, isPresented: actionDialogBinding(for: game),
-                            titleVisibility: .visible) {
-            Button("Continue") { play(game, mode: .continueNewest) }
-                .accessibilityIdentifier("continueAction")
-            Button("New Game") { play(game, mode: .newGame) }
-                .accessibilityIdentifier("newGameAction")
-            Button("Details") { openDetails(game) }
-                .accessibilityIdentifier("detailsAction")
-        }
+        .background { actionAnchorReporter(for: game) }
     }
 
     /// One menu for every presentation of an item. The hero needs it too
@@ -1040,4 +1097,11 @@ struct HeroSideBySideCaption: View {
             attributes: [.font: font], context: nil)
         return ceil(box.height)
     }
+}
+
+/// Where the game whose actions are up is drawn, in the shelf's
+/// `actionAnchorSpace`, and which game that is.
+struct ShelfActionAnchor: Equatable {
+    let id: UUID
+    let rect: CGRect
 }

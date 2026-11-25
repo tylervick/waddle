@@ -8,8 +8,11 @@ import XCTest
 /// up in the same place at the top of the shelf, their arrow pointing at the
 /// screen's middle and at no tile (TestFlight feedback on build 323, issue
 /// 532). This measures the live popover against the tapped tile's frame: the
-/// arrow's edge of the popover has to touch the tile, for a tile in each
-/// column, in the first row and, after the shelf has scrolled, in the last.
+/// arrow's tip has to land on the tile, on its edge and within its span, for
+/// a tile in each column, in the first row and, after the shelf has scrolled,
+/// in the last. And the actions stay up and on their tile when the phone is
+/// turned, which a dialog hosted on the tile itself did not (review of pull
+/// request 536): the lazy grid rebuilt the tile and took the dialog with it.
 ///
 /// An extension of `PlayTabTests`, in its own file, so it runs in the set a
 /// pull request runs (`.github/workflows/ui-tests.yml`).
@@ -92,55 +95,102 @@ extension PlayTabTests {
         return (first, last)
     }
 
-    /// Taps `tile`, checks that the popover's arrow touches it, and takes
+    /// Taps `tile`, checks that the popover's arrow lands on it, and takes
     /// the actions down again.
     @MainActor
     private func assertActionsPoint(at tile: XCUIElement, in app: XCUIApplication, _ what: String,
                                     file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertTrue(tile.waitForExistence(timeout: 5), "\(what): no tile", file: file, line: line)
-        let tileFrame = tile.frame
         tile.tap()
         let continueAction = app.buttons["continueAction"].firstMatch
         XCTAssertTrue(continueAction.waitForExistence(timeout: 5), "\(what): the actions never came up",
                       file: file, line: line)
+        assertArrowPoints(at: tile, in: app, what, file: file, line: line)
+        dismissActions(in: app, continueAction)
+    }
+
+    /// Asserts that the actions' popover is up and its arrow lands on
+    /// `target`, allowing `timeout` for a popover still moving after a
+    /// rotation or a change of pose to settle. Attaches a screenshot.
+    /// `mayCover` lets the popover lie over its target, for the hero: see
+    /// `testAPoseChangeKeepsTheHeroGamesActionsUpAndOnIt`.
+    @MainActor
+    func assertArrowPoints(at target: XCUIElement, in app: XCUIApplication, _ what: String,
+                           timeout: TimeInterval = 5, mayCover: Bool = false,
+                           file: StaticString = #filePath, line: UInt = #line) {
         let popover = app.popovers.firstMatch
         XCTAssertTrue(popover.waitForExistence(timeout: 5),
-                      "\(what): the actions are not a popover; this test measures a popover's arrow",
+                      "\(what): the actions are not up as a popover; this test measures a popover's arrow",
                       file: file, line: line)
-        // The popover's frame includes its arrow; the dialog's sheet inside
-        // it does not. The side on which the popover reaches past the sheet
-        // is the side the arrow is on, and that edge is the arrow's tip.
-        let outer = popover.frame
-        let inner = popover.sheets.firstMatch.frame
+        var miss: String? = "never measured"
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            miss = arrowMiss(popover: popover, target: target, in: app, mayCover: mayCover)
+            if miss == nil { break }
+            Thread.sleep(forTimeInterval: 0.25)
+        } while Date() < deadline
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = "actions for \(what)"
         shot.lifetime = .keepAlways
         add(shot)
+        if let miss { XCTFail("\(what): \(miss)", file: file, line: line) }
+    }
 
-        let tip: CGRect
-        if outer.maxY - inner.maxY > 4 {
-            tip = CGRect(x: outer.minX, y: outer.maxY, width: outer.width, height: 0)
-        } else if inner.minY - outer.minY > 4 {
-            tip = CGRect(x: outer.minX, y: outer.minY, width: outer.width, height: 0)
-        } else if outer.maxX - inner.maxX > 4 {
-            tip = CGRect(x: outer.maxX, y: outer.minY, width: 0, height: outer.height)
-        } else if inner.minX - outer.minX > 4 {
-            tip = CGRect(x: outer.minX, y: outer.minY, width: 0, height: outer.height)
-        } else {
-            XCTFail("\(what): no arrow found; popover \(outer), sheet \(inner)", file: file, line: line)
-            dismissActions(in: app, continueAction)
-            return
+    /// Why the popover's arrow does not land on `target`, or nil when it does.
+    ///
+    /// The popover's frame includes its arrow; the dialog's sheet inside it
+    /// does not. The side on which the popover reaches past the sheet is the
+    /// arrow's side, and that edge is where its tip is. Along that edge the
+    /// arrow is not in the tree, so where it is follows from how UIKit
+    /// places a popover: centred on its anchor unless that would cross the
+    /// window's margin, in which case it is pushed in and the arrow slides
+    /// toward the anchor. So an unpushed popover's arrow is at its middle;
+    /// one pushed in from the leading margin has its arrow between its own
+    /// leading edge and its middle; one pushed in from the trailing margin,
+    /// between its middle and its trailing edge. Two neighbouring tiles of
+    /// one row give ranges that do not meet, which is what a check on the
+    /// tip's edge alone could not tell apart.
+    @MainActor
+    private func arrowMiss(popover: XCUIElement, target: XCUIElement, in app: XCUIApplication,
+                           mayCover: Bool) -> String? {
+        guard popover.exists, target.exists else {
+            return "the popover (\(popover.exists)) or its tile (\(target.exists)) is gone"
         }
-        // The arrow's tip sits on the anchor's edge; a few points of slack
-        // for the gap UIKit leaves between the two.
-        XCTAssertTrue(tileFrame.insetBy(dx: -8, dy: -8).intersects(tip),
-                      "\(what): the actions' arrow (\(tip)) does not touch the tapped tile \(tileFrame); popover \(outer)",
-                      file: file, line: line)
-        // And the popover does not sit on the tile it points at.
-        XCTAssertFalse(inner.insetBy(dx: 1, dy: 1).intersects(tileFrame),
-                       "\(what): the actions cover the tapped tile \(tileFrame); sheet \(inner)",
-                       file: file, line: line)
-        dismissActions(in: app, continueAction)
+        let outer = popover.frame, inner = popover.sheets.firstMatch.frame
+        let window = app.windows.firstMatch.frame, tile = target.frame
+        let slack: CGFloat = 8, margin: CGFloat = 14
+        func along(_ lo: CGFloat, _ hi: CGFloat, _ windowLo: CGFloat, _ windowHi: CGFloat) -> ClosedRange<CGFloat> {
+            let mid = (lo + hi) / 2
+            let pushedLo = lo - windowLo < margin, pushedHi = windowHi - hi < margin
+            switch (pushedLo, pushedHi) {
+            case (false, false): return (mid - 3)...(mid + 3)
+            case (true, false): return lo...(mid + 3)
+            case (false, true): return (mid - 3)...hi
+            case (true, true): return lo...hi
+            }
+        }
+        let tipEdge: CGFloat, tipSpan: ClosedRange<CGFloat>, onEdge: Bool, inSpan: Bool
+        if outer.maxY - inner.maxY > 4 || inner.minY - outer.minY > 4 {
+            tipEdge = outer.maxY - inner.maxY > 4 ? outer.maxY : outer.minY
+            tipSpan = along(outer.minX, outer.maxX, window.minX, window.maxX)
+            onEdge = (tile.minY - slack)...(tile.maxY + slack) ~= tipEdge
+            inSpan = tipSpan.overlaps(tile.minX...tile.maxX)
+        } else if outer.maxX - inner.maxX > 4 || inner.minX - outer.minX > 4 {
+            tipEdge = outer.maxX - inner.maxX > 4 ? outer.maxX : outer.minX
+            tipSpan = along(outer.minY, outer.maxY, window.minY, window.maxY)
+            onEdge = (tile.minX - slack)...(tile.maxX + slack) ~= tipEdge
+            inSpan = tipSpan.overlaps(tile.minY...tile.maxY)
+        } else {
+            return "no arrow found; popover \(outer), sheet \(inner)"
+        }
+        guard onEdge, inSpan else {
+            return "the arrow (edge \(tipEdge), along \(tipSpan)) does not land on the tile \(tile); popover \(outer), sheet \(inner)"
+        }
+        // At the sizes these tests run, the actions sit beside a tile.
+        if !mayCover, inner.insetBy(dx: 1, dy: 1).intersects(tile) {
+            return "the actions cover their tile \(tile); sheet \(inner)"
+        }
+        return nil
     }
 
     @MainActor
@@ -148,5 +198,91 @@ extension PlayTabTests {
         let region = app.otherElements["PopoverDismissRegion"]
         if region.exists { region.tap() }
         XCTAssertTrue(continueAction.waitForNonExistence(timeout: 5), "the actions did not go away")
+    }
+
+    /// Turned from portrait to landscape and back with a tile's actions up,
+    /// the actions stay up and stay on their tile. A dialog hosted on the
+    /// tile went with it when the lazy grid rebuilt the tile for its new
+    /// columns, on the way back to portrait (review of pull request 536).
+    /// The tile is low in a scrolled shelf, so landscape's shorter window
+    /// puts it out of view unless the shelf brings it back.
+    @MainActor
+    func testATilesActionsStayOnItThroughATurnToLandscapeAndBack() throws {
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orientation = .portrait
+        let app = launchFilledShelf()
+        app.swipeUp()
+        let tile = try XCTUnwrap(edgeRow(in: app, bottom: true)?.last, "no row of tiles on screen")
+        let id = tile.identifier
+        tile.tap()
+        let continueAction = app.buttons["continueAction"].firstMatch
+        XCTAssertTrue(continueAction.waitForExistence(timeout: 5), "\(id): the actions never came up")
+        assertArrowPoints(at: app.buttons[id], in: app, "\(id), portrait")
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        try requireTurn(to: .landscape, in: app)
+        assertArrowPoints(at: app.buttons[id], in: app, "\(id), turned to landscape", timeout: 8)
+
+        XCUIDevice.shared.orientation = .portrait
+        try requireTurn(to: .portrait, in: app)
+        assertArrowPoints(at: app.buttons[id], in: app, "\(id), turned back to portrait", timeout: 8)
+        XCTAssertTrue(continueAction.exists, "\(id): the actions did not survive the turns")
+    }
+
+    /// Turned from landscape to portrait with a tile's actions up, they stay
+    /// up and on their tile; the dialog on the tile was dropped at once for
+    /// "Shelf 4", in the second row (review of pull request 536).
+    @MainActor
+    func testATilesActionsStayOnItThroughATurnToPortrait() throws {
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orientation = .portrait
+        let app = launchFilledShelf()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        try requireTurn(to: .landscape, in: app)
+        // Below the first row, as in the review: a first-row tile kept its
+        // dialog through the turn even when the tile hosted it.
+        let id = "game-Shelf 4"
+        let tile = app.buttons[id]
+        scrollTo(tile, in: app)
+        tile.tap()
+        let continueAction = app.buttons["continueAction"].firstMatch
+        XCTAssertTrue(continueAction.waitForExistence(timeout: 5), "\(id): the actions never came up")
+        assertArrowPoints(at: app.buttons[id], in: app, "\(id), landscape")
+
+        XCUIDevice.shared.orientation = .portrait
+        try requireTurn(to: .portrait, in: app)
+        assertArrowPoints(at: app.buttons[id], in: app, "\(id), turned to portrait", timeout: 8)
+        XCTAssertTrue(continueAction.exists, "\(id): the actions did not survive the turn")
+    }
+
+    @MainActor
+    private func launchFilledShelf() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.provideFreedoom()
+        app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
+        app.launchEnvironment["WADDLE_TEST_FILL_SHELF"] = "40"
+        app.launch()
+        XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 30), "the shelf never appeared")
+        XCTAssertTrue(app.buttons["playFreedoom1"].waitForExistence(timeout: 10), "no first tile")
+        return app
+    }
+
+    private enum Turn { case portrait, landscape }
+
+    /// Waits for the window to take the shape asked for. A simulator that
+    /// never turns its interface (`docs/learnings/simulator-test-hazards.md`)
+    /// is skipped rather than failed: it can say nothing about a turn.
+    @MainActor
+    private func requireTurn(to turn: Turn, in app: XCUIApplication) throws {
+        let deadline = Date().addingTimeInterval(8)
+        while Date() < deadline {
+            let window = app.windows.firstMatch.frame
+            if (turn == .landscape) == (window.width > window.height) {
+                Thread.sleep(forTimeInterval: 1)
+                return
+            }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        throw XCTSkip("the interface never turned to \(turn); this simulator cannot test a turn")
     }
 }

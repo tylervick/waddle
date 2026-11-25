@@ -22,17 +22,39 @@ Popover                {{76, 59}, {240, 249.3}}   <- includes the arrow
 ```
 
 The side on which `Popover` reaches past `Sheet` is the arrow's side, and
-that edge is the arrow's tip. `ShelfActionAnchorTests.swift` measures it this
-way against the tapped tile's frame.
+that edge is the arrow's tip. Along that edge the arrow is not in the tree.
+UIKit centres a popover on its anchor unless that would cross the window's
+margin, so the arrow is at the popover's middle, or between the middle and
+the edge it was pushed in from. That is enough to tell the two tiles of a
+row apart, which the tip's edge alone is not. `ShelfActionAnchorTests.swift`
+measures it this way against the tapped tile's frame.
 
 Rules:
 
-- Put a dialog that is *about* one thing on that thing: per tile, with a
-  binding that answers only for its own item
-  (`actionItem?.id == game.id`), and that clears the state only when it is
-  still its own.
+- Do not host the dialog on the thing itself when that thing is a lazy
+  grid's cell. The first fix did that, and a review of pull request 536
+  found two ways it lost the dialog that the shelf-root version kept.
+  Turning an iPhone rebuilt the cells for the new column count, and the
+  presentation went with its cell: portrait to landscape and back lost
+  "Shelf 16", and landscape to portrait lost "Shelf 4" in the second row
+  (a first-row tile survived, so test below the first row). On a Duo,
+  opening flat brought the Continue hero back and took its game's tile out
+  of the grid, and the dialog with it.
+- What holds: keep the presentation state and the dialog above the grid, on
+  a clear view in an overlay of the scroll view, and move only that view.
+  Whatever draws the game (its tile, or the hero) puts a reporter in its
+  background while the game's actions are up. The reporter's
+  `onGeometryChange` writes the frame, in a named coordinate space on the
+  scroll view, into state, and the overlay's clear view takes that frame.
+  The dialog is presented only once that frame is the item's, so it never
+  opens pointing at the last game. When the cell leaves the screen the
+  anchor keeps its last frame, and the shelf scrolls the game back into
+  view on a change of size or pose (`ScrollViewReader.scrollTo`, the least
+  distance).
 - The shelf's Delete confirmation, reached from a tile's long-press menu,
-  has the same fault and is still on the shelf root (#535).
+  has the same fault and is still on the shelf root (#535). It can take the
+  same anchor: report for `deleteCandidate` as well as `actionItem`, and
+  move `deleteGamePrompt` onto the overlay's clear view.
 - A dialog that is about the whole screen (a page's save warning, Reset Usage
   Counts) still gets a popover. Its arrow points at the screen, so look at it
   before assuming it is fine.
