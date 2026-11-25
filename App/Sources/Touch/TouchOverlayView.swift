@@ -51,13 +51,14 @@ final class TouchOverlayView: UIView {
     private var menuPolicyTimer: Timer?
     private let keyboard: TouchKeyboard
     private var keyboardActive = false
-    private let keyboardActiveMarker = UIView()
     private var summonTouches = Set<UITouch>()
     private var summonArmed = true
     #if DEBUG
-    /// Latching test markers, read only by UI tests, which run a Debug
-    /// build. Kept out of Release so VoiceOver never meets an unlabelled
-    /// 2 pt element on the play screen (review of pull request 523).
+    /// Test markers, read only by UI tests, which run a Debug build. Kept
+    /// out of Release so VoiceOver never meets an unlabelled 2 pt element
+    /// on the play screen (review of pull request 523, issue #525).
+    /// `keyboardActiveMarker` mirrors `keyboardActive`; the other two latch.
+    private let keyboardActiveMarker = UIView()
     private let stickEngagedMarker = UIView()
     private let turnEngagedMarker = UIView()
     #endif
@@ -298,6 +299,7 @@ final class TouchOverlayView: UIView {
             self?.dismissKeyboard()
         }
 
+        #if DEBUG
         // Small but non-zero frame in a corner: a zero-frame accessibility
         // element can be treated as off-screen and go missing from the
         // XCUITest tree. Non-interactive and effectively invisible.
@@ -308,7 +310,6 @@ final class TouchOverlayView: UIView {
         keyboardActiveMarker.isHidden = true
         addSubview(keyboardActiveMarker)
 
-        #if DEBUG
         // Same corner-marker pattern, carrying one latching bit: "a
         // movement-stick track engaged at some point this session". It
         // latches instead of mirroring `stickTouch` live because a tap's
@@ -678,14 +679,18 @@ final class TouchOverlayView: UIView {
         for button in buttons where button.accessibilityIdentifier != "menuButton" {
             button.isUserInteractionEnabled = false
         }
+        #if DEBUG
         keyboardActiveMarker.isHidden = false
+        #endif
     }
 
     private func dismissKeyboard() {
         keyboard.dismiss()
         keyboardActive = false
         for button in buttons { button.isUserInteractionEnabled = true }
+        #if DEBUG
         keyboardActiveMarker.isHidden = true
+        #endif
     }
 
     // MARK: Debug HUD (opt-in, "Show Debug Info" toggle on the Play tab)
