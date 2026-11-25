@@ -151,19 +151,47 @@ final class ShelfPanelModel {
     /// dismissal. A presentation begun while another is still leaving the
     /// same presenter is refused by UIKit, and SwiftUI then believes it is
     /// up. Nothing reports the end of a dismissal to a tree that no longer
-    /// exists, so this is a duration: longer than the system's dismissal
-    /// (about a third of a second for a sheet), and long enough for a
-    /// compact window's inspector sheet to have arrived for the screen
-    /// inside it to present from.
+    /// exists, so it is held for `presentationHold` at least: longer than
+    /// the system's dismissal (about a third of a second for a sheet), and
+    /// long enough for a compact window's inspector sheet to have arrived
+    /// for the screen inside it to present from.
+    ///
+    /// And then for as long as the window is still presenting or dismissing
+    /// something (`presentationTransitionInFlight`), because the duration
+    /// alone was not enough. Bent with the save warning up on a compact
+    /// window, two dismissals run one after the other, the warning's and
+    /// then the inspector's sheet under it: 0.8 s on the simulator here,
+    /// where the sheet was still leaving when the 0.7 s ran out and the
+    /// lower half's warning went up 0.14 s later, just after it had gone.
+    /// On a slower CI runner the warning went up while the sheet was still
+    /// leaving, UIKit refused it (its one `UIKit:Presentation` error of the
+    /// run), and the warning never came back: the edit it asked about sat
+    /// unanswered with nothing on screen (run 45555869938).
     private(set) var presentationsHeld = false
     @ObservationIgnored private var presentationHoldTask: Task<Void, Never>?
     static let presentationHold: Duration = .milliseconds(700)
+    /// The longest a hold lasts, from its start, however long the window
+    /// reports a transition: a stuck report must not keep the panel's
+    /// presentations down for good.
+    static let presentationHoldLimit: Duration = .seconds(4)
+    private static let transitionPoll: Duration = .milliseconds(50)
+
+    /// Whether the launcher's window is in the middle of presenting or
+    /// dismissing something. The root sets it to
+    /// `LauncherFold.presentationTransitionInFlight`; with no window to ask
+    /// (a unit test) nothing is in flight and a hold is its duration.
+    @ObservationIgnored var presentationTransitionInFlight: @MainActor () -> Bool = { false }
 
     private func holdPresentationsAcrossSwap() {
         presentationHoldTask?.cancel()
         presentationsHeld = true
         presentationHoldTask = Task { @MainActor in
+            let start = ContinuousClock.now
             try? await Task.sleep(for: Self.presentationHold)
+            while !Task.isCancelled, self.presentationTransitionInFlight(),
+                  start.duration(to: .now) < Self.presentationHoldLimit {
+                try? await Task.sleep(for: Self.transitionPoll)
+            }
             guard !Task.isCancelled else { return }
             self.presentationHoldTask = nil
             self.presentationsHeld = false

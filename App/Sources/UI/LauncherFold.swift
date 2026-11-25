@@ -91,6 +91,29 @@ enum LauncherFold {
         }
     }
 
+    /// Whether the launcher's window is presenting or dismissing anything:
+    /// a view controller in its chain of presentations being presented or
+    /// dismissed, or one with a transition under way. A presentation begun
+    /// then, from the presenter the transition is on, is refused by UIKit
+    /// (`ShelfPanelModel.presentationsHeld` waits for this to clear).
+    ///
+    /// On the bend with the save warning up, two dismissals follow each
+    /// other: the warning's (the alert `isBeingDismissed`), then the
+    /// inspector's sheet under it (the sheet `isBeingDismissed`, the root
+    /// with a transition coordinator). Sampled every 5 ms on the simulator,
+    /// in three runs, this read true without a break from the first to the
+    /// end of the second (2026-11-24).
+    static func presentationTransitionInFlight() -> Bool {
+        var controller = launcherRootView()?.window?.rootViewController
+        while let current = controller {
+            if current.isBeingPresented || current.isBeingDismissed || current.transitionCoordinator != nil {
+                return true
+            }
+            controller = current.presentedViewController
+        }
+        return false
+    }
+
     /// The view SwiftUI draws the launcher in: the root of the app's first
     /// window. The engine's window does not exist until a session starts.
     private static func launcherRootView() -> UIView? {

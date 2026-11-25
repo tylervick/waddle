@@ -430,6 +430,42 @@ final class ShelfPanelTests: XCTestCase {
         XCTAssertTrue(lower.presented({ page.showRename }, dismiss: { page.showRename = false }).wrappedValue)
     }
 
+    /// The hold outlasts its duration while the window is still presenting
+    /// or dismissing: bent with the save warning up on a compact window, the
+    /// inspector's sheet was still leaving when the duration ran out, and a
+    /// warning put up then was refused and never came back (run
+    /// 45555869938). It ends once the window has nothing in flight.
+    @MainActor
+    func testTheHoldLastsWhileTheWindowIsStillDismissing() async throws {
+        let model = ShelfPanelModel()
+        var inFlight = true
+        model.presentationTransitionInFlight = { inFlight }
+        model.windowWidthChanged(isRegular: false, becameRegular: false)
+        let game = Game(name: "Sunlust", baseID: nil)
+        model.panel = .game(game)
+        model.foldChanged(isSplit: true)
+
+        try await Task.sleep(for: ShelfPanelModel.presentationHold + .milliseconds(300))
+        XCTAssertTrue(model.presentationsHeld, "released while the departing sheet was still being dismissed")
+        XCTAssertFalse(model.lowerHalfHost.presents)
+
+        inFlight = false
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertFalse(model.presentationsHeld, "still held with nothing in flight")
+        XCTAssertTrue(model.lowerHalfHost.presents)
+    }
+
+    /// A window that never stops reporting a transition does not keep the
+    /// panel's presentations down for good.
+    @MainActor
+    func testTheHoldEndsAtItsLimitWhateverTheWindowReports() async throws {
+        let model = ShelfPanelModel()
+        model.presentationTransitionInFlight = { true }
+        model.foldChanged(isSplit: true)
+        try await Task.sleep(for: ShelfPanelModel.presentationHoldLimit + .milliseconds(400))
+        XCTAssertFalse(model.presentationsHeld, "a transition that never ends held presentations past the limit")
+    }
+
     /// A screen nothing shares (a phone's page, a preview) has a host with
     /// no model: always current, never held.
     @MainActor

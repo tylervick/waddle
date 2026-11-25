@@ -56,6 +56,7 @@ struct ContentView: View {
         .overlay(alignment: .topTrailing) { swapMarker }
         #endif
         .onAppear {
+            panelModel.presentationTransitionInFlight = LauncherFold.presentationTransitionInFlight
             LauncherFold.follow { split in
                 let changesPose = (split != nil) != panelModel.isSplit
                 halves = split
