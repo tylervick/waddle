@@ -8,7 +8,9 @@ DEST="$ROOT/Engine/woof"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-curl -fsSL "https://github.com/fabiangreffrath/woof/archive/${WOOF_COMMIT}.tar.gz" \
+# Retried the way Scripts/fetch-freedoom.sh retries its downloads (#531).
+curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 20 \
+    "https://github.com/fabiangreffrath/woof/archive/${WOOF_COMMIT}.tar.gz" \
     -o "$TMP/woof.tar.gz"
 rm -rf "$DEST"
 mkdir -p "$DEST"

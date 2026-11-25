@@ -18,8 +18,16 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 BASE="https://github.com/freedoom/freedoom/releases/download/v${FREEDOOM_VERSION}"
-curl -fsSL "$BASE/freedoom-${FREEDOOM_VERSION}.zip" -o "$TMP/freedoom.zip"
-curl -fsSL "$BASE/freedoom-${FREEDOOM_VERSION}-CHECKSUM" -o "$TMP/CHECKSUM"
+# One DNS blip on the runner used to fail the whole TestFlight job after the
+# engine build (issue #531). Each download is tried 6 times in all, 2 s apart.
+# --retry-all-errors is what makes a dropped connection (35, 52, 56) count, not
+# just the resolve and timeout errors plain --retry covers; the price is that
+# a 404 is retried too, so it fails after about 10 s with the same curl
+# message instead of at once. Nothing here weakens the checksum check below:
+# a download that "succeeds" with the wrong bytes still fails it.
+FETCH=(curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 20)
+"${FETCH[@]}" "$BASE/freedoom-${FREEDOOM_VERSION}.zip" -o "$TMP/freedoom.zip"
+"${FETCH[@]}" "$BASE/freedoom-${FREEDOOM_VERSION}-CHECKSUM" -o "$TMP/CHECKSUM"
 
 # The CHECKSUM file uses BSD format: SHA256 (filename) = hash
 # Extract the hash for the pinned zip and verify it.
