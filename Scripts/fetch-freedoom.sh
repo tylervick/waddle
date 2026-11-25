@@ -25,7 +25,15 @@ BASE="https://github.com/freedoom/freedoom/releases/download/v${FREEDOOM_VERSION
 # a 404 is retried too, so it fails after about 10 s with the same curl
 # message instead of at once. Nothing here weakens the checksum check below:
 # a download that "succeeds" with the wrong bytes still fails it.
-FETCH=(curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 20)
+#
+# --speed-limit/--speed-time is the stall guard: a transfer that connects and
+# then moves under 1000 bytes/s for 30 s in a row is abandoned (exit 28) and
+# retried, instead of hanging until the job's own timeout. It is a rate, not a
+# --max-time, so it does not have to be sized to the zip or to a slow runner:
+# GitHub's release CDN sends megabytes a second, and at 1 KB/s the ~30 MB zip
+# would take over eight hours anyway.
+FETCH=(curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 20
+       --speed-limit 1000 --speed-time 30)
 "${FETCH[@]}" "$BASE/freedoom-${FREEDOOM_VERSION}.zip" -o "$TMP/freedoom.zip"
 "${FETCH[@]}" "$BASE/freedoom-${FREEDOOM_VERSION}-CHECKSUM" -o "$TMP/CHECKSUM"
 

@@ -85,10 +85,18 @@ fetch() { # dir url tag
 # tell a network blip from a tag that does not exist, so a bad pin is retried
 # too and fails about 10 s later with git's own message. Whatever a failed
 # attempt left behind is removed first, so a retry is a clean clone.
+#
+# git has no overall timeout, so a clone that connects and then stalls would
+# hang until the job's. GIT_HTTP_LOW_SPEED_LIMIT/TIME (http.lowSpeedLimit and
+# http.lowSpeedTime) abandon it after 30 s under 1000 bytes/s -- the same
+# guard Scripts/fetch-freedoom.sh gives curl, for the same reason -- and the
+# loop retries it. Set in the environment, not with `git -c`, so the guard
+# reaches git however the clone is spelled.
 clone() { # dir url tag
     local n
     for n in 1 2 3; do
-        if git clone --depth 1 --branch "$3" "$2" "$1"; then
+        if GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=30 \
+               git clone --depth 1 --branch "$3" "$2" "$1"; then
             return 0
         fi
         rm -rf "$1"

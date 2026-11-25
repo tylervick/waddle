@@ -275,6 +275,7 @@ cat > "$R/bin/git" <<GITSHIM
 #!/bin/bash
 if [ "\$1" = clone ] && [[ "\$*" == *upstream-sdl* ]]; then
     echo x >> "$TMP/sdl-clone-attempts"
+    echo "\${GIT_HTTP_LOW_SPEED_LIMIT:-unset} \${GIT_HTTP_LOW_SPEED_TIME:-unset}" > "$TMP/sdl-clone-stall-guard"
     if [ "\$(wc -l < "$TMP/sdl-clone-attempts")" -le "\${FAIL_SDL_CLONES:-0}" ]; then
         mkdir -p "\${!#}/half-made"
         echo "fatal: unable to access 'https://github.com/libsdl-org/SDL.git/': Could not resolve host: github.com" >&2
@@ -291,7 +292,11 @@ FAIL_SDL_CLONES=1 run_deps "$R"
 assert_at "$R/Vendor/src/SDL" "$TMP/upstream-sdl" v1 "retried SDL clone"
 [ ! -e "$R/Vendor/src/SDL/half-made" ] || fail "the retry cloned over what the failed attempt left"
 grep -q "attempt 1 of 3" "$TMP/run.log" || fail "a retried clone printed no note: $(cat "$TMP/run.log")"
-pass "retries a clone that failed transiently, from a clean directory"
+# The stall guard has to reach git itself: a file:// clone cannot stall, so
+# this asserts what git was handed rather than a stall.
+[ "$(cat "$TMP/sdl-clone-stall-guard")" = "1000 30" ] \
+    || fail "git clone ran without the stall guard: $(cat "$TMP/sdl-clone-stall-guard")"
+pass "retries a clone that failed transiently, from a clean directory, with a stall guard"
 
 # --- 13. a clone that keeps failing stops after 3 attempts --------------
 rm -rf "$R/Vendor/src/SDL"

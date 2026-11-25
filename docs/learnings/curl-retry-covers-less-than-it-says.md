@@ -21,11 +21,21 @@ Two things make this easy to get wrong by testing it once:
 - A stub curl can only echo the flags back. Whether a resolve failure is
   retried is curl's behaviour, so the check runs the real curl.
 
+Retries do not cover a transfer that connects and then stalls: neither curl
+nor git has an overall timeout by default, so it hangs until the job's own.
+`--speed-limit 1000 --speed-time 30` (and, for git, `GIT_HTTP_LOW_SPEED_LIMIT`
+and `GIT_HTTP_LOW_SPEED_TIME`) abandon a transfer that moves under 1000 bytes/s
+for 30 s, which the retry then picks up. A rate rather than `--max-time`, so it
+need not be sized to the file or to a slow runner.
+
 `Scripts/test-fetch-freedoom.sh` is the check: the real `fetch-freedoom.sh`
 and the real curl against a `.invalid` host (exactly six attempts), a
-localhost 404 (bounded) and a bad checksum (same message, no retry). `git
-clone` has no retry flag at all; `Scripts/build-deps.sh` loops three times
-around it, and `Scripts/test-build-deps.sh` cases 12 and 13 pin that.
+localhost 404 (exactly six, so bounded), a response dropped half-way (retried
+into a whole file; without `--retry-all-errors` curl exits 18 at once), one
+that stalls (abandoned after 30 s and retried) and a bad checksum (same
+message, no retry). `git clone` has no retry flag at all;
+`Scripts/build-deps.sh` loops three times around it under the stall guard, and
+`Scripts/test-build-deps.sh` cases 12 and 13 pin both.
 
 Left without a retry on purpose: App Store Connect writes (not idempotent;
 `Scripts/asc-api.sh` retries only a 429, when Apple says when),
