@@ -725,6 +725,28 @@ final class LibraryService {
         try Data().write(to: dir.appendingPathComponent(EngineSaveSlot.autoSaveFilename))
     }
 
+    /// Test-only seam (the popover anchor issue): adds `copies` copies of
+    /// Freedoom Phase 1, named "Shelf <n>", then gives every game on the
+    /// shelf one save, so a UI test has a shelf of several rows in which
+    /// every tile taps to its Continue / New Game / Details actions. Copies
+    /// already present are not made again. No-op without Freedoom Phase 1.
+    func fillShelfForTest(copies: Int) throws {
+        let all = try games()
+        guard let source = all.first(where: { $0.isBaseGame && $0.name == "Freedoom Phase 1" })
+        else { return }
+        let names = Set(all.map(\.name))
+        for n in 1...max(copies, 1) where !names.contains("Shelf \(n)") {
+            let copy = try duplicate(source)
+            copy.name = "Shelf \(n)"
+            try context.save()
+        }
+        for game in try games() where saveSlots(forKey: game.id).isEmpty {
+            let dir = Self.savesDirectory(forGameID: game.id)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try Data().write(to: dir.appendingPathComponent(EngineSaveSlot.autoSaveFilename))
+        }
+    }
+
     /// Test-only seam (issue #339): installs `bytes` as Freedoom Phase 1's
     /// suspend save and marks that game played, so the shelf offers Continue
     /// on it and tapping the hero launches `-loadgame 254` against exactly

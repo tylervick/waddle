@@ -245,15 +245,6 @@ struct ShelfView: View {
         .sheet(isPresented: $showLinkImport) {
             LinkImportSheet(importer: importer)
         }
-        .confirmationDialog(actionItem?.name ?? "", isPresented: actionDialogBinding,
-                            titleVisibility: .visible, presenting: actionItem) { item in
-            Button("Continue") { play(item, mode: .continueNewest) }
-                .accessibilityIdentifier("continueAction")
-            Button("New Game") { play(item, mode: .newGame) }
-                .accessibilityIdentifier("newGameAction")
-            Button("Details") { openDetails(item) }
-                .accessibilityIdentifier("detailsAction")
-        }
         .alert(errorAlert?.title ?? "", isPresented: Binding(
             get: { errorAlert != nil }, set: { if !$0 { dismissErrorAlert() } }
         ), presenting: errorAlert) { _ in
@@ -344,8 +335,12 @@ struct ShelfView: View {
         }
     }
 
-    private var actionDialogBinding: Binding<Bool> {
-        Binding(get: { actionItem != nil }, set: { if !$0 { actionItem = nil } })
+    /// Whether `game`'s tile has its actions up. Each tile asks only about
+    /// itself, and only takes down its own: a dismissal that lands after
+    /// another tile's actions went up must not drop those.
+    private func actionDialogBinding(for game: Game) -> Binding<Bool> {
+        Binding(get: { actionItem?.id == game.id },
+                set: { if !$0, actionItem?.id == game.id { actionItem = nil } })
     }
 
     /// The inset around the whole shelf. Named because the hero's own width is
@@ -757,6 +752,19 @@ struct ShelfView: View {
         // its own accessibility element would split the two apart.
         .accessibilityLabel(TileAccessibility.label(for: game))
         .contextMenu { contextMenuItems(for: game) }
+        // On the tile, not the shelf: from iOS 26 a confirmation dialog on
+        // an iPhone is a popover anchored to the view it is attached to.
+        // Attached to the shelf, every tile's actions came up at the top of
+        // the screen with their arrow on its middle (issue #532).
+        .confirmationDialog(game.name, isPresented: actionDialogBinding(for: game),
+                            titleVisibility: .visible) {
+            Button("Continue") { play(game, mode: .continueNewest) }
+                .accessibilityIdentifier("continueAction")
+            Button("New Game") { play(game, mode: .newGame) }
+                .accessibilityIdentifier("newGameAction")
+            Button("Details") { openDetails(game) }
+                .accessibilityIdentifier("detailsAction")
+        }
     }
 
     /// One menu for every presentation of an item. The hero needs it too
