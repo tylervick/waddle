@@ -9,7 +9,7 @@ import XCTest
 /// screen's middle and at no tile (TestFlight feedback on build 323, issue
 /// 532). This measures the live popover against the tapped tile's frame: the
 /// arrow's edge of the popover has to touch the tile, for a tile in each
-/// column, before and after the shelf scrolls.
+/// column, in the first row and, after the shelf has scrolled, in the last.
 ///
 /// An extension of `PlayTabTests`, in its own file, so it runs in the set a
 /// pull request runs (`.github/workflows/ui-tests.yml`).
@@ -20,25 +20,76 @@ extension PlayTabTests {
         let app = XCUIApplication()
         app.provideFreedoom()
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
-        // Ten copies of Freedoom Phase 1 and a save for every game: a shelf
-        // of six rows on a phone, every tile tapping to its actions.
-        app.launchEnvironment["WADDLE_TEST_FILL_SHELF"] = "10"
+        // Forty copies of Freedoom Phase 1 and a save for every game: a
+        // shelf that scrolls on an iPhone and on the 13-inch iPad the UI
+        // suite also runs on, every tile tapping to its actions.
+        app.launchEnvironment["WADDLE_TEST_FILL_SHELF"] = "40"
         app.launch()
         XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 30), "the shelf never appeared")
+        XCTAssertTrue(app.buttons["playFreedoom1"].waitForExistence(timeout: 10), "no first tile")
 
-        // The first row, one tile in each column, with the shelf at rest.
-        assertActionsPoint(at: app.buttons["playFreedoom1"], in: app, "first row, left")
-        assertActionsPoint(at: app.buttons["game-Freedoom Phase 2"], in: app, "first row, right")
+        // The first row, its first and last column, with the shelf at rest.
+        let top = try XCTUnwrap(edgeRow(in: app, bottom: false), "no row of tiles on screen")
+        XCTAssertGreaterThan(top.last.frame.minX, top.first.frame.maxX, "one column only: \(top)")
+        assertActionsPoint(at: top.first, in: app, "first row, first column")
+        assertActionsPoint(at: top.last, in: app, "first row, last column")
 
         // The last row, after scrolling to it: the defect put the popover in
         // the same place wherever the shelf had scrolled to.
-        let lastLeft = app.buttons["game-Shelf 9"], lastRight = app.buttons["game-Shelf 10"]
-        scrollTo(lastRight, in: app)
-        XCTAssertLessThan(app.buttons["playFreedoom1"].frame.maxY,
-                          app.navigationBars.firstMatch.frame.maxY + 1,
-                          "the shelf did not scroll its first row out from under the bar")
-        assertActionsPoint(at: lastLeft, in: app, "last row, left, scrolled")
-        assertActionsPoint(at: lastRight, in: app, "last row, right, scrolled")
+        var lowest = ""
+        for _ in 0..<30 {
+            app.swipeUp()
+            let now = visibleRows(in: app).last?.last?.identifier ?? ""
+            if now == lowest { break }
+            lowest = now
+        }
+        XCTAssertFalse(app.buttons["playFreedoom1"].isHittable,
+                       "the shelf did not scroll its first row away")
+        let bottom = try XCTUnwrap(edgeRow(in: app, bottom: true), "no row of tiles on screen after scrolling")
+        assertActionsPoint(at: bottom.first, in: app, "last row, first column, scrolled")
+        if bottom.last.identifier != bottom.first.identifier {
+            assertActionsPoint(at: bottom.last, in: app, "last row, last column, scrolled")
+        }
+        // A last row of one leaves the other column to the row above it.
+        let above = try XCTUnwrap(rowAbove(bottom.first, in: app), "no row above the last")
+        assertActionsPoint(at: above.last, in: app, "second-last row, last column, scrolled")
+    }
+
+    /// The fully visible game tiles, as rows top to bottom.
+    @MainActor
+    private func visibleRows(in app: XCUIApplication) -> [[XCUIElement]] {
+        let window = app.windows.firstMatch.frame
+        let barBottom = app.navigationBars.firstMatch.frame.maxY
+        let tiles = app.buttons
+            .matching(NSPredicate(format: "identifier BEGINSWITH 'game-' OR identifier == 'playFreedoom1'"))
+            .allElementsBoundByIndex
+            .filter { $0.exists && window.contains($0.frame) && $0.frame.minY >= barBottom - 1 && $0.isHittable }
+        var rows: [[XCUIElement]] = []
+        for tile in tiles.sorted(by: { ($0.frame.minY, $0.frame.minX) < ($1.frame.minY, $1.frame.minX) }) {
+            if let last = rows.last?.first, abs(last.frame.minY - tile.frame.minY) < 2 {
+                rows[rows.count - 1].append(tile)
+            } else {
+                rows.append([tile])
+            }
+        }
+        return rows
+    }
+
+    @MainActor
+    private func edgeRow(in app: XCUIApplication, bottom: Bool) -> (first: XCUIElement, last: XCUIElement)? {
+        let rows = visibleRows(in: app)
+        guard let row = bottom ? rows.last : rows.first, let first = row.first, let last = row.last
+        else { return nil }
+        return (first, last)
+    }
+
+    @MainActor
+    private func rowAbove(_ tile: XCUIElement, in app: XCUIApplication) -> (first: XCUIElement, last: XCUIElement)? {
+        let rows = visibleRows(in: app)
+        guard let index = rows.firstIndex(where: { $0.contains { $0.identifier == tile.identifier } }),
+              index > 0, let first = rows[index - 1].first, let last = rows[index - 1].last
+        else { return nil }
+        return (first, last)
     }
 
     /// Taps `tile`, checks that the popover's arrow touches it, and takes
