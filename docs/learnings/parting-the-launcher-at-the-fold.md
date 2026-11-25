@@ -101,8 +101,19 @@ things about doing that were not obvious:
   while another is still leaving the same presenter is refused, and SwiftUI
   then believes it is up. Nothing tells a new tree that the old one's
   dismissal has finished, so presentations are held down for 0.7 s after a
-  fold (`presentationsHeld`). That one *is* a duration, and the comment on
-  it says what it stands in for.
+  fold (`presentationsHeld`), and then for as long as the window is still
+  presenting or dismissing anything
+  (`LauncherFold.presentationTransitionInFlight`). The duration alone held
+  on the simulator here by about 0.15 s and not on CI: bent with the save
+  warning up on a compact window, the warning's dismissal and then the
+  inspector's sheet's take 0.8 s here, the lower half put the warning up
+  while the sheet was still leaving, UIKit refused it, and it never came
+  back (run 45555869938, a month of green runs before it). The run's
+  `simulator-log` artifact showed it: the app's one `UIKit:Presentation`
+  error, 0.9 s after the bend. Its text is lost (`compose failure`, the
+  runner's uuidtext is not in the archive), but the category and the time
+  are enough. With the minimum cut to 0.3 s to stand in for a slow runner,
+  the test fails without the wait for the transition and passes with it.
 
 A resting page is not an open panel, so opening flat removes it. If it has
 a question up, `foldChanged` makes it the open panel first.
