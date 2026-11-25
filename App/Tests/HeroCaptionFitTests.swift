@@ -31,6 +31,13 @@ final class HeroCaptionFitTests: XCTestCase {
     private static let duoOpen = Viewport(contentWidth: 835, height: 555)
 
     private static let title = "Freedoom Phase 1"
+    /// Issue #493's long titles, 43 and 44 characters. Imported WADs and
+    /// presets are named by their files or by the user, so titles this long
+    /// are realistic. Each wraps to four lines or more at the accessibility
+    /// sizes, and alone pushed Continue below the closed landscape viewport.
+    private static let longTitles = ["Sunlust + Eviternity + Going Down + Ancient",
+                                     "Doom 2 the Way id Did: Lost Episodes Remixed"]
+    private static let titles = [title] + longTitles
     /// The issue's own line: two wide digits, the longest the line gets in
     /// minutes.
     private static let lastPlayed = "Last played 23 minutes ago"
@@ -85,24 +92,48 @@ final class HeroCaptionFitTests: XCTestCase {
 
     /// The rule's answer in `viewport`, from the same arithmetic `ShelfView`
     /// hands it.
-    private func showsLastPlayed(_ viewport: Viewport, _ size: DynamicTypeSize) -> Bool {
+    private func showsLastPlayed(_ viewport: Viewport, _ size: DynamicTypeSize,
+                                 title: String = HeroCaptionFitTests.title) -> Bool {
         let width = caption(viewport, size).width
         return ShelfHeroLayout.sideBySideCaptionShowsLastPlayed(
             viewportHeight: viewport.height,
             contentPadding: Self.padding,
-            titleHeight: HeroSideBySideCaption.titleHeight(Self.title, width: width, category: category(size)),
+            titleHeight: HeroSideBySideCaption.titleHeight(title, width: width, category: category(size)),
             lastPlayedHeight: HeroSideBySideCaption.lastPlayedHeight(Self.lastPlayed, width: width,
                                                                      category: category(size)),
             buttonHeight: buttonHeight(size))
+    }
+
+    /// The title's line cap in `viewport`, the way `ShelfView` works it out:
+    /// none while the line is kept, else the rule's answer (issue #493).
+    private func titleLineLimit(_ viewport: Viewport, _ size: DynamicTypeSize,
+                                title: String = HeroCaptionFitTests.title) -> Int? {
+        guard !showsLastPlayed(viewport, size, title: title) else { return nil }
+        let width = caption(viewport, size).width
+        return ShelfHeroLayout.sideBySideTitleLineLimit(
+            viewportHeight: viewport.height,
+            contentPadding: Self.padding,
+            titleHeight: HeroSideBySideCaption.titleHeight(title, width: width, category: category(size)),
+            titleLineHeight: HeroSideBySideCaption.titleLineHeight(category: category(size)),
+            buttonHeight: buttonHeight(size))
+    }
+
+    /// The title alone as SwiftUI draws it at the caption's width.
+    private func drawnTitleHeight(_ viewport: Viewport, _ size: DynamicTypeSize,
+                                  title: String, lineLimit: Int?) -> CGFloat {
+        let text = Text(title).font(Theme.Typography.heroTitle).lineLimit(lineLimit)
+        return hostedSize(text, width: caption(viewport, size).width, size).height
     }
 
     /// Where Continue ends, from the caption's top, as SwiftUI draws it.
     /// Continue is the first button; in a column, New Game and the gap above
     /// it are what is under it, and a button is the same height alone.
     private func drawnContinueBottom(_ viewport: Viewport, _ size: DynamicTypeSize,
-                                     lastPlayed: Bool) -> CGFloat {
+                                     lastPlayed: Bool, title: String = HeroCaptionFitTests.title,
+                                     titleLineLimit: Int? = nil) -> CGFloat {
         let caption = caption(viewport, size)
-        let view = HeroSideBySideCaption(title: Self.title,
+        let view = HeroSideBySideCaption(title: title,
+                                         titleLineLimit: titleLineLimit,
                                          lastPlayed: lastPlayed ? Self.lastPlayed : nil,
                                          buttonArrangement: caption.arrangement)
         let whole = hostedSize(view, width: caption.width, size).height
@@ -114,11 +145,18 @@ final class HeroCaptionFitTests: XCTestCase {
     }
 
     /// Where Continue ends by the arithmetic the rule is fed.
+    /// A capped title counts as its cap's lines, as `ShelfHeroLayout` does.
     private func computedContinueBottom(_ viewport: Viewport, _ size: DynamicTypeSize,
-                                        lastPlayed: Bool) -> CGFloat {
+                                        lastPlayed: Bool, title: String = HeroCaptionFitTests.title,
+                                        titleLineLimit: Int? = nil) -> CGFloat {
         let width = caption(viewport, size).width
+        let wrapped = HeroSideBySideCaption.titleHeight(title, width: width, category: category(size))
+        let titleHeight = titleLineLimit.map {
+            min(wrapped, ShelfHeroLayout.cappedTitleHeight(
+                lines: $0, lineHeight: HeroSideBySideCaption.titleLineHeight(category: category(size))))
+        } ?? wrapped
         return ShelfHeroLayout.sideBySideContinueBottom(
-            titleHeight: HeroSideBySideCaption.titleHeight(Self.title, width: width, category: category(size)),
+            titleHeight: titleHeight,
             lastPlayedHeight: lastPlayed
                 ? HeroSideBySideCaption.lastPlayedHeight(Self.lastPlayed, width: width, category: category(size))
                 : 0,
@@ -139,13 +177,20 @@ final class HeroCaptionFitTests: XCTestCase {
 
     /// At every Dynamic Type size, with the shelf at its top, the whole
     /// Continue button is inside the closed landscape viewport.
+    /// For any title: issue #493's long ones too, whose title is capped
+    /// where dropping the line is not enough.
     func testContinueEndsInsideTheClosedLandscapeViewportAtEverySize() {
         let viewport = Self.duoClosedLandscape
-        for size in DynamicTypeSize.allCases {
-            let shows = showsLastPlayed(viewport, size)
-            let bottom = Self.padding + drawnContinueBottom(viewport, size, lastPlayed: shows)
-            XCTAssertLessThanOrEqual(bottom, viewport.height,
-                                     "\(size): Continue ends at \(bottom), the line \(shows ? "kept" : "dropped")")
+        for title in Self.titles {
+            for size in DynamicTypeSize.allCases {
+                let shows = showsLastPlayed(viewport, size, title: title)
+                let limit = titleLineLimit(viewport, size, title: title)
+                let bottom = Self.padding + drawnContinueBottom(viewport, size, lastPlayed: shows,
+                                                                title: title, titleLineLimit: limit)
+                XCTAssertLessThanOrEqual(bottom, viewport.height,
+                                         "\(title) at \(size): Continue ends at \(bottom), the line "
+                                         + "\(shows ? "kept" : "dropped"), title cap \(limit.map(String.init) ?? "none")")
+            }
         }
     }
 
@@ -162,6 +207,18 @@ final class HeroCaptionFitTests: XCTestCase {
                     let drawn = drawnContinueBottom(viewport, size, lastPlayed: line)
                     let computed = computedContinueBottom(viewport, size, lastPlayed: line)
                     let context = "\(size) in \(viewport.contentWidth), line \(line)"
+                    XCTAssertGreaterThanOrEqual(computed, drawn - 0.01, context)
+                    XCTAssertLessThanOrEqual(computed, drawn + 5, context)
+                }
+                // A capped title (issue #493): the long titles, without the
+                // line, at the cap the rule gives them here.
+                for title in Self.longTitles {
+                    guard let limit = titleLineLimit(viewport, size, title: title) else { continue }
+                    let drawn = drawnContinueBottom(viewport, size, lastPlayed: false,
+                                                    title: title, titleLineLimit: limit)
+                    let computed = computedContinueBottom(viewport, size, lastPlayed: false,
+                                                          title: title, titleLineLimit: limit)
+                    let context = "\(title) capped at \(limit) at \(size) in \(viewport.contentWidth)"
                     XCTAssertGreaterThanOrEqual(computed, drawn - 0.01, context)
                     XCTAssertLessThanOrEqual(computed, drawn + 5, context)
                 }
@@ -189,7 +246,94 @@ final class HeroCaptionFitTests: XCTestCase {
         }
     }
 
+    // MARK: The title gives way next (issue #493)
+
+    /// What `main` drew for a long title: with the line already dropped and
+    /// the title uncapped, Continue ends below the closed landscape viewport
+    /// at `accessibility3` to `accessibility5`.
+    func testUncappedALongTitlePushesContinueBelowTheClosedLandscapeViewport() {
+        let viewport = Self.duoClosedLandscape
+        let bottom = Self.padding + drawnContinueBottom(viewport, .accessibility3, lastPlayed: false,
+                                                        title: Self.longTitles[1])
+        XCTAssertGreaterThan(bottom, viewport.height, "the case no longer reproduces issue #493")
+    }
+
+    /// The cap is lifted wherever Continue fits without it: "Freedoom Phase 1"
+    /// at every size, every title at the standard sizes, and every title on
+    /// the open Duo are drawn exactly as before.
+    func testTheTitleIsUncappedWhereverContinueFitsWithoutACap() {
+        for size in DynamicTypeSize.allCases {
+            XCTAssertNil(titleLineLimit(Self.duoClosedLandscape, size), "\(Self.title) at \(size)")
+            for title in Self.titles {
+                XCTAssertNil(titleLineLimit(Self.duoOpen, size, title: title), "\(title) open at \(size)")
+                if !size.isAccessibilitySize {
+                    XCTAssertNil(titleLineLimit(Self.duoClosedLandscape, size, title: title),
+                                 "\(title) at \(size)")
+                }
+            }
+        }
+    }
+
+    /// Where it is capped, the title is capped only after the line is gone,
+    /// only where the uncapped caption would end below the viewport, and
+    /// still draws at least one line.
+    func testACappedTitleIsCappedOnlyWhereItMustAndKeepsALine() {
+        let viewport = Self.duoClosedLandscape
+        let oneLine = drawnTitleHeight(viewport, .large, title: "Doom", lineLimit: nil)
+        for title in Self.titles {
+            for size in DynamicTypeSize.allCases {
+                let limit = titleLineLimit(viewport, size, title: title)
+                let uncapped = Self.padding + computedContinueBottom(viewport, size, lastPlayed: false, title: title)
+                let context = "\(title) at \(size)"
+                guard let limit else {
+                    if !showsLastPlayed(viewport, size, title: title) {
+                        XCTAssertLessThanOrEqual(uncapped, viewport.height, context)
+                    }
+                    continue
+                }
+                XCTAssertFalse(showsLastPlayed(viewport, size, title: title), context)
+                XCTAssertGreaterThan(uncapped, viewport.height, context)
+                XCTAssertGreaterThanOrEqual(limit, 1, context)
+                XCTAssertGreaterThanOrEqual(drawnTitleHeight(viewport, size, title: title, lineLimit: limit),
+                                            oneLine, context)
+            }
+        }
+    }
+
+    /// The long titles are capped at `accessibility3` to `accessibility5`,
+    /// where the issue measured Continue below the viewport.
+    func testTheLongTitlesAreCappedAtTheLargestSizes() {
+        for size in [DynamicTypeSize.accessibility3, .accessibility4, .accessibility5] {
+            XCTAssertNotNil(titleLineLimit(Self.duoClosedLandscape, size, title: Self.longTitles[1]), "\(size)")
+        }
+        XCTAssertNotNil(titleLineLimit(Self.duoClosedLandscape, .accessibility5, title: Self.longTitles[0]))
+    }
+
     // MARK: The rule on its own
+
+    func testAnUnmeasuredViewportLeavesTheTitleUncapped() {
+        XCTAssertNil(ShelfHeroLayout.sideBySideTitleLineLimit(
+            viewportHeight: 0, contentPadding: 16, titleHeight: 500, titleLineHeight: 30, buttonHeight: 44))
+    }
+
+    func testTheTitleCapLeavesContinueOnTheViewportAndNeverGoesBelowOneLine() {
+        // Below the title: 6 + 8 + 44 = 58, so 220 - 16 - 58 = 146 pt of title.
+        XCTAssertNil(ShelfHeroLayout.sideBySideTitleLineLimit(
+            viewportHeight: 220, contentPadding: 16, titleHeight: 146, titleLineHeight: 30, buttonHeight: 44))
+        XCTAssertEqual(ShelfHeroLayout.sideBySideTitleLineLimit(
+            viewportHeight: 220, contentPadding: 16, titleHeight: 180, titleLineHeight: 30, buttonHeight: 44), 4)
+        // 146 / 29 is 5.03 lines, and 5 lines are 145 pt.
+        XCTAssertEqual(ShelfHeroLayout.sideBySideTitleLineLimit(
+            viewportHeight: 220, contentPadding: 16, titleHeight: 180, titleLineHeight: 29, buttonHeight: 44), 5)
+        // 145.5 / 29.05 is 5.008 lines, but 5 lines round up to 146 pt,
+        // past the room, so 4.
+        XCTAssertEqual(ShelfHeroLayout.sideBySideTitleLineLimit(
+            viewportHeight: 220, contentPadding: 16.5, titleHeight: 180, titleLineHeight: 29.05,
+            buttonHeight: 44), 4)
+        // No room at all still keeps one line.
+        XCTAssertEqual(ShelfHeroLayout.sideBySideTitleLineLimit(
+            viewportHeight: 60, contentPadding: 16, titleHeight: 180, titleLineHeight: 30, buttonHeight: 44), 1)
+    }
 
     func testAnUnmeasuredViewportKeepsTheLine() {
         XCTAssertTrue(ShelfHeroLayout.sideBySideCaptionShowsLastPlayed(

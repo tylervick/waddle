@@ -710,8 +710,18 @@ struct ShelfView: View {
                                                                          category: category),
                 buttonHeight: HeroSideBySideCaption.buttonHeight(labelHeight: heroButtonLabelHeight))
         } ?? false
+        // Where Continue still ends below the viewport without the line, the
+        // title gives way next: capped at the lines that leave Continue whole,
+        // never fewer than one (issue #493). Nil, no cap, wherever it fits.
+        let titleLineLimit = showsLastPlayed ? nil : ShelfHeroLayout.sideBySideTitleLineLimit(
+            viewportHeight: viewportHeight,
+            contentPadding: contentPadding,
+            titleHeight: HeroSideBySideCaption.titleHeight(game.name, width: captionWidth, category: category),
+            titleLineHeight: HeroSideBySideCaption.titleLineHeight(category: category),
+            buttonHeight: HeroSideBySideCaption.buttonHeight(labelHeight: heroButtonLabelHeight))
         return HeroSideBySideCaption(
             title: game.name,
+            titleLineLimit: titleLineLimit,
             lastPlayed: showsLastPlayed ? lastPlayed : nil,
             // In a row where the caption holds two buttons as wide as the
             // wider label, stacked where it does not. `ShelfHeroLayout`
@@ -1049,6 +1059,9 @@ struct ShelfView: View {
 /// this view as SwiftUI lays it out (issue #457).
 struct HeroSideBySideCaption: View {
     let title: String
+    /// The most lines the title may wrap to, its tail truncated past them;
+    /// nil for no limit (`ShelfHeroLayout.sideBySideTitleLineLimit`).
+    var titleLineLimit: Int?
     /// Nil draws the caption without the line.
     let lastPlayed: String?
     let buttonArrangement: ShelfHeroLayout.ButtonArrangement
@@ -1059,7 +1072,10 @@ struct HeroSideBySideCaption: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: ShelfHeroLayout.captionSpacing) {
-            Text(title).font(Theme.Typography.heroTitle)
+            Text(title)
+                .font(Theme.Typography.heroTitle)
+                .lineLimit(titleLineLimit)
+                .truncationMode(.tail)
             if let lastPlayed {
                 Text(lastPlayed)
                     .font(Theme.Typography.secondary)
@@ -1109,9 +1125,17 @@ struct HeroSideBySideCaption: View {
 
     /// The title as it wraps at `width`.
     static func titleHeight(_ title: String, width: CGFloat, category: UIContentSizeCategory) -> CGFloat {
+        wrappedHeight(title, font: titleFont(category), width: width)
+    }
+
+    /// One line of the title, for capping it at a number of lines.
+    static func titleLineHeight(category: UIContentSizeCategory) -> CGFloat {
+        titleFont(category).lineHeight
+    }
+
+    private static func titleFont(_ category: UIContentSizeCategory) -> UIFont {
         let base = font(.title2, category)
-        let bold = base.fontDescriptor.withSymbolicTraits(.traitBold).map { UIFont(descriptor: $0, size: 0) } ?? base
-        return wrappedHeight(title, font: bold, width: width)
+        return base.fontDescriptor.withSymbolicTraits(.traitBold).map { UIFont(descriptor: $0, size: 0) } ?? base
     }
 
     /// The last-played line as it wraps at `width`.

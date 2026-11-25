@@ -235,6 +235,54 @@ enum ShelfHeroLayout {
         return bottom <= viewportHeight
     }
 
+    /// How many lines the title beside the art may take, or nil for as many
+    /// as it wraps to (issue #493).
+    ///
+    /// Dropping the last-played line (`sideBySideCaptionShowsLastPlayed`) is
+    /// not always enough: the title has no line limit of its own, and at an
+    /// accessibility size a long one wraps to five lines or more and alone
+    /// pushes Continue below a closed Duo's 350 pt viewport. So the title
+    /// gives way next, and only then: wherever Continue would end below the
+    /// viewport *without* the line, the title is capped at as many lines as
+    /// still leave Continue whole above it, never fewer than one, and its
+    /// tail is truncated. The art beside it already says which game, the
+    /// Continue button's accessibility label still carries the whole name,
+    /// and the game page shows it whole. Wherever Continue fits without the
+    /// line, nothing changes.
+    ///
+    /// Like the line's rule, every input is arithmetic over the viewport and
+    /// the reader's fonts, never a frame of the hero's own.
+    ///
+    /// - Parameters:
+    ///   - viewportHeight: height visible without scrolling. Zero or
+    ///     non-finite means "not measured yet", and the title is not capped.
+    ///   - contentPadding: the inset above the hero.
+    ///   - titleHeight: the title as it wraps at the caption's width.
+    ///   - titleLineHeight: one line of the title at the reader's size.
+    ///   - buttonHeight: one button at the reader's text size.
+    static func sideBySideTitleLineLimit(viewportHeight: CGFloat,
+                                         contentPadding: CGFloat,
+                                         titleHeight: CGFloat,
+                                         titleLineHeight: CGFloat,
+                                         buttonHeight: CGFloat) -> Int? {
+        guard viewportHeight.isFinite, viewportHeight > 0,
+              titleLineHeight.isFinite, titleLineHeight > 0 else { return nil }
+        let below = sideBySideContinueBottom(titleHeight: 0, lastPlayedHeight: 0, buttonHeight: buttonHeight)
+        let room = viewportHeight - contentPadding - below
+        guard titleHeight > room else { return nil }
+        var lines = max(1, Int((room / titleLineHeight).rounded(.down)))
+        while lines > 1, cappedTitleHeight(lines: lines, lineHeight: titleLineHeight) > room {
+            lines -= 1
+        }
+        return lines
+    }
+
+    /// The title's height when capped at `lines`, rounded up to a whole
+    /// point the way a wrapped title's height is.
+    static func cappedTitleHeight(lines: Int, lineHeight: CGFloat) -> CGFloat {
+        (CGFloat(lines) * lineHeight).rounded(.up)
+    }
+
     /// How the caption's two buttons, Continue and New Game, are stacked.
     enum ButtonArrangement: Equatable {
         case row
