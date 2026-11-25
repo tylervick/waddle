@@ -193,6 +193,20 @@ Current patches:
   must survive the merge untouched; re-check the `saveg_compat_t` enum
   order and the `saveg_versions[]` entry.
 
+- `src/i_video.c` — issue #527, a backport of upstream `ae2e5b3e` ("fix
+  crash with non-standard-size STDISC", fabiangreffrath/woof#3023,
+  2026-11-12), which postdates the pin. `I_InitDiskFlash` allocates a
+  16x16 (scaled) buffer and drew the WAD's `STDISK` patch into it with
+  `V_DrawPatch`, uncropped, so a PWAD with a larger `STDISK` wrote past the
+  heap buffer at every video init. It now draws with
+  `V_DrawPatchCropped(..., (crop_t){.width = 16, .height = 16})`, upstream's
+  two lines verbatim and not under `WOOF_IOS`. One visible change comes
+  with it, as upstream: `V_DrawPatchCropped` ignores the patch's offsets,
+  and Freedoom's `STDISK` is 16x15 with topoffset -1, so the stock disk icon
+  now draws one unscaled row higher than before. `OversizedDiskIconTests`
+  loads a 64x64 `STDISK` over Freedoom. **Drop this entry when a Woof pin
+  contains `ae2e5b3e`**: the merge then takes upstream's identical lines.
+
 ### Task 10: quit/relaunch stale-global fixes
 
 `WoofIOS_Run` may run more than once in the same process (Task 9's
