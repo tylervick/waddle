@@ -51,6 +51,23 @@ Rules:
   anchor keeps its last frame, and the shelf scrolls the game back into
   view on a change of size or pose (`ScrollViewReader.scrollTo`, the least
   distance).
+- An anchor that moves while the popover is up does not move the popover.
+  SwiftUI keeps the popover's `sourceRect` on the anchor. On an iPhone Duo,
+  read back from the presented controller, it held the hero's frame after
+  opening flat and the tile's after bending again. But UIKit places a
+  popover only when it is presented and when its container lays out. A
+  change of window size (a turn) lays it out; a Duo's change of pose does
+  not, because the window stays the same. After opening flat the arrow's
+  tip stayed where the tile had put it: at y 295 inside the hero on an
+  iPhone 18 Pro, and at y 403.7, 30 pt below the hero, on the Duo. So
+  where it lands depends on the device, and a check with slack passed on
+  one device and failed on the other.
+
+  Once the anchor has been still for 0.3 s, the shelf sets the popover's
+  own `sourceRect` again and lays its container out
+  (`ShelfActionPopover.layOutAgain`). Re-presenting the dialog without
+  animation fixed the flat pose and then left the popover at the hero's
+  place after bending again.
 - The shelf's Delete confirmation, reached from a tile's long-press menu,
   has the same fault and is still on the shelf root (#535). It can take the
   same anchor: report for `deleteCandidate` as well as `actionItem`, and
