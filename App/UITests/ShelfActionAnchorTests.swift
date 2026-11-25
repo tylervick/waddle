@@ -13,6 +13,8 @@ import XCTest
 /// in the last. And the actions stay up and on their tile when the phone is
 /// turned, which a dialog hosted on the tile itself did not (review of pull
 /// request 536): the lazy grid rebuilt the tile and took the dialog with it.
+/// A tile's Delete confirmation, from its long-press menu, is held to the
+/// same (issue #535).
 ///
 /// An extension of `PlayTabTests`, in its own file, so it runs in the set a
 /// pull request runs (`.github/workflows/ui-tests.yml`).
@@ -191,10 +193,10 @@ extension PlayTabTests {
     }
 
     @MainActor
-    private func dismissActions(in app: XCUIApplication, _ continueAction: XCUIElement) {
+    private func dismissActions(in app: XCUIApplication, _ action: XCUIElement) {
         let region = app.otherElements["PopoverDismissRegion"]
         if region.exists { region.tap() }
-        XCTAssertTrue(continueAction.waitForNonExistence(timeout: 5), "the actions did not go away")
+        XCTAssertTrue(action.waitForNonExistence(timeout: 5), "the actions did not go away")
     }
 
     /// Turned from portrait to landscape and back with a tile's actions up,
@@ -250,6 +252,121 @@ extension PlayTabTests {
         try requireTurn(to: .portrait, in: app)
         assertArrowPoints(at: app.buttons[id], in: app, "\(id), turned to portrait", timeout: 8)
         XCTAssertTrue(continueAction.exists, "\(id): the actions did not survive the turn")
+    }
+
+    /// A tile's Delete confirmation, reached from its long-press menu,
+    /// points at that tile too. It hung off the shelf's root, as the actions
+    /// once did, and came up over the hero at the top of the screen from
+    /// every tile (issue #535). Only a copy has Delete (a base game is
+    /// hidden instead), so this measures rows of copies alone: a row at
+    /// rest, and after scrolling the last row and the one above it.
+    @MainActor
+    func testATilesDeletePointsAtThatTile() throws {
+        let app = launchFilledShelf()
+
+        let upper = try XCTUnwrap(copyRows(in: app).first, "no row of copies on screen")
+        XCTAssertGreaterThan(upper.count, 1, "one column only: \(upper)")
+        assertDeletePoints(at: upper[0], in: app, "upper row, first column")
+        assertDeletePoints(at: upper[upper.count - 1], in: app, "upper row, last column")
+
+        var lowest = ""
+        for _ in 0..<30 {
+            app.swipeUp()
+            let now = visibleRows(in: app).last?.last?.identifier ?? ""
+            if now == lowest { break }
+            lowest = now
+        }
+        XCTAssertFalse(app.buttons["playFreedoom1"].isHittable,
+                       "the shelf did not scroll its first row away")
+        let rows = copyRows(in: app)
+        let bottom = try XCTUnwrap(rows.last, "no row of copies on screen after scrolling")
+        assertDeletePoints(at: bottom[0], in: app, "last row, first column, scrolled")
+        if bottom.count > 1 {
+            assertDeletePoints(at: bottom[bottom.count - 1], in: app, "last row, last column, scrolled")
+        }
+        // A last row of one leaves the other column to the row above it.
+        XCTAssertGreaterThan(rows.count, 1, "no row of copies above the last")
+        guard rows.count > 1 else { return }
+        let above = rows[rows.count - 2]
+        assertDeletePoints(at: above[above.count - 1], in: app, "second-last row, last column, scrolled")
+    }
+
+    /// Turned from portrait to landscape and back with a tile's Delete
+    /// confirmation up, it stays up and on its tile, as the actions do.
+    @MainActor
+    func testATilesDeleteStaysOnItThroughATurnToLandscapeAndBack() throws {
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orientation = .portrait
+        let app = launchFilledShelf()
+        app.swipeUp()
+        let tile = try XCTUnwrap(copyRows(in: app).last?.last, "no row of copies on screen")
+        let id = tile.identifier
+        let deleteAction = openDelete(on: tile, in: app, id)
+        assertArrowPoints(at: app.buttons[id], in: app, "\(id)'s Delete, portrait")
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        try requireTurn(to: .landscape, in: app)
+        assertArrowPoints(at: app.buttons[id], in: app, "\(id)'s Delete, turned to landscape", timeout: 8)
+
+        XCUIDevice.shared.orientation = .portrait
+        try requireTurn(to: .portrait, in: app)
+        assertArrowPoints(at: app.buttons[id], in: app, "\(id)'s Delete, turned back to portrait", timeout: 8)
+        XCTAssertTrue(deleteAction.exists, "\(id): the Delete confirmation did not survive the turns")
+    }
+
+    /// Turned from landscape to portrait with a second-row tile's Delete
+    /// confirmation up, it stays up and on its tile.
+    @MainActor
+    func testATilesDeleteStaysOnItThroughATurnToPortrait() throws {
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orientation = .portrait
+        let app = launchFilledShelf()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        try requireTurn(to: .landscape, in: app)
+        let id = "game-Shelf 4"
+        let tile = app.buttons[id]
+        scrollTo(tile, in: app)
+        let deleteAction = openDelete(on: tile, in: app, id)
+        assertArrowPoints(at: app.buttons[id], in: app, "\(id)'s Delete, landscape")
+
+        XCUIDevice.shared.orientation = .portrait
+        try requireTurn(to: .portrait, in: app)
+        assertArrowPoints(at: app.buttons[id], in: app, "\(id)'s Delete, turned to portrait", timeout: 8)
+        XCTAssertTrue(deleteAction.exists, "\(id): the Delete confirmation did not survive the turn")
+    }
+
+    /// Visible rows made only of copies ("Shelf n"), the games that have
+    /// Delete, so a row's first and last tile are its first and last column.
+    @MainActor
+    private func copyRows(in app: XCUIApplication) -> [[XCUIElement]] {
+        visibleRows(in: app).filter { row in row.allSatisfy { $0.identifier.hasPrefix("game-Shelf ") } }
+    }
+
+    /// Opens `target`'s Delete confirmation from its long-press menu, and
+    /// returns the confirmation's Delete Game and Saves.
+    @MainActor
+    func openDelete(on target: XCUIElement, in app: XCUIApplication, _ what: String,
+                    file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+        XCTAssertTrue(target.waitForExistence(timeout: 5), "\(what): not on screen", file: file, line: line)
+        target.press(forDuration: 1.0)
+        let menuDelete = app.buttons["Delete"].firstMatch
+        XCTAssertTrue(menuDelete.waitForExistence(timeout: 5), "\(what): the long-press menu has no Delete",
+                      file: file, line: line)
+        menuDelete.tap()
+        let deleteAction = app.buttons.matching(identifier: "deleteGameAndSavesAction").firstMatch
+        XCTAssertTrue(deleteAction.waitForExistence(timeout: 5), "\(what): the Delete confirmation never came up",
+                      file: file, line: line)
+        return deleteAction
+    }
+
+    /// Opens `tile`'s Delete confirmation, checks that the popover's arrow
+    /// lands on it, and cancels it.
+    @MainActor
+    private func assertDeletePoints(at tile: XCUIElement, in app: XCUIApplication, _ what: String,
+                                    file: StaticString = #filePath, line: UInt = #line) {
+        let deleteAction = openDelete(on: tile, in: app, what, file: file, line: line)
+        assertArrowPoints(at: tile, in: app, "Delete, \(what)", file: file, line: line)
+        dismissActions(in: app, deleteAction)
     }
 
     @MainActor

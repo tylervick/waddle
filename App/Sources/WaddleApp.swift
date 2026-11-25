@@ -125,6 +125,13 @@ struct WaddleApp: App {
             if let copies = ProcessInfo.processInfo.environment["WADDLE_TEST_FILL_SHELF"].flatMap(Int.init) {
                 try? library.fillShelfForTest(copies: copies)
             }
+            // Test-only seam (issue #535): WADDLE_TEST_HERO names a game to
+            // give a save and mark played, so it is the Continue hero; after
+            // WADDLE_TEST_FILL_SHELF, so it can name one of its copies. Same
+            // WADDLE_* family as the seams around it; never set in production.
+            if let name = ProcessInfo.processInfo.environment["WADDLE_TEST_HERO"] {
+                try? library.seedHeroForTest(gameNamed: name)
+            }
             // Test-only seam (issue #339): WADDLE_TEST_SUSPEND_SAVE is a save
             // file, raw-deflate compressed and base64 encoded (a 1.3 save is
             // 171 KB; the launch environment is not the place for that), to

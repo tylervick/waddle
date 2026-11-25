@@ -68,10 +68,14 @@ Rules:
   (`ShelfActionPopover.layOutAgain`). Re-presenting the dialog without
   animation fixed the flat pose and then left the popover at the hero's
   place after bending again.
-- The shelf's Delete confirmation, reached from a tile's long-press menu,
-  has the same fault and is still on the shelf root (#535). It can take the
-  same anchor: report for `deleteCandidate` as well as `actionItem`, and
-  move `deleteGamePrompt` onto the overlay's clear view.
+- Every dialog about one game shares that anchor. The shelf's Delete
+  confirmation, from a tile's or the hero's long-press menu, had the same
+  fault on the shelf root (#535). It now sits on the same clear view: the
+  reporters report for `deleteCandidate` as well as `actionItem`, so the
+  relayout and the scroll back into view serve both. A second anchor
+  would have needed both again. `testATilesDeletePointsAtThatTile` is
+  the check, and a copy is needed to reach Delete at all (a base game's
+  menu hides it), so `WADDLE_TEST_HERO` makes a copy the hero.
 - A dialog that is about the whole screen (a page's save warning, Reset Usage
   Counts) still gets a popover. Its arrow points at the screen, so look at it
   before assuming it is fine.

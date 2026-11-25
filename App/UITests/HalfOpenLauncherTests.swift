@@ -302,6 +302,69 @@ extension PlayTabTests {
         assertStaysUp(continueAction, "opened flat again, the hero's game's actions were dropped", in: app)
     }
 
+    /// A tile's Delete confirmation is one of the shelf's own dialogs too,
+    /// and stays up and on its tile through a bend and opening flat (pull
+    /// request 524's rule, for the dialog issue #535 moved off the shelf's
+    /// root). Started flat on the seam so the first change is a bend.
+    @MainActor
+    func testAPoseChangeKeepsATilesDeleteUpAndOnIt() throws {
+        let app = launchShelfOfCopies()
+        let id = "game-Shelf 2"
+        let deleteAction = openDelete(on: app.buttons[id], in: app, id)
+        assertArrowPoints(at: app.buttons[id], in: app, "flat, \(id)'s Delete")
+
+        notify_post("com.tylervick.waddle.test.half-open-toggle")
+        _ = try foldBand(in: app)
+        assertStaysUp(deleteAction, "bent, the tile's Delete confirmation was dropped", in: app)
+        assertArrowPoints(at: app.buttons[id], in: app, "bent, \(id)'s Delete", timeout: 8)
+
+        notify_post("com.tylervick.waddle.test.half-open-toggle")
+        XCTAssertTrue(waitUntil { !app.otherElements["launcherLowerHalf"].exists },
+                      "the launcher stayed in two halves after opening flat")
+        assertStaysUp(deleteAction, "opened flat, the tile's Delete confirmation was dropped", in: app)
+        assertArrowPoints(at: app.buttons[id], in: app, "flat again, \(id)'s Delete", timeout: 8)
+    }
+
+    /// The hero's Delete, from its long-press menu, points at the hero, and
+    /// follows its game as the actions do: to its tile when bent, back to the
+    /// hero when opened flat (issue #535). The hero is a copy, "Shelf 1",
+    /// since a base game's menu hides it instead of deleting it.
+    @MainActor
+    func testAPoseChangeKeepsTheHerosDeleteUpAndOnIt() throws {
+        let app = launchShelfOfCopies(hero: "Shelf 1")
+        let hero = app.descendants(matching: .any).matching(identifier: "continueHero").firstMatch
+        XCTAssertTrue(hero.waitForExistence(timeout: 10), "flat, there is no Continue hero")
+        let deleteAction = openDelete(on: hero, in: app, "the hero")
+        assertArrowPoints(at: hero, in: app, "flat, the hero's Delete")
+
+        notify_post("com.tylervick.waddle.test.half-open-toggle")
+        _ = try foldBand(in: app)
+        assertStaysUp(deleteAction, "bent, the hero's game's Delete confirmation was dropped", in: app)
+        assertArrowPoints(at: app.buttons["game-Shelf 1"], in: app, "bent, the hero's game's tile's Delete",
+                          timeout: 8)
+
+        notify_post("com.tylervick.waddle.test.half-open-toggle")
+        XCTAssertTrue(waitUntil { !app.otherElements["launcherLowerHalf"].exists },
+                      "the launcher stayed in two halves after opening flat")
+        assertStaysUp(deleteAction, "opened flat, the hero's game's Delete confirmation was dropped", in: app)
+        assertArrowPoints(at: hero, in: app, "flat again, the hero's Delete", timeout: 8)
+    }
+
+    /// Flat on the seam, with copies "Shelf 1"…"Shelf 4" of Freedoom Phase 1,
+    /// every game with a save, and `hero`, when given, as the Continue hero.
+    @MainActor
+    private func launchShelfOfCopies(hero: String? = nil) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.provideFreedoom()
+        app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
+        app.launchEnvironment["WADDLE_TEST_HALF_OPEN"] = "0"
+        app.launchEnvironment["WADDLE_TEST_FILL_SHELF"] = "4"
+        if let hero { app.launchEnvironment["WADDLE_TEST_HERO"] = hero }
+        app.launch()
+        XCTAssertTrue(waitForShelf(in: app), "the shelf never appeared")
+        return app
+    }
+
     /// 64 bytes of "x", raw-deflate compressed and base64 encoded, as
     /// `WADDLE_TEST_SUSPEND_SAVE` takes a save: a file the shelf counts,
     /// which nothing here loads (the same bytes `DuoLayoutSweepTests` uses).
