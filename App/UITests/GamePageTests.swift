@@ -140,12 +140,14 @@ final class GamePageTests: XCTestCase {
                              "only part of the row is the control; frame \(row.frame), page \(page.frame)")
         // The far end of the title's line, where the row has no text at all.
         row.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.2)).tap()
-        let modern = app.buttons["Modern"]
-        XCTAssertTrue(modern.waitForExistence(timeout: 5), "a touch on the row's empty end did not open the menu")
-        modern.tap()
+        // Classic, not the default (Modern): the row already reads "Default
+        // (Modern)", so choosing Modern could not show that the choice took.
+        let classic = app.buttons["Classic"]
+        XCTAssertTrue(classic.waitForExistence(timeout: 5), "a touch on the row's empty end did not open the menu")
+        classic.tap()
         XCTAssertTrue(app.buttons["schemePicker"].waitForExistence(timeout: 5))
         let chosen = app.buttons["schemePicker"]
-        let predicate = NSPredicate(format: "value CONTAINS 'Modern' OR label CONTAINS 'Modern'")
+        let predicate = NSPredicate(format: "value CONTAINS 'Classic' OR label CONTAINS 'Classic'")
         expectation(for: predicate, evaluatedWith: chosen)
         waitForExpectations(timeout: 5)
     }

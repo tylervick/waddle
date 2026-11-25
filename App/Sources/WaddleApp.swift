@@ -60,11 +60,19 @@ struct WaddleApp: App {
                 // a UITest that drags a button cannot leave it moved for the
                 // rest of the suite.
                 UserDefaults.standard.removeObject(forKey: TouchOverlayLayoutOverrides.userDefaultsKey)
+                // And the touch scheme, so a reset launch is a new install
+                // to `settleStoredScheme` below and starts on the default,
+                // whatever an earlier build or test left in this simulator.
+                UserDefaults.standard.removeObject(forKey: TouchControlScheme.userDefaultsKey)
             }
             #endif
 
             let library = LibraryService(context: context, store: store)
             let importer = ImportService(library: library, store: store)
+            // Before the migration and the seeder, which fill the library on
+            // every launch: asked after them, a new install would look like
+            // an existing one.
+            TouchControlScheme.settleStoredScheme(isExistingInstall: try library.isExistingInstall())
             // The migration and the seeder are interchangeable for bundled
             // rows — see each method's doc comment: both build the same
             // `Game.baseGame(for:)` under the same guard. The order that is

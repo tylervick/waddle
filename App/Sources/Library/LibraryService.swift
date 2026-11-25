@@ -209,6 +209,19 @@ final class LibraryService {
     static let didMigrateToGamesKey = "didMigrateToGames"
     static let didAdoptOrphanMapSetsKey = "didAdoptOrphanMapSets"
 
+    /// Whether an earlier launch of any build has run on this install. Asked
+    /// before this launch's migration and seeding, which would otherwise
+    /// answer it for every install. Every build since 2026-07-16 seeds the
+    /// bundled Freedoom rows at its first launch, and every build since
+    /// 2026-09-17 sets `didMigrateToGamesKey`; either one surviving says the
+    /// app has run here before. Used to settle the touch scheme
+    /// (`TouchControlScheme.settleStoredScheme`).
+    func isExistingInstall(defaults: UserDefaults = .standard) throws -> Bool {
+        if defaults.bool(forKey: Self.didMigrateToGamesKey) { return true }
+        if try context.fetchCount(FetchDescriptor<WADFile>()) > 0 { return true }
+        return try context.fetchCount(FetchDescriptor<Game>()) > 0
+    }
+
     /// One-time migration onto `Game` (spec §5). Every IWAD row without a game
     /// becomes its base game **under the IWAD's id**, so `Documents/Saves/<id>/`
     /// stays where the pre-`Game` build left it; present PWADs are re-parsed

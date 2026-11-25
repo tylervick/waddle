@@ -32,6 +32,36 @@ final class LibraryServiceTests: XCTestCase {
         try? FileManager.default.removeItem(at: tmp)
     }
 
+    // MARK: isExistingInstall (issue #534)
+
+    func testAnEmptyLibraryWithNoFlagIsANewInstall() throws {
+        try withEmptyDefaults { defaults in
+            XCTAssertFalse(try service.isExistingInstall(defaults: defaults))
+        }
+    }
+
+    /// Every build since bundled seeding leaves these rows at its first launch.
+    func testASeededLibraryIsAnExistingInstall() throws {
+        try withEmptyDefaults { defaults in
+            try service.seedBundledContentIfNeeded()
+            XCTAssertTrue(try service.isExistingInstall(defaults: defaults))
+        }
+    }
+
+    func testTheMigrationFlagAloneIsAnExistingInstall() throws {
+        try withEmptyDefaults { defaults in
+            defaults.set(true, forKey: LibraryService.didMigrateToGamesKey)
+            XCTAssertTrue(try service.isExistingInstall(defaults: defaults))
+        }
+    }
+
+    private func withEmptyDefaults(_ body: (UserDefaults) throws -> Void) rethrows {
+        let suiteName = "LibraryServiceTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        try body(defaults)
+    }
+
     func testSeedStoresRealContentHashForBundledIWADs() throws {
         try service.seedBundledContentIfNeeded()
         let bundled = try service.allWADs().filter(\.isBundled)

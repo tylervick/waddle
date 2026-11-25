@@ -4,9 +4,11 @@ import Foundation
 ///
 /// User feedback from on-device testing: twin-stick strafe (the original,
 /// only behavior) feels wrong for classic WADs, where turning belongs on
-/// the stick and there's no expectation of a separate strafe axis. `classic`
-/// is now the default; `modern` keeps the original twin-stick-plus-drag-turn
-/// behavior for players who want it.
+/// the stick and there's no expectation of a separate strafe axis. That made
+/// `classic` the default from 2026-07-18 until issue #534, which made
+/// `modern` (the original twin-stick plus drag-to-turn) the default for new
+/// installs while every earlier install keeps the scheme it was on (see
+/// `settleStoredScheme`).
 enum TouchControlScheme: String, CaseIterable {
     /// Stick X turns (Woof's RIGHTX axis), stick Y moves forward/back. No
     /// strafe axis is driven. The right side of the overlay hosts buttons
@@ -18,8 +20,32 @@ enum TouchControlScheme: String, CaseIterable {
     /// gamepad axis.
     case modern
 
-    static let defaultScheme: TouchControlScheme = .classic
+    static let defaultScheme: TouchControlScheme = .modern
+    /// What an install with nothing stored played on before `defaultScheme`
+    /// became `.modern`. Historical, not a preference: it must not follow
+    /// a later change of `defaultScheme`.
+    static let previousDefault: TouchControlScheme = .classic
     static let userDefaultsKey = "touchControlScheme"
+
+    /// Stores a scheme on an install that has none, once, at launch, so that
+    /// changing `defaultScheme` never moves a player who did not choose.
+    ///
+    /// An unset key used to mean "the default in code", and an existing
+    /// install that never opened Settings looks exactly like a new one in
+    /// `UserDefaults`. So the caller says which it is, from something an
+    /// earlier launch left behind (`LibraryService.isExistingInstall`), and
+    /// this stores `previousDefault` for an existing install and
+    /// `defaultScheme` for a new one. After it has run the key is always
+    /// set, so a later launch, when the library is no longer empty, finds a
+    /// value and does nothing. A stored, valid scheme is never touched.
+    static func settleStoredScheme(isExistingInstall: Bool, defaults: UserDefaults = .standard) {
+        if let raw = defaults.string(forKey: userDefaultsKey),
+           TouchControlScheme(rawValue: raw) != nil {
+            return
+        }
+        let scheme = isExistingInstall ? previousDefault : defaultScheme
+        defaults.set(scheme.rawValue, forKey: userDefaultsKey)
+    }
 
     /// Reads the persisted scheme, falling back to `defaultScheme` if unset
     /// or unrecognized. Used by OverlayPresenter at overlay-install time; a
