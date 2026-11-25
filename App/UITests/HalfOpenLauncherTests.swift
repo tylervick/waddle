@@ -52,13 +52,13 @@ extension PlayTabTests {
         }
 
         // Settings opens in the lower half, not as a sheet over the window.
-        app.buttons["touchSchemeMenu"].tap()
+        openShelfSettings(in: app)
         let firstRow = app.descendants(matching: .any).matching(identifier: "touchSchemePicker").firstMatch
         XCTAssertTrue(firstRow.waitForExistence(timeout: 10), "Settings never opened")
         assertBelow(band, app.navigationBars["Settings"], "Settings' bar", in: app)
         assertBelow(band, firstRow, "Settings' first row", in: app)
         XCTAssertLessThanOrEqual(shelfBar.frame.maxY, band.minY + 0.5, "\(shelfBar.frame)")
-        XCTAssertTrue(app.buttons["importButton"].isHittable, "the shelf is covered while Settings is open")
+        XCTAssertTrue(app.buttons["playFreedoom1"].isHittable, "the shelf is covered while Settings is open")
         app.navigationBars["Settings"].buttons["Done"].tap()
         XCTAssertTrue(page.waitForExistence(timeout: 5), "closing Settings did not bring the resting page back")
 
@@ -100,7 +100,7 @@ extension PlayTabTests {
         XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "gamePage").firstMatch.exists,
                        "a game's page is up with nothing open")
 
-        app.buttons["touchSchemeMenu"].tap()
+        openShelfSettings(in: app)
         let settingsBar = app.navigationBars["Settings"]
         XCTAssertTrue(settingsBar.waitForExistence(timeout: 10), "Settings never opened")
         let window = app.windows.firstMatch.frame
@@ -119,7 +119,7 @@ extension PlayTabTests {
                       "bent, Files should have moved below the fold, still pushed: "
                       + "Files \(files.exists ? "\(files.frame)" : "is gone"), band \(band)")
         XCTAssertLessThanOrEqual(try shelfScrollView(in: app).frame.maxY, band.minY + 0.5)
-        XCTAssertTrue(app.buttons["importButton"].isHittable, "the shelf is still covered")
+        XCTAssertTrue(app.buttons["playFreedoom1"].isHittable, "the shelf is still covered")
     }
 
     /// A fold keeps the screen pushed inside the panel, in both directions:
@@ -131,8 +131,14 @@ extension PlayTabTests {
     func testAFoldKeepsTheScreenPushedInsideThePanel() throws {
         let app = launchLauncher(halfOpen: "1")
         let band = try foldBand(in: app)
-        app.buttons["touchSchemeMenu"].tap()
-        XCTAssertTrue(app.buttons["filesButton"].waitForExistence(timeout: 10), "Settings never opened")
+        openShelfSettings(in: app)
+        // Settings' first row says it opened. Files is further down, and on
+        // a bent iPhone Duo the lower half is too short for the lazy list
+        // to have built that row yet, so it is scrolled to.
+        let firstRow = app.buttons["touchSchemePicker"]
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 10), "Settings never opened")
+        let settingsList = app.collectionViews.containing(.button, identifier: "touchSchemePicker").firstMatch
+        scrollTo(app.buttons["filesButton"], in: app, swiping: settingsList)
         app.buttons["filesButton"].tap()
         let files = app.descendants(matching: .any).matching(identifier: "filesScreen").firstMatch
         XCTAssertTrue(files.waitForExistence(timeout: 10), "Files never opened")
@@ -154,8 +160,11 @@ extension PlayTabTests {
                       + (files.exists ? "\(files.frame)" : "Files is gone"))
 
         // And back out the way a player goes: Files' back button is Settings.
+        // The Settings it reaches is a list built again at its top, so its
+        // Files row is scrolled to, as on the way in.
         app.buttons.matching(identifier: "BackButton").firstMatch.tap()
-        XCTAssertTrue(app.buttons["filesButton"].waitForExistence(timeout: 5), "back from Files did not reach Settings")
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 5), "back from Files did not reach Settings")
+        scrollTo(app.buttons["filesButton"], in: app, swiping: settingsList)
     }
 
     /// A save warning that is up when the device is opened flat, or bent, is
@@ -254,7 +263,7 @@ extension PlayTabTests {
         app.launchEnvironment["WADDLE_TEST_HALF_OPEN"] = "0"
         app.launchEnvironment["WADDLE_TEST_ZIP_1"] = badID.base64EncodedString()
         app.launch()
-        XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 60), "the shelf never appeared")
+        XCTAssertTrue(waitForShelf(in: app, timeout: 60), "the shelf never appeared")
         let tile = app.buttons["playFreedoom1"]
         XCTAssertTrue(tile.waitForExistence(timeout: 30), "the tile is missing")
         tile.tap()
@@ -300,7 +309,7 @@ extension PlayTabTests {
         let fresh = XCUIApplication()
         fresh.provideFreedoom()
         fresh.launch()
-        XCTAssertTrue(fresh.buttons["importButton"].waitForExistence(timeout: 30), "the shelf never appeared",
+        XCTAssertTrue(waitForShelf(in: fresh), "the shelf never appeared",
                       file: file, line: line)
         openGamePage(fresh, tile: "game-\(gameName)", file: file, line: line)
         let picker = fresh.buttons["basePicker"]
@@ -335,7 +344,7 @@ extension PlayTabTests {
         app.launchEnvironment["WADDLE_TEST_SEED_SAVE_FOR"] = Self.savedCopyName
         for (key, value) in environment { app.launchEnvironment[key] = value }
         app.launch()
-        XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 30), "the shelf never appeared")
+        XCTAssertTrue(waitForShelf(in: app), "the shelf never appeared")
         return app
     }
 
@@ -373,8 +382,39 @@ extension PlayTabTests {
         app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
         app.launchEnvironment["WADDLE_TEST_HALF_OPEN"] = halfOpen
         app.launch()
-        XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 30), "the shelf never appeared")
+        XCTAssertTrue(waitForShelf(in: app), "the shelf never appeared")
         return app
+    }
+
+    /// Waits for the shelf by one of its tiles: Freedoom Phase 1's, or any
+    /// game's. Not by the bar's Add, which a bent iPhone Duo moves under a
+    /// More button with Settings: the upper half is too short a window for
+    /// the bar to hold them (issue #541).
+    @MainActor
+    func waitForShelf(in app: XCUIApplication, timeout: TimeInterval = 30) -> Bool {
+        app.buttons.matching(NSPredicate(format: "identifier == 'playFreedoom1' OR identifier BEGINSWITH 'game-'"))
+            .firstMatch.waitForExistence(timeout: timeout)
+    }
+
+    /// Opens Settings from the shelf's bar: the gear where it is in the bar,
+    /// and through the bar's More where the system has moved it there, as on
+    /// a bent iPhone Duo (issue #541).
+    @MainActor
+    func openShelfSettings(in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        let gear = app.buttons["touchSchemeMenu"]
+        let more = app.buttons["BottomOverflowBarButtonItem"]
+        guard waitUntil(timeout: 10, { gear.exists || more.exists }) else {
+            return XCTFail("the shelf's bar has neither Settings nor More", file: file, line: line)
+        }
+        if gear.exists {
+            gear.tap()
+            return
+        }
+        more.tap()
+        let item = app.buttons.matching(NSPredicate(format: "identifier == 'touchSchemeMenu' OR label == 'Settings'"))
+            .firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 5), "the bar's More has no Settings", file: file, line: line)
+        item.tap()
     }
 
     /// The band between the two halves, from the root's two corner markers:
