@@ -31,6 +31,8 @@ struct ShelfView: View {
     }
     @State private var showImporter = false
     @State private var showLinkImport = false
+    /// True while a drag is over the shelf, for `ShelfDropHighlight`.
+    @State private var dropTargeted = false
     /// The item whose tap opened the Continue / New Game / Details sheet.
     @State private var actionItem: Game?
     /// Where the game a shelf dialog is about (`anchoredGame`) is drawn: its
@@ -270,6 +272,28 @@ struct ShelfView: View {
         .wadFileImporter(isPresented: $showImporter, importer: importer) { _ in
             refresh()
         }
+        // A file dropped on the shelf -- from Finder onto a Mac window, or
+        // from Files in an iPad's Split View -- goes the picker's way (#481).
+        .wadDropDestination(importer: importer, isTargeted: $dropTargeted) { _ in
+            refresh()
+        }
+        .overlay {
+            if dropTargeted {
+                ShelfDropHighlight().transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: dropTargeted)
+        #if DEBUG
+        // Test-only seam, as WADDLE_OPEN_PANEL is: shows the drop highlight
+        // with no drag in progress, so a capture can show it. Nothing
+        // synthetic can hold a drag from Files over the shelf. Never set in
+        // production.
+        .task {
+            if ProcessInfo.processInfo.environment["WADDLE_SHOW_DROP_TARGET"] == "1" {
+                dropTargeted = true
+            }
+        }
+        #endif
         .sheet(isPresented: $showLinkImport) {
             LinkImportSheet(importer: importer)
         }
