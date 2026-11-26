@@ -60,7 +60,10 @@ final class SessionLogCaptureBlockedWriterTests: XCTestCase {
         // writer fills the tee's own pipe and then sleeps in write().
         let writer = Writer(fd: sink.writeEnd)
         defer { writer.finish(draining: sink) }
-        XCTAssertTrue(writer.waitUntilAsleep(), "the writer never blocked; the case proves nothing")
+        guard writer.waitUntilAsleep() else {
+            capture.end()
+            return XCTFail(writer.setupFailure)
+        }
 
         capture.end()
 
@@ -76,7 +79,7 @@ final class SessionLogCaptureBlockedWriterTests: XCTestCase {
         let sink = try FullPipe()
         let writer = Writer(fd: sink.writeEnd)
         defer { writer.finish(draining: sink) }
-        XCTAssertTrue(writer.waitUntilAsleep(), "the writer never blocked; the case proves nothing")
+        guard writer.waitUntilAsleep() else { return XCTFail(writer.setupFailure) }
 
         let capture = SessionLogCapture(directory: tmp, targetFDs: [sink.writeEnd], drainDeadline: 0.3)
         try capture.begin(name: "writer-asleep-on-the-original")
@@ -146,9 +149,14 @@ private final class Writer: @unchecked Sendable {
     private var failedWith: Int32?
     private var returned = false
     private var stopping = false
+    /// The writer thread's own Mach port, so its state can be read.
+    private var machThread: thread_act_t = 0
+    /// What the last poll of `waitUntilAsleep` found.
+    private var lastSeen = "nothing; never polled"
 
     init(fd: Int32) {
         let thread = Thread { [self] in
+            locked { machThread = mach_thread_self() }
             let chunk = [UInt8](repeating: 0x2E, count: 4096)
             while !locked({ stopping }) {
                 let n = chunk.withUnsafeBufferPointer { write(fd, $0.baseAddress, $0.count) }
@@ -165,24 +173,94 @@ private final class Writer: @unchecked Sendable {
         thread.start()
     }
 
+    deinit {
+        if machThread != 0 { mach_port_deallocate(mach_task_self_, machThread) }
+    }
+
     /// The errno of the write that failed, if one did.
     var failure: Int32? { locked { failedWith } }
 
-    /// True once the byte count has stopped moving while the thread is still
-    /// inside its loop: it is asleep in write().
+    /// True once the thread is verifiably asleep inside write(), on several
+    /// consecutive polls: the scheduler reports it waiting rather than
+    /// running or runnable, its program counter is in write(), and the byte
+    /// count has not moved.
+    ///
+    /// The byte count alone cannot tell asleep in write() from not scheduled
+    /// between two writes, and on a starved runner that difference let a swap
+    /// land while nothing was in write() (issue #559). A thread that is
+    /// merely descheduled is runnable, not waiting, and one waiting anywhere
+    /// else in its loop, on the lock for instance, is stopped in another
+    /// function.
+    ///
+    /// Whether the pipe has room is deliberately not one of the facts. Under
+    /// load `poll` reported POLLOUT on the tee while the writer was waiting
+    /// in write() with its count still, which failed the setup once in 200
+    /// iterations although the writer was exactly where the case needs it.
     func waitUntilAsleep(timeout: TimeInterval = 5) -> Bool {
         let deadline = Date.now.addingTimeInterval(timeout)
         var last = -1
-        var stillFor = 0
+        var confirmedFor = 0
         while Date.now < deadline {
-            let (count, done) = locked { (written, returned) }
-            if done { return false }
-            stillFor = count == last ? stillFor + 1 : 0
+            let (count, done, port) = locked { (written, returned, machThread) }
+            if done {
+                lastSeen = "the thread returned, failing with errno \(failure.map(String.init) ?? "none")"
+                return false
+            }
+            let state = port == 0 ? nil : Self.runState(port)
+            let function = port == 0 ? nil : Self.stoppedIn(port)
+            lastSeen = "run state \(state.map(String.init) ?? "unknown"), stopped in \(function ?? "unknown"), "
+                + "\(count) bytes written" + (count == last ? "" : ", still moving")
+            let asleep = count == last && state == TH_STATE_WAITING && function == "write"
+            confirmedFor = asleep ? confirmedFor + 1 : 0
             last = count
-            if stillFor >= 5 { return true }
+            if confirmedFor >= 5 { return true }
             Thread.sleep(forTimeInterval: 0.05)
         }
         return false
+    }
+
+    /// The failure for a case whose writer `waitUntilAsleep` never confirmed.
+    /// It is the setup that failed, not the behaviour under test, so the case
+    /// stops there instead of going on to report a changed premise.
+    var setupFailure: String {
+        "setup failed: the writer was never seen asleep inside write(), so the case proves nothing. "
+            + "Last seen: \(lastSeen)"
+    }
+
+    /// The scheduler's run state for the thread. A thread waiting on an
+    /// event is `TH_STATE_WAITING`; one that is only waiting for a CPU is not.
+    private static func runState(_ thread: thread_act_t) -> integer_t? {
+        var info = thread_basic_info()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<thread_basic_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                thread_info(thread, thread_flavor_t(THREAD_BASIC_INFO), $0, &count)
+            }
+        }
+        return result == KERN_SUCCESS ? info.run_state : nil
+    }
+
+    /// The function holding the thread's user-space program counter. A
+    /// thread asleep in the write() system call is stopped in `write`.
+    private static func stoppedIn(_ thread: thread_act_t) -> String? {
+        #if arch(arm64)
+        var state = arm_thread_state64_t()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<arm_thread_state64_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &state) {
+            $0.withMemoryRebound(to: natural_t.self, capacity: Int(count)) {
+                thread_get_state(thread, ARM_THREAD_STATE64, $0, &count)
+            }
+        }
+        guard result == KERN_SUCCESS,
+              let pc = UnsafeRawPointer(bitPattern: UInt(state.__pc)) else { return nil }
+        var symbol = Dl_info()
+        guard dladdr(pc, &symbol) != 0, let name = symbol.dli_sname else { return nil }
+        return String(cString: name)
+        #else
+        #error("stoppedIn reads arm64 thread state; the simulator build is arm64-only")
+        #endif
     }
 
     func waitUntilReturned(timeout: TimeInterval = 5) -> Bool {
