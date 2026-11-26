@@ -80,6 +80,9 @@ struct ShelfView: View {
     /// to the pixel; the last-played rule rounds it up to the point, as it
     /// always has, and the title's cap takes it as it is (issue #493).
     @State private var heroButtonLabelHeight: CGFloat = 0
+    /// The New Game label's own height, from the same gauge: the second
+    /// button where the two are stacked (issue #547).
+    @State private var heroNewGameLabelHeight: CGFloat = 0
     /// One line and two lines of the hero's title as SwiftUI draws them
     /// (`heroTitleLineGauge`). Zero until measured, which caps no title
     /// (issue #493).
@@ -774,9 +777,16 @@ struct ShelfView: View {
             captionMinimumWidth: heroButtonMinimumWidth)
         let lastPlayed = game.lastPlayed.map(HeroSideBySideCaption.lastPlayedText)
         let category = UIContentSizeCategory(dynamicTypeSize)
-        // The last-played line gives way where it would push Continue below
-        // the viewport (issue #457). Arithmetic over the reader's fonts at
-        // the caption's width, never a frame of the caption's own.
+        // In a row where the caption holds two buttons as wide as the wider
+        // label, stacked where it does not. `ShelfHeroLayout` owns the rule
+        // and is where it is tested; `ViewThatFits` asked a different
+        // question and let through rows that cut "New Game".
+        let buttonArrangement = ShelfHeroLayout.buttonArrangement(
+            captionWidth: captionWidth, buttonMinimumWidth: heroButtonMinimumWidth)
+        // The last-played line gives way where it would push the buttons
+        // below the viewport: Continue (issue #457), and New Game under it
+        // where they are stacked (issue #547). Arithmetic over the reader's
+        // fonts at the caption's width, never a frame of the caption's own.
         let showsLastPlayed = lastPlayed.map { text in
             ShelfHeroLayout.sideBySideCaptionShowsLastPlayed(
                 viewportHeight: viewportHeight,
@@ -785,28 +795,28 @@ struct ShelfView: View {
                                                                category: category),
                 lastPlayedHeight: HeroSideBySideCaption.lastPlayedHeight(text, width: captionWidth,
                                                                          category: category),
-                buttonHeight: HeroSideBySideCaption.buttonHeight(labelHeight: ceil(heroButtonLabelHeight)))
+                buttonHeight: HeroSideBySideCaption.buttonHeight(labelHeight: ceil(heroButtonLabelHeight)),
+                newGameButtonHeight: HeroSideBySideCaption.buttonHeight(labelHeight: ceil(heroNewGameLabelHeight)),
+                buttonArrangement: buttonArrangement)
         } ?? false
-        // Where Continue still ends below the viewport without the line, the
-        // title gives way next: capped at the lines that leave Continue whole,
-        // never fewer than one (issue #493). Nil, no cap, wherever it fits.
+        // Where the buttons still end below the viewport without the line,
+        // the title gives way next: capped at the lines that leave them whole,
+        // never fewer than one (issues #493 and #547). Nil, no cap, wherever
+        // they fit.
         let titleLineLimit = showsLastPlayed ? nil : ShelfHeroLayout.sideBySideTitleLineLimit(
             viewportHeight: viewportHeight,
             contentPadding: contentPadding,
             titleLines: HeroSideBySideCaption.titleLineCount(game.name, width: captionWidth, category: category),
             titleFirstLine: heroTitleOneLine,
             titleLineStep: heroTitleOneLine > 0 ? heroTitleTwoLines - heroTitleOneLine : 0,
-            buttonHeight: HeroSideBySideCaption.buttonHeight(labelHeight: heroButtonLabelHeight))
+            buttonHeight: HeroSideBySideCaption.buttonHeight(labelHeight: heroButtonLabelHeight),
+            newGameButtonHeight: HeroSideBySideCaption.buttonHeight(labelHeight: heroNewGameLabelHeight),
+            buttonArrangement: buttonArrangement)
         return HeroSideBySideCaption(
             title: game.name,
             titleLineLimit: titleLineLimit,
             lastPlayed: showsLastPlayed ? lastPlayed : nil,
-            // In a row where the caption holds two buttons as wide as the
-            // wider label, stacked where it does not. `ShelfHeroLayout`
-            // owns the rule and is where it is tested; `ViewThatFits` asked
-            // a different question and let through rows that cut "New Game".
-            buttonArrangement: ShelfHeroLayout.buttonArrangement(
-                captionWidth: captionWidth, buttonMinimumWidth: heroButtonMinimumWidth),
+            buttonArrangement: buttonArrangement,
             buttonsDisabled: game.baseID == nil,
             continueAccessibilityLabel: "Continue \(TileAccessibility.label(for: game))",
             onContinue: { play(game, mode: .continueNewest) },
@@ -833,7 +843,11 @@ struct ShelfView: View {
     private var heroButtonLabelGauge: some View {
         ZStack {
             HeroSideBySideCaption.continueLabel
+            // Its own height too: stacked under Continue, New Game is the
+            // caption's bottom (issue #547), and its glyph draws it a pixel
+            // shorter than Continue at the accessibility sizes.
             HeroSideBySideCaption.newGameLabel
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { heroNewGameLabelHeight = $0 }
         }
         .font(Theme.Typography.button)
         .fixedSize()
@@ -1182,7 +1196,7 @@ struct HeroSideBySideCaption: View {
                 case .row:
                     HStack(spacing: ShelfHeroLayout.buttonRowSpacing) { buttons }
                 case .column:
-                    VStack(spacing: Theme.Spacing.sm) { buttons }
+                    VStack(spacing: ShelfHeroLayout.buttonColumnSpacing) { buttons }
                 }
             }
             .padding(.top, ShelfHeroLayout.captionButtonsTopPadding)
