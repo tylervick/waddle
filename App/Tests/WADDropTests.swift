@@ -1,4 +1,5 @@
 import SwiftData
+import UniformTypeIdentifiers
 import XCTest
 @testable import Waddle
 
@@ -129,5 +130,137 @@ final class WADDropTests: XCTestCase {
         _ = await WADDrop.importDropped([wad], into: stack.importer)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: wad.path))
+    }
+
+    // MARK: DroppedFile: reading a dropped item out of its provider
+
+    private var wadType: UTType { UTType("com.tylervick.waddle.wad")! }
+
+    /// A provider that offers only `type` content, handing over `handedOver`
+    /// (no `public.file-url`), as a source other than Files or Finder may.
+    private func contentOnlyProvider(_ handedOver: URL, type: UTType) -> NSItemProvider {
+        let provider = NSItemProvider()
+        provider.registerFileRepresentation(for: type, visibility: .all, openInPlace: false) { completion in
+            completion(handedOver, false, nil)
+            return nil
+        }
+        return provider
+    }
+
+    /// Files and Finder offer a dragged file by its URL. Without a
+    /// `suggestedName` the copy handed over is named after the type, so the
+    /// name must come from the URL.
+    func testADroppedFileTakesItsNameFromItsURLWithoutASuggestedName() async throws {
+        let wad = try write("sunlust.wad", makeWAD(magic: "PWAD", lumps: ["MAP01"]))
+        let provider = try XCTUnwrap(NSItemProvider(contentsOf: wad))
+        provider.suggestedName = nil
+
+        let request = await DroppedFile.request(for: provider)
+
+        XCTAssertEqual(request.url.lastPathComponent, "sunlust.wad")
+        XCTAssertEqual(try Data(contentsOf: request.url), try Data(contentsOf: wad))
+        let outcome = await WADDrop.importDropped([request], into: try makeStack().importer)
+        XCTAssertEqual(outcome.imported, ["sunlust"])
+    }
+
+    func testADroppedFileWithNoURLTakesItsSuggestedName() async throws {
+        let handedOver = try write("tmp-4F1C", makeWAD(magic: "PWAD", lumps: ["MAP01"]))
+        let provider = contentOnlyProvider(handedOver, type: wadType)
+        provider.suggestedName = "sunlust"
+
+        let request = await DroppedFile.request(for: provider)
+
+        XCTAssertEqual(request.url.lastPathComponent, "sunlust.wad")
+        let outcome = await WADDrop.importDropped([request], into: try makeStack().importer)
+        XCTAssertEqual(outcome.imported, ["sunlust"])
+    }
+
+    /// With neither, the copy's own name is all there is; it still gets its
+    /// type's extension, so the import knows what it is.
+    func testADroppedFileWithNeitherIsNamedAfterTheCopyWithItsTypesExtension() async throws {
+        let handedOver = try write("tmp-4F1C", makeWAD(magic: "PWAD", lumps: ["MAP01"]))
+        let provider = contentOnlyProvider(handedOver, type: wadType)
+        provider.suggestedName = nil
+
+        let request = await DroppedFile.request(for: provider)
+
+        XCTAssertEqual(request.url.pathExtension, "wad")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.url.path))
+        let outcome = await WADDrop.importDropped([request], into: try makeStack().importer)
+        XCTAssertEqual(outcome.imported.count, 1)
+        XCTAssertTrue(outcome.rejected.isEmpty)
+    }
+
+    /// The order the name is taken in, with what a provider hands over
+    /// standing in as the system names it: after the type, "Doom WAD.wad".
+    /// (The provider tests above cannot show the second and third steps on
+    /// their own, because the system's copy already follows
+    /// `suggestedName` and already carries the extension.)
+    func testTheNameComesFromTheURLThenTheSuggestedNameThenTheCopy() {
+        let original = URL(fileURLWithPath: "/Users/someone/Downloads/sunlust.wad")
+        let copy = URL(fileURLWithPath: "/tmp/x/Doom WAD.wad")
+        XCTAssertEqual(DroppedFile.filename(fileURL: original, suggestedName: "other",
+                                            handedOver: copy, type: wadType), "sunlust.wad")
+        XCTAssertEqual(DroppedFile.filename(fileURL: nil, suggestedName: "sunlust",
+                                            handedOver: copy, type: wadType), "sunlust.wad")
+        XCTAssertEqual(DroppedFile.filename(fileURL: nil, suggestedName: nil,
+                                            handedOver: copy, type: wadType), "Doom WAD.wad")
+    }
+
+    func testANameWithNoExtensionGetsItsTypesAndNoNameAtAllGetsAPlaceholder() {
+        XCTAssertEqual(DroppedFile.filename(fileURL: nil, suggestedName: nil,
+                                            handedOver: URL(fileURLWithPath: "/tmp/x/tmp-4F1C"),
+                                            type: .zip), "tmp-4F1C.zip")
+        XCTAssertEqual(DroppedFile.filename(fileURL: nil, suggestedName: " ", handedOver: nil, type: nil),
+                       "Dropped item")
+    }
+
+    func testTheNameIsSanitised() {
+        let name = DroppedFile.filename(fileURL: nil, suggestedName: "../evil\nname", handedOver: nil, type: wadType)
+        XCTAssertEqual(name, ImportFilename.sanitized("../evil\nname.wad"))
+        XCTAssertFalse(name.contains("/"))
+    }
+
+    /// A folder matches only through `public.file-url`. It is refused as an
+    /// unsupported type under its own name, and no plist of its URL is
+    /// staged as though it were a file.
+    func testADroppedFolderIsRefusedByNameWithoutStagingItsURL() async throws {
+        let folder = tmp.appendingPathComponent("Maps", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let provider = try XCTUnwrap(NSItemProvider(contentsOf: folder))
+
+        let request = await DroppedFile.request(for: provider)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.url.path))
+        let outcome = await WADDrop.importDropped([request], into: try makeStack().importer)
+        XCTAssertEqual(outcome.rejected, ["Maps": "Unsupported file type."])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.url.deletingLastPathComponent().path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folder.path))
+    }
+
+    /// A `.pk3` is a type the app does not declare, so it too matches only
+    /// by URL; it gets the reason every other route gives a pk3.
+    func testADroppedPK3IsRefusedWithThePK3Reason() async throws {
+        let pk3 = try write("mod.pk3", Data([0x50, 0x4B, 0x03, 0x04]))
+        let provider = try XCTUnwrap(NSItemProvider(contentsOf: pk3))
+        provider.suggestedName = nil
+
+        let request = await DroppedFile.request(for: provider)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.url.path))
+        let outcome = await WADDrop.importDropped([request], into: try makeStack().importer)
+        XCTAssertEqual(outcome.rejected, ["mod.pk3": ImportFileType.refusedReason])
+    }
+
+    /// A text snippet or a web link is not a file, so the shelf does not
+    /// light up for it.
+    func testTheShelfDoesNotTakeTextOrALink() {
+        XCTAssertFalse(WADDrop.acceptedTypes.contains(.data))
+        let text = NSItemProvider(object: "hello" as NSString)
+        let link = NSItemProvider(object: URL(string: "https://example.com/x.wad")! as NSURL)
+        for provider in [text, link] {
+            XCTAssertFalse(WADDrop.acceptedTypes.contains { provider.hasItemConformingToTypeIdentifier($0.identifier) },
+                           "\(provider.registeredTypeIdentifiers)")
+        }
     }
 }
