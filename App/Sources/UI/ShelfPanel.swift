@@ -109,6 +109,20 @@ final class ShelfPanelModel {
 
     /// One per game whose page has been drawn. Not observed: a page asks for
     /// its own while it is being drawn.
+    ///
+    /// An entry goes when its page closes (`forgetPresentation`,
+    /// `pageClosed`), and the resting page never closes: another page opened
+    /// over it in the lower half replaces only what was open, and the
+    /// resting page's entry stays. So a question left waiting on it (a save
+    /// warning or rename the player raised, held down by a fold's
+    /// `presentationsHeld` long enough to reach the shelf and open another
+    /// tile) goes up again when the resting page is drawn again (issue
+    /// #472). That is deliberate. The question is about that page, nothing
+    /// has answered it, and the page it comes back on is the one it asks
+    /// about, with the picker still on the old value. Clearing it would
+    /// drop the edit it guards without a word, the defect pull request 461
+    /// fixed. `ShelfPanelTests.testARestingPagesQuestionIsStillUpWhenThePageReturns`
+    /// pins it.
     @ObservationIgnored private var gamePagePresentations: [UUID: GamePagePresentation] = [:]
 
     /// The presentation state of `game`'s page, the same object for every

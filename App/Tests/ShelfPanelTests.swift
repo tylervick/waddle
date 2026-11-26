@@ -398,6 +398,45 @@ final class ShelfPanelTests: XCTestCase {
         XCTAssertFalse(model.isPresented)
     }
 
+    /// A question left waiting on the resting page is still waiting when
+    /// that page comes back (issue #472). The way there: inside the hold
+    /// after a bend, the resting page's question is held down, so the shelf
+    /// can be reached and another game's page opened over it; closing that
+    /// page draws the resting page again. Its question is about that page
+    /// and nothing has answered it, so it goes up again; clearing it would
+    /// drop the edit it guards without a word, which is the defect pull
+    /// request 461 fixed. Reason kept at `gamePagePresentations`.
+    @MainActor
+    func testARestingPagesQuestionIsStillUpWhenThePageReturns() {
+        let model = ShelfPanelModel()
+        model.windowWidthChanged(isRegular: true, becameRegular: false)
+        let resting = Game(name: "Sunlust", baseID: nil)
+        let other = Game(name: "Eviternity", baseID: nil)
+        model.restingGame = resting
+        model.foldChanged(isSplit: true)
+        let page = model.gamePagePresentation(for: resting)
+        let edit = GameEdit.base(UUID())
+        page.pendingEdit = edit
+        XCTAssertTrue(model.presentationsHeld, "the bend should hold the question down")
+
+        model.panel = .game(other)
+        XCTAssertEqual(model.lowerHalf, .game(other))
+        XCTAssertTrue(model.gamePagePresentation(for: resting) === page,
+                      "opening another page threw away the resting page's state")
+
+        model.panel = nil
+        XCTAssertEqual(model.lowerHalf, .game(resting))
+        XCTAssertTrue(model.gamePagePresentation(for: resting) === page)
+        XCTAssertEqual(page.pendingEdit, edit, "the resting page came back with its question dropped")
+        XCTAssertTrue(page.isAwaitingAnAnswer)
+        XCTAssertTrue(model.panelHasDialogUp, "the warning is not counted as up for the root")
+
+        // And it is still the one that comes along when opened flat.
+        model.foldChanged(isSplit: false)
+        XCTAssertEqual(model.panel, .game(resting))
+        XCTAssertEqual(model.gamePagePresentation(for: resting).pendingEdit, edit)
+    }
+
     /// Only the tree on screen presents and writes, asked of the model at
     /// the moment of the write: a binding made while the column was current
     /// must not clear the shared state once the device has been bent. And
