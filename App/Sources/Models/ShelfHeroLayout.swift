@@ -250,37 +250,58 @@ enum ShelfHeroLayout {
     /// and the game page shows it whole. Wherever Continue fits without the
     /// line, nothing changes.
     ///
-    /// Like the line's rule, every input is arithmetic over the viewport and
-    /// the reader's fonts, never a frame of the hero's own.
+    /// The title's height is worked out in lines, from what SwiftUI draws:
+    /// its first line, and the step to each line after it
+    /// (`titleHeight(lines:firstLine:lineStep:)`). Neither is
+    /// `UIFont.lineHeight`, rounded per line or as a whole: SwiftUI rounds
+    /// the first line up to the pixel and steps by the text style's own
+    /// leading, which is a pixel or two more than `lineHeight` at the
+    /// standard sizes and up to three points less at the largest, and it is
+    /// the same for every script. `lineHeight`-based arithmetic was short of
+    /// the drawing by up to 1.7 pt in some windows and over it by more in
+    /// others, which capped titles that fitted exactly.
+    ///
+    /// Like the line's rule, every input is arithmetic over the viewport, the
+    /// reader's fonts and views that are never the hero's own; nothing reads
+    /// a frame of the hero's.
     ///
     /// - Parameters:
     ///   - viewportHeight: height visible without scrolling. Zero or
     ///     non-finite means "not measured yet", and the title is not capped.
     ///   - contentPadding: the inset above the hero.
-    ///   - titleHeight: the title as it wraps at the caption's width.
-    ///   - titleLineHeight: one line of the title at the reader's size.
+    ///   - titleLines: how many lines the title wraps to at the caption's width.
+    ///   - titleFirstLine: the height of one line of the title as drawn.
+    ///   - titleLineStep: what each further line adds as drawn. Zero or less
+    ///     for either means "not measured yet", and the title is not capped.
     ///   - buttonHeight: one button at the reader's text size.
     static func sideBySideTitleLineLimit(viewportHeight: CGFloat,
                                          contentPadding: CGFloat,
-                                         titleHeight: CGFloat,
-                                         titleLineHeight: CGFloat,
+                                         titleLines: Int,
+                                         titleFirstLine: CGFloat,
+                                         titleLineStep: CGFloat,
                                          buttonHeight: CGFloat) -> Int? {
         guard viewportHeight.isFinite, viewportHeight > 0,
-              titleLineHeight.isFinite, titleLineHeight > 0 else { return nil }
+              titleFirstLine > 0, titleLineStep > 0, titleLines > 1 else { return nil }
         let below = sideBySideContinueBottom(titleHeight: 0, lastPlayedHeight: 0, buttonHeight: buttonHeight)
-        let room = viewportHeight - contentPadding - below
-        guard titleHeight > room else { return nil }
-        var lines = max(1, Int((room / titleLineHeight).rounded(.down)))
-        while lines > 1, cappedTitleHeight(lines: lines, lineHeight: titleLineHeight) > room {
-            lines -= 1
+        // Every input is on the pixel grid, so a title that ends Continue
+        // on the viewport is one that fits; the tolerance, far below a
+        // pixel, keeps floating-point noise in a sum of thirds from saying
+        // it does not.
+        let room = viewportHeight - contentPadding - below + 0.001
+        func height(_ lines: Int) -> CGFloat {
+            titleHeight(lines: lines, firstLine: titleFirstLine, lineStep: titleLineStep)
         }
+        guard height(titleLines) > room else { return nil }
+        var lines = titleLines - 1
+        while lines > 1, height(lines) > room { lines -= 1 }
         return lines
     }
 
-    /// The title's height when capped at `lines`, rounded up to a whole
-    /// point the way a wrapped title's height is.
-    static func cappedTitleHeight(lines: Int, lineHeight: CGFloat) -> CGFloat {
-        (CGFloat(lines) * lineHeight).rounded(.up)
+    /// A title of `lines` lines as SwiftUI draws it: the first line, then
+    /// one step for each line after it.
+    static func titleHeight(lines: Int, firstLine: CGFloat, lineStep: CGFloat) -> CGFloat {
+        guard lines > 0 else { return 0 }
+        return firstLine + CGFloat(lines - 1) * lineStep
     }
 
     /// How the caption's two buttons, Continue and New Game, are stacked.
