@@ -558,6 +558,34 @@ final class GetFreedoomTests: XCTestCase {
         XCTAssertEqual(heard.lines, ["Downloading Freedoom, 24.1 MB.", "Download cancelled."])
     }
 
+    /// A failure that is not the network's (here the downloads folder
+    /// cannot be made, because a file stands where it goes) is a failure:
+    /// a banner and an announcement with its reason, never "Download
+    /// cancelled." in silence.
+    func testAFailureBeforeTheDownloadStartsIsSaidWithItsReason() async throws {
+        let blocker = tmp.appendingPathComponent("blocker")
+        try Data("a file, not a folder".utf8).write(to: blocker)
+        var downloader = LinkDownloader()
+        downloader.directory = blocker.appendingPathComponent("LinkDownloads", isDirectory: true)
+        downloader.makeConfiguration = { StubURLProtocol.configuration() }
+        let model = GetFreedoom(link: LinkImport(importer: importer, downloader: downloader, notices: notices),
+                                library: library)
+        let heard = Heard()
+        model.announce = { heard.lines.append($0) }
+
+        await get(model)
+
+        guard case .failed(let description)? = model.link.lastFailure else {
+            return XCTFail("not a failure: \(String(describing: model.link.lastFailure))")
+        }
+        XCTAssertFalse(description.isEmpty)
+        XCTAssertEqual(model.state, .offered(failure: "Download failed"))
+        XCTAssertEqual(notices.current, GetFreedoom.bannerMessage(for: .failed(description)))
+        XCTAssertEqual(heard.lines, ["Downloading Freedoom, 24.1 MB.",
+                                     GetFreedoom.bannerMessage(for: .failed(description))])
+        XCTAssertEqual(StubURLProtocol.requestedURLs, [], "nothing was fetched")
+    }
+
     /// The tile reads its name, that it is free and its size, whether or
     /// not the title line is drawn.
     func testTheTilesLabelReadsTheNameThatItIsFreeAndItsSize() {
