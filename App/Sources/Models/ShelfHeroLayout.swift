@@ -235,6 +235,75 @@ enum ShelfHeroLayout {
         return bottom <= viewportHeight
     }
 
+    /// How many lines the title beside the art may take, or nil for as many
+    /// as it wraps to (issue #493).
+    ///
+    /// Dropping the last-played line (`sideBySideCaptionShowsLastPlayed`) is
+    /// not always enough: the title has no line limit of its own, and at an
+    /// accessibility size a long one wraps to five lines or more and alone
+    /// pushes Continue below a closed Duo's 350 pt viewport. So the title
+    /// gives way next, and only then: wherever Continue would end below the
+    /// viewport *without* the line, the title is capped at as many lines as
+    /// still leave Continue whole above it, never fewer than one, and its
+    /// tail is truncated. The art beside it already says which game, the
+    /// Continue button's accessibility label still carries the whole name,
+    /// and the game page shows it whole. Wherever Continue fits without the
+    /// line, nothing changes.
+    ///
+    /// The title's height is worked out in lines, from what SwiftUI draws:
+    /// its first line, and the step to each line after it
+    /// (`titleHeight(lines:firstLine:lineStep:)`). Neither is
+    /// `UIFont.lineHeight`, rounded per line or as a whole: SwiftUI rounds
+    /// the first line up to the pixel and steps by the text style's own
+    /// leading, which is a pixel or two more than `lineHeight` at the
+    /// standard sizes and up to three points less at the largest, and it is
+    /// the same for every script. `lineHeight`-based arithmetic was short of
+    /// the drawing by up to 1.7 pt in some windows and over it by more in
+    /// others, which capped titles that fitted exactly.
+    ///
+    /// Like the line's rule, every input is arithmetic over the viewport, the
+    /// reader's fonts and views that are never the hero's own; nothing reads
+    /// a frame of the hero's.
+    ///
+    /// - Parameters:
+    ///   - viewportHeight: height visible without scrolling. Zero or
+    ///     non-finite means "not measured yet", and the title is not capped.
+    ///   - contentPadding: the inset above the hero.
+    ///   - titleLines: how many lines the title wraps to at the caption's width.
+    ///   - titleFirstLine: the height of one line of the title as drawn.
+    ///   - titleLineStep: what each further line adds as drawn. Zero or less
+    ///     for either means "not measured yet", and the title is not capped.
+    ///   - buttonHeight: one button at the reader's text size.
+    static func sideBySideTitleLineLimit(viewportHeight: CGFloat,
+                                         contentPadding: CGFloat,
+                                         titleLines: Int,
+                                         titleFirstLine: CGFloat,
+                                         titleLineStep: CGFloat,
+                                         buttonHeight: CGFloat) -> Int? {
+        guard viewportHeight.isFinite, viewportHeight > 0,
+              titleFirstLine > 0, titleLineStep > 0, titleLines > 1 else { return nil }
+        let below = sideBySideContinueBottom(titleHeight: 0, lastPlayedHeight: 0, buttonHeight: buttonHeight)
+        // Every input is on the pixel grid, so a title that ends Continue
+        // on the viewport is one that fits; the tolerance, far below a
+        // pixel, keeps floating-point noise in a sum of thirds from saying
+        // it does not.
+        let room = viewportHeight - contentPadding - below + 0.001
+        func height(_ lines: Int) -> CGFloat {
+            titleHeight(lines: lines, firstLine: titleFirstLine, lineStep: titleLineStep)
+        }
+        guard height(titleLines) > room else { return nil }
+        var lines = titleLines - 1
+        while lines > 1, height(lines) > room { lines -= 1 }
+        return lines
+    }
+
+    /// A title of `lines` lines as SwiftUI draws it: the first line, then
+    /// one step for each line after it.
+    static func titleHeight(lines: Int, firstLine: CGFloat, lineStep: CGFloat) -> CGFloat {
+        guard lines > 0 else { return 0 }
+        return firstLine + CGFloat(lines - 1) * lineStep
+    }
+
     /// How the caption's two buttons, Continue and New Game, are stacked.
     enum ButtonArrangement: Equatable {
         case row
