@@ -277,6 +277,41 @@ enum ShelfHeroLayout {
         return bottom <= viewportHeight
     }
 
+    /// The arrangement whose last button the caption's rules keep inside the
+    /// viewport: the caption's own where New Game can be kept whole, and
+    /// `.row`, Continue's bound alone (issue #493's rule, exactly), where it
+    /// cannot.
+    ///
+    /// Stacked, New Game can be kept whole only if it fits under a one-line
+    /// title with no last-played line, because those are all the rules can
+    /// give up. Where even that leaves it below the viewport, giving them up
+    /// would cost the title its lines and the player the line for nothing:
+    /// at AX5 on a landscape iPhone 12 mini, "Freedoom Phase 1" went from two
+    /// lines to one and New Game still ended 18 pt under the viewport
+    /// (review of pull request 553). There the caption is drawn as before
+    /// issue #547, and New Game is reached by scrolling, as it was.
+    ///
+    /// - Parameters:
+    ///   - titleFirstLine: one line of the title as drawn. Zero or less means
+    ///     "not measured yet", and the answer is `.row`.
+    ///   - buttonHeight: Continue as drawn.
+    ///   - newGameButtonHeight: New Game as drawn.
+    static func sideBySideBoundArrangement(viewportHeight: CGFloat,
+                                           contentPadding: CGFloat,
+                                           titleFirstLine: CGFloat,
+                                           buttonHeight: CGFloat,
+                                           newGameButtonHeight: CGFloat,
+                                           buttonArrangement: ButtonArrangement) -> ButtonArrangement {
+        guard buttonArrangement == .column, viewportHeight.isFinite, viewportHeight > 0,
+              titleFirstLine > 0 else { return .row }
+        let leanest = contentPadding + sideBySideButtonsBottom(titleHeight: titleFirstLine, lastPlayedHeight: 0,
+                                                               buttonHeight: buttonHeight,
+                                                               newGameButtonHeight: newGameButtonHeight,
+                                                               buttonArrangement: .column)
+        // The same tolerance as the title's cap: far below a pixel.
+        return leanest <= viewportHeight + 0.001 ? .column : .row
+    }
+
     /// How many lines the title beside the art may take, or nil for as many
     /// as it wraps to (issue #493).
     ///

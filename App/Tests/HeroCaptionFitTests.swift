@@ -38,6 +38,21 @@ final class HeroCaptionFitTests: XCTestCase {
     /// Every window the hero is checked in.
     private static let viewports = [duoClosedLandscape, duoOpen, iPhone11Landscape,
                                     .landscapePhone, .landscapeProPhone]
+    /// A landscape iPhone 12 mini and 11 Pro, as the review of pull request
+    /// 553 estimated them from the chrome measured on the iPhone 11 and 17
+    /// Pro, not measured themselves. At AX5 New Game does not fit under even
+    /// a one-line title there.
+    private static let iPhone12MiniLandscape = Viewport(contentWidth: 762, height: 262)
+    private static let iPhone11ProLandscape = Viewport(contentWidth: 762, height: 277)
+    /// Windows where the review of pull request 553 found the rules giving
+    /// way for nothing: New Game out of reach on the two phones above, and
+    /// the line dropped though the caption with it fitted by 0.67 to 3 pt
+    /// in the other four, at AX4 and at medium or xLarge.
+    private static let reviewWindows = [iPhone12MiniLandscape, iPhone11ProLandscape,
+                                        Viewport(contentWidth: 840, height: 316),
+                                        Viewport(contentWidth: 900, height: 316),
+                                        Viewport(contentWidth: 480, height: 280),
+                                        Viewport(contentWidth: 540, height: 280)]
 
     private static let title = "Freedoom Phase 1"
     /// Issue #493's long titles, 43 and 44 characters. Imported WADs and
@@ -161,28 +176,55 @@ final class HeroCaptionFitTests: XCTestCase {
                                                                       buttonMinimumWidth: minimum))
     }
 
+    /// Whose bottom the rules keep inside `viewport`, the way `ShelfView`
+    /// works it out: New Game's where the buttons stack and it can be kept
+    /// whole, Continue's otherwise (`sideBySideBoundArrangement`).
+    private func boundArrangement(_ viewport: Viewport, _ size: DynamicTypeSize) -> ShelfHeroLayout.ButtonArrangement {
+        ShelfHeroLayout.sideBySideBoundArrangement(
+            viewportHeight: viewport.height, contentPadding: Self.padding,
+            titleFirstLine: titleGauge(size).firstLine,
+            buttonHeight: exactButtonHeight(size), newGameButtonHeight: exactNewGameButtonHeight(size),
+            buttonArrangement: caption(viewport, size).arrangement)
+    }
+
     /// The rule's answer in `viewport`, from the same arithmetic `ShelfView`
-    /// hands it.
+    /// hands it: `main`'s rule for Continue, then, where New Game is the
+    /// bound, the same question of New Game from the drawn heights. `bound`
+    /// overrides the arrangement; `.row` is what `main` drew.
     private func showsLastPlayed(_ viewport: Viewport, _ size: DynamicTypeSize,
-                                 title: String = HeroCaptionFitTests.title) -> Bool {
-        let caption = caption(viewport, size)
-        let width = caption.width
-        return ShelfHeroLayout.sideBySideCaptionShowsLastPlayed(
+                                 title: String = HeroCaptionFitTests.title,
+                                 bound: ShelfHeroLayout.ButtonArrangement? = nil) -> Bool {
+        let width = caption(viewport, size).width
+        let lastPlayedHeight = HeroSideBySideCaption.lastPlayedHeight(Self.lastPlayed, width: width,
+                                                                      category: category(size))
+        let continueFits = ShelfHeroLayout.sideBySideCaptionShowsLastPlayed(
             viewportHeight: viewport.height,
             contentPadding: Self.padding,
             titleHeight: HeroSideBySideCaption.titleHeight(title, width: width, category: category(size)),
-            lastPlayedHeight: HeroSideBySideCaption.lastPlayedHeight(Self.lastPlayed, width: width,
-                                                                     category: category(size)),
+            lastPlayedHeight: lastPlayedHeight,
             buttonHeight: buttonHeight(size),
             newGameButtonHeight: newGameButtonHeight(size),
-            buttonArrangement: caption.arrangement)
+            buttonArrangement: .row)
+        guard continueFits, (bound ?? boundArrangement(viewport, size)) == .column else { return continueFits }
+        let gauge = titleGauge(size)
+        return ShelfHeroLayout.sideBySideCaptionShowsLastPlayed(
+            viewportHeight: viewport.height,
+            contentPadding: Self.padding,
+            titleHeight: ShelfHeroLayout.titleHeight(lines: titleLines(viewport, size, title: title),
+                                                     firstLine: gauge.firstLine, lineStep: gauge.lineStep),
+            lastPlayedHeight: lastPlayedHeight,
+            buttonHeight: exactButtonHeight(size),
+            newGameButtonHeight: exactNewGameButtonHeight(size),
+            buttonArrangement: .column)
     }
 
     /// The title's line cap in `viewport`, the way `ShelfView` works it out:
     /// none while the line is kept, else the rule's answer (issue #493).
+    /// `bound: .row` is what `main` drew.
     private func titleLineLimit(_ viewport: Viewport, _ size: DynamicTypeSize,
-                                title: String = HeroCaptionFitTests.title) -> Int? {
-        guard !showsLastPlayed(viewport, size, title: title) else { return nil }
+                                title: String = HeroCaptionFitTests.title,
+                                bound: ShelfHeroLayout.ButtonArrangement? = nil) -> Int? {
+        guard !showsLastPlayed(viewport, size, title: title, bound: bound) else { return nil }
         let gauge = titleGauge(size)
         return ShelfHeroLayout.sideBySideTitleLineLimit(
             viewportHeight: viewport.height,
@@ -192,7 +234,7 @@ final class HeroCaptionFitTests: XCTestCase {
             titleLineStep: gauge.lineStep,
             buttonHeight: exactButtonHeight(size),
             newGameButtonHeight: exactNewGameButtonHeight(size),
-            buttonArrangement: caption(viewport, size).arrangement)
+            buttonArrangement: bound ?? boundArrangement(viewport, size))
     }
 
     /// What `ShelfView.heroTitleLineGauge` reads: one line of the title's
@@ -604,24 +646,61 @@ final class HeroCaptionFitTests: XCTestCase {
     }
 
     /// Both buttons are whole in every window, for every title in every
-    /// script, at every size: in a row they end where Continue does, and in
-    /// a column New Game ends below it, and the line and then the title give
-    /// way for it as they do for Continue.
-    func testBothButtonsEndInsideEveryViewportForEveryScript() {
-        for viewport in Self.viewports {
+    /// script, at every size, wherever New Game can be: in a row they end
+    /// where Continue does, and in a column New Game ends below it, and the
+    /// line and then the title give way for it as they do for Continue.
+    /// Where it cannot be, even under a one-line title with no line, the
+    /// caption is what `main` drew, and that is checked to be so.
+    func testBothButtonsEndInsideEveryViewportWhereNewGameCanFit() {
+        for viewport in Self.viewports + Self.reviewWindows {
             for title in Self.titles {
                 for size in DynamicTypeSize.allCases {
                     let shows = showsLastPlayed(viewport, size, title: title)
                     let limit = titleLineLimit(viewport, size, title: title)
+                    let context = "\(title) at \(size) in \(viewport.contentWidth)x\(viewport.height), "
+                        + "\(caption(viewport, size).arrangement), line \(shows ? "kept" : "dropped"), "
+                        + "cap \(limit.map(String.init) ?? "none")"
                     let bottom = Self.padding + drawnButtonsBottom(viewport, size, lastPlayed: shows,
                                                                    title: title, titleLineLimit: limit)
-                    XCTAssertLessThanOrEqual(bottom, viewport.height,
-                                             "\(title) at \(size) in \(viewport.contentWidth)x\(viewport.height), "
-                                             + "\(caption(viewport, size).arrangement): the buttons end at \(bottom), "
-                                             + "line \(shows ? "kept" : "dropped"), cap \(limit.map(String.init) ?? "none")")
+                    if caption(viewport, size).arrangement == .row || boundArrangement(viewport, size) == .column {
+                        XCTAssertLessThanOrEqual(bottom, viewport.height, context + ": the buttons end at \(bottom)")
+                    } else {
+                        let leanest = Self.padding + drawnButtonsBottom(viewport, size, lastPlayed: false,
+                                                                        title: title, titleLineLimit: 1)
+                        XCTAssertGreaterThan(leanest, viewport.height, context + ": New Game would fit at one line")
+                        XCTAssertEqual(shows, showsLastPlayed(viewport, size, title: title, bound: .row), context)
+                        XCTAssertEqual(limit, titleLineLimit(viewport, size, title: title, bound: .row), context)
+                    }
                 }
             }
         }
+    }
+
+    /// The review's case: on a landscape iPhone 12 mini at AX5, New Game
+    /// cannot fit under any title, and the pull request still cut titles
+    /// `main` drew on two lines to one, leaving New Game 18 pt below the
+    /// viewport anyway. Every title that wraps there keeps what `main`
+    /// showed, and Continue stays whole.
+    func testWhereNewGameCannotFitTheTitleKeepsWhatMainShowed() {
+        let viewport = Self.iPhone12MiniLandscape
+        let size = DynamicTypeSize.accessibility5
+        XCTAssertEqual(caption(viewport, size).arrangement, .column)
+        let leanest = Self.padding + drawnButtonsBottom(viewport, size, lastPlayed: false,
+                                                        title: Self.title, titleLineLimit: 1)
+        XCTAssertGreaterThan(leanest, viewport.height, "the case no longer reproduces the review's finding")
+        XCTAssertEqual(boundArrangement(viewport, size), .row)
+        var keptTwoOrMore = 0
+        for title in Self.titles where titleLines(viewport, size, title: title) > 1 {
+            let main = titleLineLimit(viewport, size, title: title, bound: .row)
+            let limit = titleLineLimit(viewport, size, title: title)
+            XCTAssertEqual(limit, main, title)
+            let lines = min(titleLines(viewport, size, title: title), limit ?? .max)
+            if lines >= 2 { keptTwoOrMore += 1 }
+            let continueBottom = Self.padding + drawnContinueBottom(viewport, size, lastPlayed: false,
+                                                                    title: title, titleLineLimit: limit)
+            XCTAssertLessThanOrEqual(continueBottom, viewport.height, title)
+        }
+        XCTAssertGreaterThan(keptTwoOrMore, 0, "no title keeps two lines here, so nothing is checked")
     }
 
     /// Nothing gives way where the whole caption fitted: the line is
@@ -631,7 +710,7 @@ final class HeroCaptionFitTests: XCTestCase {
     /// more line would not. Wherever `main` drew both buttons whole, this is
     /// what `main` drew.
     func testNothingGivesWayWhereTheWholeCaptionFitted() {
-        for viewport in Self.viewports {
+        for viewport in Self.viewports + Self.reviewWindows {
             for title in Self.titles {
                 for size in DynamicTypeSize.allCases {
                     let shows = showsLastPlayed(viewport, size, title: title)
@@ -763,6 +842,23 @@ final class HeroCaptionFitTests: XCTestCase {
             viewportHeight: 271.5, contentPadding: 16, titleHeight: 100, lastPlayedHeight: 40, buttonHeight: 44,
             newGameButtonHeight: 44,
             buttonArrangement: .column))
+    }
+
+    /// New Game is the bound only where it fits under a one-line title with
+    /// no line: 16 + 31 + 6 + 8 + 44 + 8 + 43 = 156.
+    func testNewGameIsTheBoundOnlyWhereItCanFit() {
+        func bound(_ viewport: CGFloat, firstLine: CGFloat = 31,
+                   _ arrangement: ShelfHeroLayout.ButtonArrangement = .column) -> ShelfHeroLayout.ButtonArrangement {
+            ShelfHeroLayout.sideBySideBoundArrangement(
+                viewportHeight: viewport, contentPadding: 16, titleFirstLine: firstLine,
+                buttonHeight: 44, newGameButtonHeight: 43, buttonArrangement: arrangement)
+        }
+        XCTAssertEqual(bound(156), .column)
+        XCTAssertEqual(bound(155.5), .row)
+        XCTAssertEqual(bound(500, .row), .row)
+        // Unmeasured: `main`'s bound.
+        XCTAssertEqual(bound(0), .row)
+        XCTAssertEqual(bound(500, firstLine: 0), .row)
     }
 
     func testTheButtonsEndWithContinueInARowAndAButtonBelowItInAColumn() {

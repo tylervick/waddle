@@ -783,21 +783,47 @@ struct ShelfView: View {
         // question and let through rows that cut "New Game".
         let buttonArrangement = ShelfHeroLayout.buttonArrangement(
             captionWidth: captionWidth, buttonMinimumWidth: heroButtonMinimumWidth)
-        // The last-played line gives way where it would push the buttons
-        // below the viewport: Continue (issue #457), and New Game under it
-        // where they are stacked (issue #547). Arithmetic over the reader's
-        // fonts at the caption's width, never a frame of the caption's own.
+        let titleLines = HeroSideBySideCaption.titleLineCount(game.name, width: captionWidth, category: category)
+        let titleLineStep = heroTitleOneLine > 0 ? heroTitleTwoLines - heroTitleOneLine : 0
+        let continueHeight = HeroSideBySideCaption.buttonHeight(labelHeight: heroButtonLabelHeight)
+        let newGameHeight = HeroSideBySideCaption.buttonHeight(labelHeight: heroNewGameLabelHeight)
+        // Whose bottom the rules below keep inside the viewport: New Game's
+        // where the buttons are stacked and it can be kept whole (issue
+        // #547), Continue's otherwise (`sideBySideBoundArrangement`).
+        let boundArrangement = ShelfHeroLayout.sideBySideBoundArrangement(
+            viewportHeight: viewportHeight, contentPadding: contentPadding,
+            titleFirstLine: heroTitleOneLine, buttonHeight: continueHeight,
+            newGameButtonHeight: newGameHeight, buttonArrangement: buttonArrangement)
+        // The last-played line gives way where it would push Continue below
+        // the viewport (issue #457): arithmetic over the reader's fonts at the
+        // caption's width, never a frame of the caption's own, and exactly
+        // the rule `main` had. Where New Game is the bound it must leave New
+        // Game whole too, worked out from the title and buttons as drawn
+        // (the gauges), as the title's cap is: the rounded-up heights of the
+        // first check, carried down to New Game, dropped the line where the
+        // caption with it fitted by up to 3 pt (review of pull request 553).
         let showsLastPlayed = lastPlayed.map { text in
-            ShelfHeroLayout.sideBySideCaptionShowsLastPlayed(
+            let lastPlayedHeight = HeroSideBySideCaption.lastPlayedHeight(text, width: captionWidth,
+                                                                          category: category)
+            let continueFits = ShelfHeroLayout.sideBySideCaptionShowsLastPlayed(
                 viewportHeight: viewportHeight,
                 contentPadding: contentPadding,
                 titleHeight: HeroSideBySideCaption.titleHeight(game.name, width: captionWidth,
                                                                category: category),
-                lastPlayedHeight: HeroSideBySideCaption.lastPlayedHeight(text, width: captionWidth,
-                                                                         category: category),
+                lastPlayedHeight: lastPlayedHeight,
                 buttonHeight: HeroSideBySideCaption.buttonHeight(labelHeight: ceil(heroButtonLabelHeight)),
                 newGameButtonHeight: HeroSideBySideCaption.buttonHeight(labelHeight: ceil(heroNewGameLabelHeight)),
-                buttonArrangement: buttonArrangement)
+                buttonArrangement: .row)
+            guard continueFits, boundArrangement == .column else { return continueFits }
+            return ShelfHeroLayout.sideBySideCaptionShowsLastPlayed(
+                viewportHeight: viewportHeight,
+                contentPadding: contentPadding,
+                titleHeight: ShelfHeroLayout.titleHeight(lines: titleLines, firstLine: heroTitleOneLine,
+                                                         lineStep: titleLineStep),
+                lastPlayedHeight: lastPlayedHeight,
+                buttonHeight: continueHeight,
+                newGameButtonHeight: newGameHeight,
+                buttonArrangement: .column)
         } ?? false
         // Where the buttons still end below the viewport without the line,
         // the title gives way next: capped at the lines that leave them whole,
@@ -806,12 +832,12 @@ struct ShelfView: View {
         let titleLineLimit = showsLastPlayed ? nil : ShelfHeroLayout.sideBySideTitleLineLimit(
             viewportHeight: viewportHeight,
             contentPadding: contentPadding,
-            titleLines: HeroSideBySideCaption.titleLineCount(game.name, width: captionWidth, category: category),
+            titleLines: titleLines,
             titleFirstLine: heroTitleOneLine,
-            titleLineStep: heroTitleOneLine > 0 ? heroTitleTwoLines - heroTitleOneLine : 0,
-            buttonHeight: HeroSideBySideCaption.buttonHeight(labelHeight: heroButtonLabelHeight),
-            newGameButtonHeight: HeroSideBySideCaption.buttonHeight(labelHeight: heroNewGameLabelHeight),
-            buttonArrangement: buttonArrangement)
+            titleLineStep: titleLineStep,
+            buttonHeight: continueHeight,
+            newGameButtonHeight: newGameHeight,
+            buttonArrangement: boundArrangement)
         return HeroSideBySideCaption(
             title: game.name,
             titleLineLimit: titleLineLimit,
