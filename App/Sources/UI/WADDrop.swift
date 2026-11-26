@@ -104,58 +104,147 @@ enum DroppedFile {
         provider.registeredContentTypes.first { $0.conforms(to: .data) && !$0.conforms(to: .url) }
     }
 
-    /// Reads `provider` into a request. Its content is copied into a staging
-    /// folder under the name `filename` settles. A provider with no content
-    /// to read (a folder, a `.pk3`) or whose content fails to load yields a
+    /// Reads `provider` into a request. See `begin(_:)`, which this starts
+    /// and awaits.
+    @MainActor
+    static func request(for provider: NSItemProvider) async -> ImportRequest {
+        await begin(provider).request()
+    }
+
+    /// Starts reading `provider`, synchronously, and returns the load to
+    /// await. Both loads -- the file's URL, for its name, and its content --
+    /// are requested before this returns, so a drop handler that calls it
+    /// for every provider has asked for everything before it returns itself:
+    /// a drag from another process may end once the handler has returned,
+    /// and a load first requested after that can fail (review of pull
+    /// request 545).
+    ///
+    /// The content is copied into a staging folder, under the name
+    /// `filename` settles once the URL is in. A provider with no content to
+    /// read (a folder, a `.pk3`) or whose content fails to load yields a
     /// request for a file that does not exist, under that same name, which
     /// `ImportService` refuses as it refuses that name on any route: a
     /// `.pk3` with `ImportFileType.refusedReason`, anything else as an
     /// unsupported type. Nothing of the item is read or staged.
     @MainActor
-    static func request(for provider: NSItemProvider) async -> ImportRequest {
-        let fileURL = await self.fileURL(of: provider)
-        let suggestedName = provider.suggestedName
-        guard let type = contentType(of: provider),
-              let staged = await stageContent(of: provider, as: type,
-                                              fileURL: fileURL, suggestedName: suggestedName) else {
-            let name = filename(fileURL: fileURL, suggestedName: suggestedName, handedOver: nil, type: nil)
-            let placeholder = (try? WADDrop.newStagingFolder())
-                ?? WADDrop.stagingRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
-            return ImportRequest(url: placeholder.appendingPathComponent(name))
-        }
-        return ImportRequest(url: staged)
-    }
+    static func begin(_ provider: NSItemProvider) -> Load {
+        let load = Load(suggestedName: provider.suggestedName, type: contentType(of: provider))
 
-    /// The file's own URL, when the provider offers `public.file-url`. Only
-    /// its name is used; the file is never read through it.
-    @MainActor
-    private static func fileURL(of provider: NSItemProvider) async -> URL? {
-        guard provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) else { return nil }
-        // `loadObject(ofClass: NSURL.self)`, not `loadItem`: the item behind
-        // `public.file-url` is the URL archived as a property list, which
-        // NSURL's own reader decodes.
-        return await withCheckedContinuation { continuation in
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            // `loadObject(ofClass: NSURL.self)`, not `loadItem`: `loadItem`
+            // gave nothing usable for `public.file-url` (pull request 545).
             _ = provider.loadObject(ofClass: NSURL.self) { object, _ in
                 let url = (object as? NSURL) as URL?
-                continuation.resume(returning: url?.isFileURL == true ? url : nil)
+                load.fileURL.fulfil(url?.isFileURL == true ? url : nil)
+            }
+        } else {
+            load.fileURL.fulfil(nil)
+        }
+
+        if let type = load.type {
+            // Copied inside the completion: the system deletes what it
+            // handed over as soon as that returns. Staged under the copy's
+            // own name for now, and renamed once the URL is in.
+            // The type-identifier form, the Objective-C method the `UTType`
+            // overload wraps, so a test's provider can record the request.
+            _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { handedOver, _ in
+                load.content.fulfil(handedOver.flatMap { try? WADDrop.stage($0) })
+            }
+        } else {
+            load.content.fulfil(nil)
+        }
+        return load
+    }
+
+    /// One dropped item's loads, started by `begin(_:)`.
+    final class Load: Sendable {
+        let suggestedName: String?
+        let type: UTType?
+        let fileURL = Pending<URL?>()
+        /// The staged copy, under the name the provider handed it over with.
+        let content = Pending<URL?>()
+
+        init(suggestedName: String?, type: UTType?) {
+            self.suggestedName = suggestedName
+            self.type = type
+        }
+
+        /// Waits for both loads and returns the request.
+        func request() async -> ImportRequest {
+            let fileURL = await fileURL.value()
+            guard let staged = await content.value() else {
+                let name = DroppedFile.filename(fileURL: fileURL, suggestedName: suggestedName,
+                                                handedOver: nil, type: nil)
+                let placeholder = (try? WADDrop.newStagingFolder())
+                    ?? WADDrop.stagingRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
+                return ImportRequest(url: placeholder.appendingPathComponent(name))
+            }
+            let name = DroppedFile.filename(fileURL: fileURL, suggestedName: suggestedName,
+                                            handedOver: staged, type: type)
+            let named = staged.deletingLastPathComponent().appendingPathComponent(name)
+            guard named != staged else { return ImportRequest(url: staged) }
+            do {
+                try FileManager.default.moveItem(at: staged, to: named)
+                return ImportRequest(url: named)
+            } catch {
+                // Still imported, under the copy's name, rather than lost.
+                return ImportRequest(url: staged)
             }
         }
     }
 
-    /// Copies the provider's `type` content into a staging folder, inside the
-    /// load's completion: the system deletes what it handed over as soon as
-    /// that returns.
-    @MainActor
-    private static func stageContent(of provider: NSItemProvider, as type: UTType,
-                                     fileURL: URL?, suggestedName: String?) async -> URL? {
-        await withCheckedContinuation { continuation in
-            _ = provider.loadFileRepresentation(for: type, openInPlace: false) { handedOver, _, _ in
-                guard let handedOver else { continuation.resume(returning: nil); return }
-                let name = filename(fileURL: fileURL, suggestedName: suggestedName,
-                                    handedOver: handedOver, type: type)
-                continuation.resume(returning: try? WADDrop.stage(handedOver, as: name))
+    /// A value delivered once, from any thread, to any number of waiters.
+    final class Pending<Value: Sendable>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var result: Value?
+        private var delivered = false
+        private var waiters: [CheckedContinuation<Value, Never>] = []
+
+        func fulfil(_ value: Value) {
+            lock.lock()
+            guard !delivered else { lock.unlock(); return }
+            delivered = true
+            result = value
+            let waiting = waiters
+            waiters = []
+            lock.unlock()
+            for waiter in waiting { waiter.resume(returning: value) }
+        }
+
+        func value() async -> Value {
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                if delivered, let result {
+                    lock.unlock()
+                    continuation.resume(returning: result)
+                } else {
+                    waiters.append(continuation)
+                    lock.unlock()
+                }
             }
         }
+    }
+}
+
+extension WADDrop {
+    /// The drop handler's body, apart from SwiftUI so a test can call it:
+    /// starts every provider's loads before it returns (see
+    /// `DroppedFile.begin`), then, once they are in, imports them in the
+    /// order they were dropped and hands the outcome to `onOutcome`.
+    @MainActor
+    @discardableResult
+    static func handleDrop(_ providers: [NSItemProvider], into importer: ImportService,
+                           onOutcome: @escaping @MainActor (ImportOutcome) -> Void) -> Bool {
+        guard !providers.isEmpty else { return false }
+        let loads = providers.map { DroppedFile.begin($0) }
+        Task { @MainActor in
+            var requests: [ImportRequest] = []
+            for load in loads {
+                requests.append(await load.request())
+            }
+            onOutcome(await importDropped(requests, into: importer))
+        }
+        return true
     }
 }
 
@@ -166,17 +255,11 @@ extension View {
     /// drag is over the view, for its highlight.
     func wadDropDestination(importer: ImportService,
                             isTargeted: Binding<Bool>,
-                            onOutcome: @escaping (ImportOutcome) -> Void) -> some View {
+                            onOutcome: @escaping @MainActor (ImportOutcome) -> Void) -> some View {
         onDrop(of: WADDrop.acceptedTypes, isTargeted: isTargeted) { providers in
-            guard !providers.isEmpty else { return false }
-            Task { @MainActor in
-                var requests: [ImportRequest] = []
-                for provider in providers {
-                    requests.append(await DroppedFile.request(for: provider))
-                }
-                onOutcome(await WADDrop.importDropped(requests, into: importer))
+            MainActor.assumeIsolated {
+                WADDrop.handleDrop(providers, into: importer, onOutcome: onOutcome)
             }
-            return true
         }
     }
 }

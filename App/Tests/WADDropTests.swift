@@ -263,4 +263,82 @@ final class WADDropTests: XCTestCase {
                            "\(provider.registeredTypeIdentifiers)")
         }
     }
+    // MARK: Every load is requested before the drop handler returns
+
+    /// A drag from another process may end once the drop handler returns,
+    /// and a load first requested after that can fail. So the handler starts
+    /// every provider's loads itself, and only awaits them afterwards.
+    func testEveryLoadIsRequestedBeforeTheDropHandlerReturns() async throws {
+        let recorder = LoadRecorder()
+        var providers: [NSItemProvider] = []
+        for (index, name) in ["c-first", "a-second", "b-third"].enumerated() {
+            let wad = try write("\(name).wad", makeWAD(magic: "PWAD", lumps: ["MAP0\(index + 1)"]))
+            let provider = try XCTUnwrap(RecordingProvider(contentsOf: wad))
+            provider.name = name
+            provider.recorder = recorder
+            providers.append(provider)
+        }
+        let stack = try makeStack()
+        let done = expectation(description: "the drop's outcome")
+        var outcome: ImportOutcome?
+
+        let accepted = WADDrop.handleDrop(providers, into: stack.importer) {
+            outcome = $0
+            done.fulfill()
+        }
+        recorder.handlerReturned = true
+
+        XCTAssertTrue(accepted)
+        // Both loads -- the URL and the content -- of all three.
+        XCTAssertEqual(recorder.requests.sorted(),
+                       ["a-second", "a-second", "b-third", "b-third", "c-first", "c-first"])
+        await fulfillment(of: [done], timeout: 10)
+        XCTAssertTrue(recorder.lateRequests.isEmpty, "requested after the handler returned: \(recorder.lateRequests)")
+        // In the order they were dropped.
+        XCTAssertEqual(outcome?.imported, ["c-first", "a-second", "b-third"])
+    }
+}
+
+/// What `RecordingProvider`s saw: each load request, by provider, and any
+/// made after the drop handler returned.
+private final class LoadRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _handlerReturned = false
+    private(set) var requests: [String] = []
+    private(set) var lateRequests: [String] = []
+
+    var handlerReturned: Bool {
+        get { lock.withLock { _handlerReturned } }
+        set { lock.withLock { _handlerReturned = newValue } }
+    }
+
+    func record(_ name: String) {
+        lock.withLock {
+            if _handlerReturned { lateRequests.append(name) } else { requests.append(name) }
+        }
+    }
+}
+
+/// A Files-style provider (`init(contentsOf:)`) that records when each load
+/// is asked for.
+private final class RecordingProvider: NSItemProvider, @unchecked Sendable {
+    var name = ""
+    var recorder: LoadRecorder?
+
+    override func loadFileRepresentation(
+        forTypeIdentifier typeIdentifier: String,
+        completionHandler: @escaping @Sendable (URL?, (any Error)?) -> Void
+    ) -> Progress {
+        recorder?.record(name)
+        return super.loadFileRepresentation(forTypeIdentifier: typeIdentifier,
+                                            completionHandler: completionHandler)
+    }
+
+    override func loadObject(
+        ofClass aClass: any NSItemProviderReading.Type,
+        completionHandler: @escaping @Sendable ((any NSItemProviderReading)?, (any Error)?) -> Void
+    ) -> Progress {
+        recorder?.record(name)
+        return super.loadObject(ofClass: aClass, completionHandler: completionHandler)
+    }
 }

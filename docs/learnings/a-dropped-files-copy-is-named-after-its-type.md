@@ -35,6 +35,18 @@ how Files offers a dragged file.
 
 `WADDropTests` is the check.
 
+## Start every load before the drop handler returns
+
+A drag from another process may end once the drop handler returns, and a
+load first requested after that can fail. In-process providers, which are all
+a test can make, keep working, so a handler that loads in a `Task` passes
+every test and can still fail for a real drag from Files or Finder.
+`WADDrop.handleDrop` starts both loads (the URL and the content) of every
+provider before it returns, and only awaits them afterwards.
+`testEveryLoadIsRequestedBeforeTheDropHandlerReturns` is the check. It
+overrides `loadFileRepresentation(forTypeIdentifier:)`, because the `UTType`
+overload is a Swift extension and cannot be overridden.
+
 ## Not settled
 
 Whether a real cross-app drag from Files (iPad) or Finder (a Designed-for-iPad
