@@ -263,7 +263,7 @@ final class GetFreedoomTests: XCTestCase {
         serve(flipped)
         let refused = getFreedoom(sha256: Self.sha256(good))
         await get(refused)
-        XCTAssertEqual(refused.state, .offered(failure: "Not the expected file"))
+        XCTAssertEqual(refused.state, .offered(failure: "File didn't match"))
         XCTAssertEqual(notices.current, "Import failed: \(LinkDownloadError.checksumMismatch.reason)")
         XCTAssertTrue(try library.allWADs().isEmpty, "a mismatched file reached the library")
         XCTAssertEqual(storedFiles(), [])

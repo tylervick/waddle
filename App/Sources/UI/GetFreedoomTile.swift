@@ -55,20 +55,13 @@ struct GetFreedoomTile: View {
     // MARK: Scrim
 
     private var scrim: some View {
-        // One row where the words and the button fit side by side, and the
-        // button under them where they do not (an accessibility text size):
-        // a squeezed row would wrap each text in a column of its own
-        // (`docs/learnings/a-squeezed-row-of-texts-hyphenates-and-a-fixed-share-truncates.md`).
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .bottom, spacing: Theme.Spacing.xs) {
-                words.fixedSize(horizontal: true, vertical: false)
-                Spacer(minLength: 0)
-                control
-            }
-            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                words
-                control
-            }
+        // The whole scrim where the tile is tall enough for it, and without
+        // the title where it is not (a short tile at an accessibility text
+        // size, as an iPad's is): the art already says Freedoom, and the
+        // title would otherwise run out of the top of the tile.
+        ViewThatFits(in: .vertical) {
+            scrimContent(showsTitle: true)
+            scrimContent(showsTitle: false)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, PlayableTileLayout.scrimHorizontalPadding)
@@ -82,24 +75,53 @@ struct GetFreedoomTile: View {
         )
     }
 
-    private var words: some View {
+    private func scrimContent(showsTitle: Bool) -> some View {
+        // One row where the words and the button fit side by side, and the
+        // button under them where they do not (an accessibility text size):
+        // a squeezed row would wrap each text in a column of its own
+        // (`docs/learnings/a-squeezed-row-of-texts-hyphenates-and-a-fixed-share-truncates.md`).
+        //
+        // A failure's reason goes under the whole row, so a longer reason
+        // does not move the button.
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .bottom, spacing: Theme.Spacing.xs) {
+                    words(showsTitle: showsTitle).fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 0)
+                    control
+                }
+                VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                    words(showsTitle: showsTitle)
+                    control
+                }
+            }
+            if case .offered(let failure?) = state {
+                Text(failure)
+                    .font(Theme.Typography.caption.weight(.semibold))
+                    .foregroundStyle(Color.appWarning)
+                    // One line: at an accessibility size a second one
+                    // pushes the title out of the top of the tile.
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .accessibilityIdentifier("getFreedoomFailure")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func words(showsTitle: Bool) -> some View {
         VStack(alignment: .leading, spacing: PlayableTileLayout.titleSubtitleSpacing) {
-            Text("Freedoom")
-                .font(Theme.Typography.tileTitle)
-                .foregroundStyle(.white)
-                .lineLimit(1)
+            if showsTitle {
+                Text("Freedoom")
+                    .font(Theme.Typography.tileTitle)
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+            }
             Text(subtitle)
                 .font(Theme.Typography.caption)
                 .foregroundStyle(.white.opacity(0.75))
                 .lineLimit(1)
                 .accessibilityIdentifier("getFreedoomSubtitle")
-            if case .offered(let failure?) = state {
-                Text(failure)
-                    .font(Theme.Typography.caption.weight(.semibold))
-                    .foregroundStyle(Color.appWarning)
-                    .lineLimit(1)
-                    .accessibilityIdentifier("getFreedoomFailure")
-            }
         }
     }
 
@@ -151,7 +173,8 @@ struct GetFreedoomTile: View {
         case .importing:
             ProgressView()
                 .tint(.white)
-                .frame(width: ProgressRing.side, height: ProgressRing.side)
+                .fixedSize()
+                .frame(minWidth: ProgressRing.side, minHeight: ProgressRing.side)
                 .accessibilityLabel("Adding Freedoom")
                 .accessibilityIdentifier("getFreedoomAdding")
         }

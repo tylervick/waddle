@@ -116,7 +116,7 @@ final class GetFreedoom {
     nonisolated static func shortReason(_ error: LinkDownloadError) -> String {
         switch error {
         case .offline: return "You're offline"
-        case .checksumMismatch: return "Not the expected file"
+        case .checksumMismatch: return "File didn't match"
         default: return "Download failed"
         }
     }
