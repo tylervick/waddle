@@ -104,14 +104,15 @@ jobs:
     runs-on: xcode-27
     # One limit for both legs, because the phone's full suite outgrew 90.
     # Its last green run on main (45634863622, 98 tests) took 86 minutes of
-    # the 90: 13 settling the simulator, 70 in "Run UI tests". Pull requests
-    # #536 and #543 then added nine shelf-anchor tests, about 630 s between
-    # them, and the next four push runs were cancelled at 90 minutes. One,
-    # 45714177534, shows it was not a hang: all 107 tests passed in 4462 s
-    # and xcodebuild was cancelled eleven seconds after the last one, its
-    # job needing about 93 minutes. A pull request run is no comparison: it
-    # runs five test classes, not the suite (see "Run UI tests"), so it
-    # takes 30 to 40 minutes whatever the suite's size. The iPad, already
+    # the 90: 13 settling the simulator, 70 in "Run UI tests". Pull request
+    # #536 added four shelf-anchor tests and #543 five more, about 630 s
+    # between the nine, and every push run from #536's merge on (five of
+    # them) was cancelled at 90 minutes. One, 45714177534, shows it was not
+    # a hang: all 107 tests passed in 4462 s and xcodebuild was cancelled
+    # eleven seconds after the last one, its job needing about 93 minutes.
+    # A pull request run is no comparison: it runs five test classes, not
+    # the suite (see "Run UI tests"), so it takes 40 to 55 minutes. It
+    # grows with the suite only as far as those classes do. The iPad, already
     # at 120, used 105 to 114 of it on the same commits. A cancelled job
     # gives no failure to read, so leave real headroom here and raise it
     # again, with a run's numbers, when the suite grows past it.
