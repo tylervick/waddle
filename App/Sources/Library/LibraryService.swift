@@ -324,6 +324,12 @@ final class LibraryService {
         return !games.contains { !saveSlots(forKey: $0.id).isEmpty }
     }
 
+    /// Whether the shelf shows the Get Freedoom tile (#552);
+    /// `Shelf.offersFreedoom` is the rule.
+    func offersFreedoom() throws -> Bool {
+        Shelf.offersFreedoom(files: try allWADs()) { fileStatus(for: $0) != .missing }
+    }
+
     func allWADs() throws -> [WADFile] {
         try context.fetch(FetchDescriptor<WADFile>(
             sortBy: [SortDescriptor(\.importDate, order: .reverse)]))

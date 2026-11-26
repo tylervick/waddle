@@ -127,7 +127,7 @@ struct TitleArtView: View {
     /// note on `.clipped()` above. `CGImage.cropping` fails only on
     /// degenerate rects; the uncropped image is the honest fallback, costing
     /// at worst the old overflow for one frame of one tile.
-    private static func croppedToAspect(_ image: CGImage, _ ratio: CGFloat) -> CGImage {
+    static func croppedToAspect(_ image: CGImage, _ ratio: CGFloat) -> CGImage {
         let w = CGFloat(image.width), h = CGFloat(image.height)
         guard ratio > 0, w > 0, h > 0 else { return image }
         var cropW = w, cropH = h

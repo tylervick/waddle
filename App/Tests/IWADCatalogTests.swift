@@ -40,6 +40,16 @@ final class IWADCatalogTests: XCTestCase {
                        "The Plutonia Experiment")
     }
 
+    /// Freedoom 0.13.0 (#502), so a Freedoom downloaded from its source is
+    /// titled as the bundled games are. MD5s b93be13d… / cd666466…, matching
+    /// Odamex's IWAD table.
+    func testResolvesTheFreedoom0130Hashes() {
+        XCTAssertEqual(IWADCatalog.title(forSHA1: "97bb88094a51457a8dcad98c58be22a2d0fa9a37"),
+                       "Freedoom Phase 1")
+        XCTAssertEqual(IWADCatalog.title(forSHA1: "975f781e6d801c0a23e3caa33f70493efe68a880"),
+                       "Freedoom Phase 2")
+    }
+
     /// The permanent normal case — every PWAD and every mod lands here.
     func testUnknownHashResolvesToNil() {
         XCTAssertNil(IWADCatalog.title(forSHA1: String(repeating: "0", count: 40)))

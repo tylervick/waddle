@@ -31,10 +31,15 @@ struct ShelfView: View {
     }
     @State private var showImporter = false
     @State private var showLinkImport = false
-    /// The one link download (#500), shared by **From a Link…** and a link
-    /// dropped on the shelf (#550), so the sheet shows a dropped link's
-    /// progress.
+    /// The one link download (#500), shared by **From a Link…**, a link
+    /// dropped on the shelf (#550) and the Get Freedoom tile (#552), so the
+    /// sheet shows a dropped link's progress and no two download at once.
     @State private var linkImport: LinkImport
+    /// The Get Freedoom tile's download, on `linkImport` (#552).
+    @State private var getFreedoom: GetFreedoom
+    /// Whether the grid leads with the Get Freedoom tile:
+    /// `LibraryService.offersFreedoom()`, read on every refresh.
+    @State private var offersFreedoom = false
     /// True while a drag is over the shelf, for `ShelfDropHighlight`.
     @State private var dropTargeted = false
     /// The item whose tap opened the Continue / New Game / Details sheet.
@@ -123,7 +128,9 @@ struct ShelfView: View {
         self.importer = importer
         _lastExitCode = lastExitCode
         self.panelModel = panelModel
-        _linkImport = State(initialValue: LinkImport(importer: importer))
+        let links = LinkImport(importer: importer)
+        _linkImport = State(initialValue: links)
+        _getFreedoom = State(initialValue: GetFreedoom(link: links))
     }
 
     var body: some View {
@@ -144,6 +151,12 @@ struct ShelfView: View {
                     case .empty: EmptyView()
                     }
                     LazyVGrid(columns: columns, spacing: gridSpacing) {
+                        // First, before the games: on the empty shelf it
+                        // is the one thing to play (#552). Not a game, so
+                        // it does not count toward the Add Games hint.
+                        if offersFreedoom {
+                            getFreedoomTile
+                        }
                         // Not `items`: the hero's game would otherwise repeat as
                         // the first tile directly beneath itself. `Shelf.gridItems`
                         // owns that rule and is where it is tested.
@@ -307,6 +320,26 @@ struct ShelfView: View {
         }
         .animation(.easeOut(duration: 0.15), value: dropTargeted)
         #if DEBUG
+        // Test-only seam, as WADDLE_OPEN_PANEL is: holds the Get Freedoom
+        // tile in one state (#552), so a capture can show each with no
+        // network. `downloading`, `importing`, `offline` or `checksum`.
+        // Never set in production.
+        .task {
+            switch ProcessInfo.processInfo.environment["WADDLE_TEST_GET_FREEDOOM"] {
+            case "downloading":
+                getFreedoom.forcedState = .downloading(received: 10_150_000, expected: FreedoomRelease.byteCount)
+            case "importing":
+                getFreedoom.forcedState = .importing
+            case "offline":
+                getFreedoom.forcedState = .offered(failure: GetFreedoom.shortReason(.offline))
+            case "checksum":
+                getFreedoom.forcedState = .offered(failure: GetFreedoom.shortReason(.checksumMismatch))
+            default:
+                break
+            }
+        }
+        #endif
+        #if DEBUG
         // Test-only seam, as WADDLE_OPEN_PANEL is: shows the drop highlight
         // with no drag in progress, so a capture can show it. Nothing
         // synthetic can hold a drag from Files over the shelf. Never set in
@@ -405,6 +438,10 @@ struct ShelfView: View {
                     Label("From a Link…", systemImage: "link")
                 }
                 .accessibilityIdentifier("importFromLink")
+                // Not while the Get Freedoom tile downloads: the sheet is
+                // for a link's download (#552). A dropped link's still
+                // opens it, to show the progress (#550).
+                .disabled(linkImport.current == FreedoomRelease.url)
             } label: {
                 Label("Add", systemImage: "plus")
             }
@@ -944,6 +981,17 @@ struct ShelfView: View {
         .accessibilityLabel("Add Games")
     }
 
+    /// The Get Freedoom tile (#552), shown while the library has no
+    /// Freedoom. Its download refreshes the shelf as any import does
+    /// (`.libraryDidChange`), and the two games then take its place.
+    private var getFreedoomTile: some View {
+        GetFreedoomTile(state: getFreedoom.state,
+                        isBlocked: getFreedoom.isBlocked,
+                        aspectRatio: tileAspectRatio,
+                        onGet: { getFreedoom.get { refresh() } },
+                        onCancel: { getFreedoom.cancel() })
+    }
+
     private func tile(for game: Game) -> some View {
         Button {
             switch Shelf.tapAction(for: game, hasResumableSave: hasResumableSave) {
@@ -1134,6 +1182,9 @@ struct ShelfView: View {
     private func refresh() {
         let all = (try? library.shelfGames()) ?? []
         items = Shelf.ordered(all)
+        // A library that cannot be read offers nothing rather than a second
+        // copy of what may well be there.
+        offersFreedoom = (try? library.offersFreedoom()) ?? false
         // What the lower half shows with nothing open, while the launcher is
         // in two halves (issue #429).
         panelModel.restingGame = Shelf.restingGame(from: items)

@@ -41,10 +41,19 @@ enum IWADCatalog {
         "4a65c8b960225505187c36040b41a40b152f8f3e": "TNT: Evilution",
         // plutonia.wad, GOG/anthology re-release — md5 3493be7e1e2588bc9c8b31eab2587a04
         "f131cbe1946d7fddb3caec4aa258c83399c21e60": "The Plutonia Experiment",
+        // Freedoom 0.13.0 (#502): not commercial, but a Freedoom downloaded
+        // from its source (`Source.freedoom`) must read as the bundled games
+        // do, not "freedoom1". Hashed from the release zip whose SHA-256 its
+        // signed CHECKSUM lists; MD5 corroborated by Odamex's IWAD table
+        // (common/w_ident.cpp, "Freedoom Phase 1/2 v0.13.0").
+        // freedoom1.wad — md5 b93be13d05148dd01614bc205a03648e
+        "97bb88094a51457a8dcad98c58be22a2d0fa9a37": "Freedoom Phase 1",
+        // freedoom2.wad — md5 cd666466759b5e5f63af93c5f0ffd0a1
+        "975f781e6d801c0a23e3caa33f70493efe68a880": "Freedoom Phase 2",
     ]
 
     /// The published title for `sha1`, or nil when the content is not a
-    /// recognized commercial IWAD.
+    /// recognized IWAD (a commercial release, or a Freedoom one).
     ///
     /// Case-folded on the way in: `WADStore.sha1` renders lowercase hex today,
     /// but nothing in the type system says a caller must, and a lookup that

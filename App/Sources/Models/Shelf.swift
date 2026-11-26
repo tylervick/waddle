@@ -158,4 +158,18 @@ enum Shelf {
     static func showsAddHint(itemCount: Int) -> Bool {
         itemCount < 4
     }
+
+    /// Whether the shelf offers Freedoom with its Get Freedoom tile (#552):
+    /// exactly when the library has neither Freedoom 0.13.0 WAD as a file
+    /// that is there, bundled or stored.
+    ///
+    /// It asks the files, not the shelf. A Freedoom the player hid is
+    /// still there, so nothing is offered (Hidden Games brings it back); one
+    /// of the two deleted was deliberate, so nothing is offered either. Both
+    /// gone (deleted, or rows released from a bundle that no longer ships
+    /// them, #503) offers it again, and the download restores released rows
+    /// under their own ids, saves and all.
+    static func offersFreedoom(files: [WADFile], isPresent: (WADFile) -> Bool) -> Bool {
+        !files.contains { FreedoomRelease.wadSHA1s.contains($0.sha1.lowercased()) && isPresent($0) }
+    }
 }
