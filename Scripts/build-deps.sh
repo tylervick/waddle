@@ -75,9 +75,38 @@ fetch() { # dir url tag
         rm -rf "$dir"
     fi
     if [ ! -d "$dir" ]; then
-        git clone --depth 1 --branch "$3" "$2" "$dir"
+        clone "$dir" "$2" "$3"
     fi
     apply_patches "$1" "$3"
+}
+
+# A transient resolve or connect failure on the runner used to fail the whole
+# cold build (issue #531), so a clone is tried 3 times, 5 s apart. git cannot
+# tell a network blip from a tag that does not exist, so a bad pin is retried
+# too and fails about 10 s later with git's own message. Whatever a failed
+# attempt left behind is removed first, so a retry is a clean clone.
+#
+# git has no overall timeout, so a clone that connects and then stalls would
+# hang until the job's. GIT_HTTP_LOW_SPEED_LIMIT/TIME (http.lowSpeedLimit and
+# http.lowSpeedTime) abandon it after 30 s under 1000 bytes/s -- the same
+# guard Scripts/fetch-freedoom.sh gives curl, for the same reason -- and the
+# loop retries it. Set in the environment, not with `git -c`, so the guard
+# reaches git however the clone is spelled.
+clone() { # dir url tag
+    local n
+    for n in 1 2 3; do
+        if GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=30 \
+               git clone --depth 1 --branch "$3" "$2" "$1"; then
+            return 0
+        fi
+        rm -rf "$1"
+        if [ "$n" -lt 3 ]; then
+            echo "$(basename "$1"): clone of $3 failed (attempt $n of 3) -- retrying in 5s" >&2
+            sleep 5
+        fi
+    done
+    echo "$(basename "$1"): clone of $3 from $2 failed 3 times" >&2
+    return 1
 }
 
 # Fixes taken from upstream commits that no release we can pin yet contains,

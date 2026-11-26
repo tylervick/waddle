@@ -263,4 +263,53 @@ grep -qF "Re-base the patch on v2" "$TMP/run.log" \
     || fail "the refusal does not say to re-base on the new pin: $(cat "$TMP/run.log")"
 pass "refuses when a patch applies neither forward nor in reverse"
 
+# --- 12. a clone that fails transiently is retried (issue #531) ---------
+# A git shim ahead of the real one fails the first SDL clone, as a resolve
+# failure on the runner would, after leaving a half-made directory behind.
+# Everything else goes to the real git.
+REAL_GIT="$(command -v git)"
+R="$TMP/r"; make_fixture "$R"
+set_pin "$R" SDL_TAG v1; set_pin "$R" OPENAL_TAG v1; set_pin "$R" SONIVOX_TAG v1
+for v in LIBOGG_TAG LIBVORBIS_TAG LIBFLAC_TAG LIBOPUS_TAG LIBSNDFILE_TAG; do set_pin "$R" "$v" v1; done
+cat > "$R/bin/git" <<GITSHIM
+#!/bin/bash
+if [ "\$1" = clone ] && [[ "\$*" == *upstream-sdl* ]]; then
+    echo x >> "$TMP/sdl-clone-attempts"
+    echo "\${GIT_HTTP_LOW_SPEED_LIMIT:-unset} \${GIT_HTTP_LOW_SPEED_TIME:-unset}" > "$TMP/sdl-clone-stall-guard"
+    if [ "\$(wc -l < "$TMP/sdl-clone-attempts")" -le "\${FAIL_SDL_CLONES:-0}" ]; then
+        mkdir -p "\${!#}/half-made"
+        echo "fatal: unable to access 'https://github.com/libsdl-org/SDL.git/': Could not resolve host: github.com" >&2
+        exit 128
+    fi
+fi
+exec "$REAL_GIT" "\$@"
+GITSHIM
+chmod +x "$R/bin/git"
+: > "$TMP/sdl-clone-attempts"
+FAIL_SDL_CLONES=1 run_deps "$R"
+[ "$(wc -l < "$TMP/sdl-clone-attempts")" -eq 2 ] \
+    || fail "expected 2 SDL clone attempts, saw $(wc -l < "$TMP/sdl-clone-attempts")"
+assert_at "$R/Vendor/src/SDL" "$TMP/upstream-sdl" v1 "retried SDL clone"
+[ ! -e "$R/Vendor/src/SDL/half-made" ] || fail "the retry cloned over what the failed attempt left"
+grep -q "attempt 1 of 3" "$TMP/run.log" || fail "a retried clone printed no note: $(cat "$TMP/run.log")"
+# The stall guard has to reach git itself: a file:// clone cannot stall, so
+# this asserts what git was handed rather than a stall.
+[ "$(cat "$TMP/sdl-clone-stall-guard")" = "1000 30" ] \
+    || fail "git clone ran without the stall guard: $(cat "$TMP/sdl-clone-stall-guard")"
+pass "retries a clone that failed transiently, from a clean directory, with a stall guard"
+
+# --- 13. a clone that keeps failing stops after 3 attempts --------------
+rm -rf "$R/Vendor/src/SDL"
+: > "$TMP/sdl-clone-attempts"
+if FAIL_SDL_CLONES=99 PATH="$R/bin:$PATH" "$R/Scripts/build-deps.sh" > "$TMP/run.log" 2>&1; then
+    fail "build-deps.sh succeeded although every SDL clone failed"
+fi
+[ "$(wc -l < "$TMP/sdl-clone-attempts")" -eq 3 ] \
+    || fail "expected exactly 3 SDL clone attempts, saw $(wc -l < "$TMP/sdl-clone-attempts")"
+grep -q "Could not resolve host" "$TMP/run.log" || fail "git's own error was not shown: $(cat "$TMP/run.log")"
+grep -q "SDL: clone of v1 from .* failed 3 times" "$TMP/run.log" \
+    || fail "the final refusal does not say the clone failed 3 times: $(tail -3 "$TMP/run.log")"
+[ ! -e "$R/Vendor/src/SDL" ] || fail "a failed clone left Vendor/src/SDL behind"
+pass "gives up after 3 failed clone attempts with git's error"
+
 echo "all build-deps checkout-guard tests passed"

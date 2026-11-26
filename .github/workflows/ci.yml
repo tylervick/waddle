@@ -126,6 +126,12 @@ jobs:
           Scripts/test-check-substrate.sh
           Scripts/test-check-name-consistency.sh
           Scripts/test-build-deps.sh
+          # The real fetch-freedoom.sh and the real curl against a localhost
+          # release and a .invalid host: a failed, dropped or stalled download
+          # is retried a bounded number of times and the checksum check is
+          # unchanged (issue #531). About 55 s, nearly all of it the retry
+          # delays and the 30 s stall guard it proves.
+          Scripts/test-fetch-freedoom.sh
           Scripts/test-ensure-native-cmake-cache.sh
           Scripts/test-check-deps-current.sh
           Scripts/test-check-icons-fresh.sh
