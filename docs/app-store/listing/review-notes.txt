@@ -2,7 +2,7 @@ Waddle is an original iOS app for playing WAD-format games. It embeds the GPL-li
 
 To demo: no account or setup needed - tap the "Freedoom Phase 1" tile on the home shelf. Both bundled base games (Freedoom Phase 1 and Phase 2) play immediately with no setup.
 
-Content licensing: only the freely licensed Freedoom game data is bundled. No copyrighted commercial game content ships with the app. Users may import WAD files they own via the Files app, or by pasting an https link to one file (Add > From a Link); either way the files stay on device. The app's only network request is that one download, made when the user taps Download; it offers no catalog of games, no browser and no web view. The request sends nothing about the user or device: fixed headers (User-Agent "Waddle" with no version, Accept-Language "*"), no cookies, no cache.
+Content licensing: only the freely licensed Freedoom game data is bundled. No copyrighted commercial game content ships with the app. Users may import WAD files they own via the Files app, or by pasting an https link to one file (Add > From a Link) or dropping one on the library; either way the files stay on device. The app's only network request is that one download, made when the user taps Download or drops a link; it offers no catalog of games, no browser and no web view. The request sends nothing about the user or device: fixed headers (User-Agent "Waddle" with no version, Accept-Language "*"), no cookies, no cache.
 
 WAD files are game data, not executable code: they contain maps, sprites, sounds and music. DeHackEd patches are data tables the engine interprets. Nothing is compiled or executed, and no code is loaded at runtime.
 

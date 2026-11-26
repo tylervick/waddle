@@ -18,12 +18,14 @@ final class WADDropTests: XCTestCase {
     }
 
     override func setUpWithError() throws {
+        StubURLProtocol.reset()
         tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
+        StubURLProtocol.reset()
         try? FileManager.default.removeItem(at: tmp)
     }
 
@@ -252,15 +254,246 @@ final class WADDropTests: XCTestCase {
         XCTAssertEqual(outcome.rejected, ["mod.pk3": ImportFileType.refusedReason])
     }
 
-    /// A text snippet or a web link is not a file, so the shelf does not
-    /// light up for it.
-    func testTheShelfDoesNotTakeTextOrALink() {
+    /// A text snippet is not a file, so the shelf does not light up for it;
+    /// a web link it takes, as a link (#550).
+    func testTheShelfDoesNotTakeTextAndTakesAnHTTPSLink() {
         XCTAssertFalse(WADDrop.acceptedTypes.contains(.data))
         let text = NSItemProvider(object: "hello" as NSString)
-        let link = NSItemProvider(object: URL(string: "https://example.com/x.wad")! as NSURL)
-        for provider in [text, link] {
+        for provider in [text] {
             XCTAssertFalse(WADDrop.acceptedTypes.contains { provider.hasItemConformingToTypeIdentifier($0.identifier) },
                            "\(provider.registeredTypeIdentifiers)")
+        }
+        let link = linkProvider("https://example.com/x.wad")
+        XCTAssertTrue(accepted(link), "\(link.registeredTypeIdentifiers)")
+        XCTAssertTrue(DroppedLink.isLink(link))
+    }
+
+    // MARK: Dropped links (#550)
+
+    /// A provider built the way WebKit builds a link drag: an `NSURL` and
+    /// an `NSString` of the same URL, and no `suggestedName`.
+    private func linkProvider(_ link: String,
+                              make: (NSURL) -> NSItemProvider = { NSItemProvider(object: $0) }) -> NSItemProvider {
+        let provider = make(URL(string: link)! as NSURL)
+        provider.registerObject(link as NSString, visibility: .all)
+        provider.suggestedName = nil
+        return provider
+    }
+
+    /// Whether the shelf's `onDrop` would deliver `provider` at all.
+    private func accepted(_ provider: NSItemProvider) -> Bool {
+        WADDrop.acceptedTypes.contains { provider.hasItemConformingToTypeIdentifier($0.identifier) }
+    }
+
+    private var downloadsDir: URL { tmp.appendingPathComponent("LinkDownloads", isDirectory: true) }
+
+    /// The shelf's link download over `stack`, with the network stubbed.
+    private func linkImport(for stack: Stack) -> LinkImport {
+        var downloader = LinkDownloader()
+        downloader.directory = downloadsDir
+        downloader.makeConfiguration = { StubURLProtocol.configuration() }
+        return LinkImport(importer: stack.importer, downloader: downloader, notices: stack.notices)
+    }
+
+    private func serveWAD(at link: String, named name: String, lumps: [String] = ["MAP01"]) {
+        StubURLProtocol.set(.respond(status: 200, headers: [
+            "Content-Type": "application/octet-stream",
+            "Content-Disposition": #"attachment; filename="\#(name)""#,
+        ], body: makeWAD(magic: "PWAD", lumps: lumps)), for: link)
+    }
+
+    /// Drops `providers` on the shelf, as its `onDrop` would deliver them,
+    /// and waits for every file to be imported and every link to end.
+    /// Returns the files' outcome, if the drop had files.
+    @discardableResult
+    private func drop(_ providers: [NSItemProvider], on stack: Stack, links: LinkImport,
+                      file: StaticString = #filePath, line: UInt = #line) async throws -> ImportOutcome? {
+        for provider in providers {
+            XCTAssertTrue(accepted(provider), "the shelf would not take \(provider.registeredTypeIdentifiers)",
+                          file: file, line: line)
+        }
+        let hasFiles = providers.contains { !DroppedLink.isLink($0) }
+        let hasLinks = providers.contains { DroppedLink.isLink($0) }
+        var outcome: ImportOutcome?
+        let filesDone = hasFiles ? expectation(description: "the files' outcome") : nil
+        let linksStarted = hasLinks ? expectation(description: "the links queued") : nil
+        XCTAssertTrue(WADDrop.handleDrop(providers, into: stack.importer, links: links,
+                                         onLinkDownloadsStarted: { linksStarted?.fulfill() }) {
+            outcome = $0
+            filesDone?.fulfill()
+        }, file: file, line: line)
+        let expectations = [filesDone, linksStarted].compactMap { $0 }
+        await fulfillment(of: expectations, timeout: 20)
+        let deadline = Date().addingTimeInterval(20)
+        while links.isBusy, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertFalse(links.isBusy, "the link downloads never ended", file: file, line: line)
+        return outcome
+    }
+
+    func testAnHTTPSLinkIsDownloadedAndImportedUnderTheServersName() async throws {
+        let link = "https://files.example/download?id=42"
+        serveWAD(at: link, named: "map.wad")
+        let stack = try makeStack()
+
+        try await drop([linkProvider(link)], on: stack, links: linkImport(for: stack))
+
+        XCTAssertEqual(StubURLProtocol.requestedURLs, [link])
+        XCTAssertEqual(try stack.library.allWADs().filter { !$0.isBundled }.map(\.filename), ["map.wad"])
+        // The banner the same file gets picked in Files, as From a Link…
+        // gives it.
+        let picked = try makeStack()
+        let same = try write("map.wad", makeWAD(magic: "PWAD", lumps: ["MAP01"]))
+        _ = await picked.importer.importFiles(at: [same], from: .picker)
+        XCTAssertNotNil(stack.notices.current)
+        XCTAssertEqual(stack.notices.current, picked.notices.current)
+        XCTAssertTrue(files(under: downloadsDir).isEmpty, "the downloaded copy is removed once imported")
+    }
+
+    func testAnHTTPLinkIsRefusedAndNothingIsFetched() async throws {
+        let stack = try makeStack()
+
+        try await drop([linkProvider("http://files.example/map.wad")], on: stack, links: linkImport(for: stack))
+
+        XCTAssertEqual(StubURLProtocol.requestedURLs, [])
+        XCTAssertEqual(stack.notices.current, "Import failed: \(LinkDownloadError.insecure.reason)")
+        XCTAssertTrue(try stack.library.allWADs().filter { !$0.isBundled }.isEmpty)
+    }
+
+    func testALinkThatIsNotAWebLinkIsRefusedAsNotALink() async throws {
+        for link in ["ftp://files.example/map.wad", "mailto:someone@example.com"] {
+            StubURLProtocol.reset()
+            let stack = try makeStack()
+
+            try await drop([linkProvider(link)], on: stack, links: linkImport(for: stack))
+
+            XCTAssertEqual(StubURLProtocol.requestedURLs, [], link)
+            XCTAssertEqual(stack.notices.current, "Import failed: \(LinkDownloadError.notALink.reason)", link)
+        }
+    }
+
+    /// The most common drop: a link to a page, not a file.
+    func testALinkToAPageIsRefusedAsAWebPageWithNothingStored() async throws {
+        let link = "https://github.com/freedoom/freedoom/releases"
+        StubURLProtocol.set(.respond(status: 200, headers: ["Content-Type": "text/html"],
+                                     body: Data("<html><body>Releases</body></html>".utf8)), for: link)
+        let stack = try makeStack()
+
+        try await drop([linkProvider(link)], on: stack, links: linkImport(for: stack))
+
+        XCTAssertEqual(stack.notices.current, "Import failed: \(LinkDownloadError.webPage.reason)")
+        XCTAssertTrue(try stack.library.allWADs().filter { !$0.isBundled }.isEmpty)
+        XCTAssertTrue(files(under: downloadsDir).isEmpty)
+    }
+
+    /// Plain text is not a link: the shelf does not light up for it.
+    func testPlainTextAloneIsNotTaken() {
+        let text = NSItemProvider(object: "sunlust.wad from the forum" as NSString)
+        XCTAssertFalse(accepted(text), "\(text.registeredTypeIdentifiers)")
+        XCTAssertFalse(DroppedLink.isLink(text))
+    }
+
+    /// Text that is itself an `https` URL is offered as `public.url` too,
+    /// by `NSString` (from Notes, say), so it is taken as the link it is.
+    func testTextThatIsAnHTTPSURLIsTakenAsALink() async throws {
+        let link = "https://files.example/text.wad"
+        serveWAD(at: link, named: "text.wad")
+        let text = NSItemProvider(object: link as NSString)
+        let stack = try makeStack()
+
+        try await drop([text], on: stack, links: linkImport(for: stack))
+
+        XCTAssertEqual(StubURLProtocol.requestedURLs, [link])
+        XCTAssertEqual(try stack.library.allWADs().filter { !$0.isBundled }.map(\.filename), ["text.wad"])
+    }
+
+    func testSeveralLinksAreDownloadedInTheOrderDropped() async throws {
+        let links = ["https://files.example/c", "https://files.example/a", "https://files.example/b"]
+        for (index, link) in links.enumerated() {
+            serveWAD(at: link, named: "\(link.suffix(1)).wad", lumps: ["MAP0\(index + 1)"])
+        }
+        let stack = try makeStack()
+
+        try await drop(links.map { linkProvider($0) }, on: stack, links: linkImport(for: stack))
+
+        XCTAssertEqual(StubURLProtocol.requestedURLs, links)
+        XCTAssertEqual(Set(try stack.library.allWADs().filter { !$0.isBundled }.map(\.filename)),
+                       ["c.wad", "a.wad", "b.wad"])
+    }
+
+    func testElevenLinksDownloadTenAndRefuseOneInOneNotice() async throws {
+        let links = (1...11).map { "https://files.example/\($0)" }
+        for (index, link) in links.enumerated() {
+            serveWAD(at: link, named: "map\(index + 1).wad", lumps: ["MAP\(String(format: "%02d", index + 1))"])
+        }
+        let stack = try makeStack()
+
+        try await drop(links.map { linkProvider($0) }, on: stack, links: linkImport(for: stack))
+
+        XCTAssertEqual(WADDrop.maxLinksPerDrop, 10)
+        XCTAssertEqual(StubURLProtocol.requestedURLs, Array(links.prefix(10)))
+        XCTAssertEqual(try stack.library.allWADs().filter { !$0.isBundled }.count, 10)
+        XCTAssertEqual(stack.notices.current, WADDrop.tooManyLinksNotice(extra: 1))
+        XCTAssertEqual(WADDrop.tooManyLinksNotice(extra: 1),
+                       "Drop up to 10 links at a time. 1 link was not downloaded.")
+    }
+
+    func testAFileAndALinkInOneDropAreBothImported() async throws {
+        let wad = try write("sunlust.wad", makeWAD(magic: "PWAD", lumps: ["MAP01"]))
+        let fileProvider = try XCTUnwrap(NSItemProvider(contentsOf: wad))
+        fileProvider.suggestedName = nil
+        let link = "https://files.example/download?id=7"
+        serveWAD(at: link, named: "map.wad", lumps: ["MAP02"])
+        let stack = try makeStack()
+
+        let outcome = try await drop([fileProvider, linkProvider(link)], on: stack, links: linkImport(for: stack))
+
+        XCTAssertEqual(outcome?.imported, ["sunlust"])
+        XCTAssertFalse(DroppedLink.isLink(fileProvider), "a file goes the file's way")
+        XCTAssertEqual(StubURLProtocol.requestedURLs, [link])
+        XCTAssertEqual(Set(try stack.library.allWADs().filter { !$0.isBundled }.map(\.filename)),
+                       ["sunlust.wad", "map.wad"])
+    }
+
+    /// As for files: a drag from another process may end once the handler
+    /// returns, so a link's URL is asked for before it does.
+    func testEveryLinksLoadIsRequestedBeforeTheDropHandlerReturns() async throws {
+        let recorder = LoadRecorder()
+        let wad = try write("sunlust.wad", makeWAD(magic: "PWAD", lumps: ["MAP01"]))
+        let file = try XCTUnwrap(RecordingProvider(contentsOf: wad))
+        file.name = "file"
+        file.recorder = recorder
+        let link = "https://files.example/map.wad"
+        serveWAD(at: link, named: "map.wad", lumps: ["MAP02"])
+        let linkItem = try XCTUnwrap(linkProvider(link) { RecordingProvider(object: $0) } as? RecordingProvider)
+        linkItem.name = "link"
+        linkItem.recorder = recorder
+        let stack = try makeStack()
+        let links = linkImport(for: stack)
+        let started = expectation(description: "the link queued")
+        let done = expectation(description: "the file's outcome")
+
+        let accepted = WADDrop.handleDrop([file, linkItem], into: stack.importer, links: links,
+                                          onLinkDownloadsStarted: { started.fulfill() }) { _ in done.fulfill() }
+        recorder.handlerReturned = true
+
+        XCTAssertTrue(accepted)
+        // The file's URL and content, and the link's URL.
+        XCTAssertEqual(recorder.requests.sorted(), ["file", "file", "link"])
+        await fulfillment(of: [started, done], timeout: 10)
+        XCTAssertTrue(recorder.lateRequests.isEmpty, "requested after the handler returned: \(recorder.lateRequests)")
+    }
+
+    /// Every regular file under `dir`; empty when `dir` is gone.
+    private func files(under dir: URL) -> [String] {
+        guard let walker = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: [.isRegularFileKey])
+        else { return [] }
+        return walker.compactMap { item -> String? in
+            guard let url = item as? URL,
+                  (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
+            else { return nil }
+            return url.path
         }
     }
     // MARK: Every load is requested before the drop handler returns

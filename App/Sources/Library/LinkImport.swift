@@ -7,6 +7,12 @@ import Observation
 /// outcome as a file picked in Files. A download that fails ends in the same
 /// banner too, with the reason; a cancelled one ends silently, as a closed
 /// picker does. Either way nothing is left behind.
+///
+/// Links queue: the sheet's field adds one, and a drop on the shelf adds
+/// every link it carried (#550), which download one after another in the
+/// order they were added, each ending in its own notice. Cancel stops the
+/// one downloading and drops the rest. The shelf owns the one instance, so
+/// the sheet shows the progress of a download it did not start.
 @MainActor
 @Observable
 final class LinkImport {
@@ -17,17 +23,30 @@ final class LinkImport {
         case importing
     }
 
+    /// Where the link downloading now stands among those queued with it:
+    /// "1 of 3". Counts every link added since the queue was last empty.
+    struct Position: Equatable {
+        var index: Int
+        var count: Int
+    }
+
     private(set) var phase: Phase = .idle
     /// Why the link in the field cannot be downloaded at all (not https,
     /// not a link). Shown in the sheet, which stays open for a fix.
     private(set) var invalidLink: String?
+    /// The link downloading now, and its place in the queue; nil when idle.
+    private(set) var current: URL?
+    private(set) var position: Position?
+    /// True from the first queued link until the last has ended.
+    private(set) var isBusy = false
 
     private let importer: ImportService
     private let downloader: LinkDownloader
     private let notices: ImportNotices
     private var task: Task<Void, Never>?
-
-    var isBusy: Bool { phase != .idle }
+    private var pending: [URL] = []
+    private var queued = 0
+    private var finishers: [@MainActor () -> Void] = []
 
     init(importer: ImportService, downloader: LinkDownloader = LinkDownloader(),
          notices: ImportNotices? = nil) {
@@ -48,16 +67,61 @@ final class LinkImport {
             return false
         case .success(let url):
             invalidLink = nil
-            task = Task {
-                await run(url)
-                onFinish()
-            }
+            enqueue([url], onFinish: onFinish)
             return true
         }
     }
 
+    /// Queues `urls` to download after any already queued, in order, and
+    /// starts on them unless a download is running. Each is checked as the
+    /// field's link is: one Waddle does not download is refused in the
+    /// notice, with the same reason, when its turn comes, and nothing is
+    /// fetched for it. `onFinish` runs once the queue has emptied.
+    func enqueue(_ urls: [URL], onFinish: @escaping @MainActor () -> Void = {}) {
+        guard !urls.isEmpty else { return onFinish() }
+        pending += urls
+        queued += urls.count
+        finishers.append(onFinish)
+        guard task == nil else { return }
+        isBusy = true
+        task = Task { await drain() }
+    }
+
+    /// Posts `message` in the import notice: for a refusal about the links
+    /// themselves, such as a drop that carried too many.
+    func post(_ message: String) {
+        notices.post(message: message)
+    }
+
+    /// Stops the download running now and drops every link still queued.
     func cancel() {
+        pending = []
         task?.cancel()
+    }
+
+    private func drain() async {
+        var index = 0
+        while !pending.isEmpty, !Task.isCancelled {
+            let url = pending.removeFirst()
+            index += 1
+            current = url
+            position = Position(index: index, count: queued)
+            switch LinkDownloader.validate(url.absoluteString) {
+            case .failure(let error):
+                notices.post(message: "Import failed: \(error.reason)")
+            case .success(let url):
+                await run(url)
+            }
+        }
+        pending = []
+        queued = 0
+        current = nil
+        position = nil
+        task = nil
+        isBusy = false
+        let done = finishers
+        finishers = []
+        for finish in done { finish() }
     }
 
     /// Downloads and imports `url`. The import's outcome, or nil when the

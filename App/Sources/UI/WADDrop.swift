@@ -1,9 +1,16 @@
 import SwiftUI
 import UniformTypeIdentifiers
+#if DEBUG
+import os
+#endif
 
 /// The drop entrance (#481): files dragged onto the shelf, from Finder onto a
 /// Mac window or from Files in an iPad's Split View. Dragging a file onto the
 /// window is the first thing a player tries on a Mac.
+///
+/// It also takes a web link (#550), from Safari beside Waddle, and downloads
+/// it as **Add → From a Link…** does: the link goes to the shelf's one
+/// `LinkImport`, which the From a Link sheet shows the progress of.
 ///
 /// A drop takes the same road as the picker: `ImportService.importFiles`,
 /// which imports, counts and announces, so a dropped file ends in the same
@@ -12,7 +19,10 @@ import UniformTypeIdentifiers
 /// picker's it leaves a rejected file where it was.
 enum WADDrop {
     /// What the shelf takes a drag of, and so what lights it up: a file, by
-    /// its URL, or the content of one of the types the picker offers.
+    /// its URL, the content of one of the types the picker offers, or a web
+    /// link (`public.url`, which `public.file-url` conforms to; #550).
+    /// `DroppedLink.isLink` tells a link from a file, and the link download
+    /// refuses any link but an `https` one.
     ///
     /// Not `.data`. Files and Finder offer a dragged file as its own content
     /// type plus `public.file-url`. `.wad`, `.deh`/`.bex` and `.zip` have
@@ -22,10 +32,24 @@ enum WADDrop {
     /// folder: those match `.data` only through `public.file-url`, whose
     /// "data" is a property list of the URL. Taking `.data` staged that
     /// property list as though it were the file (review of pull request 545),
-    /// and also lit the shelf up for a text snippet or a web link.
+    /// and also lit the shelf up for any text snippet. Plain text alone does
+    /// not light it up; text that is a URL does, because `NSString` itself
+    /// offers such text as `public.url` too.
     /// `DroppedFile` reads the content type, never the URL's bytes, and a
     /// drop with no content it can read is refused by name.
-    static var acceptedTypes: [UTType] { [.fileURL] + WADImport.contentTypes }
+    static var acceptedTypes: [UTType] { [.fileURL, .url] + WADImport.contentTypes }
+
+    /// The most links one drop downloads; the rest are refused in one notice
+    /// (`tooManyLinksNotice`). A drop of a whole page's links is a slip,
+    /// not ten games.
+    static let maxLinksPerDrop = 10
+
+    /// The notice for a drop that carried `extra` links over
+    /// `maxLinksPerDrop`, which were not downloaded.
+    static func tooManyLinksNotice(extra: Int) -> String {
+        let rest = extra == 1 ? "1 link was" : "\(extra) links were"
+        return "Drop up to \(maxLinksPerDrop) links at a time. \(rest) not downloaded."
+    }
 
     /// Where a dropped file is copied while it is imported. The system
     /// removes its own copy as soon as the drop hands it over, before the
@@ -226,26 +250,108 @@ enum DroppedFile {
     }
 }
 
+/// One dropped web link (#550), read out of its `NSItemProvider`.
+///
+/// Safari offers a dragged link as an `NSURL` (`public.url`) and the same URL
+/// as plain text, with no `suggestedName` (WebKit's
+/// `PlatformPasteboard::write(const PasteboardURL&)`); the name of the file
+/// is the server's, once the download starts.
+enum DroppedLink {
+    /// Whether `provider` is a link rather than a file: it offers
+    /// `public.url` and neither `public.file-url` nor a type the picker
+    /// offers. Anything else goes the file's way (`DroppedFile`), unchanged.
+    static func isLink(_ provider: NSItemProvider) -> Bool {
+        guard provider.hasItemConformingToTypeIdentifier(UTType.url.identifier),
+              !provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) else { return false }
+        return !WADImport.contentTypes.contains { provider.hasItemConformingToTypeIdentifier($0.identifier) }
+    }
+
+    /// Starts loading `provider`'s URL, synchronously, and returns the load
+    /// to await: requested before the drop handler returns, for the reason
+    /// `DroppedFile.begin` gives. Nil when it does not load.
+    @MainActor
+    static func begin(_ provider: NSItemProvider) -> DroppedFile.Pending<URL?> {
+        let url = DroppedFile.Pending<URL?>()
+        _ = provider.loadObject(ofClass: NSURL.self) { object, _ in
+            url.fulfil((object as? NSURL) as URL?)
+        }
+        return url
+    }
+}
+
 extension WADDrop {
+    /// One dropped item's loads, a file's or a link's.
+    private enum ItemLoad {
+        case file(DroppedFile.Load)
+        case link(DroppedFile.Pending<URL?>)
+    }
+
+    #if DEBUG
+    private static let log = Logger(subsystem: "com.tylervick.waddle", category: "WADDrop")
+    #endif
+
     /// The drop handler's body, apart from SwiftUI so a test can call it:
     /// starts every provider's loads before it returns (see
-    /// `DroppedFile.begin`), then, once they are in, imports them in the
-    /// order they were dropped and hands the outcome to `onOutcome`.
+    /// `DroppedFile.begin` and `DroppedLink.begin`), then, once they are in,
+    /// imports the files in the order they were dropped and hands the
+    /// outcome to `onOutcome`, and queues the links, in the order dropped,
+    /// on `links` (#550). Past `maxLinksPerDrop` a link is refused in one
+    /// notice, posted once the downloads have ended. A drop with no links
+    /// needs no `links`; one with links and no `links` refuses them as
+    /// though they were files.
     @MainActor
     @discardableResult
     static func handleDrop(_ providers: [NSItemProvider], into importer: ImportService,
+                           links: LinkImport? = nil,
+                           onLinkDownloadsStarted: @escaping @MainActor () -> Void = {},
                            onOutcome: @escaping @MainActor (ImportOutcome) -> Void) -> Bool {
         guard !providers.isEmpty else { return false }
-        let loads = providers.map { DroppedFile.begin($0) }
+        #if DEBUG
+        // What a real drag offers, for #550's measurement: nothing a test
+        // makes can stand in for another app's provider.
+        for provider in providers {
+            log.debug("""
+                dropped provider: types=\(provider.registeredTypeIdentifiers, privacy: .public) \
+                suggestedName=\(provider.suggestedName ?? "nil", privacy: .public)
+                """)
+        }
+        #endif
+        let loads: [ItemLoad] = providers.map { provider in
+            links != nil && DroppedLink.isLink(provider)
+                ? .link(DroppedLink.begin(provider))
+                : .file(DroppedFile.begin(provider))
+        }
         Task { @MainActor in
             var requests: [ImportRequest] = []
+            var urls: [URL?] = []
             for load in loads {
-                requests.append(await load.request())
+                switch load {
+                case .file(let file): requests.append(await file.request())
+                case .link(let url): urls.append(await url.value())
+                }
             }
-            onOutcome(await importDropped(requests, into: importer))
+            if let links, !urls.isEmpty {
+                let taken = urls.prefix(maxLinksPerDrop)
+                let extra = urls.count - taken.count
+                // A link that did not load is refused as not a link, when
+                // its turn comes.
+                links.enqueue(taken.map { $0 ?? DroppedLink.unloaded }) {
+                    if extra > 0 { links.post(tooManyLinksNotice(extra: extra)) }
+                }
+                onLinkDownloadsStarted()
+            }
+            if !requests.isEmpty {
+                onOutcome(await importDropped(requests, into: importer))
+            }
         }
         return true
     }
+}
+
+extension DroppedLink {
+    /// Stands in for a link whose URL did not load: no host, so the link
+    /// download refuses it as not a link, and fetches nothing.
+    static let unloaded = URL(string: "about:blank")!
 }
 
 extension View {
@@ -253,12 +359,18 @@ extension View {
     /// imports them and posts the notice; the outcome then goes to
     /// `onOutcome`, as `wadFileImporter`'s does. `isTargeted` is true while a
     /// drag is over the view, for its highlight.
+    ///
+    /// A dropped link goes to `links`, and `onLinkDownloadsStarted` runs once
+    /// it is queued, for the shelf to show its progress (#550).
     func wadDropDestination(importer: ImportService,
+                            links: LinkImport,
                             isTargeted: Binding<Bool>,
+                            onLinkDownloadsStarted: @escaping @MainActor () -> Void,
                             onOutcome: @escaping @MainActor (ImportOutcome) -> Void) -> some View {
         onDrop(of: WADDrop.acceptedTypes, isTargeted: isTargeted) { providers in
             MainActor.assumeIsolated {
-                WADDrop.handleDrop(providers, into: importer, onOutcome: onOutcome)
+                WADDrop.handleDrop(providers, into: importer, links: links,
+                                   onLinkDownloadsStarted: onLinkDownloadsStarted, onOutcome: onOutcome)
             }
         }
     }
@@ -281,7 +393,7 @@ struct ShelfDropHighlight: View {
                     .foregroundStyle(Color.appAccent)
                 Text("Drop to Add")
                     .font(Theme.Typography.heroTitle)
-                Text(".wad, .deh, .bex and .zip files")
+                Text(".wad, .deh, .bex and .zip files, or a link to one")
                     .font(Theme.Typography.secondary)
                     .foregroundStyle(Color.appSecondaryText)
             }
