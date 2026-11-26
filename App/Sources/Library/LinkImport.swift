@@ -79,6 +79,9 @@ final class LinkImport {
     private var pending: [URL] = []
     private var queued = 0
     private var finishers: [@MainActor () -> Void] = []
+    /// Tests only: awaited once a download is whole, before it is imported,
+    /// so a test can hold a link at `.importing`.
+    @ObservationIgnored var beforeImport: (@MainActor () async -> Void)?
     /// The batch so far: every link's outcome, folded together.
     private var batch = ImportOutcome()
     private var batchOverCap = 0
@@ -146,8 +149,16 @@ final class LinkImport {
     /// What the batch had already done is still told. The queue is over at
     /// once: a link queued from here on starts a run of its own, which the
     /// cancelled one, still winding down, does not touch.
+    ///
+    /// A link already being added to the library cannot be stopped, as a
+    /// picked file cannot: Cancel then drops only the links still queued,
+    /// and the queue ends once that import has, so the drop's one notice
+    /// counts it and is not replaced by the import's own (re-review of pull
+    /// request 555).
     func cancel() {
         guard let task else { return }
+        pending = []
+        if phase == .importing { return }
         task.cancel()
         finish()
     }
@@ -159,7 +170,7 @@ final class LinkImport {
             index += 1
             current = url
             position = Position(index: index, count: queued)
-            let result = await download(url)
+            let result = await download(url, run: run)
             guard run == generation else { return }
             switch result {
             case .imported(let outcome): batch.merge(outcome)
@@ -223,7 +234,7 @@ final class LinkImport {
     /// download failed (the notice then says why) or was cancelled.
     @discardableResult
     func run(_ url: URL) async -> ImportOutcome? {
-        switch await download(url) {
+        switch await download(url, run: nil) {
         case .imported(let outcome): return outcome
         case .failed(let error):
             notices.post(message: "Import failed: \(error.reason)")
@@ -232,16 +243,26 @@ final class LinkImport {
         }
     }
 
+    /// Whether `run` (nil: a lone `run(_:)`) is still the queue's.
+    private func isCurrent(_ run: Int?) -> Bool {
+        run == nil || run == generation
+    }
+
     /// Downloads and imports `url`, and says how it ended; posts nothing of
     /// its own but the import's notice.
-    private func download(_ url: URL) async -> LinkResult {
+    ///
+    /// `run` is the queue run it belongs to, nil for a lone `run(_:)`. Once a
+    /// cancel has ended that run, `phase` is a later run's, and this leaves
+    /// it alone: a cancelled download winds down after a link queued
+    /// straight after the cancel has started (re-review of pull request 555).
+    private func download(_ url: URL, run: Int?) async -> LinkResult {
         phase = .downloading(received: 0, expected: nil)
-        defer { phase = .idle }
+        defer { if isCurrent(run) { phase = .idle } }
         let file: DownloadedFile
         do {
             file = try await downloader.download(url) { received, expected in
                 Task { @MainActor [weak self] in
-                    guard let self, case .downloading = self.phase else { return }
+                    guard let self, self.isCurrent(run), case .downloading = self.phase else { return }
                     self.phase = .downloading(received: received, expected: expected)
                 }
             }
@@ -254,7 +275,8 @@ final class LinkImport {
         defer { try? FileManager.default.removeItem(at: file.directory) }
         // Past this point the file is whole: it is imported even if the
         // player cancels now, as a picked file would be.
-        phase = .importing
+        if isCurrent(run) { phase = .importing }
+        await beforeImport?()
         return .imported(await Task { [importer] in
             await importer.importFiles([ImportRequest(url: file.url, suggestedFilename: file.suggestedFilename)],
                                        from: .link)

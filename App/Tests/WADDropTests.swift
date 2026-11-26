@@ -535,6 +535,86 @@ final class WADDropTests: XCTestCase {
         XCTAssertEqual(refusalWhileDownloading, .some(nil), "a dropped link's download shows no old refusal")
     }
 
+    /// What the player sees of a link queued straight after a cancel: its
+    /// own download's progress, not the "Adding to your library…" the
+    /// cancelled download's cleanup would leave behind (re-review of pull
+    /// request 555).
+    func testALinkQueuedJustAfterACancelShowsItsOwnProgress() async throws {
+        let stall: StubURLProtocol.Reply = .stall(headers: ["Content-Length": "100000",
+                                                            "Content-Type": "application/octet-stream"],
+                                                  firstChunk: makeWAD(magic: "PWAD", lumps: ["MAP01"]))
+        let slow = "https://files.example/slow.wad"
+        let next = "https://files.example/next.wad"
+        StubURLProtocol.set(stall, for: slow)
+        StubURLProtocol.set(stall, for: next)
+        let stack = try makeStack()
+        let links = linkImport(for: stack)
+
+        links.enqueue([URL(string: slow)!])
+        let deadline = Date().addingTimeInterval(10)
+        while StubURLProtocol.requestedURLs.isEmpty, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        links.cancel()
+        links.enqueue([URL(string: next)!])
+        while StubURLProtocol.requestedURLs.count < 2, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        // Long enough for the cancelled download to have wound down.
+        try await Task.sleep(for: .milliseconds(500))
+
+        XCTAssertEqual(links.current, URL(string: next))
+        XCTAssertEqual(links.position, LinkImport.Position(index: 1, count: 1))
+        guard case .downloading(let received, let expected) = links.phase else {
+            links.cancel()
+            return XCTFail("the new link shows \(links.phase), not its download")
+        }
+        XCTAssertGreaterThan(received, 0, "its progress is shown")
+        XCTAssertEqual(expected, 100_000)
+        links.cancel()
+    }
+
+    /// Cancel while a link is being added to the library: the import cannot
+    /// be stopped, so it finishes, and the drop's one notice -- which counts
+    /// it -- is the one left standing, not the import's own.
+    func testCancelWhileImportingLeavesTheDropsNotice() async throws {
+        let first = "https://files.example/first"
+        let second = "https://files.example/second"
+        serveWAD(at: first, named: "first.wad")
+        serveWAD(at: second, named: "second.wad", lumps: ["MAP02"])
+        let stack = try makeStack()
+        let links = linkImport(for: stack)
+        let importing = expectation(description: "the first link is being imported")
+        var release: CheckedContinuation<Void, Never>?
+        links.beforeImport = {
+            links.beforeImport = nil
+            await withCheckedContinuation { continuation in
+                release = continuation
+                importing.fulfill()
+            }
+        }
+        var extras = LinkImport.Extras()
+        extras.refused = [(URL(string: "http://files.example/x.wad")!, .insecure)]
+
+        links.enqueue([URL(string: first)!, URL(string: second)!], extras: extras)
+        await fulfillment(of: [importing], timeout: 10)
+        XCTAssertEqual(links.phase, .importing)
+        links.cancel()
+        release?.resume()
+        let deadline = Date().addingTimeInterval(10)
+        while links.isBusy || links.phase != .idle, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        // Let anything the cancelled run still had to say arrive.
+        try await Task.sleep(for: .milliseconds(500))
+
+        XCTAssertEqual(StubURLProtocol.requestedURLs, [first], "the second link was cancelled")
+        XCTAssertEqual(try stack.library.allWADs().filter { !$0.isBundled }.map(\.filename), ["first.wad"])
+        let notice = try XCTUnwrap(stack.notices.current)
+        XCTAssertTrue(notice.contains("first"), notice)
+        XCTAssertTrue(notice.contains("Import failed for x.wad"), "the drop's notice, not the import's: \(notice)")
+    }
+
     /// A link queued while a cancelled download is still winding down is
     /// downloaded, not dropped with the cancelled queue.
     func testALinkQueuedJustAfterACancelIsDownloaded() async throws {
