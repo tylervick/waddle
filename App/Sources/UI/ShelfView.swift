@@ -31,6 +31,8 @@ struct ShelfView: View {
     }
     @State private var showImporter = false
     @State private var showLinkImport = false
+    /// True while a drag is over the shelf, for `ShelfDropHighlight`.
+    @State private var dropTargeted = false
     /// The item whose tap opened the Continue / New Game / Details sheet.
     @State private var actionItem: Game?
     /// Where the game a shelf dialog is about (`anchoredGame`) is drawn: its
@@ -270,6 +272,28 @@ struct ShelfView: View {
         .wadFileImporter(isPresented: $showImporter, importer: importer) { _ in
             refresh()
         }
+        // A file dropped on the shelf -- from Finder onto a Mac window, or
+        // from Files in an iPad's Split View -- goes the picker's way (#481).
+        .wadDropDestination(importer: importer, isTargeted: $dropTargeted) { _ in
+            refresh()
+        }
+        .overlay {
+            if dropTargeted {
+                ShelfDropHighlight().transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: dropTargeted)
+        #if DEBUG
+        // Test-only seam, as WADDLE_OPEN_PANEL is: shows the drop highlight
+        // with no drag in progress, so a capture can show it. Nothing
+        // synthetic can hold a drag from Files over the shelf. Never set in
+        // production.
+        .task {
+            if ProcessInfo.processInfo.environment["WADDLE_SHOW_DROP_TARGET"] == "1" {
+                dropTargeted = true
+            }
+        }
+        #endif
         .sheet(isPresented: $showLinkImport) {
             LinkImportSheet(importer: importer)
         }
@@ -1165,8 +1189,19 @@ enum ShelfActionPopover {
                 while let next = top?.presentedViewController { top = next }
                 guard let popover = top?.popoverPresentationController,
                       let container = popover.containerView else { continue }
-                // Its own value, set again: this marks the popover as
-                // needing to be placed, which a layout alone may not.
+                // Its source view taken away and given back, then its own
+                // source rect set again: this has the popover placed afresh,
+                // arrow direction included. Setting only the rect again moved
+                // the popover but kept the side its arrow was first put on.
+                // On a 13-inch iPad the bent tile's actions sit to its right,
+                // arrow pointing left; opened flat, the arrow still pointed
+                // left, into the 1000 pt wide hero, and the actions covered
+                // it, where a fresh presentation puts them below the hero,
+                // arrow up. Setting the same source view again is a no-op
+                // and fixed nothing; going through nil is what resets it.
+                let sourceView = popover.sourceView
+                popover.sourceView = nil
+                popover.sourceView = sourceView
                 popover.sourceRect = popover.sourceRect
                 container.setNeedsLayout()
                 container.layoutIfNeeded()
