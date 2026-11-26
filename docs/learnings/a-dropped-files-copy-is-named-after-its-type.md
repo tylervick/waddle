@@ -75,6 +75,15 @@ picker offers. Two things to know:
   `testTextOrALinkThatIsNotAWebLinkIsLetGoQuietly` and
   `testTextThatIsAnHTTPSURLIsTakenAsALink` are the checks.
 
+## Safari's Downloads list hands over a file with no URL
+
+This was measured 2026-11-26 the same way. A finished download dragged from
+Safari's Downloads list offers only its content type
+(`types=["public.zip-archive"]`) and sets `suggestedName`
+(`freedoom-0.13.0.zip`). It offers no `public.file-url`. So it goes the
+file's way, and its name comes from `suggestedName`, the second step of the
+order above. It was imported.
+
 ## Not settled
 
 Whether a real cross-app drag from Files (iPad) or Finder (a Designed-for-iPad
