@@ -68,6 +68,20 @@ Rules:
   (`ShelfActionPopover.layOutAgain`). Re-presenting the dialog without
   animation fixed the flat pose and then left the popover at the hero's
   place after bending again.
+
+  Setting the rect again moves the popover but keeps the side its arrow
+  was first put on. A phone never showed it: there the arrow's first side
+  also suited the hero. A 13-inch iPad did, on `main` only, because the
+  iPad UI job runs only there. Bent, the hero's game's tile is at the top
+  left with its actions to its right, arrow pointing left. Opened flat, the
+  hero is 1000 × 681.5 pt, there is no room beside it, and the kept left
+  arrow put the actions inside it, at x 734. A fresh presentation against the
+  same hero goes below it, arrow up. Setting `sourceView` to nil and back
+  before the rect makes UIKit choose the side again. Setting the same view
+  again is a no-op. Read back from the controller, `arrowDirection` went
+  from left (4) to up (1) on opening flat and back to left on bending.
+  `testAPoseChangeKeepsTheHeroGamesActionsUpAndOnIt` is the check, and it
+  catches this only on an iPad.
 - Every dialog about one game shares that anchor. The shelf's Delete
   confirmation, from a tile's or the hero's long-press menu, had the same
   fault on the shelf root (#535). It now sits on the same clear view: the

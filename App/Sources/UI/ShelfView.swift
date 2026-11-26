@@ -1189,8 +1189,19 @@ enum ShelfActionPopover {
                 while let next = top?.presentedViewController { top = next }
                 guard let popover = top?.popoverPresentationController,
                       let container = popover.containerView else { continue }
-                // Its own value, set again: this marks the popover as
-                // needing to be placed, which a layout alone may not.
+                // Its source view taken away and given back, then its own
+                // source rect set again: this has the popover placed afresh,
+                // arrow direction included. Setting only the rect again moved
+                // the popover but kept the side its arrow was first put on.
+                // On a 13-inch iPad the bent tile's actions sit to its right,
+                // arrow pointing left; opened flat, the arrow still pointed
+                // left, into the 1000 pt wide hero, and the actions covered
+                // it, where a fresh presentation puts them below the hero,
+                // arrow up. Setting the same source view again is a no-op
+                // and fixed nothing; going through nil is what resets it.
+                let sourceView = popover.sourceView
+                popover.sourceView = nil
+                popover.sourceView = sourceView
                 popover.sourceRect = popover.sourceRect
                 container.setNeedsLayout()
                 container.layoutIfNeeded()
