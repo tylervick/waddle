@@ -201,6 +201,34 @@ writer to sleep first, as `SessionLogCaptureBlockedWriterTests` does.
 Against the capture as it was on `main` at 61c5b36 the writer stops after
 69,632 of 4,194,304 bytes and the log holds none of them.
 
+## 2026-11-26: "its byte count stopped moving" is not "asleep in `write()`"
+
+The ending case failed once on CI at "the swap did not disturb the writer"
+and "Darwin fails the sleeping write with EPIPE" (issue #559), on a pull
+request that touched nothing here. The test decided its writer was asleep in
+`write()` because the writer's byte count had not moved for 250 ms. On a
+starved runner, a thread that has not been scheduled between two writes looks
+exactly the same. If `end()` runs then, nothing is asleep on the tee, the
+writer's next `write()` goes to the restored, full original and blocks there,
+and both premise assertions fail.
+
+A still counter is a guess. `Writer.waitUntilAsleep()` now checks facts on
+five consecutive polls: `thread_info` reports the thread `TH_STATE_WAITING`
+(a descheduled thread is runnable, not waiting), its program counter from
+`thread_get_state` resolves through `dladdr` to `write` (a thread waiting on
+a lock or in `usleep` is stopped elsewhere), and the count has not moved. A
+`usleep(500_000)` injected before the writer's `write()` makes the old check
+fail at the premise lines; the new one reports the setup failed instead,
+with what its last poll saw. Reach for the same facts whenever a test needs
+another thread parked in a particular system call.
+
+Do not add "the pipe has no room" to those facts. `poll` with `POLLOUT`
+looks like the obvious third witness, and under load it reported room on
+the tee while the writer sat in `write()`, waiting, with its count still:
+the setup failed once in 200 stressed iterations with the writer exactly
+where the case wanted it.
+
 **Provenance:** issue #365, found 2026-11-10 from the result bundles of runs
 42775216487 and 42940487234; issue #394, found 2026-11-19 from run
-44572978942; issue #410, from the review of pull request 405.
+44572978942; issue #410, from the review of pull request 405; issue #559,
+from the review of pull request 554.
