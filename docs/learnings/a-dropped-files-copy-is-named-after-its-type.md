@@ -47,6 +47,25 @@ provider before it returns, and only awaits them afterwards.
 overrides `loadFileRepresentation(forTypeIdentifier:)`, because the `UTType`
 overload is a Swift extension and cannot be overridden.
 
+## Links (#550)
+
+The shelf takes `public.url` too, and `DroppedLink.isLink` tells a link from a
+file: a link offers `public.url` and neither `public.file-url` nor a type the
+picker offers. Two things to know:
+
+- **A real Safari link drag offers `public.url` and
+  `public.utf8-plain-text`, with no `suggestedName`.** This was measured
+  2026-11-26 with a real cross-app drag on an open iPhone Duo simulator, with
+  Safari in Split View beside Waddle. The drag was made through
+  `Scripts/duo-pose-device-hub.sh touch` (a held press, then a slow path).
+  The `DEBUG` log in `WADDrop.handleDrop` printed it.
+- **Plain text that is a URL is offered as `public.url` too.**
+  `NSItemProvider(object: "https://…" as NSString)` registers
+  `public.utf8-plain-text` *and* `public.url`, on iOS as on macOS. So a URL
+  dragged as text (from Notes, say) is taken as a link. Text that is not a
+  URL still does not light the shelf up.
+  `testTextThatIsAnHTTPSURLIsTakenAsALink` pins this.
+
 ## Not settled
 
 Whether a real cross-app drag from Files (iPad) or Finder (a Designed-for-iPad
