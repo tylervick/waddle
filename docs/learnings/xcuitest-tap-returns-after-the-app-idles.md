@@ -1,5 +1,9 @@
 # XCUITest's `tap()` returns after the app has idled, so "straight after a tap" is too late
 
+The same fact cost a duration measurement elsewhere
+(`xcuitest-tap-returns-after-the-app-goes-idle.md`). This file covers
+timing an event *during* the tap's effect.
+
 Issue #472 asked for a fold "straight after a tap" on Control Feel, to bend
 the device while its sheet was still arriving. A
 `notify_post` written on the line after `row.tap()` landed 1.08 s after
@@ -12,13 +16,20 @@ From the activity log (iPhone 18 Pro and iPad Pro 13-inch simulators, iOS
 the "Synthesize event" step lasts about 0.3 s, and the idle wait after it
 takes another 0.3 to 0.6 s.
 
-What works: schedule the event from another thread before calling `tap()`,
-at a time measured from its start. `testControlFeelBentWhileItsSheetArrivesKeepsItsTitle`
-posts the fold 0.45 s after `tap()` starts, about when the touch ends.
-`TEST_RUNNER_BEND_DELAY` adds to that, because the runner's environment
-takes `TEST_RUNNER_`-prefixed variables from `xcodebuild`. That test fails at
-the parent of pull request 539 and passes at its merge, and posted after
-`tap()` returns it passed at both.
+A fixed delay from the start of `tap()` is not enough either. The first
+version of `testControlFeelBentWhileItsSheetArrivesKeepsItsTitle` posted the
+fold from another thread 0.45 s after `tap()` began. The review of pull
+request 557 ran it on an iPad Pro 13-inch: 10 passes in 11 on fixed code
+and only 4 failures in 5 on the broken parent of pull request 539. The
+touch began anywhere from 0.16 to 0.40 s after `tap()` started. Late, the
+fold missed the sheet and the broken code passed. Later still, it landed
+during the touch, the tap was lost, and the fixed code failed.
+
+What works: let the app time the event from the action itself. With
+`WADDLE_TEST_BEND_AFTER_CONTROL_FEEL_MS` set, `PlayerSettingsView` posts
+the fold toggle that many milliseconds after Control Feel's row fires (a
+DEBUG seam). At 150 ms the test passed 20 of 20 on the iPad at the head
+of pull request 557 and failed 10 of 10 at 539's parent (2026-11-26).
 
 Two more things found on the way:
 

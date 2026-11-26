@@ -176,34 +176,30 @@ extension PlayTabTests {
     /// Pull request 539 fixed it before the issue was worked: the hold now
     /// lasts while the window is still presenting or dismissing
     /// (`LauncherFold.presentationTransitionInFlight`), so the push waits for
-    /// the sheet. On an iPad Pro 13-inch this fails at 539's parent (3 runs
-    /// in 3, and 2 in 2 at f92de0a, where the review saw it) and passes at
-    /// 539's merge (3 in 3). A compact iPhone did not show the missing
-    /// title at all, which is why the iPad leg is the one that guards it.
+    /// the sheet. A compact iPhone did not show the missing title at all, so
+    /// the iPad leg is the one that guards it; the counts at 539's parent
+    /// and on `main` are in pull request 557.
+    ///
+    /// The app folds itself, `WADDLE_TEST_BEND_AFTER_CONTROL_FEEL_MS` after
+    /// the row's action fires (`PlayerSettingsView`). A fold posted by the
+    /// test a fixed time from the start of `tap()` passed on the broken
+    /// parent when XCUITest's lookup was slow, and landed during the touch
+    /// and lost the tap when it was slower still.
     @MainActor
     func testControlFeelBentWhileItsSheetArrivesKeepsItsTitle() throws {
-        let app = launchLauncher(halfOpen: "0")
+        // 150 ms: the sheet is still arriving. `TEST_RUNNER_BEND_MS` moves it.
+        let bendMs = ProcessInfo.processInfo.environment["BEND_MS"] ?? "150"
+        let app = XCUIApplication()
+        app.provideFreedoom()
+        app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
+        app.launchEnvironment["WADDLE_TEST_HALF_OPEN"] = "0"
+        app.launchEnvironment["WADDLE_TEST_BEND_AFTER_CONTROL_FEEL_MS"] = bendMs
+        app.launch()
+        XCTAssertTrue(waitForShelf(in: app), "the shelf never appeared")
         openShelfSettings(in: app)
         let row = app.buttons["controlFeelButton"]
         XCTAssertTrue(row.waitForExistence(timeout: 10), "Settings never opened")
-        // Not posted after `tap()` returns: that waits for the app to idle,
-        // which is after the sheet has arrived. Posted from another thread
-        // at a time from the tap's start instead. XCUITest takes 0.15 to
-        // 0.25 s to find the row and begins the touch then, and its touch
-        // step lasts about 0.3 s; 0.45 s from the start is about when the
-        // touch ends (measured on the simulator, 2026-11-26). `BEND_DELAY`
-        // (passed as `TEST_RUNNER_BEND_DELAY`) adds to that; at 0.3 the
-        // bend at f92de0a no longer lost the title.
-        let delay = ProcessInfo.processInfo.environment["BEND_DELAY"].flatMap(Double.init) ?? 0
-        let started = Date()
-        let bent = XCTestExpectation(description: "bent")
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.45 + delay) {
-            notify_post("com.tylervick.waddle.test.half-open-toggle")
-            print("issue472: bent \(Date().timeIntervalSince(started)) s after the tap began")
-            bent.fulfill()
-        }
         row.tap()
-        wait(for: [bent], timeout: 5)
 
         let band = try foldBand(in: app)
         XCTAssertTrue(waitForPanelSwap(in: app), "the swap of panel trees never settled")
@@ -213,7 +209,7 @@ extension PlayTabTests {
                       + (slider.exists ? "\(slider.frame)" : "it is gone"))
         let title = app.navigationBars.staticTexts["Control Feel"]
         XCTAssertTrue(waitUntil(timeout: 5) { title.exists && title.frame.minY >= band.maxY - 0.5 },
-                      "Control Feel is pushed with no title in its bar (bent \(delay) s after the touch); bars: "
+                      "Control Feel is pushed with no title in its bar (bent \(bendMs) ms after the row fired); bars: "
                       + app.navigationBars.allElementsBoundByIndex.map { "\($0.identifier) \($0.frame)" }
                         .joined(separator: ", "))
     }

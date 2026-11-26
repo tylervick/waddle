@@ -119,7 +119,10 @@ final class ShelfPanelModel {
     /// tile) goes up again when the resting page is drawn again (issue
     /// #472). That is deliberate. The question is about that page, nothing
     /// has answered it, and the page it comes back on is the one it asks
-    /// about, with the picker still on the old value. Clearing it would
+    /// about, drawn as it was when the question went up: a base change
+    /// still waiting shows the chosen base in the picker
+    /// (`GamePageView.reload`), with the stored base still the old one
+    /// until the warning is answered. Clearing it would
     /// drop the edit it guards without a word, the defect pull request 461
     /// fixed. `ShelfPanelTests.testARestingPagesQuestionIsStillUpWhenThePageReturns`
     /// pins it.

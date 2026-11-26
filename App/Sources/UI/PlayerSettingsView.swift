@@ -1,4 +1,7 @@
 import SwiftUI
+#if DEBUG
+import notify
+#endif
 
 /// The gear door (spec §3): everything the Play tab's gear *menu* used to
 /// scatter — touch scheme, Control Feel, Show Debug Info, About — as one small
@@ -66,6 +69,9 @@ struct PlayerSettingsView: View {
                     // another for no gain.
                     Button {
                         shown.showControlFeel = true
+                        #if DEBUG
+                        Self.bendAfterControlFeelForTests()
+                        #endif
                     } label: {
                         Label("Control Feel", systemImage: "slider.horizontal.3")
                     }
@@ -128,6 +134,24 @@ struct PlayerSettingsView: View {
             }
         }
     }
+
+    #if DEBUG
+    /// Test-only seam (issue #472): `WADDLE_TEST_BEND_AFTER_CONTROL_FEEL_MS`
+    /// folds the launcher (the `WADDLE_TEST_HALF_OPEN` seam's toggle) that
+    /// many milliseconds after Control Feel's row fires, while its sheet is
+    /// still arriving. A UI test cannot time this itself: XCUITest's lookup
+    /// before the touch varies by a quarter of a second, and `tap()` returns
+    /// only once the app has idled
+    /// (`docs/learnings/xcuitest-tap-returns-after-the-app-idles.md`).
+    /// Never set in production.
+    private static func bendAfterControlFeelForTests() {
+        guard let value = ProcessInfo.processInfo.environment["WADDLE_TEST_BEND_AFTER_CONTROL_FEEL_MS"],
+              let ms = Int(value) else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(ms)) {
+            notify_post(TouchOverlayView.testHalfOpenToggleNotification)
+        }
+    }
+    #endif
 
     private var controlFeelShown: Binding<Bool> {
         host.presented({ shown.showControlFeel },
