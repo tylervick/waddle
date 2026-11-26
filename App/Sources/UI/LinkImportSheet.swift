@@ -72,7 +72,11 @@ struct LinkImportSheet: View {
         .interactiveDismissDisabled(model.isBusy)
         .onAppear { showCurrent(model.current) }
         .onChange(of: model.current) { _, url in showCurrent(url) }
-        .onDisappear { model.cancel() }
+        // Not a cancel: the model is the shelf's, and the sheet closes on
+        // its own once a queue ends, which a new drop can follow within the
+        // dismissal (review of pull request 555). Cancel and Cancel Download
+        // cancel, and the sheet cannot be swiped away while busy.
+        .onDisappear { model.clearInvalidLink() }
     }
 
     /// Fills the field with the link downloading, whoever started it.

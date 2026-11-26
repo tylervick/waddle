@@ -32,23 +32,28 @@ enum WADDrop {
     /// folder: those match `.data` only through `public.file-url`, whose
     /// "data" is a property list of the URL. Taking `.data` staged that
     /// property list as though it were the file (review of pull request 545),
-    /// and also lit the shelf up for any text snippet. Plain text alone does
-    /// not light it up; text that is a URL does, because `NSString` itself
-    /// offers such text as `public.url` too.
+    /// and also lit the shelf up for any text snippet.
+    ///
+    /// `public.url` lights the shelf up for more than links: `NSString`
+    /// offers any text it can parse as a URL as `public.url` too, "Note: hi"
+    /// included (review of pull request 555). Nothing of a drag can be read
+    /// before it is dropped, so the highlight cannot tell; the drop then
+    /// takes only an `http` or `https` URL with a host
+    /// (`DroppedLink.isWebLink`) and lets anything else go without a word.
     /// `DroppedFile` reads the content type, never the URL's bytes, and a
     /// drop with no content it can read is refused by name.
     static var acceptedTypes: [UTType] { [.fileURL, .url] + WADImport.contentTypes }
 
-    /// The most links one drop downloads; the rest are refused in one notice
-    /// (`tooManyLinksNotice`). A drop of a whole page's links is a slip,
-    /// not ten games.
+    /// The most links one drop takes; the rest are not, and the drop's one
+    /// notice says how many (`tooManyLinksNotice`). A drop of a whole page's
+    /// links is a slip, not ten games.
     static let maxLinksPerDrop = 10
 
-    /// The notice for a drop that carried `extra` links over
-    /// `maxLinksPerDrop`, which were not downloaded.
-    static func tooManyLinksNotice(extra: Int) -> String {
-        let rest = extra == 1 ? "1 link was" : "\(extra) links were"
-        return "Drop up to \(maxLinksPerDrop) links at a time. \(rest) not downloaded."
+    /// The notice's part for a drop that carried `extra` links over
+    /// `maxLinksPerDrop`.
+    nonisolated static func tooManyLinksNotice(extra: Int) -> String {
+        let rest = extra == 1 ? "1 more link was" : "\(extra) more links were"
+        return "\(rest) not taken: drop up to \(maxLinksPerDrop) links at a time"
     }
 
     /// Where a dropped file is copied while it is imported. The system
@@ -266,6 +271,16 @@ enum DroppedLink {
         return !WADImport.contentTypes.contains { provider.hasItemConformingToTypeIdentifier($0.identifier) }
     }
 
+    /// Whether `url` is a web link the drop takes: `http` or `https`, with a
+    /// host. `http` is taken only to be refused with its reason; anything
+    /// else (text such as "Note: hi", `mailto:`, `javascript:`) is not a
+    /// link the player meant, and is let go without a notice or the sheet.
+    nonisolated static func isWebLink(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http",
+              let host = url.host(), !host.isEmpty else { return false }
+        return true
+    }
+
     /// Starts loading `provider`'s URL, synchronously, and returns the load
     /// to await: requested before the drop handler returns, for the reason
     /// `DroppedFile.begin` gives. Nil when it does not load.
@@ -294,16 +309,20 @@ extension WADDrop {
     /// starts every provider's loads before it returns (see
     /// `DroppedFile.begin` and `DroppedLink.begin`), then, once they are in,
     /// imports the files in the order they were dropped and hands the
-    /// outcome to `onOutcome`, and queues the links, in the order dropped,
-    /// on `links` (#550). Past `maxLinksPerDrop` a link is refused in one
-    /// notice, posted once the downloads have ended. A drop with no links
-    /// needs no `links`; one with links and no `links` refuses them as
-    /// though they were files.
+    /// outcome to `onOutcome`, and queues the web links, in the order
+    /// dropped, on `links` (#550). A drop with links is told in one notice,
+    /// once its downloads have ended: what it added, its first failure and
+    /// "N more failed", and the links past `maxLinksPerDrop`, which are not
+    /// taken. `onLinkDownloadsStarted` runs only when something is to be
+    /// downloaded, and `onHandled` once the drop is imported or queued (not
+    /// downloaded). A drop with no links needs no `links`; one with links and
+    /// no `links` refuses them as though they were files.
     @MainActor
     @discardableResult
     static func handleDrop(_ providers: [NSItemProvider], into importer: ImportService,
                            links: LinkImport? = nil,
                            onLinkDownloadsStarted: @escaping @MainActor () -> Void = {},
+                           onHandled: @escaping @MainActor () -> Void = {},
                            onOutcome: @escaping @MainActor (ImportOutcome) -> Void) -> Bool {
         guard !providers.isEmpty else { return false }
         #if DEBUG
@@ -323,36 +342,46 @@ extension WADDrop {
         }
         Task { @MainActor in
             var requests: [ImportRequest] = []
-            var urls: [URL?] = []
+            var loaded: [URL] = []
             for load in loads {
                 switch load {
                 case .file(let file): requests.append(await file.request())
-                case .link(let url): urls.append(await url.value())
+                case .link(let url):
+                    // One that did not load, or is not a web link, is let go.
+                    if let url = await url.value(), DroppedLink.isWebLink(url) { loaded.append(url) }
                 }
             }
-            if let links, !urls.isEmpty {
-                let taken = urls.prefix(maxLinksPerDrop)
-                let extra = urls.count - taken.count
-                // A link that did not load is refused as not a link, when
-                // its turn comes.
-                links.enqueue(taken.map { $0 ?? DroppedLink.unloaded }) {
-                    if extra > 0 { links.post(tooManyLinksNotice(extra: extra)) }
-                }
-                onLinkDownloadsStarted()
+            defer { onHandled() }
+            guard let links, !loaded.isEmpty else {
+                if !requests.isEmpty { onOutcome(await importDropped(requests, into: importer)) }
+                return
             }
+            // The files first, so the drop is told once, with its links.
+            var extras = LinkImport.Extras()
             if !requests.isEmpty {
-                onOutcome(await importDropped(requests, into: importer))
+                let outcome = await importDropped(requests, into: importer)
+                onOutcome(outcome)
+                extras.files = outcome
             }
+            let taken = loaded.prefix(maxLinksPerDrop)
+            extras.overCap = loaded.count - taken.count
+            // Refused here, not in the queue, so a drop of only refused
+            // links never opens the sheet. `LinkDownloader.download` keeps
+            // its own https guard behind this one.
+            var downloads: [URL] = []
+            for url in taken {
+                switch LinkDownloader.validate(url.absoluteString) {
+                case .success(let url): downloads.append(url)
+                case .failure(let error): extras.refused.append((url, error))
+                }
+            }
+            links.enqueue(downloads, extras: extras)
+            if !downloads.isEmpty { onLinkDownloadsStarted() }
         }
         return true
     }
 }
 
-extension DroppedLink {
-    /// Stands in for a link whose URL did not load: no host, so the link
-    /// download refuses it as not a link, and fetches nothing.
-    static let unloaded = URL(string: "about:blank")!
-}
 
 extension View {
     /// Accepts files dropped on this view and hands them to `WADDrop`, which

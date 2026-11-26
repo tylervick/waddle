@@ -59,12 +59,21 @@ picker offers. Two things to know:
   Safari in Split View beside Waddle. The drag was made through
   `Scripts/duo-pose-device-hub.sh touch` (a held press, then a slow path).
   The `DEBUG` log in `WADDrop.handleDrop` printed it.
-- **Plain text that is a URL is offered as `public.url` too.**
-  `NSItemProvider(object: "https://…" as NSString)` registers
-  `public.utf8-plain-text` *and* `public.url`, on iOS as on macOS. So a URL
-  dragged as text (from Notes, say) is taken as a link. Text that is not a
-  URL still does not light the shelf up.
-  `testTextThatIsAnHTTPSURLIsTakenAsALink` pins this.
+- **Text that merely parses as a URL is offered as `public.url` too.**
+  `NSItemProvider(object: s as NSString)` registers `public.utf8-plain-text`
+  *and* `public.url` for any `s` that `NSURL` parses, on iOS as on macOS.
+  That includes "https://…", but also "Note: hi", "Tip:use-warp" and
+  "javascript:alert(1)". "hello", "www.example.com" and text with spaces
+  before any colon get no `public.url`. The first draft of pull request 555
+  claimed "text that is not a URL does not light the shelf up", which was
+  wrong (review of pull request 555).
+- **Nothing of a drag can be read before the drop.** So the highlight
+  cannot tell "Note: hi" from a link. At the drop, `DroppedLink.isWebLink`
+  takes only an `http` or `https` URL with a host. Anything else is let go
+  without a notice or the sheet. A URL dragged as text from Notes is taken
+  as the link it is.
+  `testTextOrALinkThatIsNotAWebLinkIsLetGoQuietly` and
+  `testTextThatIsAnHTTPSURLIsTakenAsALink` are the checks.
 
 ## Not settled
 

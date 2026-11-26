@@ -302,34 +302,35 @@ final class WADDropTests: XCTestCase {
         ], body: makeWAD(magic: "PWAD", lumps: lumps)), for: link)
     }
 
+    /// What a drop did: the files' outcome, if it had files, and whether it
+    /// asked the shelf to open From a Link… on its downloads.
+    private struct DropResult {
+        var files: ImportOutcome?
+        var openedTheSheet = false
+    }
+
     /// Drops `providers` on the shelf, as its `onDrop` would deliver them,
     /// and waits for every file to be imported and every link to end.
-    /// Returns the files' outcome, if the drop had files.
     @discardableResult
     private func drop(_ providers: [NSItemProvider], on stack: Stack, links: LinkImport,
-                      file: StaticString = #filePath, line: UInt = #line) async throws -> ImportOutcome? {
+                      file: StaticString = #filePath, line: UInt = #line) async throws -> DropResult {
         for provider in providers {
             XCTAssertTrue(accepted(provider), "the shelf would not take \(provider.registeredTypeIdentifiers)",
                           file: file, line: line)
         }
-        let hasFiles = providers.contains { !DroppedLink.isLink($0) }
-        let hasLinks = providers.contains { DroppedLink.isLink($0) }
-        var outcome: ImportOutcome?
-        let filesDone = hasFiles ? expectation(description: "the files' outcome") : nil
-        let linksStarted = hasLinks ? expectation(description: "the links queued") : nil
+        var result = DropResult()
+        let handled = expectation(description: "the drop handled")
         XCTAssertTrue(WADDrop.handleDrop(providers, into: stack.importer, links: links,
-                                         onLinkDownloadsStarted: { linksStarted?.fulfill() }) {
-            outcome = $0
-            filesDone?.fulfill()
-        }, file: file, line: line)
-        let expectations = [filesDone, linksStarted].compactMap { $0 }
-        await fulfillment(of: expectations, timeout: 20)
+                                         onLinkDownloadsStarted: { result.openedTheSheet = true },
+                                         onHandled: { handled.fulfill() }) { result.files = $0 },
+                      file: file, line: line)
+        await fulfillment(of: [handled], timeout: 20)
         let deadline = Date().addingTimeInterval(20)
         while links.isBusy, Date() < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTAssertFalse(links.isBusy, "the link downloads never ended", file: file, line: line)
-        return outcome
+        return result
     }
 
     func testAnHTTPSLinkIsDownloadedAndImportedUnderTheServersName() async throws {
@@ -351,25 +352,42 @@ final class WADDropTests: XCTestCase {
         XCTAssertTrue(files(under: downloadsDir).isEmpty, "the downloaded copy is removed once imported")
     }
 
-    func testAnHTTPLinkIsRefusedAndNothingIsFetched() async throws {
+    /// Refused by the drop itself, before anything is queued: so the sheet
+    /// does not flash open and shut for it, and the stub sees no request.
+    /// (`LinkDownloader.download`'s own guard would refuse it too, but only
+    /// once queued, with the sheet open: this test fails without the drop's
+    /// check.)
+    func testAnHTTPLinkIsRefusedWithoutOpeningTheSheetAndNothingIsFetched() async throws {
         let stack = try makeStack()
 
-        try await drop([linkProvider("http://files.example/map.wad")], on: stack, links: linkImport(for: stack))
+        let result = try await drop([linkProvider("http://files.example/map.wad")], on: stack,
+                                    links: linkImport(for: stack))
 
+        XCTAssertFalse(result.openedTheSheet)
         XCTAssertEqual(StubURLProtocol.requestedURLs, [])
-        XCTAssertEqual(stack.notices.current, "Import failed: \(LinkDownloadError.insecure.reason)")
+        XCTAssertEqual(stack.notices.current,
+                       "Import failed for map.wad: \(LinkDownloadError.insecure.reason)")
         XCTAssertTrue(try stack.library.allWADs().filter { !$0.isBundled }.isEmpty)
     }
 
-    func testALinkThatIsNotAWebLinkIsRefusedAsNotALink() async throws {
-        for link in ["ftp://files.example/map.wad", "mailto:someone@example.com"] {
+    /// `NSString` offers any text it parses as a URL as `public.url`, "Note:
+    /// hi" included, so the shelf lights up for it and nothing can be read
+    /// until the drop. The drop then lets it go: no notice, no sheet, no
+    /// request. The same for a scheme that is not http(s).
+    func testTextOrALinkThatIsNotAWebLinkIsLetGoQuietly() async throws {
+        let texts = ["Note: hi", "Tip:use-warp", "javascript:alert(1)"]
+        let links = ["ftp://files.example/map.wad", "mailto:someone@example.com", "https:no-host"]
+        let providers = texts.map { NSItemProvider(object: $0 as NSString) } + links.map { linkProvider($0) }
+        for provider in providers {
             StubURLProtocol.reset()
             let stack = try makeStack()
 
-            try await drop([linkProvider(link)], on: stack, links: linkImport(for: stack))
+            let result = try await drop([provider], on: stack, links: linkImport(for: stack))
 
-            XCTAssertEqual(StubURLProtocol.requestedURLs, [], link)
-            XCTAssertEqual(stack.notices.current, "Import failed: \(LinkDownloadError.notALink.reason)", link)
+            let what = "\(provider.registeredTypeIdentifiers)"
+            XCTAssertFalse(result.openedTheSheet, what)
+            XCTAssertEqual(StubURLProtocol.requestedURLs, [], what)
+            XCTAssertNil(stack.notices.current, what)
         }
     }
 
@@ -420,6 +438,34 @@ final class WADDropTests: XCTestCase {
         XCTAssertEqual(StubURLProtocol.requestedURLs, links)
         XCTAssertEqual(Set(try stack.library.allWADs().filter { !$0.isBundled }.map(\.filename)),
                        ["c.wad", "a.wad", "b.wad"])
+        // Told once, as a whole.
+        let notice = try XCTUnwrap(stack.notices.current)
+        for name in ["c", "a", "b"] {
+            XCTAssertTrue(notice.contains(name), notice)
+        }
+    }
+
+    /// One notice for the whole drop, in #521's form: what it added, the
+    /// first failure's reason, and "N more failed". No link's result is lost
+    /// under the next one's.
+    func testAMixedDropIsToldOnceAsAWhole() async throws {
+        let good = "https://files.example/good"
+        serveWAD(at: good, named: "good.wad")
+        let page = "https://files.example/releases"
+        StubURLProtocol.set(.respond(status: 200, headers: ["Content-Type": "text/html"],
+                                     body: Data("<html></html>".utf8)), for: page)
+        let stack = try makeStack()
+
+        let result = try await drop([linkProvider("http://files.example/x.wad"), linkProvider(good),
+                                     linkProvider(page)], on: stack, links: linkImport(for: stack))
+
+        XCTAssertTrue(result.openedTheSheet)
+        XCTAssertEqual(StubURLProtocol.requestedURLs, [good, page])
+        let notice = try XCTUnwrap(stack.notices.current)
+        XCTAssertTrue(notice.contains("good"), notice)
+        XCTAssertTrue(notice.contains("Import failed for x.wad: \(LinkDownloadError.insecure.reason)"), notice)
+        XCTAssertTrue(notice.hasSuffix("1 more failed"), notice)
+        XCTAssertEqual(try stack.library.allWADs().filter { !$0.isBundled }.map(\.filename), ["good.wad"])
     }
 
     func testElevenLinksDownloadTenAndRefuseOneInOneNotice() async throws {
@@ -434,9 +480,13 @@ final class WADDropTests: XCTestCase {
         XCTAssertEqual(WADDrop.maxLinksPerDrop, 10)
         XCTAssertEqual(StubURLProtocol.requestedURLs, Array(links.prefix(10)))
         XCTAssertEqual(try stack.library.allWADs().filter { !$0.isBundled }.count, 10)
-        XCTAssertEqual(stack.notices.current, WADDrop.tooManyLinksNotice(extra: 1))
+        // The cap is part of the drop's one notice, after what the ten did,
+        // not a notice of its own over the tenth link's result.
+        let notice = try XCTUnwrap(stack.notices.current)
+        XCTAssertTrue(notice.hasSuffix(" · " + WADDrop.tooManyLinksNotice(extra: 1)), notice)
+        XCTAssertTrue(notice.contains("map10"), notice)
         XCTAssertEqual(WADDrop.tooManyLinksNotice(extra: 1),
-                       "Drop up to 10 links at a time. 1 link was not downloaded.")
+                       "1 more link was not taken: drop up to 10 links at a time")
     }
 
     func testAFileAndALinkInOneDropAreBothImported() async throws {
@@ -447,13 +497,69 @@ final class WADDropTests: XCTestCase {
         serveWAD(at: link, named: "map.wad", lumps: ["MAP02"])
         let stack = try makeStack()
 
-        let outcome = try await drop([fileProvider, linkProvider(link)], on: stack, links: linkImport(for: stack))
+        let outcome = try await drop([fileProvider, linkProvider(link)], on: stack,
+                                     links: linkImport(for: stack)).files
 
         XCTAssertEqual(outcome?.imported, ["sunlust"])
         XCTAssertFalse(DroppedLink.isLink(fileProvider), "a file goes the file's way")
         XCTAssertEqual(StubURLProtocol.requestedURLs, [link])
         XCTAssertEqual(Set(try stack.library.allWADs().filter { !$0.isBundled }.map(\.filename)),
                        ["sunlust.wad", "map.wad"])
+        // One notice for the drop, the file's import included.
+        let notice = try XCTUnwrap(stack.notices.current)
+        XCTAssertTrue(notice.contains("sunlust") && notice.contains("map"), notice)
+    }
+
+    // MARK: The shared link download (review of pull request 555)
+
+    /// The field's refusal belongs to that one try: it is gone once a
+    /// download starts (a drop, say) and once the sheet closes.
+    func testTheFieldsRefusalIsClearedByADownloadAndByClosingTheSheet() async throws {
+        let stack = try makeStack()
+        let links = linkImport(for: stack)
+
+        XCTAssertFalse(links.start("http://files.example/a.wad"))
+        XCTAssertEqual(links.invalidLink, LinkDownloadError.insecure.reason)
+        links.clearInvalidLink()
+        XCTAssertNil(links.invalidLink, "closing the sheet")
+
+        XCTAssertFalse(links.start("http://files.example/a.wad"))
+        let link = "https://files.example/b"
+        serveWAD(at: link, named: "b.wad")
+        var refusalWhileDownloading: String?? = .none
+        let handled = expectation(description: "the drop handled")
+        WADDrop.handleDrop([linkProvider(link)], into: stack.importer, links: links,
+                           onLinkDownloadsStarted: { refusalWhileDownloading = .some(links.invalidLink) },
+                           onHandled: { handled.fulfill() }) { _ in }
+        await fulfillment(of: [handled], timeout: 10)
+        XCTAssertEqual(refusalWhileDownloading, .some(nil), "a dropped link's download shows no old refusal")
+    }
+
+    /// A link queued while a cancelled download is still winding down is
+    /// downloaded, not dropped with the cancelled queue.
+    func testALinkQueuedJustAfterACancelIsDownloaded() async throws {
+        let slow = "https://files.example/slow.wad"
+        StubURLProtocol.set(.stall(headers: ["Content-Length": "100000",
+                                            "Content-Type": "application/octet-stream"],
+                                   firstChunk: makeWAD(magic: "PWAD", lumps: ["MAP01"])), for: slow)
+        let next = "https://files.example/next"
+        serveWAD(at: next, named: "next.wad", lumps: ["MAP02"])
+        let stack = try makeStack()
+        let links = linkImport(for: stack)
+
+        links.enqueue([URL(string: slow)!])
+        let deadline = Date().addingTimeInterval(10)
+        while StubURLProtocol.requestedURLs.isEmpty, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        links.cancel()
+        XCTAssertFalse(links.isBusy, "a cancel ends the queue at once")
+        links.enqueue([URL(string: next)!])
+        while links.isBusy, Date() < deadline.addingTimeInterval(10) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        XCTAssertEqual(try stack.library.allWADs().filter { !$0.isBundled }.map(\.filename), ["next.wad"])
     }
 
     /// As for files: a drag from another process may end once the handler
