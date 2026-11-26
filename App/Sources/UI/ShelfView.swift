@@ -72,8 +72,15 @@ struct ShelfView: View {
     /// Zero until measured, which asks nothing of the art.
     @State private var heroButtonLabelWidth: CGFloat = 0
     /// The taller of the two labels, from the same gauge: a `Label`'s icon
-    /// makes it a little taller than its text's line (issue #457).
+    /// makes it a little taller than its text's line (issue #457). As drawn,
+    /// to the pixel; the last-played rule rounds it up to the point, as it
+    /// always has, and the title's cap takes it as it is (issue #493).
     @State private var heroButtonLabelHeight: CGFloat = 0
+    /// One line and two lines of the hero's title as SwiftUI draws them
+    /// (`heroTitleLineGauge`). Zero until measured, which caps no title
+    /// (issue #493).
+    @State private var heroTitleOneLine: CGFloat = 0
+    @State private var heroTitleTwoLines: CGFloat = 0
 
     /// Adaptive, and re-derived from the current Dynamic Type size rather than
     /// fixed: at accessibility sizes the wider floor fits fewer columns, which
@@ -680,6 +687,7 @@ struct ShelfView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .background { heroButtonLabelGauge }
+                .background { heroTitleLineGauge }
             }
         }
         .contextMenu { contextMenuItems(for: game) }
@@ -732,10 +740,21 @@ struct ShelfView: View {
                                                                category: category),
                 lastPlayedHeight: HeroSideBySideCaption.lastPlayedHeight(text, width: captionWidth,
                                                                          category: category),
-                buttonHeight: HeroSideBySideCaption.buttonHeight(labelHeight: heroButtonLabelHeight))
+                buttonHeight: HeroSideBySideCaption.buttonHeight(labelHeight: ceil(heroButtonLabelHeight)))
         } ?? false
+        // Where Continue still ends below the viewport without the line, the
+        // title gives way next: capped at the lines that leave Continue whole,
+        // never fewer than one (issue #493). Nil, no cap, wherever it fits.
+        let titleLineLimit = showsLastPlayed ? nil : ShelfHeroLayout.sideBySideTitleLineLimit(
+            viewportHeight: viewportHeight,
+            contentPadding: contentPadding,
+            titleLines: HeroSideBySideCaption.titleLineCount(game.name, width: captionWidth, category: category),
+            titleFirstLine: heroTitleOneLine,
+            titleLineStep: heroTitleOneLine > 0 ? heroTitleTwoLines - heroTitleOneLine : 0,
+            buttonHeight: HeroSideBySideCaption.buttonHeight(labelHeight: heroButtonLabelHeight))
         return HeroSideBySideCaption(
             title: game.name,
+            titleLineLimit: titleLineLimit,
             lastPlayed: showsLastPlayed ? lastPlayed : nil,
             // In a row where the caption holds two buttons as wide as the
             // wider label, stacked where it does not. `ShelfHeroLayout`
@@ -776,11 +795,29 @@ struct ShelfView: View {
         .hidden()
         .accessibilityHidden(true)
         .onGeometryChange(for: CGSize.self) { proxy in
-            CGSize(width: ceil(proxy.size.width), height: ceil(proxy.size.height))
+            CGSize(width: ceil(proxy.size.width), height: proxy.size.height)
         } action: { size in
             heroButtonLabelWidth = size.width
             heroButtonLabelHeight = size.height
         }
+    }
+
+    /// One line and two lines of the hero's title font, never drawn: what
+    /// SwiftUI gives a title's first line and each line after it. The step is
+    /// the text style's own leading, not `UIFont.lineHeight`, and the first
+    /// line is rounded to the display's pixel; both come from SwiftUI's
+    /// layout at this window's display scale, so nothing here assumes one.
+    /// Fixed text laid out at its ideal size, so the title it is used to cap
+    /// cannot change what it reads (issue #493).
+    private var heroTitleLineGauge: some View {
+        ZStack {
+            HeroSideBySideCaption.titleLineGauge(lines: 1)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { heroTitleOneLine = $0 }
+            HeroSideBySideCaption.titleLineGauge(lines: 2)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { heroTitleTwoLines = $0 }
+        }
+        .hidden()
+        .accessibilityHidden(true)
     }
 
     private func heroArt(_ game: Game, height: CGFloat) -> some View {
@@ -1073,6 +1110,9 @@ struct ShelfView: View {
 /// this view as SwiftUI lays it out (issue #457).
 struct HeroSideBySideCaption: View {
     let title: String
+    /// The most lines the title may wrap to, its tail truncated past them;
+    /// nil for no limit (`ShelfHeroLayout.sideBySideTitleLineLimit`).
+    var titleLineLimit: Int?
     /// Nil draws the caption without the line.
     let lastPlayed: String?
     let buttonArrangement: ShelfHeroLayout.ButtonArrangement
@@ -1083,7 +1123,10 @@ struct HeroSideBySideCaption: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: ShelfHeroLayout.captionSpacing) {
-            Text(title).font(Theme.Typography.heroTitle)
+            Text(title)
+                .font(Theme.Typography.heroTitle)
+                .lineLimit(titleLineLimit)
+                .truncationMode(.tail)
             if let lastPlayed {
                 Text(lastPlayed)
                     .font(Theme.Typography.secondary)
@@ -1133,9 +1176,52 @@ struct HeroSideBySideCaption: View {
 
     /// The title as it wraps at `width`.
     static func titleHeight(_ title: String, width: CGFloat, category: UIContentSizeCategory) -> CGFloat {
+        wrappedHeight(title, font: titleFont(category), width: width)
+    }
+
+    /// How many lines the title wraps to at `width`, by TextKit 2 with the
+    /// standard line-break strategy: the layout SwiftUI's own text uses, so
+    /// it breaks where SwiftUI does. TextKit 1 with only a font did not: it
+    /// broke Hangul between any two syllables where SwiftUI keeps Korean
+    /// words whole, counting two lines where SwiftUI drew three, so a Korean
+    /// title was never capped (review of pull request 546). Given the
+    /// strategy, TextKit 1 still broke at soft hyphens SwiftUI does not.
+    ///
+    /// Only the count is taken from it: the height of each line is SwiftUI's
+    /// (`titleLineGauge`), because TextKit gives a line the height of the
+    /// tallest font on it, and a Thai or Devanagari title falls back to
+    /// fonts up to 30% taller than SwiftUI draws its line.
+    static func titleLineCount(_ title: String, width: CGFloat, category: UIContentSizeCategory) -> Int {
+        guard width > 0, !title.isEmpty else { return 1 }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakStrategy = .standard
+        let content = NSTextContentStorage()
+        content.attributedString = NSAttributedString(
+            string: title, attributes: [.font: titleFont(category), .paragraphStyle: paragraph])
+        let layout = NSTextLayoutManager()
+        content.addTextLayoutManager(layout)
+        let container = NSTextContainer(size: CGSize(width: width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        layout.textContainer = container
+        var lines = 0
+        layout.enumerateTextLayoutFragments(from: layout.documentRange.location, options: [.ensuresLayout]) {
+            lines += $0.textLineFragments.count
+            return true
+        }
+        return max(1, lines)
+    }
+
+    /// `lines` lines of the title's font, for measuring what SwiftUI gives a
+    /// line of the title (`ShelfView.heroTitleLineGauge`).
+    static func titleLineGauge(lines: Int) -> some View {
+        Text(verbatim: Array(repeating: "X", count: lines).joined(separator: "\n"))
+            .font(Theme.Typography.heroTitle)
+            .fixedSize()
+    }
+
+    private static func titleFont(_ category: UIContentSizeCategory) -> UIFont {
         let base = font(.title2, category)
-        let bold = base.fontDescriptor.withSymbolicTraits(.traitBold).map { UIFont(descriptor: $0, size: 0) } ?? base
-        return wrappedHeight(title, font: bold, width: width)
+        return base.fontDescriptor.withSymbolicTraits(.traitBold).map { UIFont(descriptor: $0, size: 0) } ?? base
     }
 
     /// The last-played line as it wraps at `width`.
@@ -1157,12 +1243,18 @@ struct HeroSideBySideCaption: View {
                              compatibleWith: UITraitCollection(preferredContentSizeCategory: category))
     }
 
+    /// With the standard line-break strategy, as SwiftUI breaks lines:
+    /// without it, Hangul broke between any two syllables, a Korean title
+    /// came out a line short, and the last-played line was kept where it
+    /// pushed Continue below the viewport (review of pull request 546).
     private static func wrappedHeight(_ text: String, font: UIFont, width: CGFloat) -> CGFloat {
         guard width > 0 else { return font.lineHeight }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakStrategy = .standard
         let box = (text as NSString).boundingRect(
             with: CGSize(width: width, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: [.font: font], context: nil)
+            attributes: [.font: font, .paragraphStyle: paragraph], context: nil)
         return ceil(box.height)
     }
 }
