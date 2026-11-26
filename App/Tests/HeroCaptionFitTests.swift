@@ -65,6 +65,16 @@ final class HeroCaptionFitTests: XCTestCase {
         "ดูมสอง วิถีแห่งไอดี",
         "डूम दो: खोए हुए एपिसोड",
         "毁灭战士二 失落章节 重制",
+        // Korean, which SwiftUI breaks between words and TextKit 1 broke
+        // between syllables (review of pull request 546).
+        "둠 이터널 파티 리믹스 에디션 디럭스",
+        "프리둠 페이즈 투 사이드 리믹스 에디션",
+        "프리둠 페이즈 투 시사이드 리믹스 에디션 완전판 특별 모음집",
+        "둠 2 아이디의 방식 잃어버린 에피소드 리믹스",
+        // Soft hyphens, which TextKit 1 broke at and SwiftUI does not, and
+        // a word too long for the line, which both break by character.
+        "Doom\u{00AD}Wad\u{00AD}Pack\u{00AD}Ultra\u{00AD}Deluxe\u{00AD}Edition",
+        "Supercalifragilisticexpialidocious",
     ]
     private static let titles = [title] + longTitles + scriptTitles
     /// The issue's own line: two wide digits, the longest the line gets in
@@ -464,6 +474,44 @@ final class HeroCaptionFitTests: XCTestCase {
             XCTAssertNotNil(titleLineLimit(Self.duoClosedLandscape, size, title: Self.longTitles[1]), "\(size)")
         }
         XCTAssertNotNil(titleLineLimit(Self.duoClosedLandscape, .accessibility5, title: Self.longTitles[0]))
+    }
+
+    /// The cap counts the title's lines where SwiftUI breaks them, for every
+    /// title, at every size, at widths from a narrow caption to a wide one
+    /// in 6 pt steps. The windows above sample only a few caption widths, and
+    /// a line count that is wrong at a width they miss is a title capped
+    /// where it fitted, or not capped where it did not: TextKit 1 counted
+    /// "둠 이터널 파티 리믹스 에디션 디럭스" as two lines at AX5 on a
+    /// landscape iPhone 17 Pro where SwiftUI drew three, and Continue ended
+    /// 12 pt under the home indicator.
+    func testTheLineCountIsSwiftUIsAtEveryWidth() {
+        for size in DynamicTypeSize.allCases {
+            let gauge = titleGauge(size)
+            for title in Self.titles {
+                for width in stride(from: CGFloat(120), through: 520, by: 6) {
+                    let drawn = hostedSize(Text(title).font(Theme.Typography.heroTitle), width: width, size).height
+                    let drawnLines = Int(((drawn - gauge.firstLine) / gauge.lineStep).rounded()) + 1
+                    XCTAssertEqual(HeroSideBySideCaption.titleLineCount(title, width: width, category: category(size)),
+                                   drawnLines, "\(title) at \(size), \(width) wide")
+                }
+            }
+        }
+    }
+
+    /// The review's case on its own: a landscape iPhone 17 Pro at AX5, where
+    /// this Korean title draws three lines and ended Continue below the
+    /// viewport uncapped.
+    func testAKoreanTitleIsCappedOnALandscapeProPhone() {
+        let viewport = Viewport.landscapeProPhone
+        let title = "둠 이터널 파티 리믹스 에디션 디럭스"
+        XCTAssertEqual(titleLines(viewport, .accessibility5, title: title), 3)
+        let main = Self.padding + drawnContinueBottom(viewport, .accessibility5, lastPlayed: false, title: title)
+        XCTAssertGreaterThan(main, viewport.height, "the case no longer reproduces the review's finding")
+        let limit = titleLineLimit(viewport, .accessibility5, title: title)
+        XCTAssertEqual(limit, 2)
+        let capped = Self.padding + drawnContinueBottom(viewport, .accessibility5, lastPlayed: false,
+                                                        title: title, titleLineLimit: limit)
+        XCTAssertLessThanOrEqual(capped, viewport.height)
     }
 
     // MARK: The rule on its own

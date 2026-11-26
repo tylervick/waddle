@@ -1155,23 +1155,34 @@ struct HeroSideBySideCaption: View {
         wrappedHeight(title, font: titleFont(category), width: width)
     }
 
-    /// How many lines the title wraps to at `width`, by TextKit's line
-    /// breaking, which is SwiftUI's. Only the count is taken from it: the
-    /// height of each line is SwiftUI's (`titleLineGauge`), because TextKit
-    /// gives a line the height of the tallest font on it, and a Thai or
-    /// Devanagari title falls back to fonts up to 30% taller than SwiftUI
-    /// draws its line.
+    /// How many lines the title wraps to at `width`, by TextKit 2 with the
+    /// standard line-break strategy: the layout SwiftUI's own text uses, so
+    /// it breaks where SwiftUI does. TextKit 1 with only a font did not: it
+    /// broke Hangul between any two syllables where SwiftUI keeps Korean
+    /// words whole, counting two lines where SwiftUI drew three, so a Korean
+    /// title was never capped (review of pull request 546). Given the
+    /// strategy, TextKit 1 still broke at soft hyphens SwiftUI does not.
+    ///
+    /// Only the count is taken from it: the height of each line is SwiftUI's
+    /// (`titleLineGauge`), because TextKit gives a line the height of the
+    /// tallest font on it, and a Thai or Devanagari title falls back to
+    /// fonts up to 30% taller than SwiftUI draws its line.
     static func titleLineCount(_ title: String, width: CGFloat, category: UIContentSizeCategory) -> Int {
         guard width > 0, !title.isEmpty else { return 1 }
-        let storage = NSTextStorage(string: title, attributes: [.font: titleFont(category)])
-        let layout = NSLayoutManager()
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakStrategy = .standard
+        let content = NSTextContentStorage()
+        content.attributedString = NSAttributedString(
+            string: title, attributes: [.font: titleFont(category), .paragraphStyle: paragraph])
+        let layout = NSTextLayoutManager()
+        content.addTextLayoutManager(layout)
         let container = NSTextContainer(size: CGSize(width: width, height: .greatestFiniteMagnitude))
         container.lineFragmentPadding = 0
-        layout.addTextContainer(container)
-        storage.addLayoutManager(layout)
+        layout.textContainer = container
         var lines = 0
-        layout.enumerateLineFragments(forGlyphRange: layout.glyphRange(for: container)) { _, _, _, _, _ in
-            lines += 1
+        layout.enumerateTextLayoutFragments(from: layout.documentRange.location, options: [.ensuresLayout]) {
+            lines += $0.textLineFragments.count
+            return true
         }
         return max(1, lines)
     }
@@ -1208,12 +1219,18 @@ struct HeroSideBySideCaption: View {
                              compatibleWith: UITraitCollection(preferredContentSizeCategory: category))
     }
 
+    /// With the standard line-break strategy, as SwiftUI breaks lines:
+    /// without it, Hangul broke between any two syllables, a Korean title
+    /// came out a line short, and the last-played line was kept where it
+    /// pushed Continue below the viewport (review of pull request 546).
     private static func wrappedHeight(_ text: String, font: UIFont, width: CGFloat) -> CGFloat {
         guard width > 0 else { return font.lineHeight }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakStrategy = .standard
         let box = (text as NSString).boundingRect(
             with: CGSize(width: width, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: [.font: font], context: nil)
+            attributes: [.font: font, .paragraphStyle: paragraph], context: nil)
         return ceil(box.height)
     }
 }
