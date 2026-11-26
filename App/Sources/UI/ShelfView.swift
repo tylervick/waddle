@@ -130,7 +130,7 @@ struct ShelfView: View {
         self.panelModel = panelModel
         let links = LinkImport(importer: importer)
         _linkImport = State(initialValue: links)
-        _getFreedoom = State(initialValue: GetFreedoom(link: links))
+        _getFreedoom = State(initialValue: GetFreedoom(link: links, library: library))
     }
 
     var body: some View {

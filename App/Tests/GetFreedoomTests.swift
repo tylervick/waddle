@@ -57,7 +57,7 @@ final class GetFreedoomTests: XCTestCase {
     /// release's own by default, or the stand-in zip's.
     private func getFreedoom(sha256: String = FreedoomRelease.sha256,
                              link model: LinkImport? = nil) -> GetFreedoom {
-        GetFreedoom(link: model ?? linkImport(), url: FreedoomRelease.url, sha256: sha256)
+        GetFreedoom(link: model ?? linkImport(), library: library, url: FreedoomRelease.url, sha256: sha256)
     }
 
     /// Taps **Get** and waits for the download to end.
@@ -264,7 +264,7 @@ final class GetFreedoomTests: XCTestCase {
         let refused = getFreedoom(sha256: Self.sha256(good))
         await get(refused)
         XCTAssertEqual(refused.state, .offered(failure: "File didn't match"))
-        XCTAssertEqual(notices.current, "Import failed: \(LinkDownloadError.checksumMismatch.reason)")
+        XCTAssertEqual(notices.current, GetFreedoom.bannerMessage(for: .checksumMismatch))
         XCTAssertTrue(try library.allWADs().isEmpty, "a mismatched file reached the library")
         XCTAssertEqual(storedFiles(), [])
         XCTAssertEqual(downloadedFiles(), [], "the refused download was left on disk")
@@ -303,13 +303,13 @@ final class GetFreedoomTests: XCTestCase {
         StubURLProtocol.set(.fail(URLError(.notConnectedToInternet)), for: link)
         await get(model)
         XCTAssertEqual(model.state, .offered(failure: "You're offline"))
-        XCTAssertEqual(notices.current, "Import failed: \(LinkDownloadError.offline.reason)")
+        XCTAssertEqual(notices.current, GetFreedoom.bannerMessage(for: .offline))
 
         StubURLProtocol.set(.respond(status: 503, headers: ["Content-Type": "text/html"],
                                      body: Data("<html>busy</html>".utf8)), for: link)
         await get(model)
         XCTAssertEqual(model.state, .offered(failure: "Download failed"))
-        XCTAssertEqual(notices.current, "Import failed: \(LinkDownloadError.httpStatus(503).reason)")
+        XCTAssertEqual(notices.current, GetFreedoom.bannerMessage(for: .httpStatus(503)))
 
         XCTAssertTrue(try library.allWADs().isEmpty)
         XCTAssertEqual(storedFiles(), [])
@@ -442,4 +442,137 @@ final class GetFreedoomTests: XCTestCase {
         for wad in try library.allWADs() { XCTAssertEqual(library.fileStatus(for: wad), .imported) }
         XCTAssertFalse(try library.offersFreedoom())
     }
+
+    // MARK: A Freedoom the player hid
+
+    /// Seeds the bundled rows, hides `hidden` of the two games, then empties
+    /// the bundle: the state #505 leaves a player who had hidden Freedoom.
+    private func hideThenRelease(_ hidden: Set<String>) throws {
+        library.bundledContentDirectory = FreedoomFixture.shippedRelease
+        try library.seedBundledContentIfNeeded()
+        for game in try library.games() where hidden.contains(game.name) { try library.hide(game) }
+        try shipWithoutFreedoom()
+        try library.seedBundledContentIfNeeded()
+    }
+
+    /// Hidden and released: no Freedoom file is there, so the tile offers
+    /// it; hiding never decides the offer. Get then brings both games back
+    /// to the shelf, rather than restoring them hidden, which would take
+    /// the tile away and add nothing.
+    func testAHiddenFreedoomWhoseRowsAreReleasedIsOfferedAndGetPutsItBackOnTheShelf() async throws {
+        try hideThenRelease(["Freedoom Phase 1", "Freedoom Phase 2"])
+        XCTAssertTrue(try library.shelfGames().isEmpty)
+        XCTAssertTrue(try library.offersFreedoom(), "a hidden row whose file is gone took the offer away")
+
+        let zip = try freedoomLikeZip()
+        serve(zip)
+        await get(getFreedoom(sha256: Self.sha256(zip)))
+
+        XCTAssertEqual(Set(try library.shelfGames().map(\.name)), ["Freedoom Phase 1", "Freedoom Phase 2"])
+        XCTAssertEqual(try library.hiddenGames().map(\.name), [])
+        XCTAssertFalse(try library.offersFreedoom())
+    }
+
+    /// One hidden, both released: offered, and both arrive on the shelf.
+    func testOneHiddenGameComesBackWithTheOtherAfterGet() async throws {
+        try hideThenRelease(["Freedoom Phase 2"])
+        XCTAssertTrue(try library.offersFreedoom())
+        let zip = try freedoomLikeZip()
+        serve(zip)
+        await get(getFreedoom(sha256: Self.sha256(zip)))
+        XCTAssertEqual(Set(try library.shelfGames().map(\.name)), ["Freedoom Phase 1", "Freedoom Phase 2"])
+    }
+
+    /// Only the tile's Get asks for Freedoom. The same zip from **From a
+    /// Link…** restores the rows and leaves the player's hiding alone, as
+    /// any import of a file they already had does; Hidden Games brings
+    /// them back.
+    func testAPastedLinkRestoresHiddenGamesStillHidden() async throws {
+        try hideThenRelease(["Freedoom Phase 1", "Freedoom Phase 2"])
+        let zip = try freedoomLikeZip()
+        let other = "https://files.example/freedoom.zip"
+        StubURLProtocol.set(.respond(status: 200, headers: ["Content-Type": "application/zip"], body: zip),
+                            for: other)
+        _ = await linkImport().run(URL(string: other)!)
+        XCTAssertEqual(Set(try library.hiddenGames().map(\.name)), ["Freedoom Phase 1", "Freedoom Phase 2"])
+        XCTAssertFalse(try library.offersFreedoom(), "Freedoom is there, in Hidden Games")
+    }
+
+    /// A game of the player's own built on Freedoom keeps the state they
+    /// gave it: Get puts back only Freedoom's two base games.
+    func testGetLeavesAHiddenGameBuiltOnFreedoomHidden() async throws {
+        try hideThenRelease([])
+        let phase1 = try XCTUnwrap(try library.games().first { $0.name == "Freedoom Phase 1" })
+        let mod = try library.duplicate(phase1)
+        try library.hide(mod)
+        let zip = try freedoomLikeZip()
+        serve(zip)
+        await get(getFreedoom(sha256: Self.sha256(zip)))
+        XCTAssertTrue(try XCTUnwrap(try library.game(id: mod.id)).isHidden)
+    }
+
+    // MARK: What the player is told
+
+    /// The tile's banner never talks about a link: the player tapped Get.
+    func testTheTilesFailureNoticesNameNoLink() {
+        let errors: [LinkDownloadError] = [.notALink, .insecure, .offline, .unreachable, .httpStatus(404),
+                                           .httpStatus(503), .tooLarge(limit: 1), .webPage,
+                                           .refusedType("pk3"), .notAGameFile, .checksumMismatch,
+                                           .failed("The network connection was lost.")]
+        for error in errors {
+            let message = GetFreedoom.bannerMessage(for: error)
+            XCTAssertFalse(message.localizedCaseInsensitiveContains("link"), "\(error): \(message)")
+            XCTAssertTrue(message.hasPrefix("Freedoom was not"), "\(error): \(message)")
+        }
+    }
+
+    /// VoiceOver hears the download start and the games it added.
+    func testVoiceOverHearsTheStartAndTheGamesAdded() async throws {
+        try shipWithoutFreedoom()
+        let zip = try freedoomLikeZip()
+        serve(zip)
+        let model = getFreedoom(sha256: Self.sha256(zip))
+        let heard = Heard()
+        model.announce = { heard.lines.append($0) }
+        await get(model)
+        XCTAssertEqual(heard.lines, ["Downloading Freedoom, 24.1 MB.",
+                               "Freedoom added: Freedoom Phase 1 and Freedoom Phase 2."])
+    }
+
+    /// VoiceOver hears a failure with its reason, and a cancel.
+    func testVoiceOverHearsAFailureWithItsReasonAndACancel() async throws {
+        let model = getFreedoom()
+        let heard = Heard()
+        model.announce = { heard.lines.append($0) }
+        StubURLProtocol.set(.fail(URLError(.notConnectedToInternet)), for: link)
+        await get(model)
+        XCTAssertEqual(heard.lines, ["Downloading Freedoom, 24.1 MB.", GetFreedoom.bannerMessage(for: .offline)])
+
+        heard.lines = []
+        StubURLProtocol.set(.stall(headers: ["Content-Type": "application/zip"],
+                                   firstChunk: Data(repeating: 0x50, count: 16)), for: link)
+        let finished = expectation(description: "the download ended")
+        XCTAssertTrue(model.get { finished.fulfill() })
+        model.cancel()
+        await fulfillment(of: [finished], timeout: 10)
+        XCTAssertEqual(heard.lines, ["Downloading Freedoom, 24.1 MB.", "Download cancelled."])
+    }
+
+    /// The tile reads its name, that it is free and its size, whether or
+    /// not the title line is drawn.
+    func testTheTilesLabelReadsTheNameThatItIsFreeAndItsSize() {
+        XCTAssertEqual(GetFreedoomTile.accessibilityLabel(for: .offered(failure: nil)), "Freedoom, free, 24.1 MB")
+        XCTAssertEqual(GetFreedoomTile.accessibilityLabel(for: .offered(failure: "You're offline")),
+                       "Freedoom, free, 24.1 MB")
+        XCTAssertEqual(GetFreedoomTile.accessibilityLabel(for: .downloading(received: 10_150_000,
+                                                                            expected: FreedoomRelease.byteCount)),
+                       "Freedoom, downloading, 10.2 MB of 24.1 MB")
+        XCTAssertEqual(GetFreedoomTile.accessibilityLabel(for: .importing), "Freedoom, adding to your library")
+    }
+}
+
+/// What a test heard VoiceOver told.
+@MainActor
+private final class Heard {
+    var lines: [String] = []
 }

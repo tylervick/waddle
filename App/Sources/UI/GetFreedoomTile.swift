@@ -121,7 +121,25 @@ struct GetFreedoomTile: View {
                 .font(Theme.Typography.caption)
                 .foregroundStyle(.white.opacity(0.75))
                 .lineLimit(1)
-                .accessibilityIdentifier("getFreedoomSubtitle")
+        }
+        // One element that reads the name, that it is free and its size
+        // (or how far the download has got), whether or not the title line
+        // is drawn: a short tile leaves the title out.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Self.accessibilityLabel(for: state))
+        .accessibilityIdentifier("getFreedoomSubtitle")
+    }
+
+    /// What VoiceOver reads for the tile's words.
+    static func accessibilityLabel(for state: GetFreedoom.State) -> String {
+        switch state {
+        case .offered:
+            return "Freedoom, free, \(FreedoomRelease.sizeText)"
+        case .downloading(let received, let expected):
+            let total = expected.flatMap { $0 > 0 ? $0 : nil } ?? FreedoomRelease.byteCount
+            return "Freedoom, downloading, \(megabytes(received, unit: true)) of \(megabytes(total, unit: true))"
+        case .importing:
+            return "Freedoom, adding to your library"
         }
     }
 
@@ -168,6 +186,7 @@ struct GetFreedoomTile: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Cancel Download")
+            .accessibilityAddTraits(.updatesFrequently)
             .accessibilityValue("\(Int((Self.fraction(received, expected) * 100).rounded())) percent")
             .accessibilityIdentifier("getFreedoomCancel")
         case .importing:

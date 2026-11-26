@@ -420,7 +420,10 @@ should not have to guess whether the app fetches anything else.
 of the network is the shelf's Get Freedoom tile, there only while the
 library has no Freedoom (so not on a build that still bundles it; #505
 stops bundling it). A tap on **Get** downloads one file from github.com,
-the Freedoom 0.13.0 release zip, through the same `LinkDownloader` and so
+the Freedoom 0.13.0 release zip (GitHub answers with a redirect to its own
+download server, `release-assets.githubusercontent.com`, which gets the same
+request; the pin is checked on the bytes that arrive, so the redirect cannot
+change the file), through the same `LinkDownloader` and so
 with the same request headers (`LinkDownloader.requestHeaders`: User-Agent
 `Waddle`, Accept-Language `*`, no cookies, no cache), and refuses it unless
 its SHA-256 matches the one the app ships. The notes' licensing paragraph

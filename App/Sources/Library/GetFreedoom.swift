@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UIKit
 
 /// The one Freedoom release the Get Freedoom tile downloads (#552): the
 /// file the owner chose on 2026-11-23 (#502), pinned by its SHA-256 and
@@ -46,6 +47,12 @@ final class GetFreedoom {
     }
 
     let link: LinkImport
+    private let library: LibraryService
+    /// Says something to VoiceOver: that the download started, and how it
+    /// ended. A test replaces it to hear what was said.
+    var announce: @MainActor (String) -> Void = { text in
+        UIAccessibility.post(notification: .announcement, argument: text)
+    }
     /// The short reason the last tap failed. In memory only: a relaunch
     /// clears it, and so does a download that arrives.
     private(set) var failure: String?
@@ -61,8 +68,10 @@ final class GetFreedoom {
     private let url: URL
     private let sha256: String
 
-    init(link: LinkImport, url: URL = FreedoomRelease.url, sha256: String = FreedoomRelease.sha256) {
+    init(link: LinkImport, library: LibraryService,
+         url: URL = FreedoomRelease.url, sha256: String = FreedoomRelease.sha256) {
         self.link = link
+        self.library = library
         self.url = url
         self.sha256 = sha256
     }
@@ -86,30 +95,80 @@ final class GetFreedoom {
     var isBlocked: Bool { link.isBusy && !ownsDownload }
 
     /// Starts the download. `onFinish` runs once it has ended, however it
-    /// ended. The full reason for a failure goes to the import banner, as
-    /// every link failure's does; the tile keeps a short one.
+    /// ended. A failure's full reason goes to the import banner, in the
+    /// tile's own words (`bannerMessage`); the tile keeps a short one.
+    ///
+    /// Freedoom that arrives is put on the shelf, both games, even ones the
+    /// player once hid (`LibraryService.showFreedoomOnShelf`): tapping Get
+    /// asks for it, and games restored hidden would take the tile away and
+    /// add nothing.
     @discardableResult
     func get(onFinish: @escaping @MainActor () -> Void = {}) -> Bool {
-        link.start(url, expectedSHA256: sha256) { [weak self] outcome in
+        let started = link.start(url, expectedSHA256: sha256,
+                                 failureMessage: Self.bannerMessage(for:)) { [weak self] outcome in
             guard let self else { return }
             if let error = self.link.lastFailure {
                 self.failure = Self.shortReason(error)
+                self.announce(Self.bannerMessage(for: error))
             } else if let outcome, outcome.games.isEmpty, outcome.imported.isEmpty, outcome.duplicates.isEmpty {
                 // Downloaded and checked, yet nothing was added: the banner
                 // has the import's own reason.
                 self.failure = "Couldn't add it"
+                self.announce("Freedoom could not be added.")
             } else if outcome != nil {
                 self.failure = nil
+                try? self.library.showFreedoomOnShelf()
+                self.announce(self.arrivalAnnouncement())
+            } else {
+                // A cancel goes back to Get, keeping any earlier reason
+                // until a download arrives.
+                self.announce("Download cancelled.")
             }
-            // A cancel (no outcome, no failure) goes back to Get silently,
-            // keeping any earlier reason until a download arrives.
             onFinish()
         }
+        if started {
+            announce("Downloading Freedoom, \(FreedoomRelease.sizeText).")
+        }
+        return started
+    }
+
+    /// "Freedoom added: Freedoom Phase 1 and Freedoom Phase 2."
+    private func arrivalAnnouncement() -> String {
+        let names = ((try? library.shelfGames()) ?? [])
+            .filter { game in
+                game.isBaseGame
+                    && ((try? library.wad(id: game.id)).flatMap { $0 }
+                        .map { FreedoomRelease.wadSHA1s.contains($0.sha1.lowercased()) } ?? false)
+            }
+            .map(\.name)
+            .sorted()
+        guard !names.isEmpty else { return "Freedoom added." }
+        return "Freedoom added: \(ListFormatter.localizedString(byJoining: names))."
     }
 
     func cancel() {
         guard ownsDownload else { return }
         link.cancel()
+    }
+
+    /// A failure's notice for the import banner and VoiceOver. The player
+    /// tapped Get and gave no link, so `LinkDownloadError.reason`, which
+    /// talks about "that link", is not the tile's to say.
+    nonisolated static func bannerMessage(for error: LinkDownloadError) -> String {
+        switch error {
+        case .offline:
+            return "Freedoom was not downloaded: you appear to be offline. Connect to the internet and try again."
+        case .unreachable:
+            return "Freedoom was not downloaded: Waddle could not reach GitHub. Try again later."
+        case .httpStatus(let code):
+            return "Freedoom was not downloaded: GitHub refused the download (error \(code)). Try again later."
+        case .checksumMismatch:
+            return "Freedoom was not added: the file GitHub sent is not the exact file Waddle expects. It may have changed since this version of Waddle was made; trying again will not help until Waddle is updated."
+        case .failed(let description):
+            return "Freedoom was not downloaded: \(description)"
+        case .notALink, .insecure, .tooLarge, .webPage, .refusedType, .notAGameFile:
+            return "Freedoom was not added: GitHub did not send the Freedoom file. Try again later."
+        }
     }
 
     /// A failure's reason in a few words, to fit under the tile's size.

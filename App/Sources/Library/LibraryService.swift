@@ -324,6 +324,22 @@ final class LibraryService {
         return !games.contains { !saveSlots(forKey: $0.id).isEmpty }
     }
 
+    /// Puts Freedoom's own games back on the shelf once its files are there
+    /// (#552). Run after a download the Get Freedoom tile started: a player
+    /// who tapped Get asked for Freedoom, so games they had hidden before
+    /// their rows were released come back with the files rather than arrive
+    /// hidden, which would take the tile away and add nothing. Only the two
+    /// base games; a game of the player's built on Freedoom keeps its state.
+    func showFreedoomOnShelf() throws {
+        for wad in try allWADs()
+        where FreedoomRelease.wadSHA1s.contains(wad.sha1.lowercased()) && fileStatus(for: wad) != .missing {
+            if let game = try game(id: wad.id), game.isBaseGame, game.isHidden {
+                game.isHidden = false
+            }
+        }
+        try context.save()
+    }
+
     /// Whether the shelf shows the Get Freedoom tile (#552);
     /// `Shelf.offersFreedoom` is the rule.
     func offersFreedoom() throws -> Bool {

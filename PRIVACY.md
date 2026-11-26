@@ -11,9 +11,10 @@ Waddle does not collect any data of any kind.
   (`https://github.com/freedoom/freedoom/releases/download/v0.13.0/freedoom-0.13.0.zip`),
   which the app checks against a fingerprint it ships with. Showing the
   tile makes no connection. Only that link's server (and any server it
-  redirects to; GitHub sends a release download on to its own download
-  server) sees the request. It sees your IP address, as
-  any server you connect to does, and the request's headers, which are
+  redirects to) sees the request. GitHub answers the Get Freedoom request with a
+  redirect to its own download server, `release-assets.githubusercontent.com`,
+  which then receives the same request. Each server sees your IP
+  address, as any server you connect to does, and the request's headers, which are
   fixed and say nothing about you or your device: `User-Agent: Waddle`
   (no version numbers), `Accept-Language: *` (no language preference),
   `Accept: */*`, `Accept-Encoding: gzip, deflate, br`,
