@@ -198,6 +198,34 @@ enum ShelfHeroLayout {
         return titleHeight + lastPlayed + captionSpacing + captionButtonsTopPadding + buttonHeight
     }
 
+    /// Gap between the two buttons when they are stacked.
+    static let buttonColumnSpacing: CGFloat = Theme.Spacing.sm
+
+    /// Where the caption's last button ends, measured from the top of the
+    /// caption beside the art: Continue in a row, where New Game is beside
+    /// it, and New Game in a column, where it is under Continue (issue #547).
+    /// This is the bottom the caption's rules keep inside the viewport, so
+    /// that where the buttons stack both of them are whole, not only the
+    /// first.
+    ///
+    /// New Game takes its own height: its label's glyph draws it a pixel
+    /// shorter than Continue at the accessibility sizes, and the taller of
+    /// the two stood in for it capped titles whose buttons ended exactly on
+    /// the viewport.
+    static func sideBySideButtonsBottom(titleHeight: CGFloat,
+                                        lastPlayedHeight: CGFloat,
+                                        buttonHeight: CGFloat,
+                                        newGameButtonHeight: CGFloat,
+                                        buttonArrangement: ButtonArrangement) -> CGFloat {
+        let continueBottom = sideBySideContinueBottom(titleHeight: titleHeight,
+                                                      lastPlayedHeight: lastPlayedHeight,
+                                                      buttonHeight: buttonHeight)
+        switch buttonArrangement {
+        case .row: return continueBottom
+        case .column: return continueBottom + buttonColumnSpacing + newGameButtonHeight
+        }
+    }
+
     /// Whether the caption beside the art keeps its "Last played" line
     /// (issue #457).
     ///
@@ -211,6 +239,13 @@ enum ShelfHeroLayout {
     /// only where, Continue would otherwise end below the viewport with the
     /// shelf at its top; everywhere Continue already fits nothing changes.
     ///
+    /// Where the buttons are stacked, New Game is under Continue and is the
+    /// caption's bottom, so the rule keeps *it* inside the viewport: at an
+    /// accessibility size in a short landscape window, keeping only
+    /// Continue whole left New Game cut through its label, under the home
+    /// indicator (issue #547). In a row the two end together, and the rule
+    /// is what it was.
+    ///
     /// Every input is arithmetic over the viewport the scroll view reports
     /// and the reader's fonts, never a frame of the hero's own: a hero that
     /// measured itself to decide its own content could feed itself
@@ -223,16 +258,58 @@ enum ShelfHeroLayout {
     ///   - titleHeight: the title as it wraps at the caption's width.
     ///   - lastPlayedHeight: the last-played line as it wraps there.
     ///   - buttonHeight: one button at the reader's text size.
+    ///   - newGameButtonHeight: the New Game button at the reader's text size.
+    ///   - buttonArrangement: whether the buttons share a row or are stacked
+    ///     (`buttonArrangement(captionWidth:buttonMinimumWidth:)`).
     static func sideBySideCaptionShowsLastPlayed(viewportHeight: CGFloat,
                                                  contentPadding: CGFloat,
                                                  titleHeight: CGFloat,
                                                  lastPlayedHeight: CGFloat,
-                                                 buttonHeight: CGFloat) -> Bool {
+                                                 buttonHeight: CGFloat,
+                                                 newGameButtonHeight: CGFloat,
+                                                 buttonArrangement: ButtonArrangement) -> Bool {
         guard viewportHeight.isFinite, viewportHeight > 0 else { return true }
-        let bottom = contentPadding + sideBySideContinueBottom(titleHeight: titleHeight,
-                                                               lastPlayedHeight: lastPlayedHeight,
-                                                               buttonHeight: buttonHeight)
+        let bottom = contentPadding + sideBySideButtonsBottom(titleHeight: titleHeight,
+                                                              lastPlayedHeight: lastPlayedHeight,
+                                                              buttonHeight: buttonHeight,
+                                                              newGameButtonHeight: newGameButtonHeight,
+                                                              buttonArrangement: buttonArrangement)
         return bottom <= viewportHeight
+    }
+
+    /// The arrangement whose last button the caption's rules keep inside the
+    /// viewport: the caption's own where New Game can be kept whole, and
+    /// `.row`, Continue's bound alone (issue #493's rule, exactly), where it
+    /// cannot.
+    ///
+    /// Stacked, New Game can be kept whole only if it fits under a one-line
+    /// title with no last-played line, because those are all the rules can
+    /// give up. Where even that leaves it below the viewport, giving them up
+    /// would cost the title its lines and the player the line for nothing:
+    /// at AX5 on a landscape iPhone 12 mini, "Freedoom Phase 1" went from two
+    /// lines to one and New Game still ended 18 pt under the viewport
+    /// (review of pull request 553). There the caption is drawn as before
+    /// issue #547, and New Game is reached by scrolling, as it was.
+    ///
+    /// - Parameters:
+    ///   - titleFirstLine: one line of the title as drawn. Zero or less means
+    ///     "not measured yet", and the answer is `.row`.
+    ///   - buttonHeight: Continue as drawn.
+    ///   - newGameButtonHeight: New Game as drawn.
+    static func sideBySideBoundArrangement(viewportHeight: CGFloat,
+                                           contentPadding: CGFloat,
+                                           titleFirstLine: CGFloat,
+                                           buttonHeight: CGFloat,
+                                           newGameButtonHeight: CGFloat,
+                                           buttonArrangement: ButtonArrangement) -> ButtonArrangement {
+        guard buttonArrangement == .column, viewportHeight.isFinite, viewportHeight > 0,
+              titleFirstLine > 0 else { return .row }
+        let leanest = contentPadding + sideBySideButtonsBottom(titleHeight: titleFirstLine, lastPlayedHeight: 0,
+                                                               buttonHeight: buttonHeight,
+                                                               newGameButtonHeight: newGameButtonHeight,
+                                                               buttonArrangement: .column)
+        // The same tolerance as the title's cap: far below a pixel.
+        return leanest <= viewportHeight + 0.001 ? .column : .row
     }
 
     /// How many lines the title beside the art may take, or nil for as many
@@ -249,6 +326,11 @@ enum ShelfHeroLayout {
     /// Continue button's accessibility label still carries the whole name,
     /// and the game page shows it whole. Wherever Continue fits without the
     /// line, nothing changes.
+    ///
+    /// "Whole" means both buttons where they are stacked: New Game, under
+    /// Continue, is then the caption's bottom, and the title gives way for it
+    /// as for Continue (issue #547). Wherever both buttons fit, nothing
+    /// changes; where they share a row, the rule is what it was.
     ///
     /// The title's height is worked out in lines, from what SwiftUI draws:
     /// its first line, and the step to each line after it
@@ -274,15 +356,21 @@ enum ShelfHeroLayout {
     ///   - titleLineStep: what each further line adds as drawn. Zero or less
     ///     for either means "not measured yet", and the title is not capped.
     ///   - buttonHeight: one button at the reader's text size.
+    ///   - newGameButtonHeight: the New Game button at the reader's text size.
+    ///   - buttonArrangement: whether the buttons share a row or are stacked.
     static func sideBySideTitleLineLimit(viewportHeight: CGFloat,
                                          contentPadding: CGFloat,
                                          titleLines: Int,
                                          titleFirstLine: CGFloat,
                                          titleLineStep: CGFloat,
-                                         buttonHeight: CGFloat) -> Int? {
+                                         buttonHeight: CGFloat,
+                                         newGameButtonHeight: CGFloat,
+                                         buttonArrangement: ButtonArrangement) -> Int? {
         guard viewportHeight.isFinite, viewportHeight > 0,
               titleFirstLine > 0, titleLineStep > 0, titleLines > 1 else { return nil }
-        let below = sideBySideContinueBottom(titleHeight: 0, lastPlayedHeight: 0, buttonHeight: buttonHeight)
+        let below = sideBySideButtonsBottom(titleHeight: 0, lastPlayedHeight: 0, buttonHeight: buttonHeight,
+                                            newGameButtonHeight: newGameButtonHeight,
+                                            buttonArrangement: buttonArrangement)
         // Every input is on the pixel grid, so a title that ends Continue
         // on the viewport is one that fits; the tolerance, far below a
         // pixel, keeps floating-point noise in a sum of thirds from saying
