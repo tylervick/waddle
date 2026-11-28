@@ -128,6 +128,7 @@ laid out as if the column were beside it, though no panel showed: the
 wordmark centred over the left 587 pt, the shelf fitted to that
 (`stray-column-main-and-fix.webp`; `main`'s picture is pixel-identical). That
 is the inspector's own state, not the shelf's width, and this fix does not
-change it.
+change it. It is a column inset UIKit restores and leaves behind; #496 repairs
+it (`swiftui-inspector-writes-its-own-binding.md`).
 
 Captures are in `assets/shelf-beside-panel-2026-11-22/`.

@@ -56,6 +56,12 @@ final class ShelfPanelModel {
     /// through `panel` and `systemSetPresented`.
     private(set) var isPresented = false
 
+    /// Whether the inspector's column is meant to be beside the shelf: open,
+    /// or on its way back up, on a whole launcher. While it is not, a column
+    /// inset left on the shelf is UIKit's leftover (`ColumnInsetRepair`,
+    /// issue #496).
+    var columnIsWanted: Bool { !isSplit && (isPresented || columnIsReturning) }
+
     /// What is open right now, or nil. Setting it opens or closes the panel.
     var panel: ShelfPanel? {
         get { (isSplit ? openInLowerHalf : isPresented || columnIsReturning) ? content : nil }
