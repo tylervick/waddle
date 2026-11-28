@@ -72,6 +72,10 @@ final class LinkImport {
     private(set) var invalidLink: String?
     /// The link downloading now, and its place in the queue; nil when idle.
     private(set) var current: URL?
+    /// Which queued entry is downloading now, nil when idle. The Get Freedoom
+    /// tile owns only the entry it started, whatever its link: the same
+    /// release link pasted into From a Link… is an ordinary download.
+    private(set) var currentEntry: UUID?
     private(set) var position: Position?
     /// True from the first queued link until the last has ended.
     private(set) var isBusy = false
@@ -88,6 +92,7 @@ final class LinkImport {
     /// A link waiting its turn: most are only a URL; the Get Freedoom
     /// tile's carries its pin, its notice wording and a callback.
     private struct Entry {
+        let id = UUID()
         var url: URL
         var expectedSHA256: String?
         var failureMessage: (@MainActor (LinkDownloadError) -> String)?
@@ -133,18 +138,20 @@ final class LinkImport {
     /// Starts the Get Freedoom tile's download (#552): `url`, refusing any
     /// bytes whose SHA-256 is not `expectedSHA256`, with a failure's notice
     /// in `failureMessage`'s words (the player followed no link). Only on an
-    /// empty queue; returns whether it started. `onEnd` runs once, with how
-    /// it ended: `.cancelled` when the queue was cancelled under it.
+    /// empty queue; returns the entry's identity, which `currentEntry`
+    /// shows while it downloads, or nil when it did not start. `onEnd` runs
+    /// once, with how it ended: `.cancelled` when the queue was cancelled
+    /// under it.
     @discardableResult
     func start(_ url: URL, expectedSHA256: String,
                failureMessage: @escaping @MainActor (LinkDownloadError) -> String,
-               onEnd: @escaping @MainActor (LinkResult) -> Void) -> Bool {
-        guard !isBusy else { return false }
+               onEnd: @escaping @MainActor (LinkResult) -> Void) -> UUID? {
+        guard !isBusy else { return nil }
         let ended = Once(onEnd)
-        start([Entry(url: url, expectedSHA256: expectedSHA256, failureMessage: failureMessage,
-                     onEnd: { ended.call($0) })],
-              onFinish: { ended.call(.cancelled) })
-        return true
+        let entry = Entry(url: url, expectedSHA256: expectedSHA256, failureMessage: failureMessage,
+                          onEnd: { ended.call($0) })
+        start([entry], onFinish: { ended.call(.cancelled) })
+        return entry.id
     }
 
     /// Calls its closure the first time only.
@@ -194,6 +201,7 @@ final class LinkImport {
         // The first link is the current one from now, not from when the
         // queue's task first runs: the tile asks whose download this is.
         current = pending.first?.url
+        currentEntry = pending.first?.id
         isBusy = true
         generation += 1
         let run = generation
@@ -225,6 +233,7 @@ final class LinkImport {
             let url = entry.url
             index += 1
             current = url
+            currentEntry = entry.id
             position = Position(index: index, count: queued)
             lastFailure = nil
             let result = await download(url, expectedSHA256: entry.expectedSHA256, run: run)
@@ -236,7 +245,10 @@ final class LinkImport {
                 if !batchIsCompound {
                     notices.post(message: entry.failureMessage?(error) ?? "Import failed: \(error.reason)")
                 }
-                batch.merge(Self.failure(of: url, error))
+                // In a batch told as a whole (a link dropped behind the
+                // tile's), the tile's entry keeps its own words there too.
+                batch.merge(entry.failureMessage.map { Self.failure(named: "Freedoom", message: $0(error)) }
+                            ?? Self.failure(of: url, error))
             case .cancelled: break
             }
             entry.onEnd?(result)
@@ -254,6 +266,7 @@ final class LinkImport {
         pending = []
         queued = 0
         current = nil
+        currentEntry = nil
         position = nil
         isBusy = false
         let done = finishers
@@ -280,6 +293,14 @@ final class LinkImport {
     nonisolated static func failure(of url: URL, _ error: LinkDownloadError) -> ImportOutcome {
         var outcome = ImportOutcome()
         outcome.reject(displayName(of: url), reason: error.reason, explained: true)
+        return outcome
+    }
+
+    /// A failure told in its own whole words, for an entry that has them.
+    nonisolated static func failure(named name: String, message: String) -> ImportOutcome {
+        var outcome = ImportOutcome()
+        outcome.rejected[name] = message
+        outcome.explained.append(message)
         return outcome
     }
 

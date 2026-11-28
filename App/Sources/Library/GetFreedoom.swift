@@ -76,8 +76,13 @@ final class GetFreedoom {
         self.sha256 = sha256
     }
 
-    /// Whether the running download is this tile's, not a pasted link's.
-    private var ownsDownload: Bool { link.current == url }
+    /// The queue entry this tile started, while it is queued or running.
+    private var entry: UUID?
+
+    /// Whether the running download is the entry this tile started. Not
+    /// decided by its link: the release's link pasted into From a Link… is
+    /// an ordinary download, which the tile neither shows nor cancels.
+    var ownsDownload: Bool { entry != nil && link.currentEntry == entry }
 
     var state: State {
         #if DEBUG
@@ -108,6 +113,7 @@ final class GetFreedoom {
         let started = link.start(url, expectedSHA256: sha256,
                                  failureMessage: Self.bannerMessage(for:)) { [weak self] result in
             guard let self else { return }
+            self.entry = nil
             switch result {
             case .failed(let error):
                 self.failure = Self.shortReason(error)
@@ -129,10 +135,10 @@ final class GetFreedoom {
             }
             onFinish()
         }
-        if started {
-            announce("Downloading Freedoom, \(FreedoomRelease.sizeText).")
-        }
-        return started
+        guard let started else { return false }
+        entry = started
+        announce("Downloading Freedoom, \(FreedoomRelease.sizeText).")
+        return true
     }
 
     /// "Freedoom added: Freedoom Phase 1 and Freedoom Phase 2."

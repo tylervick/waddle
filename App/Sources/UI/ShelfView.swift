@@ -441,7 +441,7 @@ struct ShelfView: View {
                 // Not while the Get Freedoom tile downloads: the sheet is
                 // for a link's download (#552). A dropped link's still
                 // opens it, to show the progress (#550).
-                .disabled(linkImport.current == FreedoomRelease.url)
+                .disabled(getFreedoom.ownsDownload)
             } label: {
                 Label("Add", systemImage: "plus")
             }

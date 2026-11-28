@@ -414,6 +414,64 @@ final class GetFreedoomTests: XCTestCase {
         XCTAssertFalse(StubURLProtocol.requestedURLs.contains(dropped.absoluteString))
     }
 
+    /// A link dropped while the tile downloads makes the batch one told as
+    /// a whole; the tile's checksum failure keeps its own words in it, and
+    /// never names the release a link the player followed.
+    func testATileFailureKeepsItsWordsInADropsBatch() async throws {
+        var flipped = makeWAD(magic: "PWAD", lumps: ["MAP01", "THINGS"])
+        flipped[flipped.count - 1] ^= 0x01
+        serve(try zip([("pinned/pinned.wad", flipped)]))
+        let dropped = "https://files.example/dropped.wad"
+        StubURLProtocol.set(.respond(status: 200, headers: ["Content-Type": "application/octet-stream"],
+                                     body: makeWAD(magic: "PWAD", lumps: ["MAP01", "THINGS"])), for: dropped)
+        let shared = linkImport()
+        let model = getFreedoom(sha256: Self.sha256(Data("not the zip".utf8)), link: shared)
+        let queueEnded = expectation(description: "the queue emptied")
+        XCTAssertTrue(model.get())
+        shared.enqueue([URL(string: dropped)!]) { queueEnded.fulfill() }
+        await fulfillment(of: [queueEnded], timeout: 30)
+
+        let notice = try XCTUnwrap(notices.current)
+        XCTAssertTrue(notice.contains(GetFreedoom.bannerMessage(for: .checksumMismatch)), notice)
+        XCTAssertFalse(notice.localizedCaseInsensitiveContains("link"), notice)
+        XCTAssertFalse(notice.contains("freedoom-0.13.0.zip"), notice)
+        XCTAssertEqual(model.state, .offered(failure: "File didn't match"))
+    }
+
+    /// The release's own link pasted into From a Link… is an ordinary,
+    /// unpinned download: the tile does not show it as its own, Get waits
+    /// for it, and the tile's Cancel and Hide leave it alone. Once the games
+    /// arrive, Freedoom is there, so the tile simply goes.
+    func testAPastedReleaseLinkIsAnOrdinaryLinkDownload() async throws {
+        try shipWithoutFreedoom()
+        StubURLProtocol.set(.stall(headers: ["Content-Type": "application/zip"],
+                                   firstChunk: Data(repeating: 0x50, count: 16)), for: link)
+        let shared = linkImport()
+        let model = getFreedoom(link: shared)
+        let pastedEnded = expectation(description: "the pasted download ended")
+        XCTAssertTrue(shared.start(link) { pastedEnded.fulfill() })
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            if case .downloading(let received, _) = shared.phase, received > 0 { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(shared.current, FreedoomRelease.url)
+        XCTAssertFalse(model.ownsDownload)
+        XCTAssertTrue(model.isBlocked)
+        XCTAssertEqual(model.state, .offered(failure: nil), "the tile showed a pasted download as its own")
+        model.cancel()
+        XCTAssertTrue(shared.isBusy, "the tile's Cancel stopped a pasted download")
+        shared.cancel()
+        await fulfillment(of: [pastedEnded], timeout: 10)
+
+        serve(try freedoomLikeZip())
+        let arrived = expectation(description: "the pasted download arrived")
+        XCTAssertTrue(shared.start(link) { arrived.fulfill() })
+        await fulfillment(of: [arrived], timeout: 30)
+        XCTAssertEqual(Set(try library.shelfGames().map(\.name)), ["Freedoom Phase 1", "Freedoom Phase 2"])
+        XCTAssertFalse(try library.offersFreedoom(), "Freedoom is here, so the tile goes")
+    }
+
     // MARK: Success
 
     /// With nothing bundled (a build after #505), the release's zip brings
