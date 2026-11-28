@@ -77,7 +77,7 @@ final class GetFreedoom {
     }
 
     /// Whether the running download is this tile's, not a pasted link's.
-    private var ownsDownload: Bool { link.currentURL == url }
+    private var ownsDownload: Bool { link.current == url }
 
     var state: State {
         #if DEBUG
@@ -91,7 +91,8 @@ final class GetFreedoom {
         }
     }
 
-    /// True while **From a Link…** is downloading: **Get** waits for it.
+    /// True while **From a Link…** or a dropped link is downloading: **Get**
+    /// waits for the queue to empty.
     var isBlocked: Bool { link.isBusy && !ownsDownload }
 
     /// Starts the download. `onFinish` runs once it has ended, however it
@@ -105,21 +106,23 @@ final class GetFreedoom {
     @discardableResult
     func get(onFinish: @escaping @MainActor () -> Void = {}) -> Bool {
         let started = link.start(url, expectedSHA256: sha256,
-                                 failureMessage: Self.bannerMessage(for:)) { [weak self] outcome in
+                                 failureMessage: Self.bannerMessage(for:)) { [weak self] result in
             guard let self else { return }
-            if let error = self.link.lastFailure {
+            switch result {
+            case .failed(let error):
                 self.failure = Self.shortReason(error)
                 self.announce(Self.bannerMessage(for: error))
-            } else if let outcome, outcome.games.isEmpty, outcome.imported.isEmpty, outcome.duplicates.isEmpty {
+            case .imported(let outcome)
+                where outcome.games.isEmpty && outcome.imported.isEmpty && outcome.duplicates.isEmpty:
                 // Downloaded and checked, yet nothing was added: the banner
                 // has the import's own reason.
                 self.failure = "Couldn't add it"
                 self.announce("Freedoom could not be added.")
-            } else if outcome != nil {
+            case .imported:
                 self.failure = nil
                 try? self.library.showFreedoomOnShelf()
                 self.announce(self.arrivalAnnouncement())
-            } else {
+            case .cancelled:
                 // A cancel goes back to Get, keeping any earlier reason
                 // until a download arrives.
                 self.announce("Download cancelled.")

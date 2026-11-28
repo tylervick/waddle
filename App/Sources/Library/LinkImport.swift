@@ -21,6 +21,13 @@ import Observation
 /// batch added, with its first failure's reason and "N more failed"
 /// (#521's convention), and the links over the cap. A single link keeps
 /// its own notice.
+///
+/// The Get Freedoom tile's download (#552) is one more link in the same
+/// queue, pinned to the release's SHA-256, with its own notice wording and
+/// a callback with how it ended. It starts only on an empty queue, so it
+/// never runs beside the sheet's link or a drop's; a drop arriving while it
+/// downloads queues behind it, as behind any link, and Cancel is the
+/// queue's.
 @MainActor
 @Observable
 final class LinkImport {
@@ -68,6 +75,8 @@ final class LinkImport {
     private(set) var position: Position?
     /// True from the first queued link until the last has ended.
     private(set) var isBusy = false
+    /// Why the last link to fail did, until the next one starts.
+    private(set) var lastFailure: LinkDownloadError?
 
     private let importer: ImportService
     private let downloader: LinkDownloader
@@ -76,7 +85,16 @@ final class LinkImport {
     /// Which queue run is current. A cancelled run winds down after `cancel`
     /// has returned; it must not clear what a later `enqueue` started.
     private var generation = 0
-    private var pending: [URL] = []
+    /// A link waiting its turn: most are only a URL; the Get Freedoom
+    /// tile's carries its pin, its notice wording and a callback.
+    private struct Entry {
+        var url: URL
+        var expectedSHA256: String?
+        var failureMessage: (@MainActor (LinkDownloadError) -> String)?
+        var onEnd: (@MainActor (LinkResult) -> Void)?
+    }
+
+    private var pending: [Entry] = []
     private var queued = 0
     private var finishers: [@MainActor () -> Void] = []
     /// Tests only: awaited once a download is whole, before it is imported,
@@ -112,6 +130,35 @@ final class LinkImport {
         }
     }
 
+    /// Starts the Get Freedoom tile's download (#552): `url`, refusing any
+    /// bytes whose SHA-256 is not `expectedSHA256`, with a failure's notice
+    /// in `failureMessage`'s words (the player followed no link). Only on an
+    /// empty queue; returns whether it started. `onEnd` runs once, with how
+    /// it ended: `.cancelled` when the queue was cancelled under it.
+    @discardableResult
+    func start(_ url: URL, expectedSHA256: String,
+               failureMessage: @escaping @MainActor (LinkDownloadError) -> String,
+               onEnd: @escaping @MainActor (LinkResult) -> Void) -> Bool {
+        guard !isBusy else { return false }
+        let ended = Once(onEnd)
+        start([Entry(url: url, expectedSHA256: expectedSHA256, failureMessage: failureMessage,
+                     onEnd: { ended.call($0) })],
+              onFinish: { ended.call(.cancelled) })
+        return true
+    }
+
+    /// Calls its closure the first time only.
+    @MainActor
+    private final class Once {
+        private var body: (@MainActor (LinkResult) -> Void)?
+        init(_ body: @escaping @MainActor (LinkResult) -> Void) { self.body = body }
+        func call(_ result: LinkResult) {
+            let run = body
+            body = nil
+            run?(result)
+        }
+    }
+
     /// Forgets the field's refusal: for the sheet to call as it closes.
     func clearInvalidLink() {
         invalidLink = nil
@@ -135,10 +182,18 @@ final class LinkImport {
             return onFinish()
         }
         invalidLink = nil
-        pending += urls
-        queued += urls.count
+        start(urls.map { Entry(url: $0) }, onFinish: onFinish)
+    }
+
+    /// Queues `entries` and starts the queue unless it is running.
+    private func start(_ entries: [Entry], onFinish: @escaping @MainActor () -> Void) {
+        pending += entries
+        queued += entries.count
         finishers.append(onFinish)
         guard task == nil else { return }
+        // The first link is the current one from now, not from when the
+        // queue's task first runs: the tile asks whose download this is.
+        current = pending.first?.url
         isBusy = true
         generation += 1
         let run = generation
@@ -166,19 +221,25 @@ final class LinkImport {
     private func drain(_ run: Int) async {
         var index = 0
         while !pending.isEmpty, !Task.isCancelled {
-            let url = pending.removeFirst()
+            let entry = pending.removeFirst()
+            let url = entry.url
             index += 1
             current = url
             position = Position(index: index, count: queued)
-            let result = await download(url, run: run)
+            lastFailure = nil
+            let result = await download(url, expectedSHA256: entry.expectedSHA256, run: run)
             guard run == generation else { return }
             switch result {
             case .imported(let outcome): batch.merge(outcome)
             case .failed(let error):
-                if !batchIsCompound { notices.post(message: "Import failed: \(error.reason)") }
+                lastFailure = error
+                if !batchIsCompound {
+                    notices.post(message: entry.failureMessage?(error) ?? "Import failed: \(error.reason)")
+                }
                 batch.merge(Self.failure(of: url, error))
             case .cancelled: break
             }
+            entry.onEnd?(result)
         }
         guard run == generation else { return }
         finish()
@@ -234,9 +295,10 @@ final class LinkImport {
     /// download failed (the notice then says why) or was cancelled.
     @discardableResult
     func run(_ url: URL) async -> ImportOutcome? {
-        switch await download(url, run: nil) {
+        switch await download(url, expectedSHA256: nil, run: nil) {
         case .imported(let outcome): return outcome
         case .failed(let error):
+            lastFailure = error
             notices.post(message: "Import failed: \(error.reason)")
             return nil
         case .cancelled: return nil
@@ -255,12 +317,12 @@ final class LinkImport {
     /// cancel has ended that run, `phase` is a later run's, and this leaves
     /// it alone: a cancelled download winds down after a link queued
     /// straight after the cancel has started (re-review of pull request 555).
-    private func download(_ url: URL, run: Int?) async -> LinkResult {
+    private func download(_ url: URL, expectedSHA256: String?, run: Int?) async -> LinkResult {
         phase = .downloading(received: 0, expected: nil)
         defer { if isCurrent(run) { phase = .idle } }
         let file: DownloadedFile
         do {
-            file = try await downloader.download(url) { received, expected in
+            file = try await downloader.download(url, expectedSHA256: expectedSHA256) { received, expected in
                 Task { @MainActor [weak self] in
                     guard let self, self.isCurrent(run), case .downloading = self.phase else { return }
                     self.phase = .downloading(received: received, expected: expected)
@@ -268,9 +330,14 @@ final class LinkImport {
             }
         } catch let error as LinkDownloadError {
             return .failed(error)
-        } catch {
+        } catch is CancellationError {
             // Cancelled: the player asked for it, so there is nothing to say.
             return .cancelled
+        } catch {
+            // Anything else is a failure, however rare (the downloads
+            // folder could not be made, say): said, with its reason, never
+            // passed off as a cancel.
+            return .failed(.failed(error.localizedDescription))
         }
         defer { try? FileManager.default.removeItem(at: file.directory) }
         // Past this point the file is whole: it is imported even if the
