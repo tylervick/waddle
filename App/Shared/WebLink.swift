@@ -32,6 +32,11 @@ enum LinkDownloadError: Error, Equatable, Sendable {
     case notAGameFile
     /// Any other transport failure, with the system's own description.
     case failed(String)
+    /// A shared link (#551) whose download Waddle started and never
+    /// finished: the app stopped (killed, or crashed) while adding it. It
+    /// is dropped rather than tried again, so a file that crashes the
+    /// import cannot crash every launch.
+    case interrupted
 
     var reason: String {
         switch self {
@@ -57,6 +62,8 @@ enum LinkDownloadError: Error, Equatable, Sendable {
             return "That link did not lead to a game file. Waddle takes .wad, .deh, .bex and .zip files; check that the link is to the file itself."
         case .failed(let description):
             return "The download failed: \(description)"
+        case .interrupted:
+            return "Waddle stopped while adding it. Share it to Waddle again to try once more."
         }
     }
 }

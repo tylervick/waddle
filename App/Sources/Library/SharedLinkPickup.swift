@@ -25,9 +25,12 @@ import UIKit
 /// - **It leaves the inbox only once its result was shown.** A link stays
 ///   in its file while it downloads and is removed when the queue it joined
 ///   has ended -- added, refused with a reason, or cancelled by the player.
-///   A link whose download the app never finished (killed, or crashed) is
-///   picked up again the next time. Within one run, a link already queued
-///   is not queued twice.
+///   Within one run, a link already queued is not queued twice.
+/// - **It is tried once.** Its file is marked attempted before its download
+///   starts. A link the app stopped while adding (killed, or crashed) is
+///   found marked at the next pick-up, and is dropped with a notice naming
+///   it (`LinkDownloadError.interrupted`) rather than tried again, so a
+///   file whose import crashes the app cannot crash every launch.
 @MainActor
 final class SharedLinkPickup {
     /// Queues `urls`, with `extras` for the batch's notice, and calls the
@@ -82,16 +85,29 @@ final class SharedLinkPickup {
         guard !items.isEmpty else { return false }
         var downloads: [URL] = []
         var extras = LinkImport.Extras()
-        for item in items {
+        var toDownload: [PendingLinkInbox.Pending] = []
+        // A link marked attempted that is not in this run's queue was being
+        // added when the app last stopped. It is dropped now, once, and the
+        // notice names it, rather than tried again: a file whose import
+        // crashes the app would otherwise crash every launch for 7 days
+        // (re-review of pull request 561).
+        let interrupted = items.filter(\.attempted)
+        inbox.remove(interrupted)
+        for item in interrupted { extras.refused.append((item.url, .interrupted)) }
+        for item in items where !item.attempted {
             // The extension already refused a link Waddle would refuse; this
             // is the same second check a dropped link gets, against a file
             // the app did not write itself.
             switch LinkDownloader.validate(item.url.absoluteString) {
-            case .success(let url): downloads.append(url)
+            case .success(let url):
+                downloads.append(url)
+                toDownload.append(item)
             case .failure(let error): extras.refused.append((item.url, error))
             }
         }
-        let taken = Array(items)
+        // Before the download starts, so a crash during it is known next time.
+        inbox.markAttempted(toDownload)
+        let taken = items.filter { !$0.attempted }
         let files = Set(taken.map(\.file))
         inFlight.formUnion(files)
         enqueue(downloads, extras) { [weak self] in

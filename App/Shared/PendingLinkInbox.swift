@@ -55,7 +55,18 @@ struct PendingLinkInbox: Sendable {
     struct Entry: Codable, Equatable {
         var url: URL
         var sharedAt: Date
+        /// When the app started downloading it (`markAttempted`); nil until
+        /// then. A link found with this set and not in the app's current
+        /// queue was being added when the app stopped.
+        var attemptedAt: Date?
     }
+
+    /// How long a staged file may sit before the app sweeps it: far longer
+    /// than any write, so only a writer that was killed leaves one this old.
+    static let staleStagingAge: TimeInterval = 5 * 60
+    /// The prefix of a link's staged file, written whole before it is
+    /// renamed onto a slot. Hidden, so `waiting` never reads one.
+    static let stagingPrefix = ".writing-"
 
     let directory: URL
     var now: @Sendable () -> Date = { Date() }
@@ -93,7 +104,11 @@ struct PendingLinkInbox: Sendable {
         case .failure(let error): return .failure(.link(error))
         case .success(let valid): url = valid
         }
-        let staged = directory.appendingPathComponent(".writing-\(UUID().uuidString)")
+        // The time is in the name, not read from the file's attributes
+        // (a required-reason API), so the app can sweep one a killed
+        // extension left behind (`sweepStaleStaging`).
+        let millis = Int64((now().timeIntervalSince1970 * 1000).rounded())
+        let staged = directory.appendingPathComponent("\(Self.stagingPrefix)\(millis)-\(UUID().uuidString)")
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let data = try JSONEncoder().encode(Entry(url: url, sharedAt: now()))
@@ -119,6 +134,8 @@ struct PendingLinkInbox: Sendable {
         var url: URL
         var sharedAt: Date
         var file: URL
+        /// Whether a download of it was started (`markAttempted`).
+        var attempted = false
     }
 
     /// The links waiting, oldest first, at most `limit` of them. They stay
@@ -131,6 +148,7 @@ struct PendingLinkInbox: Sendable {
     /// The links are returned as they were written; the caller checks them
     /// again before downloading, as it checks a dropped link.
     func waiting(limit: Int = .max) -> [Pending] {
+        sweepStaleStaging()
         let cutoff = now().addingTimeInterval(-Self.maxAge)
         var waiting: [Pending] = []
         for file in waitingFiles() {
@@ -140,12 +158,43 @@ struct PendingLinkInbox: Sendable {
                 try? FileManager.default.removeItem(at: file)
                 continue
             }
-            waiting.append(Pending(url: entry.url, sharedAt: entry.sharedAt, file: file))
+            waiting.append(Pending(url: entry.url, sharedAt: entry.sharedAt, file: file,
+                                   attempted: entry.attemptedAt != nil))
         }
         // By the time written into each file, then by name, so two shared
         // in the same instant still come out in one order.
         waiting.sort { ($0.sharedAt, $0.file.lastPathComponent) < ($1.sharedAt, $1.file.lastPathComponent) }
         return Array(waiting.prefix(max(0, limit)))
+    }
+
+    /// Records in each of `items`' files that its download is starting, so a
+    /// later pick-up can tell a link the app stopped while adding. Written
+    /// in place, atomically; a file that cannot be rewritten is removed
+    /// instead, so a link is never downloaded unmarked.
+    func markAttempted(_ items: [Pending]) {
+        let date = now()
+        for item in items {
+            let entry = Entry(url: item.url, sharedAt: item.sharedAt, attemptedAt: date)
+            do {
+                try JSONEncoder().encode(entry).write(to: item.file, options: .atomic)
+            } catch {
+                try? FileManager.default.removeItem(at: item.file)
+            }
+        }
+    }
+
+    /// Deletes staged files older than `staleStagingAge`: what an extension
+    /// killed between writing and renaming leaves behind (review of pull
+    /// request 561). Their age is read from their names.
+    func sweepStaleStaging() {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        let cutoff = (now().timeIntervalSince1970 - Self.staleStagingAge) * 1000
+        for name in names where name.hasPrefix(Self.stagingPrefix) {
+            let stamp = name.dropFirst(Self.stagingPrefix.count).prefix { $0 != "-" }
+            // A name with no readable time is not one `add` wrote: also swept.
+            if let millis = Double(stamp), millis >= cutoff { continue }
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+        }
     }
 
     /// Removes `items` from the inbox, freeing their slots.

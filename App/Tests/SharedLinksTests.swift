@@ -285,18 +285,92 @@ final class SharedLinksTests: XCTestCase {
         XCTAssertTrue(pickup.inFlight.isEmpty)
     }
 
-    /// A download the app never finished -- killed, or crashed -- is picked
-    /// up again at the next launch, which is a new pick-up.
-    func testALinkWhoseDownloadNeverEndedIsPickedUpAgainNextLaunch() throws {
+    /// A link the app stopped while adding -- killed, or crashed, perhaps by
+    /// the file itself -- is not tried again: the next launch's pick-up drops
+    /// it once and the notice names it (re-review of pull request 561).
+    /// Before, it was downloaded again on every launch for up to 7 days.
+    func testALinkTheAppStoppedWhileAddingIsDroppedOnceWithANotice() throws {
         let inbox = inbox()
-        _ = try inbox.add("https://files.example/map.wad").get()
+        _ = try inbox.add("https://files.example/crashes.zip").get()
         var calls: [Call] = []
 
         pickup(inbox).pickUp(into: { calls.append(Call(urls: $0, extras: $1, finish: $2)) })
-        // The app is killed here: the queue never ends.
-        pickup(inbox).pickUp(into: { calls.append(Call(urls: $0, extras: $1, finish: $2)) })
+        XCTAssertEqual(calls.last?.urls.map(\.lastPathComponent), ["crashes.zip"])
+        XCTAssertEqual(inbox.waiting().map(\.attempted), [true], "marked before its download starts")
+        // The app stops here: the queue never ends.
 
-        XCTAssertEqual(calls.map { $0.urls.map(\.lastPathComponent) }, [["map.wad"], ["map.wad"]])
+        let nextLaunch = pickup(inbox)
+        let result = nextLaunch.pickUp(into: { calls.append(Call(urls: $0, extras: $1, finish: $2)) })
+        XCTAssertEqual(result, false, "nothing is downloaded again")
+        XCTAssertEqual(calls.count, 2)
+        XCTAssertEqual(calls.last?.urls, [])
+        XCTAssertEqual(calls.last?.extras.refused.map { $0.url.lastPathComponent }, ["crashes.zip"])
+        XCTAssertEqual(calls.last?.extras.refused.map { $0.error }, [.interrupted])
+        XCTAssertEqual(filesInInbox(), [], "dropped at once, so it is told only once")
+
+        nextLaunch.pickUp(into: { calls.append(Call(urls: $0, extras: $1, finish: $2)) })
+        pickup(inbox).pickUp(into: { calls.append(Call(urls: $0, extras: $1, finish: $2)) })
+        XCTAssertEqual(calls.count, 2, "and never again")
+    }
+
+    /// The drop is told through the queue's own notice, naming the link.
+    func testTheInterruptedLinksNoticeNamesIt() throws {
+        let inbox = inbox()
+        _ = try inbox.add("https://files.example/crashes.zip").get()
+        inbox.markAttempted(inbox.waiting())
+        let notices = ImportNotices()
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: WADFile.self, Game.self, configurations: config)
+        let store = WADStore(directory: tmp.appendingPathComponent("WADs", isDirectory: true))
+        let library = LibraryService(context: ModelContext(container), store: store)
+        let importer = ImportService(library: library, store: store, notices: notices,
+                                     usage: UsageStore(directory: tmp.appendingPathComponent("Diagnostics",
+                                                                                             isDirectory: true)))
+        let links = LinkImport(importer: importer, notices: notices)
+
+        pickup(inbox).pickUp(into: { links.enqueue($0, extras: $1, onFinish: $2) })
+
+        let notice = try XCTUnwrap(notices.current)
+        XCTAssertTrue(notice.contains("crashes.zip"), notice)
+        XCTAssertTrue(notice.contains(LinkDownloadError.interrupted.reason), notice)
+        XCTAssertFalse(links.isBusy, "nothing was downloaded")
+    }
+
+    /// A link marked attempted in this same run is downloading, not
+    /// interrupted: it is neither dropped nor queued again.
+    func testALinkDownloadingInThisRunIsNotTakenForInterrupted() throws {
+        let inbox = inbox()
+        _ = try inbox.add("https://files.example/map.wad").get()
+        let pickup = pickup(inbox)
+        var calls: [Call] = []
+
+        pickup.pickUp(into: { calls.append(Call(urls: $0, extras: $1, finish: $2)) })
+        XCTAssertEqual(pickup.pickUp(into: { calls.append(Call(urls: $0, extras: $1, finish: $2)) }), false)
+
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(filesInInbox().count, 1)
+    }
+
+    // MARK: Staged files a killed writer left
+
+    /// A `.writing-` file older than a few minutes is what an extension
+    /// killed between writing and renaming leaves; the pick-up sweeps it.
+    /// A fresh one may be another writer's, mid-write, and is left alone.
+    func testAStaleStagedFileIsSweptAndAFreshOneIsLeft() throws {
+        let clock = Clock()
+        let inbox = inbox(clock)
+        try FileManager.default.createDirectory(at: inboxDir, withIntermediateDirectories: true)
+        let nowMillis = Int64(clock.now.timeIntervalSince1970 * 1000)
+        let staleMillis = nowMillis - Int64((PendingLinkInbox.staleStagingAge + 60) * 1000)
+        let stale = "\(PendingLinkInbox.stagingPrefix)\(staleMillis)-A"
+        let fresh = "\(PendingLinkInbox.stagingPrefix)\(nowMillis - 1000)-B"
+        for name in [stale, fresh] { try Data("{}".utf8).write(to: inboxDir.appendingPathComponent(name)) }
+
+        _ = inbox.waiting()
+
+        let left = try FileManager.default.contentsOfDirectory(atPath: inboxDir.path)
+        XCTAssertFalse(left.contains(stale), "the stale staged file was not swept")
+        XCTAssertTrue(left.contains(fresh), "a staged file still being written was swept")
     }
 
     // MARK: A link waits until the shelf can show it

@@ -208,7 +208,8 @@ copy and leave a stale one behind. The environment also admits only `main`,
 so a TestFlight dispatch from any other branch is refused before it runs:
 check a signing change before merging it with a local archive instead —
 install the profiles under `~/Library/Developer/Xcode/UserData/Provisioning
-Profiles/<UUID>.mobileprovision`, then run
+Profiles/<UUID>.mobileprovision` (`mkdir -p` that folder first: a Mac that
+has never installed a profile by hand has none), then run
 `EXPORT_OPTIONS_PLIST=App/ExportOptions-ci.plist Scripts/archive.sh`, which
 archives and exports with the CI's manual signing and uploads nothing
 (`destination` is `export`).
