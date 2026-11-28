@@ -35,6 +35,10 @@ struct ShelfView: View {
     /// dropped on the shelf (#550), so the sheet shows a dropped link's
     /// progress.
     @State private var linkImport: LinkImport
+    /// Links shared from another app's share sheet, waiting to be
+    /// downloaded through `linkImport` (#551).
+    @State private var sharedLinks = SharedLinkPickup(inbox: ShelfView.sharedLinkInbox,
+                                                      canPresent: { SharedLinkPickup.shelfCanPresent() })
     /// True while a drag is over the shelf, for `ShelfDropHighlight`.
     @State private var dropTargeted = false
     /// The item whose tap opened the Continue / New Game / Details sheet.
@@ -425,12 +429,26 @@ struct ShelfView: View {
     }
 
     /// Queues the links the share extension left for Waddle (#551) on the
-    /// one link download, and shows its progress as a drop's.
+    /// one link download, and shows its progress as a drop's -- once the
+    /// shelf can show it (`SharedLinkPickup`).
     private func pickUpSharedLinks() {
-        let started = SharedLinks.pickUp(from: .shared()) { urls, extras in
-            linkImport.enqueue(urls, extras: extras)
+        sharedLinks.pickUpWhenClear(into: { urls, extras, onFinish in
+            linkImport.enqueue(urls, extras: extras, onFinish: onFinish)
+        }, onStarted: showDroppedLinkProgress)
+    }
+
+    /// Where the share extension leaves links: the App Group's inbox.
+    private nonisolated static func sharedLinkInbox() -> PendingLinkInbox? {
+        #if DEBUG
+        // Test-only seam, same WADDLE_* family as the seams above: a folder
+        // standing in for the App Group's inbox, which a UI test writes a
+        // link file into as the extension would (#551). The UI test runner
+        // builds unsigned, with no App Group. Never set in production.
+        if let folder = ProcessInfo.processInfo.environment["WADDLE_TEST_PENDING_LINKS_DIR"] {
+            return PendingLinkInbox(directory: URL(fileURLWithPath: folder, isDirectory: true))
         }
-        if started { showDroppedLinkProgress() }
+        #endif
+        return .shared()
     }
 
     /// Opens From a Link… on the download of a link dropped on the shelf

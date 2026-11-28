@@ -334,17 +334,27 @@ jobs:
 
           # One profile per signed bundle: the app's, then the share
           # extension's (#551). An empty secret fails here, by name, rather
-          # than as an archive error that names neither.
+          # than as an archive error that names neither. Both are repository
+          # secrets, as BUILD_CERTIFICATE_BASE64 is; the app-store environment
+          # holds only the App Store Connect key and the tag token.
+          #
+          # Each UUID is recorded for the cleanup step as soon as its profile
+          # is installed, so a failure on the second profile still removes the
+          # first (review of pull request 561).
           UUIDS=""
           for NAME in PROVISIONING_PROFILE_BASE64 SHARE_EXTENSION_PROFILE_BASE64; do
             if [ -z "${!NAME}" ]; then
-              echo "::error::The $NAME secret is empty or missing in the app-store environment."
+              echo "::error::The $NAME repository secret is empty or missing."
               echo "  See docs/app-store/submission-checklist.md for the profiles it holds."
               exit 1
             fi
             PROFILE="$RUNNER_TEMP/$NAME.mobileprovision"
             printf '%s' "${!NAME}" | /usr/bin/base64 --decode > "$PROFILE"
             UUID="$(security cms -D -i "$PROFILE" | plutil -extract UUID raw -)"
+            # Recorded before either copy, so the cleanup removes it however
+            # this step ends from here on.
+            UUIDS="${UUIDS:+$UUIDS }$UUID"
+            echo "PROFILE_UUIDS=$UUIDS" >> "$GITHUB_ENV"
             # Both locations: Xcode 16+ reads the Developer/Xcode path, older
             # tooling still reads the MobileDevice one. Installing to only the
             # legacy path is why this failed with "No profiles ... were found".
@@ -354,9 +364,7 @@ jobs:
               cp "$PROFILE" "$d/$UUID.mobileprovision"
             done
             rm -f "$PROFILE"
-            UUIDS="$UUIDS $UUID"
           done
-          echo "PROFILE_UUIDS=${UUIDS# }" >> "$GITHUB_ENV"
 
           # Scoped to $KC deliberately: the search-list-wide form would pass on
           # ANY Apple Distribution identity, masking a broken or key-less .p12.
