@@ -416,6 +416,22 @@ network, a download of a link the player pastes (#500), is disclosed in the
 notes' licensing paragraph, because a reviewer who finds Add → From a Link…
 should not have to guess whether the app fetches anything else.
 
+**Added 2026-11-26 for the Get Freedoom tile (#552).** The app's second use
+of the network is the shelf's Get Freedoom tile, there only while the
+library has no Freedoom (so not on a build that still bundles it; #505
+stops bundling it). A tap on **Get** downloads one file from github.com,
+the Freedoom 0.13.0 release zip (GitHub answers with a redirect to its own
+download server, `release-assets.githubusercontent.com`, which gets the same
+request; the pin is checked on the bytes that arrive, so the redirect cannot
+change the file), through the same `LinkDownloader` and so
+with the same request headers (`LinkDownloader.requestHeaders`: User-Agent
+`Waddle`, Accept-Language `*`, no cookies, no cache), and refuses it unless
+its SHA-256 matches the one the app ships. The notes' licensing paragraph
+says so, and that the tile shows the 24.1 MB size before the tap, which is
+what Guideline 4.2.3(ii) asks of an app that downloads resources it needs.
+How the notes' demo steps change once Freedoom is no longer bundled is
+#505's question 3, not this note's.
+
 ## 12. Screenshots
 
 Captured by `Scripts/capture-screenshots.sh` into

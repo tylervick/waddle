@@ -324,6 +324,61 @@ final class LibraryService {
         return !games.contains { !saveSlots(forKey: $0.id).isEmpty }
     }
 
+    /// Puts Freedoom's own games back on the shelf once its files are there
+    /// (#552). Run after a download the Get Freedoom tile started: a player
+    /// who tapped Get asked for Freedoom, so games they had hidden before
+    /// their rows were released come back with the files rather than arrive
+    /// hidden, which would take the tile away and add nothing. Only the two
+    /// base games; a game of the player's built on Freedoom keeps its state.
+    func showFreedoomOnShelf() throws {
+        for wad in try allWADs()
+        where FreedoomRelease.wadSHA1s.contains(wad.sha1.lowercased()) && fileStatus(for: wad) != .missing {
+            if let game = try game(id: wad.id), game.isBaseGame, game.isHidden {
+                game.isHidden = false
+            }
+        }
+        try context.save()
+    }
+
+    /// Whether the shelf shows the Get Freedoom tile (#552);
+    /// `Shelf.offersFreedoom` is the rule.
+    func offersFreedoom() throws -> Bool {
+        Shelf.offersFreedoom(files: try allWADs(), isPresent: { fileStatus(for: $0) != .missing },
+                             tileHidden: isGetFreedoomHidden)
+    }
+
+    // MARK: The Get Freedoom tile, hidden
+
+    /// Where the player's Hide from Shelf on the Get Freedoom tile is kept,
+    /// across launches. `WaddleApp` clears it under `WADDLE_RESET_STORE`.
+    static let getFreedoomHiddenKey = "getFreedoomTileHidden"
+
+    /// Injectable seam for tests only, as `bundledContentDirectory` is:
+    /// production keeps the tile's hidden state in the standard defaults.
+    var defaults: UserDefaults = .standard
+
+    /// Whether the player took the Get Freedoom tile off the shelf.
+    var isGetFreedoomHidden: Bool { defaults.bool(forKey: Self.getFreedoomHiddenKey) }
+
+    /// Takes the Get Freedoom tile off the shelf. A flag only, like hiding
+    /// a game: no Freedoom game is hidden or deleted, so one that arrives
+    /// another way (a link, a drop) is on the shelf as any import is.
+    func hideGetFreedoom() {
+        defaults.set(true, forKey: Self.getFreedoomHiddenKey)
+    }
+
+    /// Puts the Get Freedoom tile back, from Hidden Games.
+    func restoreGetFreedoom() {
+        defaults.removeObject(forKey: Self.getFreedoomHiddenKey)
+    }
+
+    /// Whether Hidden Games lists the tile: hidden, and with no Freedoom
+    /// here, so that Restore brings it back where the player can see it.
+    func hiddenGamesListsGetFreedoom() throws -> Bool {
+        guard isGetFreedoomHidden else { return false }
+        return Shelf.freedoomIsMissing(files: try allWADs()) { fileStatus(for: $0) != .missing }
+    }
+
     func allWADs() throws -> [WADFile] {
         try context.fetch(FetchDescriptor<WADFile>(
             sortBy: [SortDescriptor(\.importDate, order: .reverse)]))

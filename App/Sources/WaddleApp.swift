@@ -64,10 +64,30 @@ struct WaddleApp: App {
                 // to `settleStoredScheme` below and starts on the default,
                 // whatever an earlier build or test left in this simulator.
                 UserDefaults.standard.removeObject(forKey: TouchControlScheme.userDefaultsKey)
+                // And the Get Freedoom tile's Hide from Shelf (#552), so a
+                // reset launch offers it as a new install does.
+                UserDefaults.standard.removeObject(forKey: LibraryService.getFreedoomHiddenKey)
             }
             #endif
 
             let library = LibraryService(context: context, store: store)
+            // Test-only seam (issue #552): WADDLE_TEST_NO_BUNDLED_FREEDOOM=1
+            // points the seeder at an empty folder, so this launch is a build
+            // that no longer bundles Freedoom (#505): with
+            // WADDLE_RESET_STORE a new install, whose shelf offers the Get
+            // Freedoom tile; without it, an existing install whose bundled
+            // rows are released (#503) for good. The same injection
+            // `LibraryServiceTests` uses. Same WADDLE_* family as the reset
+            // above; never set in production.
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["WADDLE_TEST_NO_BUNDLED_FREEDOOM"] == "1" {
+                let empty = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("NoBundledFreedoom", isDirectory: true)
+                try? FileManager.default.removeItem(at: empty)
+                try? FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+                library.bundledContentDirectory = empty
+            }
+            #endif
             let importer = ImportService(library: library, store: store)
             // Before the migration and the seeder, which fill the library on
             // every launch: asked after them, a new install would look like

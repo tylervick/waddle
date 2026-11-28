@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Why a link the player gave could not be downloaded (#500). Every case but
@@ -25,6 +26,9 @@ enum LinkDownloadError: Error, Equatable, Sendable {
     /// The body is neither a web page nor anything Waddle takes: an API's
     /// JSON error, say, or a text file.
     case notAGameFile
+    /// The file arrived whole but is not the one a source pins (#502): its
+    /// SHA-256 differs from the one the app ships for that link.
+    case checksumMismatch
     /// Any other transport failure, with the system's own description.
     case failed(String)
 
@@ -50,6 +54,8 @@ enum LinkDownloadError: Error, Equatable, Sendable {
             return "That link leads to a .\(ext) file, which Waddle does not take. Waddle takes .wad, .deh, .bex and .zip files."
         case .notAGameFile:
             return "That link did not lead to a game file. Waddle takes .wad, .deh, .bex and .zip files; check that the link is to the file itself."
+        case .checksumMismatch:
+            return "The file at that link is not the exact file Waddle expects, so it was not added. The file may have changed since this version of Waddle was made; trying again will not help until Waddle is updated."
         case .failed(let description):
             return "The download failed: \(description)"
         }
@@ -129,15 +135,18 @@ struct LinkDownloader: Sendable {
 
     /// Downloads `url`. `progress` is called with the bytes received so far
     /// and the expected total, when the server said; never before the first
-    /// body bytes arrive. Throws `LinkDownloadError`, or `CancellationError`
-    /// once the calling task is cancelled.
-    func download(_ url: URL,
+    /// body bytes arrive. With `expectedSHA256` (lowercase hex, a source's
+    /// pin, #502), a whole download whose bytes hash to anything else fails
+    /// with `.checksumMismatch` and is removed. Throws `LinkDownloadError`,
+    /// or `CancellationError` once the calling task is cancelled.
+    func download(_ url: URL, expectedSHA256: String? = nil,
                   progress: @escaping @Sendable (Int64, Int64?) -> Void = { _, _ in }) async throws -> DownloadedFile {
         guard url.scheme?.lowercased() == "https" else { throw LinkDownloadError.insecure }
         let dir = directory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
-        let delegate = DownloadDelegate(directory: dir, maxBytes: maxBytes, progress: progress)
+        let delegate = DownloadDelegate(directory: dir, maxBytes: maxBytes,
+                                        expectedSHA256: expectedSHA256?.lowercased(), progress: progress)
         let queue = OperationQueue()
         queue.maxConcurrentOperationCount = 1
         let session = URLSession(configuration: Self.hardened(makeConfiguration()),
@@ -166,7 +175,11 @@ struct LinkDownloader: Sendable {
 private final class DownloadDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private let directory: URL
     private let maxBytes: Int64
+    private let expectedSHA256: String?
     private let progress: @Sendable (Int64, Int64?) -> Void
+    /// Every body byte written so far, hashed as it arrives, so a pinned
+    /// download is checked without reading the file a second time.
+    private var hasher = SHA256()
 
     private var continuation: CheckedContinuation<DownloadedFile, Error>?
     private var handle: FileHandle?
@@ -180,9 +193,11 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate, @uncheck
     /// Why this delegate cancelled the task itself, when it did.
     private var failure: LinkDownloadError?
 
-    init(directory: URL, maxBytes: Int64, progress: @escaping @Sendable (Int64, Int64?) -> Void) {
+    init(directory: URL, maxBytes: Int64, expectedSHA256: String?,
+         progress: @escaping @Sendable (Int64, Int64?) -> Void) {
         self.directory = directory
         self.maxBytes = maxBytes
+        self.expectedSHA256 = expectedSHA256
         self.progress = progress
     }
 
@@ -251,6 +266,7 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate, @uncheck
         }
         do {
             try handle.write(contentsOf: data)
+            hasher.update(data: data)
         } catch {
             failure = .failed("Waddle could not save the file.")
             dataTask.cancel()
@@ -270,6 +286,8 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate, @uncheck
             result = .failure(failure)
         } else if let error {
             result = .failure(Self.map(error))
+        } else if let expectedSHA256, Self.hex(hasher.finalize()) != expectedSHA256 {
+            result = .failure(LinkDownloadError.checksumMismatch)
         } else if let fileURL {
             result = Self.check(fileURL, named: suggestedFilename, linkURL: task.currentRequest?.url)
                 .map { DownloadedFile(url: fileURL, suggestedFilename: suggestedFilename, directory: directory) }
@@ -293,6 +311,10 @@ private final class DownloadDelegate: NSObject, URLSessionDataDelegate, @uncheck
             if ImportFileType.refusedExtensions.contains(ext) { return .failure(.refusedType(ext)) }
         }
         return ImportFileType.resolve(url: file, name: name) == nil ? .failure(.notAGameFile) : .success(())
+    }
+
+    static func hex(_ digest: SHA256.Digest) -> String {
+        digest.map { String(format: "%02x", $0) }.joined()
     }
 
     private func refuse(_ error: LinkDownloadError,
