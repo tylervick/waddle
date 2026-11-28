@@ -47,6 +47,43 @@ provider before it returns, and only awaits them afterwards.
 overrides `loadFileRepresentation(forTypeIdentifier:)`, because the `UTType`
 overload is a Swift extension and cannot be overridden.
 
+## Links (#550)
+
+The shelf takes `public.url` too, and `DroppedLink.isLink` tells a link from a
+file: a link offers `public.url` and neither `public.file-url` nor a type the
+picker offers. Two things to know:
+
+- **A real Safari link drag offers `public.url` and
+  `public.utf8-plain-text`, with no `suggestedName`.** This was measured
+  2026-11-26 with a real cross-app drag on an open iPhone Duo simulator, with
+  Safari in Split View beside Waddle. The drag was made through
+  `Scripts/duo-pose-device-hub.sh touch` (a held press, then a slow path).
+  The `DEBUG` log in `WADDrop.handleDrop` printed it.
+- **Text that merely parses as a URL is offered as `public.url` too.**
+  `NSItemProvider(object: s as NSString)` registers `public.utf8-plain-text`
+  *and* `public.url` for any `s` that `NSURL` parses, on iOS as on macOS.
+  That includes "https://…", but also "Note: hi", "Tip:use-warp" and
+  "javascript:alert(1)". "hello", "www.example.com" and text with spaces
+  before any colon get no `public.url`. The first draft of pull request 555
+  claimed "text that is not a URL does not light the shelf up", which was
+  wrong (review of pull request 555).
+- **Nothing of a drag can be read before the drop.** So the highlight
+  cannot tell "Note: hi" from a link. At the drop, `DroppedLink.isWebLink`
+  takes only an `http` or `https` URL with a host. Anything else is let go
+  without a notice or the sheet. A URL dragged as text from Notes is taken
+  as the link it is.
+  `testTextOrALinkThatIsNotAWebLinkIsLetGoQuietly` and
+  `testTextThatIsAnHTTPSURLIsTakenAsALink` are the checks.
+
+## Safari's Downloads list hands over a file with no URL
+
+This was measured 2026-11-26 the same way. A finished download dragged from
+Safari's Downloads list offers only its content type
+(`types=["public.zip-archive"]`) and sets `suggestedName`
+(`freedoom-0.13.0.zip`). It offers no `public.file-url`. So it goes the
+file's way, and its name comes from `suggestedName`, the second step of the
+order above. It was imported.
+
 ## Not settled
 
 Whether a real cross-app drag from Files (iPad) or Finder (a Designed-for-iPad

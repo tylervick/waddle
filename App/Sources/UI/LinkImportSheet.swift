@@ -4,14 +4,14 @@ import SwiftUI
 /// `.deh`, `.bex` or `.zip`, and a download with progress and a Cancel. It
 /// closes once the download ends; the import notice then says what
 /// happened, as it does for a file picked in Files.
+///
+/// `model` is the shelf's, so a link dropped on the shelf (#550) opens this
+/// sheet with the link filled in and its download already running, and
+/// several dropped links read "1 of 3".
 struct LinkImportSheet: View {
-    @State private var model: LinkImport
+    let model: LinkImport
     @State private var text = ""
     @Environment(\.dismiss) private var dismiss
-
-    init(importer: ImportService) {
-        _model = State(initialValue: LinkImport(importer: importer))
-    }
 
     var body: some View {
         NavigationStack {
@@ -70,7 +70,24 @@ struct LinkImportSheet: View {
             }
         }
         .interactiveDismissDisabled(model.isBusy)
-        .onDisappear { model.cancel() }
+        .onAppear { showCurrent(model.current) }
+        .onChange(of: model.current) { _, url in showCurrent(url) }
+        // Not a cancel: the model is the shelf's, and the sheet closes on
+        // its own once a queue ends, which a new drop can follow within the
+        // dismissal (review of pull request 555). Cancel and Cancel Download
+        // cancel, and the sheet cannot be swiped away while busy.
+        .onDisappear { model.clearInvalidLink() }
+    }
+
+    /// Fills the field with the link downloading, whoever started it.
+    private func showCurrent(_ url: URL?) {
+        if let url { text = url.absoluteString }
+    }
+
+    /// "Downloading…", or "Downloading 1 of 3…" while several are queued.
+    private var downloadingTitle: String {
+        guard let position = model.position, position.count > 1 else { return "Downloading…" }
+        return "Downloading \(position.index) of \(position.count)…"
     }
 
     @ViewBuilder
@@ -78,7 +95,7 @@ struct LinkImportSheet: View {
         switch model.phase {
         case .downloading(let received, let expected?) where expected > 0:
             ProgressView(value: Double(received), total: Double(expected)) {
-                Text("Downloading…")
+                Text(downloadingTitle)
             } currentValueLabel: {
                 Text(verbatim: "\(Self.megabytes(received)) of \(Self.megabytes(expected))")
             }
@@ -87,7 +104,7 @@ struct LinkImportSheet: View {
                 Text(verbatim: Self.megabytes(received))
             } label: {
                 Label {
-                    Text("Downloading…")
+                    Text(downloadingTitle)
                 } icon: {
                     ProgressView()
                 }

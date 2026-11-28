@@ -31,6 +31,10 @@ struct ShelfView: View {
     }
     @State private var showImporter = false
     @State private var showLinkImport = false
+    /// The one link download (#500), shared by **From a Link…** and a link
+    /// dropped on the shelf (#550), so the sheet shows a dropped link's
+    /// progress.
+    @State private var linkImport: LinkImport
     /// True while a drag is over the shelf, for `ShelfDropHighlight`.
     @State private var dropTargeted = false
     /// The item whose tap opened the Continue / New Game / Details sheet.
@@ -111,6 +115,15 @@ struct ShelfView: View {
                                                    spacing: gridSpacing),
             viewportHeight: viewportHeight,
             contentPadding: contentPadding)
+    }
+
+    init(library: LibraryService, importer: ImportService, lastExitCode: Binding<Int32?>,
+         panelModel: ShelfPanelModel) {
+        self.library = library
+        self.importer = importer
+        _lastExitCode = lastExitCode
+        self.panelModel = panelModel
+        _linkImport = State(initialValue: LinkImport(importer: importer))
     }
 
     var body: some View {
@@ -281,7 +294,10 @@ struct ShelfView: View {
         }
         // A file dropped on the shelf -- from Finder onto a Mac window, or
         // from Files in an iPad's Split View -- goes the picker's way (#481).
-        .wadDropDestination(importer: importer, isTargeted: $dropTargeted) { _ in
+        // A link dropped from Safari beside Waddle is downloaded as From a
+        // Link… does, in its sheet, which opens to show the progress (#550).
+        .wadDropDestination(importer: importer, links: linkImport, isTargeted: $dropTargeted,
+                            onLinkDownloadsStarted: showDroppedLinkProgress) { _ in
             refresh()
         }
         .overlay {
@@ -300,9 +316,32 @@ struct ShelfView: View {
                 dropTargeted = true
             }
         }
+        // Test-only seam, as above: drops the space-separated links in
+        // WADDLE_DROP_LINKS on the shelf at launch, each built as WebKit
+        // builds a dragged link (an NSURL and the same URL as text), so a
+        // capture can show a dropped link's progress and its notice (#550).
+        // Never set in production.
+        .task {
+            guard let links = ProcessInfo.processInfo.environment["WADDLE_DROP_LINKS"] else { return }
+            try? await Task.sleep(for: .milliseconds(800))
+            let providers = links.split(separator: " ").compactMap { link -> NSItemProvider? in
+                guard let url = URL(string: String(link)) else { return nil }
+                let provider = NSItemProvider(object: url as NSURL)
+                provider.registerObject(String(link) as NSString, visibility: .all)
+                return provider
+            }
+            WADDrop.handleDrop(providers, into: importer, links: linkImport,
+                               onLinkDownloadsStarted: showDroppedLinkProgress,
+                               onOutcome: { _ in refresh() })
+        }
         #endif
         .sheet(isPresented: $showLinkImport) {
-            LinkImportSheet(importer: importer)
+            LinkImportSheet(model: linkImport)
+        }
+        // The sheet closes once the last queued link has ended, however it
+        // was started.
+        .onChange(of: linkImport.isBusy) { _, busy in
+            if !busy { showLinkImport = false }
         }
         .alert(errorAlert?.title ?? "", isPresented: Binding(
             get: { errorAlert != nil }, set: { if !$0 { dismissErrorAlert() } }
@@ -371,6 +410,12 @@ struct ShelfView: View {
             }
             .accessibilityIdentifier("importButton")
         }
+    }
+
+    /// Opens From a Link… on the download of a link dropped on the shelf
+    /// (#550), unless it has already ended.
+    private func showDroppedLinkProgress() {
+        if linkImport.isBusy { showLinkImport = true }
     }
 
     /// A game's page: beside the library on a regular-width window, pushed

@@ -127,6 +127,17 @@ and the gesture.
 
 Captures are in `docs/learnings/assets/duo-device-hub-2026-11-20/`.
 
+**A cross-app drag works this way** (2026-11-26, #550). This is the drag a
+test cannot make. Open Safari with `simctl openurl` and swipe it into Split
+View as above; it takes the right half. Then swipe to the home-screen page
+that has Waddle, and tap Waddle to put it in the left half. Every step goes
+through `Scripts/duo-pose-device-hub.sh touch <udid> <name> wide`. Then make
+one touch path: a press on a link held for 1300 ms, then about 2 s of moves
+over Waddle's half, with a 900 ms pause at the end. Safari lifts the link and
+Waddle gets the drop. The hook sometimes fails to read Device Hub's window
+("could not read Device Hub's window"). A retry a few seconds later usually
+gets through.
+
 ## Building on this Mac
 
 `mise run bootstrap` under `DEVELOPER_DIR` took 225 s and needed nothing else.
