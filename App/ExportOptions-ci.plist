@@ -9,6 +9,12 @@
          certificate whose key dies with the runner. Apple caps those at 2-3
          and the only cleanup is manual revocation in the portal. -->
     <key>method</key><string>app-store-connect</string>
+    <!-- Write the .ipa to the export path; never upload from the export.
+         Export is xcodebuild's default, spelled out so a local run of
+         `EXPORT_OPTIONS_PLIST=App/ExportOptions-ci.plist Scripts/archive.sh`,
+         which checks both profiles before a merge (#551), is known to upload
+         nothing. The TestFlight job uploads in a step of its own. -->
+    <key>destination</key><string>export</string>
     <key>teamID</key><string>352UZEKYPP</string>
     <key>signingStyle</key><string>manual</string>
     <key>signingCertificate</key><string>Apple Distribution</string>
@@ -30,6 +36,15 @@
              is an opaque signing error. -->
         <key>com.tylervick.waddle</key>
         <string>WADdle App Store CI</string>
+        <!-- The share extension's own profile (#551), for its own App ID, under
+             the same rules: it must match the extension target's Release
+             PROVISIONING_PROFILE_SPECIFIER in App/project.yml exactly, it is
+             manually managed, and it is bound to the same Apple Distribution
+             certificate. Installed on the runner from the
+             SHARE_EXTENSION_PROFILE_BASE64 secret. An export with an embedded
+             extension and no entry for its bundle id here fails. -->
+        <key>com.tylervick.waddle.share</key>
+        <string>Waddle Share App Store CI</string>
     </dict>
     <key>uploadSymbols</key><true/>
 </dict>

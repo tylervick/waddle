@@ -35,6 +35,10 @@ struct ShelfView: View {
     /// dropped on the shelf (#550), so the sheet shows a dropped link's
     /// progress.
     @State private var linkImport: LinkImport
+    /// Links shared from another app's share sheet, waiting to be
+    /// downloaded through `linkImport` (#551).
+    @State private var sharedLinks = SharedLinkPickup(inbox: ShelfView.sharedLinkInbox,
+                                                      canPresent: { SharedLinkPickup.shelfCanPresent() })
     /// True while a drag is over the shelf, for `ShelfDropHighlight`.
     @State private var dropTargeted = false
     /// The item whose tap opened the Continue / New Game / Details sheet.
@@ -58,6 +62,8 @@ struct ShelfView: View {
     @AppStorage(debugHUDUserDefaultsKey) private var debugHUD: Bool = false
     @State private var errorAlert: EngineErrorAlert?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// For the links shared to Waddle while it was away (#551).
+    @Environment(\.scenePhase) private var scenePhase
     /// Compact is a landscape phone and nothing else (design-system spec §9):
     /// the one height class where the hero zone goes side by side.
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -361,6 +367,13 @@ struct ShelfView: View {
             #endif
         }
         .onReceive(NotificationCenter.default.publisher(for: .libraryDidChange)) { _ in refresh() }
+        // A link shared from another app's share sheet waits for Waddle to
+        // open (#551): taken at launch and on every return to the
+        // foreground, and downloaded as a dropped link is, in the same sheet.
+        .task { pickUpSharedLinks() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { pickUpSharedLinks() }
+        }
     }
 
     // Split out of `body`: a toolbar this size inline was enough for the Swift
@@ -413,6 +426,29 @@ struct ShelfView: View {
             }
             .accessibilityIdentifier("importButton")
         }
+    }
+
+    /// Queues the links the share extension left for Waddle (#551) on the
+    /// one link download, and shows its progress as a drop's -- once the
+    /// shelf can show it (`SharedLinkPickup`).
+    private func pickUpSharedLinks() {
+        sharedLinks.pickUpWhenClear(into: { urls, extras, onFinish in
+            linkImport.enqueue(urls, extras: extras, onFinish: onFinish)
+        }, onStarted: showDroppedLinkProgress)
+    }
+
+    /// Where the share extension leaves links: the App Group's inbox.
+    private nonisolated static func sharedLinkInbox() -> PendingLinkInbox? {
+        #if DEBUG
+        // Test-only seam, same WADDLE_* family as the seams above: a folder
+        // standing in for the App Group's inbox, which a UI test writes a
+        // link file into as the extension would (#551). The UI test runner
+        // builds unsigned, with no App Group. Never set in production.
+        if let folder = ProcessInfo.processInfo.environment["WADDLE_TEST_PENDING_LINKS_DIR"] {
+            return PendingLinkInbox(directory: URL(fileURLWithPath: folder, isDirectory: true))
+        }
+        #endif
+        return .shared()
     }
 
     /// Opens From a Link… on the download of a link dropped on the shelf

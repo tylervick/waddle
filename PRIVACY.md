@@ -3,7 +3,15 @@
 Waddle does not collect any data of any kind.
 
 - The app connects to the network only to download a link you give it
-  (Add → From a Link…, or a link you drop on the library), when you ask. Only that link's server (and any
+  (Add → From a Link…, a link you drop on the library, or a link you share
+  to Waddle from another app's share sheet), when you ask. A shared link is
+  kept on your device, in a folder only Waddle and its share extension can
+  read, until you next open Waddle, which then downloads that link and no
+  other, and deletes the note of it once the download has ended. A link
+  shared more than 7 days before Waddle is next opened is deleted then,
+  without being downloaded. The share extension itself makes no network
+  connection.
+  Only that link's server (and any
   server it redirects to) sees the request. It sees your IP address, as
   any server you connect to does, and the request's headers, which are
   fixed and say nothing about you or your device: `User-Agent: Waddle`

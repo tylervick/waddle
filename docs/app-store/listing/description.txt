@@ -6,6 +6,8 @@ Ready to play out of the box. Waddle bundles Freedoom Phase 1 and Phase 2: two c
 
 Bring your own WADs. Import WAD files you own from the Files app, iCloud Drive, or the share sheet - commercial IWADs you've purchased, or any of thousands of community-made maps and megawads. Zip archives and DeHackEd patches are supported.
 
+Share a link to Waddle. Waddle adds a Share extension: in Safari, Share a link to a .wad or .zip file and choose Waddle, and Waddle downloads that file the next time you open it.
+
 Every map set is a game. Import a megawad and it lands on your shelf as its own game, already paired with the right base game. Add-ons and DeHackEd patches attach to any game from its page, where you also set the load order and compatibility level (vanilla, Boom, MBF, MBF21 - or auto) and find its saves, which are kept per game.
 
 Play your way. Touch controls with two schemes (classic twin-stick and modern drag-to-turn), adjustable feel, and buttons you can drag wherever your thumbs want them - plus full support for game controllers and hardware keyboards. Walk into doors and switches to use them, and pan and zoom the automap by touch.

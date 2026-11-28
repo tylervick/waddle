@@ -135,6 +135,15 @@ editable **without** a review, so it can be changed between releases.
 
 **Canonical text: [`listing/description.txt`](listing/description.txt).** Plain text, exactly as the store shows it: the lead-in phrases that were `**bold**` here are plain sentences there, because the App Store renders no markdown.
 
+**Revised 2026-11-27 for the share extension (#551), not yet uploaded.**
+A new paragraph, **Share a link to Waddle**, names the Share extension.
+Guideline 4.4 asks for it: *"You should clearly and accurately disclose what
+extensions are made available in the app's marketing text."* Uploading the
+text is the owner's release step (`Scripts/update-store-listing.sh`), with
+the first version that ships the extension, and not before: a listing that
+names an extension the store's build does not have is inaccurate the other
+way.
+
 **Revised 2026-09-23 for version 1.2.** The Games and Files rework
 (`docs/superpowers/specs/2026-09-16-games-and-files-design.md`) removed
 presets: an imported map set is now a game on the shelf, paired to a base at
@@ -203,7 +212,7 @@ Reading the **Answer** column:
 
 | Questionnaire item | API field | Answer | Rationale |
 |---|---|---|---|
-| Unrestricted Web Access | `unrestrictedWebAccess` | **No** | The app embeds no browser or web view and shows no web content. Its only network request is a download of one https link the player pastes (Add → From a Link…, #500), whose bytes go straight to the importer and are refused if they are a web page. The owner reviews this answer before the first submission that ships #500, and again if the in-app web view (#501) ever ships, which would make it **Yes** |
+| Unrestricted Web Access | `unrestrictedWebAccess` | **No** | The app embeds no browser or web view and shows no web content. Its only network request is a download of one https link the player pastes (Add → From a Link…, #500), drops (#550) or shares to Waddle from another app's share sheet (#551; the share extension shows the link's host and name, never the page), whose bytes go straight to the importer and are refused if they are a web page. The owner reviews this answer before the first submission that ships #500, and again if the in-app web view (#501) ever ships, which would make it **Yes** |
 | User-Generated Content | `userGeneratedContent` | **No** | Imported WADs are local files the user chooses; they stay on device and are never uploaded, shared, or hosted, so no user's content can reach another user |
 | Social Media | `socialMedia` | **No** | No feeds, profiles, follows, or sharing |
 | Age-Restricted Social Media | `socialMediaAgeRestricted` | **No** | N/A — follows from Social Media = No |
@@ -345,7 +354,10 @@ app downloads that one file and hands it to the same importer Files uses.
 The app names no site, lists no games, suggests no links, and shows no web
 content (a link that returns a page is refused, not displayed). So the
 player still brings their own file, only by link instead of through Files;
-the app offers no software, and 4.7 does not attach. What would cross the
+the app offers no software, and 4.7 does not attach. A link shared from
+Safari's share sheet (#551) is the same: the player found the page in
+Safari, and Waddle's Share extension only carries that one link to the
+same download. What would cross the
 line is the app *offering* something: a browser or web view (#501), a
 built-in or suggested list of sources (#502), or an example download such
 as Freedoom's. Re-open this section, and `unrestrictedWebAccess` above,
@@ -415,6 +427,14 @@ this file"), which is stronger than a note. The app's one use of the
 network, a download of a link the player pastes (#500), is disclosed in the
 notes' licensing paragraph, because a reviewer who finds Add → From a Link…
 should not have to guess whether the app fetches anything else.
+
+**The Share extension (#551) gets a paragraph of its own.** Guideline 4.4
+holds an app that contains extensions to the App Extension Programming
+Guide, and a reviewer who meets Waddle in Safari's share sheet should know
+what it does before tapping it: it shows the link, stores it in the App
+Group's container, and does nothing else; Waddle downloads it when next
+opened. The paragraph also says why Waddle appears once, not twice, for a
+file in Files' share sheet.
 
 ## 12. Screenshots
 

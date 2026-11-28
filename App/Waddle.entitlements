@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- The App Group the app and its share extension share (#551): the
+         extension leaves a shared link in the group's container, and the app
+         picks it up when it next opens (PendingLinkInbox). The identifier is
+         the WADDLE_APP_GROUP build setting in App/project.yml, which also
+         reaches both Info.plists, so code and entitlements cannot disagree.
+         It must be registered at developer.apple.com and assigned to both
+         App IDs, and both Release profiles must carry it. -->
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>$(WADDLE_APP_GROUP)</string>
+    </array>
+</dict>
+</plist>
