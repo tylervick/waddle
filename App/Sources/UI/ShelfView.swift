@@ -989,7 +989,23 @@ struct ShelfView: View {
                         isBlocked: getFreedoom.isBlocked,
                         aspectRatio: tileAspectRatio,
                         onGet: { getFreedoom.get { refresh() } },
-                        onCancel: { getFreedoom.cancel() })
+                        onCancel: { getFreedoom.cancel() },
+                        onHide: hideGetFreedoom)
+            // Long-press, as on a base game's tile: the same words, the same
+            // destructive style, no confirmation (#552). Hidden Games brings
+            // it back.
+            .contextMenu {
+                Button(GetFreedoomTile.hideActionName, role: .destructive, action: hideGetFreedoom)
+                    .accessibilityIdentifier("hideGetFreedoom")
+            }
+    }
+
+    /// Takes the Get Freedoom tile off the shelf, stopping its download if
+    /// it has one, so nothing downloads where the player cannot see it.
+    private func hideGetFreedoom() {
+        getFreedoom.cancel()
+        library.hideGetFreedoom()
+        refresh()
     }
 
     private func tile(for game: Game) -> some View {

@@ -18,6 +18,9 @@ struct GetFreedoomTile: View {
     var aspectRatio: CGFloat = Theme.tileAspectRatio
     var onGet: () -> Void = {}
     var onCancel: () -> Void = {}
+    /// Hide from Shelf (#552): offered on a long-press, as a base game's is,
+    /// and to VoiceOver as an action on the tile's words and its button.
+    var onHide: () -> Void = {}
 
     var body: some View {
         Color.appSurface
@@ -128,7 +131,11 @@ struct GetFreedoomTile: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Self.accessibilityLabel(for: state))
         .accessibilityIdentifier("getFreedoomSubtitle")
+        .accessibilityAction(named: Self.hideActionName, onHide)
     }
+
+    /// The tile's one menu action, worded as a base game's is.
+    static let hideActionName = "Hide from Shelf"
 
     /// What VoiceOver reads for the tile's words.
     static func accessibilityLabel(for state: GetFreedoom.State) -> String {
@@ -180,6 +187,7 @@ struct GetFreedoomTile: View {
             .accessibilityLabel("Get Freedoom, free, \(FreedoomRelease.sizeText)")
             .accessibilityHint(isBlocked ? "Waits for the download from a link to finish." : "")
             .accessibilityIdentifier("getFreedoomButton")
+            .accessibilityAction(named: Self.hideActionName, onHide)
         case .downloading(let received, let expected):
             Button(action: onCancel) {
                 ProgressRing(fraction: Self.fraction(received, expected))

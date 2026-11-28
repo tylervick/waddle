@@ -64,6 +64,9 @@ struct WaddleApp: App {
                 // to `settleStoredScheme` below and starts on the default,
                 // whatever an earlier build or test left in this simulator.
                 UserDefaults.standard.removeObject(forKey: TouchControlScheme.userDefaultsKey)
+                // And the Get Freedoom tile's Hide from Shelf (#552), so a
+                // reset launch offers it as a new install does.
+                UserDefaults.standard.removeObject(forKey: LibraryService.getFreedoomHiddenKey)
             }
             #endif
 

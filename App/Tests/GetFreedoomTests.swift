@@ -18,6 +18,8 @@ final class GetFreedoomTests: XCTestCase {
     var tmp: URL!
     var storeDir: URL!
     var downloadsDir: URL!
+    var defaults: UserDefaults!
+    var suiteName: String!
 
     override func setUpWithError() throws {
         StubURLProtocol.reset()
@@ -31,6 +33,9 @@ final class GetFreedoomTests: XCTestCase {
         downloadsDir = tmp.appendingPathComponent("LinkDownloads", isDirectory: true)
         let store = WADStore(directory: storeDir)
         library = LibraryService(context: context, store: store)
+        suiteName = "GetFreedoomTests-\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suiteName)
+        library.defaults = defaults
         notices = ImportNotices()
         importer = ImportService(library: library, store: store, notices: notices,
                                  usage: UsageStore(directory: tmp.appendingPathComponent("Diagnostics",
@@ -39,6 +44,7 @@ final class GetFreedoomTests: XCTestCase {
 
     override func tearDownWithError() throws {
         StubURLProtocol.reset()
+        defaults.removePersistentDomain(forName: suiteName)
         try? FileManager.default.removeItem(at: tmp)
     }
 
@@ -340,7 +346,13 @@ final class GetFreedoomTests: XCTestCase {
         await fulfillment(of: [finished], timeout: 10)
         XCTAssertEqual(model.state, .offered(failure: nil))
         XCTAssertNil(notices.current, "a cancel says nothing")
-        XCTAssertEqual(downloadedFiles(), [])
+        // #555's Cancel ends the queue at once; the cancelled download
+        // removes its partial file as it winds down, a moment later.
+        let cleared = Date().addingTimeInterval(10)
+        while !downloadedFiles().isEmpty, Date() < cleared {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(downloadedFiles(), [], "the cancelled download was left on disk")
         XCTAssertTrue(try library.allWADs().isEmpty)
     }
 
@@ -371,6 +383,35 @@ final class GetFreedoomTests: XCTestCase {
         XCTAssertFalse(shared.start(pasted), "a pasted link started beside the tile's download")
         model.cancel()
         await fulfillment(of: [tileEnded], timeout: 10)
+    }
+
+    /// A link dropped while the tile downloads waits in #555's queue
+    /// behind it, never beside it; the tile's Cancel is the queue's, so it
+    /// drops that link too, and the dropped link is never fetched.
+    func testADroppedLinkQueuesBehindTheTileAndItsCancelIsTheQueues() async throws {
+        let dropped = URL(string: "https://files.example/dropped.wad")!
+        StubURLProtocol.set(.stall(headers: ["Content-Type": "application/zip"],
+                                   firstChunk: Data(repeating: 0x50, count: 16)), for: link)
+        let shared = linkImport()
+        let model = getFreedoom(link: shared)
+        let tileEnded = expectation(description: "the tile's download ended")
+        XCTAssertTrue(model.get { tileEnded.fulfill() })
+        shared.enqueue([dropped])
+        XCTAssertEqual(shared.current, FreedoomRelease.url, "the dropped link started beside the tile's")
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            if case .downloading = model.state, shared.position != nil { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(shared.position, LinkImport.Position(index: 1, count: 2))
+        XCTAssertEqual(shared.current, FreedoomRelease.url)
+
+        model.cancel()
+        await fulfillment(of: [tileEnded], timeout: 10)
+        XCTAssertFalse(shared.isBusy)
+        XCTAssertEqual(model.state, .offered(failure: nil))
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertFalse(StubURLProtocol.requestedURLs.contains(dropped.absoluteString))
     }
 
     // MARK: Success
@@ -597,6 +638,84 @@ final class GetFreedoomTests: XCTestCase {
                        "Freedoom, downloading, 10.2 MB of 24.1 MB")
         XCTAssertEqual(GetFreedoomTile.accessibilityLabel(for: .importing), "Freedoom, adding to your library")
     }
+
+    // MARK: Hide from Shelf on the tile
+
+    /// Hidden, and no Freedoom: no tile, and Hidden Games lists it.
+    func testAHiddenTileIsNotOfferedAndHiddenGamesListsIt() throws {
+        try shipWithoutFreedoom()
+        XCTAssertTrue(try library.offersFreedoom())
+        library.hideGetFreedoom()
+        XCTAssertFalse(try library.offersFreedoom())
+        XCTAssertTrue(try library.hiddenGamesListsGetFreedoom())
+        XCTAssertFalse(Shelf.offersFreedoom(files: [], isPresent: { _ in false }, tileHidden: true))
+    }
+
+    /// Restore in Hidden Games brings it back.
+    func testRestoringTheTileBringsItBack() throws {
+        try shipWithoutFreedoom()
+        library.hideGetFreedoom()
+        library.restoreGetFreedoom()
+        XCTAssertTrue(try library.offersFreedoom())
+        XCTAssertFalse(try library.hiddenGamesListsGetFreedoom())
+    }
+
+    /// The choice is kept across launches: a new library on the same
+    /// defaults still has the tile hidden.
+    func testTheChoiceSurvivesARelaunch() throws {
+        try shipWithoutFreedoom()
+        library.hideGetFreedoom()
+        let relaunched = LibraryService(context: context, store: WADStore(directory: storeDir))
+        relaunched.defaults = defaults
+        relaunched.bundledContentDirectory = library.bundledContentDirectory
+        XCTAssertTrue(relaunched.isGetFreedoomHidden)
+        XCTAssertFalse(try relaunched.offersFreedoom())
+    }
+
+    /// A fresh install has hidden nothing.
+    func testAFreshInstallOffersTheTile() throws {
+        try shipWithoutFreedoom()
+        XCTAssertFalse(library.isGetFreedoomHidden)
+        XCTAssertNil(defaults.object(forKey: LibraryService.getFreedoomHiddenKey))
+        XCTAssertTrue(try library.offersFreedoom())
+    }
+
+    /// Hiding the tile hides only the offer. A Freedoom the player then
+    /// brings another way, from a link here, is on the shelf as any import
+    /// is, and Hidden Games does not list the tile while Freedoom is there.
+    func testHidingTheTileHidesNoFreedoomThatArrivesAnotherWay() async throws {
+        try shipWithoutFreedoom()
+        library.hideGetFreedoom()
+        let zip = try freedoomLikeZip()
+        let other = "https://files.example/freedoom.zip"
+        StubURLProtocol.set(.respond(status: 200, headers: ["Content-Type": "application/zip"], body: zip),
+                            for: other)
+        _ = await linkImport().run(URL(string: other)!)
+        XCTAssertEqual(Set(try library.shelfGames().map(\.name)), ["Freedoom Phase 1", "Freedoom Phase 2"])
+        XCTAssertEqual(try library.hiddenGames().map(\.name), [])
+        XCTAssertFalse(try library.hiddenGamesListsGetFreedoom(), "Restore would bring back nothing")
+    }
+
+    /// With the last round's rule: a Freedoom the player hid, whose rows
+    /// are released, is offered unless the tile is hidden too. Then Hidden
+    /// Games lists the tile beside the two games; restoring the tile offers
+    /// Get, and Get puts both games back on the shelf.
+    func testAHiddenTileAndAHiddenReleasedFreedoom() async throws {
+        try hideThenRelease(["Freedoom Phase 1", "Freedoom Phase 2"])
+        library.hideGetFreedoom()
+        XCTAssertFalse(try library.offersFreedoom())
+        XCTAssertTrue(try library.hiddenGamesListsGetFreedoom())
+        XCTAssertEqual(try library.hiddenGames().count, 2)
+
+        library.restoreGetFreedoom()
+        XCTAssertTrue(try library.offersFreedoom())
+        let zip = try freedoomLikeZip()
+        serve(zip)
+        await get(getFreedoom(sha256: Self.sha256(zip)))
+        XCTAssertEqual(Set(try library.shelfGames().map(\.name)), ["Freedoom Phase 1", "Freedoom Phase 2"])
+        XCTAssertFalse(try library.offersFreedoom())
+    }
+
 }
 
 /// What a test heard VoiceOver told.

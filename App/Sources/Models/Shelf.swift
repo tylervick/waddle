@@ -169,7 +169,18 @@ enum Shelf {
     /// gone (deleted, or rows released from a bundle that no longer ships
     /// them, #503) offers it again, and the download restores released rows
     /// under their own ids, saves and all.
-    static func offersFreedoom(files: [WADFile], isPresent: (WADFile) -> Bool) -> Bool {
+    ///
+    /// `tileHidden` is the player's Hide from Shelf on the tile itself: then
+    /// nothing is offered, whatever the files, until they restore the tile
+    /// from Hidden Games. It hides the offer only; the games are untouched.
+    static func offersFreedoom(files: [WADFile], isPresent: (WADFile) -> Bool,
+                               tileHidden: Bool = false) -> Bool {
+        !tileHidden && freedoomIsMissing(files: files, isPresent: isPresent)
+    }
+
+    /// Whether neither Freedoom 0.13.0 WAD is there as a file: what the
+    /// tile would offer to fix, hidden or not.
+    static func freedoomIsMissing(files: [WADFile], isPresent: (WADFile) -> Bool) -> Bool {
         !files.contains { FreedoomRelease.wadSHA1s.contains($0.sha1.lowercased()) && isPresent($0) }
     }
 }
