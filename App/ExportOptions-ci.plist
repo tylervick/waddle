@@ -30,6 +30,15 @@
              is an opaque signing error. -->
         <key>com.tylervick.waddle</key>
         <string>WADdle App Store CI</string>
+        <!-- The share extension's own profile (#551), for its own App ID, under
+             the same rules: it must match the extension target's Release
+             PROVISIONING_PROFILE_SPECIFIER in App/project.yml exactly, it is
+             manually managed, and it is bound to the same Apple Distribution
+             certificate. Installed on the runner from the
+             SHARE_EXTENSION_PROFILE_BASE64 secret. An export with an embedded
+             extension and no entry for its bundle id here fails. -->
+        <key>com.tylervick.waddle.share</key>
+        <string>Waddle Share App Store CI</string>
     </dict>
     <key>uploadSymbols</key><true/>
 </dict>

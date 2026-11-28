@@ -197,10 +197,12 @@ errors.
 |---|---|---|
 | Apple Distribution certificate | `BUILD_CERTIFICATE_BASE64` + `P12_PASSWORD` | |
 | The App Store CI profile (exact portal name in `App/ExportOptions-ci.plist`) | `PROVISIONING_PROFILE_BASE64` | **Manually managed.** Xcode refuses an Xcode-managed profile under manual signing, so this cannot be the "iOS Team Store Provisioning Profile" Xcode maintains. The profile still carries the old wordmark spelling in Apple's portal; rename it there first, at the next regeneration. |
+| The share extension's App Store profile, for `com.tylervick.waddle.share` (exact portal name in `App/ExportOptions-ci.plist`) | `SHARE_EXTENSION_PROFILE_BASE64` | **Manually managed**, on the same certificate, for the same reason. Both profiles carry the App Group `group.com.tylervick.waddle` (#551); a profile made before that capability was enabled on its App ID does not, and the archive refuses it. |
 | App Store Connect API key | `ASC_PRIVATE_KEY` + `ASC_KEY_ID` + `ASC_ISSUER_ID` | |
 
-The profile name appears in **two** places that must agree —
-`App/project.yml`'s Release `PROVISIONING_PROFILE_SPECIFIER` and
+Each profile name appears in **two** places that must agree —
+its target's Release `PROVISIONING_PROFILE_SPECIFIER` in `App/project.yml`
+(the app's on `Waddle`, the extension's on `WaddleShare`) and
 `App/ExportOptions-ci.plist` — because the archive and the export resolve it
 independently. Drift between them fails at *export*, after a full archive has
 already been paid for.

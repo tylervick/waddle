@@ -16,6 +16,28 @@ settings:
     # xcodegen regenerates the project, which would wipe a team set by hand
     # in Xcode's Signing pane.
     DEVELOPMENT_TEAM: 352UZEKYPP
+    # Project-wide, not the app target's, so the share extension (#551)
+    # carries the same version and build as the app that embeds it, which App
+    # Store validation requires of an embedded extension. CI's build-number
+    # override (Scripts/archive.sh) is a command-line setting, so it reaches
+    # both targets too.
+    CURRENT_PROJECT_VERSION: 6
+    # The App Store version this binary is for, as
+    # CFBundleShortVersionString. It must be strictly HIGHER than the
+    # newest approved version on the store, or the submission is bounced
+    # by automated validation seconds after it reaches Waiting for Review
+    # -- ITMS-90062, and the version lands in Invalid Binary. CI derives
+    # the *build* number on its own; this one is a deliberate edit, and it
+    # has to land BEFORE the build that carries the new version is cut.
+    # See docs/learnings/marketing-version-must-lead-the-store.md.
+    MARKETING_VERSION: "1.6"
+    # The App Group the app and its share extension share (#551). Both
+    # targets' entitlements (App/Waddle.entitlements,
+    # App/WaddleShare.entitlements) and Info.plists (WaddleAppGroup, read by
+    # PendingLinkInbox.shared) take it from here, so they cannot disagree. It
+    # must match the group registered at developer.apple.com and carried by
+    # both Release profiles.
+    WADDLE_APP_GROUP: group.com.tylervick.waddle
   # Signing style is per-configuration, and the split is deliberate.
   #
   # Debug stays Automatic so device runs keep signing themselves — Xcode
@@ -39,17 +61,16 @@ settings:
   # It is installed on the runner from the PROVISIONING_PROFILE_BASE64 secret
   # and expires 2027-05-02, the same day as the certificate it is bound to
   # (a profile cannot outlive its certificate).
+  #
+  # Each target names its own Release profile (its PROVISIONING_PROFILE_
+  # SPECIFIER below), since a profile is for one App ID: a project-wide one
+  # would hand the app's profile to the share extension, and its archive
+  # would fail (#551).
   configs:
     Debug:
       CODE_SIGN_STYLE: Automatic
     Release:
       CODE_SIGN_STYLE: Manual
-      # Named for the profile as it exists in Apple's developer portal, which
-      # still carries the pre-2026-08-16 spelling. This string is not ours to
-      # restyle: it must match the portal exactly or the archive fails to
-      # resolve a profile, with an error that names neither. Rename it in the
-      # portal first, at the next regeneration, then here.
-      PROVISIONING_PROFILE_SPECIFIER: "WADdle App Store CI"
       CODE_SIGN_IDENTITY: "Apple Distribution"
 targets:
   Waddle:
@@ -57,16 +78,6 @@ targets:
     platform: iOS
     settings:
       base:
-        CURRENT_PROJECT_VERSION: 6
-        # The App Store version this binary is for, as
-        # CFBundleShortVersionString. It must be strictly HIGHER than the
-        # newest approved version on the store, or the submission is bounced
-        # by automated validation seconds after it reaches Waiting for Review
-        # -- ITMS-90062, and the version lands in Invalid Binary. CI derives
-        # the *build* number on its own; this one is a deliberate edit, and it
-        # has to land BEFORE the build that carries the new version is cut.
-        # See docs/learnings/marketing-version-must-lead-the-store.md.
-        MARKETING_VERSION: "1.6"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # The one accent of spec §5's visual system, named once in the
         # asset catalog (App/Assets.xcassets/AccentColor.colorset). Setting it
@@ -75,6 +86,7 @@ targets:
         # the document picker, context menus.
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         PRODUCT_BUNDLE_IDENTIFIER: com.tylervick.waddle
+        CODE_SIGN_ENTITLEMENTS: Waddle.entitlements
       # XcodeGen's built-in application_iOS setting preset injects
       # CODE_SIGN_IDENTITY=iPhone Developer at this same (target) scope, and a
       # target-level setting beats the project-level one. Under Automatic that
@@ -85,6 +97,13 @@ targets:
       configs:
         Release:
           CODE_SIGN_IDENTITY: "Apple Distribution"
+          # Named for the profile as it exists in Apple's developer portal,
+          # which still carries the pre-2026-08-16 spelling. This string is
+          # not ours to restyle: it must match the portal exactly or the
+          # archive fails to resolve a profile, with an error that names
+          # neither. Rename it in the portal first, at the next regeneration,
+          # then here. App/ExportOptions-ci.plist names it too.
+          PROVISIONING_PROFILE_SPECIFIER: "WADdle App Store CI"
     # Document-type registration (CFBundleDocumentTypes +
     # UTImportedTypeDeclarations, needed for "Share -> Open in Waddle" on
     # .wad files) is nested-dictionary plist content with no INFOPLIST_KEY_
@@ -95,6 +114,8 @@ targets:
       path: Info.plist
       properties:
         CFBundleDisplayName: Waddle
+        # The App Group, for PendingLinkInbox.shared (#551).
+        WaddleAppGroup: $(WADDLE_APP_GROUP)
         # Wire the bundle version/build number to the build settings above so
         # they're the single source of truth. Without these, xcodegen writes a
         # hardcoded CFBundleVersion of "1" and bumping CURRENT_PROJECT_VERSION
@@ -190,6 +211,9 @@ targets:
           - Generated/BuildInfo.generated.swift
       - path: Sources/Generated/BuildInfo.generated.swift
         optional: true
+      # The link check and the pending-link inbox, compiled into the share
+      # extension as well (#551).
+      - path: Shared
       - path: Assets.xcassets
       # The app icon is an Icon Composer package, not an .appiconset. With a
       # deployment target of iOS 26 there is nothing to fall back to, and the
@@ -241,6 +265,11 @@ targets:
         type: file
         buildPhase: resources
     dependencies:
+      # Embedded in PlugIns/ (#551). A target dependency, so every build of
+      # the app builds it, and the scheme needs no entry of its own.
+      - target: WaddleShare
+        embed: true
+        codeSign: true
       - framework: ../Vendor/out/WoofEngine.xcframework
         embed: false
       - package: ZIPFoundation
@@ -258,6 +287,73 @@ targets:
       - sdk: CoreMedia.framework
       - sdk: CoreBluetooth.framework
       - sdk: OpenGLES.framework
+  # Waddle in another app's share sheet, for a web link (#551): Safari's
+  # Share on a page or a link. It shows the link and leaves it in the App
+  # Group's container (App/Shared/PendingLinkInbox.swift); Waddle downloads
+  # it when it next opens, through LinkImport's queue, as it does a dropped
+  # link. It downloads nothing itself.
+  #
+  # Files are not its business: CFBundleDocumentTypes above already lists
+  # Waddle for a .wad, .deh, .bex or .zip ("Open in Waddle"), so the
+  # activation rule takes web links only, and Waddle is listed once in a
+  # file's share sheet, not twice.
+  #
+  # No PrivacyInfo.xcprivacy of its own: Apple asks for one in a bundle
+  # whose executable uses a required-reason API or collects data, and this
+  # one does neither. PendingLinkInbox writes a plain file instead of using
+  # UserDefaults, and keeps the time in the file instead of reading file
+  # timestamps, for exactly that reason. Add a manifest here if that changes.
+  WaddleShare:
+    type: app-extension
+    platform: iOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tylervick.waddle.share
+        PRODUCT_NAME: WaddleShare
+        CODE_SIGN_ENTITLEMENTS: WaddleShare.entitlements
+        # Refuses, at compile time, any API an extension may not call, such
+        # as UIApplication.shared, in its own sources and in App/Shared.
+        APPLICATION_EXTENSION_API_ONLY: YES
+        # The accent comes from the app's own catalog, which this target
+        # compiles as well (44 KB).
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SKIP_INSTALL: YES
+      configs:
+        Release:
+          # XcodeGen's preset sets the same retired identity name here as it
+          # does on the app target; see the note there.
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+          # The extension's own manually managed App Store profile, for
+          # com.tylervick.waddle.share with the App Group. Its name must match
+          # the portal exactly, as the app's must; App/ExportOptions-ci.plist
+          # names it too. Installed on the runner from the
+          # SHARE_EXTENSION_PROFILE_BASE64 secret.
+          PROVISIONING_PROFILE_SPECIFIER: "Waddle Share App Store CI"
+    info:
+      # Beside App/Info.plist, outside the sources the target scans, so it
+      # is not also copied in as a resource. Generated, and gitignored.
+      path: WaddleShare-Info.plist
+      properties:
+        # What the share sheet labels the entry with.
+        CFBundleDisplayName: Waddle
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        WaddleAppGroup: $(WADDLE_APP_GROUP)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            # One web link, and nothing else: no files, text, images or
+            # pages' JavaScript. BundleInfoTests pins this dictionary whole.
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+    sources:
+      - path: ShareExtension
+      - path: Shared
+      - path: Assets.xcassets
+    dependencies:
+      - sdk: UIKit.framework
+      - sdk: SwiftUI.framework
   WaddleUITests:
     type: bundle.ui-testing
     platform: iOS

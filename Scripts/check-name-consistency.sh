@@ -41,6 +41,11 @@ EXEMPT=(
 # portal exactly: a mismatch fails the archive with an error naming neither
 # signing nor the profile. Rename it portal-first, at the next regeneration,
 # then drop this entry.
+#
+# The share extension's profile (#551), "Waddle Share App Store CI", is named
+# in the app's spelling and needs no entry. It is created new, so there is no
+# reason for it to carry the wordmark; if the portal's name for it ever does,
+# that is the moment to add it here, with the same reason.
 ALLOWED_LITERALS=(
     'WADdle App Store CI'
 )

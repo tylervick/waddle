@@ -58,6 +58,8 @@ struct ShelfView: View {
     @AppStorage(debugHUDUserDefaultsKey) private var debugHUD: Bool = false
     @State private var errorAlert: EngineErrorAlert?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// For the links shared to Waddle while it was away (#551).
+    @Environment(\.scenePhase) private var scenePhase
     /// Compact is a landscape phone and nothing else (design-system spec §9):
     /// the one height class where the hero zone goes side by side.
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -361,6 +363,13 @@ struct ShelfView: View {
             #endif
         }
         .onReceive(NotificationCenter.default.publisher(for: .libraryDidChange)) { _ in refresh() }
+        // A link shared from another app's share sheet waits for Waddle to
+        // open (#551): taken at launch and on every return to the
+        // foreground, and downloaded as a dropped link is, in the same sheet.
+        .task { pickUpSharedLinks() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { pickUpSharedLinks() }
+        }
     }
 
     // Split out of `body`: a toolbar this size inline was enough for the Swift
@@ -413,6 +422,15 @@ struct ShelfView: View {
             }
             .accessibilityIdentifier("importButton")
         }
+    }
+
+    /// Queues the links the share extension left for Waddle (#551) on the
+    /// one link download, and shows its progress as a drop's.
+    private func pickUpSharedLinks() {
+        let started = SharedLinks.pickUp(from: .shared()) { urls, extras in
+            linkImport.enqueue(urls, extras: extras)
+        }
+        if started { showDroppedLinkProgress() }
     }
 
     /// Opens From a Link… on the download of a link dropped on the shelf

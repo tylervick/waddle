@@ -300,6 +300,9 @@ jobs:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
           PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+          # The share extension's own profile (#551): a profile is for one
+          # App ID, and the archive signs the app and its extension apart.
+          SHARE_EXTENSION_PROFILE_BASE64: ${{ secrets.SHARE_EXTENSION_PROFILE_BASE64 }}
           ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
         run: |
@@ -307,14 +310,12 @@ jobs:
           KC="$RUNNER_TEMP/build.keychain-db"
           KC_PW="$(uuidgen)"
           CERT="$RUNNER_TEMP/cert.p12"
-          PROFILE="$RUNNER_TEMP/profile.mobileprovision"
 
           # Explicit /usr/bin/base64: bare `base64` is PATH-shadowable, and
           # this repo has already been burned by exactly that failure mode --
           # a Homebrew rsync shadowing /usr/bin/rsync broke
           # `xcodebuild -exportArchive` (see archive.sh's PATH handling).
           printf '%s' "$BUILD_CERTIFICATE_BASE64" | /usr/bin/base64 --decode > "$CERT"
-          printf '%s' "$PROVISIONING_PROFILE_BASE64" | /usr/bin/base64 --decode > "$PROFILE"
           printf '%s' "$ASC_PRIVATE_KEY" | /usr/bin/base64 --decode > "$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
 
           security create-keychain -p "$KC_PW" "$KC"
@@ -331,16 +332,31 @@ jobs:
           # found in older guides is insufficient.
           security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$KC_PW" "$KC" >/dev/null
 
-          UUID="$(security cms -D -i "$PROFILE" | plutil -extract UUID raw -)"
-          # Both locations: Xcode 16+ reads the Developer/Xcode path, older
-          # tooling still reads the MobileDevice one. Installing to only the
-          # legacy path is why this failed with "No profiles ... were found".
-          for d in "$HOME/Library/MobileDevice/Provisioning Profiles" \
-                   "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
-            mkdir -p "$d"
-            cp "$PROFILE" "$d/$UUID.mobileprovision"
+          # One profile per signed bundle: the app's, then the share
+          # extension's (#551). An empty secret fails here, by name, rather
+          # than as an archive error that names neither.
+          UUIDS=""
+          for NAME in PROVISIONING_PROFILE_BASE64 SHARE_EXTENSION_PROFILE_BASE64; do
+            if [ -z "${!NAME}" ]; then
+              echo "::error::The $NAME secret is empty or missing in the app-store environment."
+              echo "  See docs/app-store/submission-checklist.md for the profiles it holds."
+              exit 1
+            fi
+            PROFILE="$RUNNER_TEMP/$NAME.mobileprovision"
+            printf '%s' "${!NAME}" | /usr/bin/base64 --decode > "$PROFILE"
+            UUID="$(security cms -D -i "$PROFILE" | plutil -extract UUID raw -)"
+            # Both locations: Xcode 16+ reads the Developer/Xcode path, older
+            # tooling still reads the MobileDevice one. Installing to only the
+            # legacy path is why this failed with "No profiles ... were found".
+            for d in "$HOME/Library/MobileDevice/Provisioning Profiles" \
+                     "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+              mkdir -p "$d"
+              cp "$PROFILE" "$d/$UUID.mobileprovision"
+            done
+            rm -f "$PROFILE"
+            UUIDS="$UUIDS $UUID"
           done
-          echo "PROFILE_UUID=$UUID" >> "$GITHUB_ENV"
+          echo "PROFILE_UUIDS=${UUIDS# }" >> "$GITHUB_ENV"
 
           # Scoped to $KC deliberately: the search-list-wide form would pass on
           # ANY Apple Distribution identity, masking a broken or key-less .p12.
@@ -521,9 +537,9 @@ jobs:
         if: always()
         run: |
           security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true
-          rm -f "$RUNNER_TEMP"/AuthKey_*.p8 "$RUNNER_TEMP"/cert.p12 "$RUNNER_TEMP"/profile.mobileprovision
+          rm -f "$RUNNER_TEMP"/AuthKey_*.p8 "$RUNNER_TEMP"/cert.p12 "$RUNNER_TEMP"/*.mobileprovision
           rm -f "$RUNNER_TEMP"/tag-askpass.sh "$RUNNER_TEMP"/tag-token-headers
-          if [ -n "${PROFILE_UUID:-}" ]; then
-            rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision" \
-                  "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
-          fi
+          for UUID in ${PROFILE_UUIDS:-}; do
+            rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision" \
+                  "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$UUID.mobileprovision"
+          done
