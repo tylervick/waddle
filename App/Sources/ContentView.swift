@@ -169,6 +169,9 @@ struct ContentView: View {
         NavigationStack {
             ShelfView(library: library, importer: importer, lastExitCode: $lastExitCode,
                       panelModel: panelModel)
+                // Inside the content column, where UIKit can leave the
+                // inspector's inset behind after a relaunch (issue #496).
+                .background { ColumnInsetRepair(columnIsWanted: panelModel.columnIsWanted) }
         }
         // A trailing column beside the shelf on a regular-width window, and a
         // sheet on a compact one. The shelf only opens it on a regular-width
