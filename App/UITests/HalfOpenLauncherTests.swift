@@ -167,6 +167,53 @@ extension PlayTabTests {
         scrollTo(app.buttons["filesButton"], in: app, swiping: settingsList)
     }
 
+    /// Control Feel bent while its sheet is still arriving is pushed in the
+    /// lower half with its title in the bar (issue #472). Opened flat it is
+    /// a sheet over Settings; bent within about 0.3 s of the tap, the sheet
+    /// was still on its way in when its tree was taken down, and the lower
+    /// half's push came up with only a back button.
+    ///
+    /// Pull request 539 fixed it before the issue was worked: the hold now
+    /// lasts while the window is still presenting or dismissing
+    /// (`LauncherFold.presentationTransitionInFlight`), so the push waits for
+    /// the sheet. A compact iPhone did not show the missing title at all, so
+    /// the iPad leg is the one that guards it; the counts at 539's parent
+    /// and on `main` are in pull request 557.
+    ///
+    /// The app folds itself, `WADDLE_TEST_BEND_AFTER_CONTROL_FEEL_MS` after
+    /// the row's action fires (`PlayerSettingsView`). A fold posted by the
+    /// test a fixed time from the start of `tap()` passed on the broken
+    /// parent when XCUITest's lookup was slow, and landed during the touch
+    /// and lost the tap when it was slower still.
+    @MainActor
+    func testControlFeelBentWhileItsSheetArrivesKeepsItsTitle() throws {
+        // 150 ms: the sheet is still arriving. `TEST_RUNNER_BEND_MS` moves it.
+        let bendMs = ProcessInfo.processInfo.environment["BEND_MS"] ?? "150"
+        let app = XCUIApplication()
+        app.provideFreedoom()
+        app.launchEnvironment["WADDLE_RESET_STORE"] = "1"
+        app.launchEnvironment["WADDLE_TEST_HALF_OPEN"] = "0"
+        app.launchEnvironment["WADDLE_TEST_BEND_AFTER_CONTROL_FEEL_MS"] = bendMs
+        app.launch()
+        XCTAssertTrue(waitForShelf(in: app), "the shelf never appeared")
+        openShelfSettings(in: app)
+        let row = app.buttons["controlFeelButton"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "Settings never opened")
+        row.tap()
+
+        let band = try foldBand(in: app)
+        XCTAssertTrue(waitForPanelSwap(in: app), "the swap of panel trees never settled")
+        let slider = app.sliders["turnSpeedSlider"]
+        XCTAssertTrue(waitUntil { slider.exists && slider.frame.minY >= band.maxY - 0.5 },
+                      "bent, Control Feel should be pushed below the fold: "
+                      + (slider.exists ? "\(slider.frame)" : "it is gone"))
+        let title = app.navigationBars.staticTexts["Control Feel"]
+        XCTAssertTrue(waitUntil(timeout: 5) { title.exists && title.frame.minY >= band.maxY - 0.5 },
+                      "Control Feel is pushed with no title in its bar (bent \(bendMs) ms after the row fired); bars: "
+                      + app.navigationBars.allElementsBoundByIndex.map { "\($0.identifier) \($0.frame)" }
+                        .joined(separator: ", "))
+    }
+
     /// A save warning that is up when the device is opened flat, or bent, is
     /// still up afterwards, and its answer still applies. It is a dialog,
     /// which goes down with the tree that presented it, so the next tree
